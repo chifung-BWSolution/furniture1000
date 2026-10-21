@@ -44,7 +44,8 @@ export interface ModelPart {
   faces_mm: Vec3[][];
 }
 
-export type TopShape = 'rect' | 'boat' | 'round';
+/** L = desk with a return on one side (L 形／F 型屏風位). */
+export type TopShape = 'rect' | 'boat' | 'round' | 'L';
 export type LegStyle = 'four' | 'panel' | 'pedestal';
 /** star = five-star swivel base; sled = 弓字架 tube runners. */
 export type ChairBase = 'star' | 'four' | 'sled';
@@ -53,6 +54,8 @@ export type ChairBase = 'star' | 'four' | 'sled';
 export interface ModelStyle {
   top: TopShape;
   legs: LegStyle;
+  /** Return side as seen by a seated user facing the desk. */
+  return_side?: 'left' | 'right';
   cable_tray: boolean;
   /** Privacy screen along the back edge of a desk. */
   screen: boolean;
@@ -62,6 +65,8 @@ export interface ModelStyle {
   seats: number;
   arms: boolean;
   chair_base: ChairBase;
+  /** Shelf: open metal rack (corner posts, side braces) instead of a panelled bookcase. */
+  frame: boolean;
 }
 /** @deprecated kept for older call sites; same as ModelStyle. */
 export type TableStyle = ModelStyle;
@@ -69,7 +74,8 @@ export type TableStyle = ModelStyle;
 export type StyleField = keyof ModelStyle;
 
 export const STYLE_FIELDS: Record<FurnitureKind, StyleField[]> = {
-  desk: ['top', 'legs', 'cable_tray', 'screen'],
+  /** seats = workstations in one product; drawers = drawers of the pedestal under each one. */
+  desk: ['top', 'return_side', 'legs', 'cable_tray', 'screen', 'seats', 'drawers'],
   conference: ['top', 'legs', 'cable_tray'],
   dining: ['top', 'legs'],
   coffee: ['top', 'legs'],
@@ -78,7 +84,7 @@ export const STYLE_FIELDS: Record<FurnitureKind, StyleField[]> = {
   lectern: [],
   cabinet: ['doors', 'drawers', 'shelves'],
   pedestal: ['drawers'],
-  shelf: ['shelves'],
+  shelf: ['shelves', 'frame'],
   office_chair: ['chair_base', 'arms'],
   side_chair: ['chair_base', 'arms'],
   stool: [],
@@ -98,6 +104,7 @@ export const STYLE_LIMITS: Record<'doors' | 'drawers' | 'shelves' | 'seats', [nu
 
 export const DEFAULT_MODEL_STYLE: ModelStyle = {
   top: 'rect',
+  return_side: 'right',
   legs: 'four',
   cable_tray: false,
   screen: false,
@@ -107,6 +114,7 @@ export const DEFAULT_MODEL_STYLE: ModelStyle = {
   seats: 3,
   arms: false,
   chair_base: 'four',
+  frame: false,
 };
 /** @deprecated same as DEFAULT_MODEL_STYLE. */
 export const DEFAULT_TABLE_STYLE = DEFAULT_MODEL_STYLE;
@@ -477,6 +485,134 @@ function tableComponents(kind: FurnitureKind, w: number, d: number, h: number, s
   return out;
 }
 
+/** Desks that are workstations rather than a plain table: several seats, an L return, a pedestal, or a screen above desk height. */
+function isWorkstation(style: ModelStyle, h: number): boolean {
+  return style.seats > 1 || style.top === 'L' || style.drawers > 0 || (style.screen && h >= 900);
+}
+
+const DESK_HEIGHT = 750;
+
+/**
+ * Workstation cluster (屏風位). The overall size is the whole cluster: seats are laid out in one
+ * row, or two rows back to back when the depth holds two desks. Each desk faces away from the
+ * shared screen; L returns sit on the outer side. When the height is well above a desk, the top
+ * stays at 750 and the screen rises to the full height.
+ */
+function workstationComponents(w: number, d: number, h: number, style: ModelStyle): ModelPart[] {
+  const isL = style.top === 'L';
+  const seats = style.seats;
+  const rows = seats >= 2 && d / 2 >= (isL ? 900 : 500) ? 2 : 1;
+  const cols = Math.ceil(seats / rows);
+  const uw = w / cols;
+  const ud = d / rows;
+  const deskH = h >= 900 ? DESK_HEIGHT : h;
+  const topT = 25;
+  const panelT = 25;
+  const screenT = 30;
+  const screenTop = h > deskH + 150 ? h : deskH + 400;
+  const back = -ud / 2 + (style.screen ? screenT / 2 : 0);
+  const mainD = isL ? clamp(ud * 0.5, 450, 700) : ud / 2 - back;
+  const returnW = clamp(uw * 0.4, 400, 650);
+  const fillet = Math.max(0, Math.min(250, (uw - returnW) * 0.3, (ud / 2 - back - mainD) * 0.5));
+
+  const out: ModelPart[] = [];
+  let n = 0;
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < cols && n < seats; c += 1) {
+      n += 1;
+      const tag = seats > 1 ? `ws${n}-` : '';
+      const label = seats > 1 ? `工作位 ${n} ` : '';
+      const cx = -w / 2 + uw * (c + 0.5);
+      const cy = rows === 1 ? 0 : r === 0 ? d / 4 : -d / 4;
+      // Local u runs toward the return, v toward the person; f and s mirror it into the cluster.
+      const f = r === 0 ? 1 : -1;
+      // Rotate the back row 180 degrees instead of reflecting its L-shaped desks.
+      const hand = style.return_side === 'left' ? 1 : -1;
+      const s = (cols === 1 ? 1 : c < cols / 2 ? -1 : 1) * f * hand;
+      const at = (u: number, v: number): [number, number] => [cx + s * u, cy + f * v];
+      const box = (id: string, name: string, u0: number, u1: number, v0: number, v1: number, z0: number, z1: number) => {
+        const [x0, y0] = at(u0, v0);
+        const [x1, y1] = at(u1, v1);
+        return slab(`${tag}${id}`, `${label}${name}`, Math.abs(x1 - x0), Math.abs(y1 - y0), (x0 + x1) / 2, (y0 + y1) / 2, z0, z1);
+      };
+
+      const u0 = -uw / 2;
+      const u1 = uw / 2;
+      const front = ud / 2;
+      if (isL) {
+        const fx = u1 - returnW - fillet;
+        const fy = back + mainD + fillet;
+        const arc = Array.from({ length: 7 }, (_, i) => {
+          const a = -(i / 6) * (Math.PI / 2);
+          return [fx + fillet * Math.cos(a), fy + fillet * Math.sin(a)] as [number, number];
+        });
+        let pts: [number, number][] = [[u0, back], [u1, back], [u1, front], [u1 - returnW, front], ...arc, [u0, back + mainD]]
+          .map(([u, v]) => at(u, v));
+        if (s * f < 0) pts = pts.reverse();
+        const xs = pts.map((p) => p[0]);
+        const ys = pts.map((p) => p[1]);
+        const mx = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const my = (Math.min(...ys) + Math.max(...ys)) / 2;
+        out.push(
+          part(`${tag}top`, `${label}L 形桌面`, [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), topT], [mx, my, deskH - topT / 2], {
+            axis: 'z',
+            points_mm: pts.map(([x, y]) => [x - mx, y - my] as [number, number]),
+          }),
+        );
+      } else {
+        out.push(box('top', '桌面', u0, u1, back, front, deskH - topT, deskH));
+      }
+
+      const legTop = deskH - topT;
+      const reach = isL ? back + mainD : front;
+      if (style.legs === 'four') {
+        const leg = 40;
+        const spots: [number, number][] = isL
+          ? [[u0 + 30, back + 30], [u0 + 30, reach - 30], [u1 - 30, back + 30], [u1 - 30, front - 30], [u1 - returnW + 30, front - 30]]
+          : [[u0 + 30, back + 30], [u0 + 30, front - 30], [u1 - 30, back + 30], [u1 - 30, front - 30]];
+        spots.forEach(([u, v], i) => out.push(box(`leg-${i + 1}`, `桌腳 ${i + 1}`, u - leg / 2, u + leg / 2, v - leg / 2, v + leg / 2, 0, legTop)));
+      } else {
+        out.push(
+          box('end-1', '端板', u0, u0 + panelT, back, reach, 0, legTop),
+          box('end-2', isL ? '側台端板' : '端板', u1 - panelT, u1, back, front, 0, legTop),
+        );
+      }
+      out.push(box('modesty', '前擋板', u0 + panelT, u1 - panelT, back + 20, back + 38, 350, legTop));
+
+      if (style.drawers > 0) {
+        const pw = 400;
+        const pd = Math.min(500, front - back - 120);
+        const ph = Math.min(600, legTop - 30);
+        const pu1 = u1 - panelT - 10;
+        const pu0 = pu1 - pw;
+        const pv1 = front - 40;
+        const pv0 = pv1 - pd;
+        out.push(box('pedestal', '活動櫃', pu0, pu1, pv0, pv1 - 18, 20, 20 + ph));
+        const gap = 4;
+        const each = (ph - gap * (style.drawers + 1)) / style.drawers;
+        for (let i = 0; i < style.drawers; i += 1) {
+          const z0 = 20 + gap + i * (each + gap);
+          out.push(box(`drawer-${i + 1}`, `抽屜 ${i + 1}`, pu0 + 3, pu1 - 3, pv1 - 18, pv1, z0, z0 + each));
+        }
+      }
+    }
+  }
+
+  if (style.screen) {
+    const screenBottom = deskH - topT;
+    const sy = rows === 2 ? 0 : -d / 2 + screenT / 2;
+    out.push(slab('screen', '屏風', w, screenT, 0, sy, screenBottom, screenTop));
+    for (let c = 1; c < cols; c += 1) {
+      const x = -w / 2 + uw * c;
+      const length = rows === 2 ? 2 * (mainD + screenT / 2) : mainD + screenT;
+      const y = rows === 2 ? 0 : -d / 2 + length / 2;
+      // The desks meet under it, so it stands on the tops rather than through them.
+      out.push(slab(`divider-${c}`, `中間屏風 ${c}`, screenT, length, x, y, deskH, screenTop));
+    }
+  }
+  return out;
+}
+
 function counterComponents(w: number, d: number, h: number): ModelPart[] {
   const topT = 30;
   const bodyD = d * 0.6;
@@ -586,7 +722,43 @@ function pedestalComponents(w: number, d: number, h: number, style: ModelStyle):
   return out;
 }
 
+/** Boltless steel rack: corner posts, decks between them, one diagonal brace per bay on each side. */
+function frameShelfComponents(w: number, d: number, h: number, style: ModelStyle): ModelPart[] {
+  const post = 40;
+  const t = 35;
+  const brace = 30;
+  const count = clamp(Math.round(style.shelves), 0, 8) + 2;
+  const xh = w / 2 - post / 2;
+  const yh = d / 2 - post / 2;
+  const out = [
+    slab('post-1', '立柱 左前', post, post, -xh, yh, 0, h),
+    slab('post-2', '立柱 右前', post, post, xh, yh, 0, h),
+    slab('post-3', '立柱 左後', post, post, -xh, -yh, 0, h),
+    slab('post-4', '立柱 右後', post, post, xh, -yh, 0, h),
+  ];
+  const bottom = Math.min(120, h * 0.08);
+  const levels = Array.from({ length: count }, (_, i) => bottom + (i * (h - t - bottom)) / (count - 1));
+  levels.forEach((z, i) => out.push(slab(`shelf-${i + 1}`, `層板 ${i + 1}`, w - post * 2, d, 0, 0, z, z + t)));
+  const y0 = -(d / 2 - post);
+  const y1 = d / 2 - post;
+  for (let i = 0; i + 1 < levels.length; i += 1) {
+    const zA = levels[i] + t;
+    const zB = levels[i + 1];
+    if (zB - zA < brace * 3) continue;
+    const [ya, yb] = i % 2 === 0 ? [y0, y1] : [y1, y0];
+    for (const side of [-1, 1]) {
+      out.push(
+        profile(`brace-${side < 0 ? 'l' : 'r'}-${i + 1}`, `斜撐 ${side < 0 ? '左' : '右'} ${i + 1}`, 'x', side * xh, 8, [
+          [ya, zA], [yb, zB - brace], [yb, zB], [ya, zA + brace],
+        ]),
+      );
+    }
+  }
+  return out;
+}
+
 function shelfComponents(w: number, d: number, h: number, style: ModelStyle): ModelPart[] {
+  if (style.frame) return frameShelfComponents(w, d, h, style);
   const t = 18;
   const count = clamp(Math.round(style.shelves), 0, 8) + 2;
   const innerW = w - t * 2;
@@ -922,32 +1094,62 @@ function specPart(spec: CustomPartSpec, index: number, scale: Vec3, shift: Vec3)
   return part(id, spec.name, size, center, { axis: along, points_mm: points });
 }
 
-/**
- * Fit the AI's parts to the overall size: centre them on the floor plan, stand them on the
- * floor, and stretch each axis so the bounding box equals width × depth × height.
- */
-function customComponents(specs: CustomPartSpec[], w: number, d: number, h: number): ModelPart[] {
-  const raw = specs.map((spec, i) => specPart(spec, i, [1, 1, 1], [0, 0, 0])).filter(facesSound);
-  if (raw.length === 0) return [slab('body', '主體', w, d, 0, 0, 0, h)];
+function soundBounds(specs: CustomPartSpec[]): { min: Vec3; max: Vec3; kept: boolean[] } | null {
   const min: Vec3 = [Infinity, Infinity, Infinity];
   const max: Vec3 = [-Infinity, -Infinity, -Infinity];
-  for (const p of raw) {
+  const kept = specs.map((spec, i) => {
+    const p = specPart(spec, i, [1, 1, 1], [0, 0, 0]);
+    if (!facesSound(p)) return false;
     for (const face of p.faces_mm) {
       for (const pt of face) {
-        for (let i = 0; i < 3; i += 1) {
-          min[i] = Math.min(min[i], pt[i]);
-          max[i] = Math.max(max[i], pt[i]);
+        for (let k = 0; k < 3; k += 1) {
+          min[k] = Math.min(min[k], pt[k]);
+          max[k] = Math.max(max[k], pt[k]);
         }
       }
     }
-  }
+    return true;
+  });
+  return kept.some(Boolean) ? { min, max, kept } : null;
+}
+
+/** Overall width × depth × height of the parts that will be built, or null when none will. */
+export function customPartsSize(specs: CustomPartSpec[]): Vec3 | null {
+  const b = soundBounds(specs);
+  return b ? (b.max.map((n, i) => Math.round(n - b.min[i])) as Vec3) : null;
+}
+
+/**
+ * Stretch the parts so their bounding box equals width × depth × height, centred on the floor
+ * plan and standing on the floor. Used when the AI answers or the user changes the overall size;
+ * deleting or resizing one part afterwards must not stretch the rest.
+ */
+export function fitCustomParts(specs: CustomPartSpec[], w: number, d: number, h: number): CustomPartSpec[] {
+  const b = soundBounds(specs);
+  if (!b) return specs;
   const target: Vec3 = [w, d, h];
-  const scale = target.map((t, i) => (max[i] - min[i] > 1 ? t / (max[i] - min[i]) : 1)) as Vec3;
-  const shift: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, min[2]];
-  const kept = new Set(raw.map((p) => p.id));
-  return specs
-    .map((spec, i) => specPart(spec, i, scale, shift))
-    .filter((p) => kept.has(p.id) && facesSound(p));
+  const scale = target.map((t, i) => (t > 0 && b.max[i] - b.min[i] > 1 ? t / (b.max[i] - b.min[i]) : 1)) as Vec3;
+  const shift: Vec3 = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, b.min[2]];
+  return specs.map((spec) => {
+    const out: CustomPartSpec = {
+      ...spec,
+      size_mm: spec.size_mm.map((n, i) => Math.max(3, Math.round(n * scale[i]))) as Vec3,
+      center_mm: spec.center_mm.map((n, i) => Math.round((n - shift[i]) * scale[i])) as Vec3,
+    };
+    if (spec.points_mm && spec.axis) {
+      const [u, v] = PLANE[spec.axis];
+      out.points_mm = spec.points_mm.map(([a, b2]) => [Math.round(a * scale[u]), Math.round(b2 * scale[v])]);
+    }
+    return out;
+  });
+}
+
+/** Parts keep their own sizes; only centred on the floor plan and stood on the floor. */
+function customComponents(specs: CustomPartSpec[], w: number, d: number, h: number): ModelPart[] {
+  const b = soundBounds(specs);
+  if (!b) return [slab('body', '主體', w, d, 0, 0, 0, h)];
+  const shift: Vec3 = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, b.min[2]];
+  return specs.flatMap((spec, i) => (b.kept[i] ? [specPart(spec, i, [1, 1, 1], shift)] : []));
 }
 
 function components(kind: FurnitureKind, w: number, d: number, h: number, style: ModelStyle, parts: CustomPartSpec[] = []): ModelPart[] {
@@ -955,10 +1157,11 @@ function components(kind: FurnitureKind, w: number, d: number, h: number, style:
     case 'custom':
       return customComponents(parts, w, d, h);
     case 'desk':
+      return isWorkstation(style, h) ? workstationComponents(w, d, h, style) : tableComponents(kind, w, d, h, style);
     case 'conference':
     case 'dining':
     case 'coffee':
-      return tableComponents(kind, w, d, h, style);
+      return tableComponents(kind, w, d, h, { ...style, top: style.top === 'L' ? 'rect' : style.top });
     case 'bar_counter':
       return counterComponents(w, d, h);
     case 'reception':
@@ -993,6 +1196,8 @@ function components(kind: FurnitureKind, w: number, d: number, h: number, style:
 export function defaultStyle(kind: FurnitureKind, w: number, d: number, h: number): ModelStyle {
   const base = { ...DEFAULT_MODEL_STYLE };
   switch (kind) {
+    case 'desk':
+      return { ...base, seats: 1, drawers: 0 };
     case 'dining':
       return { ...base, top: Math.abs(w - d) < 100 ? 'round' : 'rect', legs: Math.abs(w - d) < 100 ? 'pedestal' : 'four' };
     case 'cabinet':
@@ -1014,6 +1219,14 @@ export function defaultStyle(kind: FurnitureKind, w: number, d: number, h: numbe
   }
 }
 
+/** Image arrangements and catalogue model names must not select a multi-desk output.
+ * The user can explicitly increase workstations in the confirmation form afterwards. */
+export function initialModelStyle(kind: FurnitureKind | null, text: string, imageStyle?: Partial<ModelStyle> | null): Partial<ModelStyle> {
+  const style = { ...imageStyle, ...inferModelStyle(text) };
+  if (kind === 'desk') style.seats = 1;
+  return style;
+}
+
 /** Defaults for the kind, overridden by whatever was read or chosen. */
 export function resolveStyle(kind: FurnitureKind, w: number, d: number, h: number, hints?: Partial<ModelStyle> | null): ModelStyle {
   const style = defaultStyle(kind, w, d, h);
@@ -1025,6 +1238,8 @@ export function resolveStyle(kind: FurnitureKind, w: number, d: number, h: numbe
     const [min, max] = STYLE_LIMITS[field];
     style[field] = clamp(Math.round(Number(style[field]) || 0), min, max);
   }
+  // Workstations stand on end panels unless legs were read or chosen.
+  if (kind === 'desk' && hints?.legs == null && isWorkstation(style, h)) style.legs = 'panel';
   return style;
 }
 
@@ -1045,7 +1260,7 @@ export function buildParametric(input: {
   const [dw, dd, dh] = DEFAULTS[input.kind];
   const estimated = new Set<SizeAxis>(input.estimated_axes ?? []);
   const width = axis(input.width_mm, dw, 250, 6000, estimated.has('width'));
-  const depth = axis(input.depth_mm, dd, 250, 2400, estimated.has('depth'));
+  const depth = axis(input.depth_mm, dd, 250, 4000, estimated.has('depth'));
   const height = axis(input.height_mm, dh, 300, 2800, estimated.has('height'));
   const estimated_axes: SizeAxis[] = [];
   if (width.estimated) estimated_axes.push('width');
@@ -1129,6 +1344,8 @@ export function inferModelStyle(text: string): Partial<ModelStyle> {
   const hints: Partial<ModelStyle> = {};
   if (/船形|船型|boat/.test(text)) hints.top = 'boat';
   else if (/圓(桌|枱|形)|圆(桌|形)|round/i.test(text)) hints.top = 'round';
+  else if (/直款|直型|一字/.test(text)) hints.top = 'rect';
+  else if (/L\s*[型形款]|L-?shaped|乾字|F\s*[型形]/i.test(text)) hints.top = 'L';
   if (/板腳|板脚/.test(text)) hints.legs = 'panel';
   else if (/中柱|單腳|单脚|pedestal/i.test(text)) hints.legs = 'pedestal';
   if (/線盒|线盒|走線|走线/.test(text)) hints.cable_tray = true;
@@ -1137,14 +1354,29 @@ export function inferModelStyle(text: string): Partial<ModelStyle> {
   else if (/五星|five-star|star base|轉椅|转椅/i.test(text)) hints.chair_base = 'star';
   if (/扶手|armrest/i.test(text)) hints.arms = true;
   if (/無扶手|无扶手|armless/i.test(text)) hints.arms = false;
-  const seats = countBefore(text, /(人位|人|座|位)/);
+  const seats = countBefore(text, /(人位|人|座)/);
   if (seats) hints.seats = seats;
+  else if (/乾字|十字/.test(text)) hints.seats = 4;
+  else if (/F\s*[型形]|T\s*字/i.test(text)) hints.seats = 2;
   const drawers = countBefore(text, /(抽|斗)/);
   if (drawers !== undefined) hints.drawers = drawers;
+  else if (/活動櫃|活动柜|移動櫃|移动柜|pedestal/i.test(text)) hints.drawers = 3;
   const doors = countBefore(text, /門|门/);
   if (doors !== undefined) hints.doors = doors;
   if (/開放|开放|open/i.test(text) && doors === undefined) hints.doors = 0;
+  if (/貨架|货架|角鋼|角钢|倉庫架|仓库架|鐵架|铁架|rack|boltless/i.test(text)) hints.frame = true;
   return hints;
+}
+
+/**
+ * Total levels a shelf name states (三層, 3-tier), top and bottom boards included.
+ * The shelf template's `shelves` is that number minus 2.
+ */
+export function inferShelfTiers(text: string): number | undefined {
+  const match = text.match(/(\d+|[一二兩两雙双三四五六七八九十])\s*-?\s*(層|层|tier)/i);
+  if (!match) return undefined;
+  const n = /\d/.test(match[1]) ? Number(match[1]) : match[1] === '九' ? 9 : match[1] === '十' ? 10 : CN_DIGITS[match[1]];
+  return n >= 2 && n <= 10 ? n : undefined;
 }
 
 /** @deprecated use inferModelStyle. */

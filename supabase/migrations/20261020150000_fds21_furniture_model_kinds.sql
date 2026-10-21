@@ -6,7 +6,7 @@ alter table public.furniture_models add constraint furniture_models_kind_check c
   'desk', 'conference', 'dining', 'coffee', 'bar_counter', 'reception', 'lectern',
   'cabinet', 'pedestal', 'shelf',
   'office_chair', 'side_chair', 'stool', 'beam_seating', 'sofa', 'booth',
-  'phone_booth'
+  'phone_booth', 'custom'
 ));
 
 create or replace function public.fds_save_furniture_model(
@@ -29,7 +29,7 @@ begin
     'desk', 'conference', 'dining', 'coffee', 'bar_counter', 'reception', 'lectern',
     'cabinet', 'pedestal', 'shelf',
     'office_chair', 'side_chair', 'stool', 'beam_seating', 'sofa', 'booth',
-    'phone_booth'
+    'phone_booth', 'custom'
   ) then
     raise exception 'kind_invalid' using errcode = '22023';
   end if;

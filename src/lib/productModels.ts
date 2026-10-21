@@ -36,6 +36,7 @@ export type SkpStatus =
     };
 
 function modelError(message: string): string {
+  if (message.includes('skp_worker_unavailable')) return '請先在 Windows Worker 電腦安裝已授權的 SketchUp 或 SketchUp SDK 寫檔程式及 DLL，並啟動 SKP Worker。';
   if (message.includes('permission_denied')) return '沒有權限';
   if (message.includes('product_not_found')) return '找不到產品';
   if (message.includes('model_not_found')) return '找不到模型';
@@ -156,4 +157,31 @@ export async function fetchSkpStatus(furnitureModelId: string): Promise<SkpStatu
   const { data, error } = await supabase.rpc('fds_skp_status', { p_furniture_model_id: furnitureModelId });
   if (error) throw new Error(modelError(error.message));
   return data as SkpStatus;
+}
+
+export interface SkpRequirements {
+  ready: boolean;
+  connected: boolean | null;
+  checks: Partial<Record<'sketchup' | 'ruby_script' | 'writer' | 'api_dll' | 'preferences_dll', boolean>> | null;
+}
+
+export class SkpRequirementsError extends Error {
+  constructor(public requirements: SkpRequirements) {
+    super(modelError('skp_worker_unavailable'));
+  }
+}
+
+export async function fetchSkpRequirements(): Promise<SkpRequirements> {
+  const result = await supabase.rpc('fds_skp_preflight', { p_details: true });
+  if (!result.error) return result.data as SkpRequirements;
+  // The existing boolean RPC remains usable before the detailed migration is deployed.
+  if (result.error.code !== 'PGRST202') throw new Error(`無法檢查 SKP 生成環境：${modelError(result.error.message)}`);
+  const { data, error } = await supabase.rpc('fds_skp_preflight');
+  if (error) throw new Error(`無法檢查 SKP 生成環境：${modelError(error.message)}`);
+  return { ready: data === true, connected: data === true ? true : null, checks: null };
+}
+
+export async function checkSkpRequirements(): Promise<void> {
+  const requirements = await fetchSkpRequirements();
+  if (!requirements.ready) throw new SkpRequirementsError(requirements);
 }

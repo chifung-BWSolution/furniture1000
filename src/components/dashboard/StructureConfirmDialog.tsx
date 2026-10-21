@@ -40,6 +40,7 @@ import {
 
 const TOP_OPTIONS: [ModelStyle['top'], string][] = [
   ['rect', '矩形'],
+  ['L', 'L 形'],
   ['boat', '船形（兩端收窄）'],
   ['round', '圓形'],
 ];
@@ -61,7 +62,7 @@ const TOGGLE_LABELS: Partial<Record<StyleField, string>> = {
 };
 const TOGGLE_HINTS: Partial<Record<StyleField, string>> = {
   cable_tray: '桌面設有中央走線槽，方便線路收納與佈線。',
-  screen: '沿桌後加一塊屏風。',
+  screen: '工作位背後加屏風。圖片及型號即使展示多人組合，預設只生成一張；需要整組時可自行調整工作位。',
   arms: '兩側加扶手。',
   frame: '改成金屬框架，不加側板。',
 };
@@ -71,6 +72,12 @@ const COUNT_LABELS: Partial<Record<StyleField, string>> = {
   shelves: '層板',
   seats: '座位',
 };
+
+function countLabel(kind: FurnitureKind | null, field: StyleField): string {
+  if (kind === 'desk' && field === 'seats') return '工作位';
+  if (kind === 'desk' && field === 'drawers') return '活動櫃抽屜';
+  return COUNT_LABELS[field] ?? field;
+}
 const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓' };
 
 export type StructureDraft = {
@@ -196,7 +203,7 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
     let userMoved = false;
     let disposed = false;
     let frame = 0;
-    const home = new THREE.Vector3(1.4, 0.9, 1.8);
+    const home = new THREE.Vector3(1.4, 0.9, -1.8);
     const target = new THREE.Vector3(0, 0.25, 0);
 
     const fit = () => {
@@ -211,7 +218,8 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
       const radius = Math.max(size.x, size.y, size.z, 0.2) * 0.62;
       const fov = (camera.fov * Math.PI) / 180;
       const distance = (radius / Math.sin(fov / 2)) * 1.28;
-      const direction = new THREE.Vector3(0.72, 0.48, 1).normalize();
+      // Product front is +Y in model space, hence -Z after the GLB coordinate mapping.
+      const direction = new THREE.Vector3(0.72, 0.48, -1).normalize();
       home.copy(center).addScaledVector(direction, distance);
       target.copy(center);
       camera.near = Math.max(distance / 200, 0.01);
@@ -427,15 +435,15 @@ export function StructureConfirmForm({
 
   return (
     <div className="flex h-full min-h-0 flex-col text-slate-900 selection:bg-[#5b4dff]/15">
-      <header className="flex items-start gap-3 px-5 pb-3 pt-5">
-        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#efedff] text-[#5b4dff]">
-          <Box className="h-5 w-5" strokeWidth={1.75} />
+      <header className="flex items-start gap-3.5 px-5 pb-4 pt-5 sm:px-6 sm:pt-6">
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+          <Box className="h-6 w-6" strokeWidth={1.75} />
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
-          <DialogTitle className="text-[17px] font-semibold tracking-tight text-slate-900">
+          <DialogTitle className="text-lg font-bold leading-snug tracking-tight text-slate-900">
             生成前請確認結構（{outputName}）
           </DialogTitle>
-          <DialogDescription className="mt-1 text-[13px] leading-5 text-slate-500">
+          <DialogDescription className="mt-1 text-sm leading-relaxed text-slate-500">
             請確認產品類型、尺寸與{structureWord}，系統將據此生成 {outputName} 模型。
           </DialogDescription>
         </div>
@@ -511,6 +519,18 @@ export function StructureConfirmForm({
                     </ChoiceChip>
                   ))}
                 </div>
+                {kind === 'desk' && shownStyle.top === 'L' && (
+                  <div className="mt-3">
+                    <p className="mb-1.5 text-xs text-slate-600">側台方向（坐在使用位置面向桌面）</p>
+                    <div className="flex gap-1.5">
+                      {(['left', 'right'] as const).map((side) => (
+                        <ChoiceChip key={side} selected={(shownStyle.return_side ?? 'right') === side} onClick={() => onChange({ style: { return_side: side } })}>
+                          {side === 'left' ? '左側' : '右側'}
+                        </ChoiceChip>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 
@@ -559,13 +579,13 @@ export function StructureConfirmForm({
                         const offset = kind === 'shelf' && field === 'shelves' ? 2 : 0;
                         return (
                           <label key={field} className="flex items-center gap-1.5 text-[13px] text-slate-700">
-                            {offset ? '層數' : COUNT_LABELS[field]}
+                            {offset ? '層數' : countLabel(kind, field)}
                             <Input
                               type="number"
                               min={min + offset}
                               max={max + offset}
                               value={String(Number(shownStyle[field]) + offset)}
-                              aria-label={offset ? '層數' : COUNT_LABELS[field]}
+                              aria-label={offset ? '層數' : countLabel(kind, field)}
                               className="h-8 w-16 rounded-lg border-slate-200 bg-white px-2 text-center text-[13px] tabular-nums shadow-none caret-[#5b4dff] focus-visible:ring-[#5b4dff]/40"
                               onChange={(event) => {
                                 const n = Number(event.target.value) - offset;

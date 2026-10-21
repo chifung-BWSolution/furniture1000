@@ -4,27 +4,27 @@ import { useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import {
-  Cable, ChevronLeft, Heart, Image as ImageIcon, Leaf, Loader2, Maximize2, Move, Package, RotateCcw, Ruler, Search, Share2, Sparkles, Users, ZoomIn,
+  Cable, ChevronLeft, GitCompare, Heart, Image as ImageIcon, Leaf, Loader2, Maximize2, Move, Package, RotateCcw, Ruler, Search, Share2, Smartphone, Sparkles, Users, ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
+import { Modal } from '@/components/ui/modal';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { ProductImageGalleryLightbox } from '@/components/dashboard/ProductImageGallery';
 import { GlbViewport, type ViewportTool } from '@/components/dashboard/GlbViewport';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { autoMatchColor, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { signedModelUrl, fetchModelFlags, type ModelFlags, type ProductModelFile } from '@/lib/productModels';
+import { evictCachedGlb, readCachedGlb, writeCachedGlb } from '@/lib/glbCache';
 import {
   EMPTY_SEARCH_FILTERS, searchProducts, sizeLabel, type ProductDetail, type SearchProduct,
 } from '@/lib/productSearch';
 
 const MISSING = '未提供';
 const MAX_COMPARE = 4;
+const DETAIL_COLUMNS = 'xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]';
 
 function shown(value: string | null | undefined): string {
   const text = value?.trim();
@@ -192,6 +192,16 @@ export function ProductWorkbench({
     setGlbRatio(0);
     setGlbProgress('準備模型');
     (async () => {
+      const cached = await readCachedGlb(storagePath);
+      if (cancelled) return;
+      if (cached) {
+        const url = URL.createObjectURL(cached);
+        objectUrls.push(url);
+        setGlbRatio(1);
+        setGlbProgress('建立預覽');
+        setGlbUrl(url);
+        return;
+      }
       const signed = await signedModelUrl(storagePath);
       if (cancelled) return;
       setGlbProgress('下載模型');
@@ -201,12 +211,21 @@ export function ProductWorkbench({
       const reader = response.body.getReader();
       const parts: Uint8Array[] = [];
       let loaded = 0;
+      let shownPercent = -1;
+      const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         parts.push(value);
         loaded += value.byteLength;
-        if (!cancelled) setGlbRatio(total > 0 ? Math.min(0.98, loaded / total) : null);
+        if (cancelled) continue;
+        // One render per whole percent; no need to re-render for every chunk.
+        const next = total > 0 ? Math.min(98, Math.floor((loaded / total) * 100)) : 0;
+        if (next !== shownPercent) {
+          shownPercent = next;
+          setGlbRatio(total > 0 ? Math.min(0.98, loaded / total) : null);
+          setGlbProgress(total > 0 ? `下載模型 ${mb(loaded)} / ${mb(total)} MB` : '下載模型');
+        }
       }
       if (cancelled) return;
       const blob = new Blob(parts, { type: 'model/gltf-binary' });
@@ -215,6 +234,7 @@ export function ProductWorkbench({
       setGlbRatio(1);
       setGlbProgress('建立預覽');
       setGlbUrl(objectUrl);
+      void writeCachedGlb(storagePath, blob);
     })().catch((err: unknown) => {
       if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
       setGlbError(err instanceof Error ? err.message : '無法開啟模型');
@@ -318,6 +338,8 @@ export function ProductWorkbench({
   ];
 
   const arLink = typeof window === 'undefined' ? '' : `${window.location.origin}${window.location.pathname}?ar=1`;
+  /** While the GLB is downloading or parsing, the stage shows only the progress bar. */
+  const loading3d = stage === '3d' && Boolean(glb) && !glbReady && !glbError;
 
   if (arPage) {
     return (
@@ -338,10 +360,13 @@ export function ProductWorkbench({
               resetKey={0}
               onProgress={setGlbProgress}
               onReady={() => setGlbReady(true)}
-              onFailed={setGlbError}
+              onFailed={(message) => {
+                setGlbError(message);
+                if (glbPath) void evictCachedGlb(glbPath);
+              }}
             />
-          ) : (
-            <ImageStage detail={detail} activeImage={0} onZoom={() => undefined} emptyLabel={glb && !glbError ? undefined : glbError || '暫無 3D 模型'} />
+          ) : (!glb || glbError) && (
+            <ImageStage detail={detail} activeImage={0} onZoom={() => undefined} emptyLabel={glbError || '暫無 3D 模型'} />
           )}
           {glb && !glbReady && !glbError && <ModelLoadBar ratio={glbRatio} label={glbProgress} />}
         </div>
@@ -352,13 +377,13 @@ export function ProductWorkbench({
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f4f6fb] text-slate-900">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <div className="grid items-start gap-x-4 gap-y-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
+        <div className={cn('grid items-start gap-x-4 gap-y-3', DETAIL_COLUMNS)}>
           <div className="flex items-center">
             <button type="button" className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900" onClick={onClose}>
               <ChevronLeft className="mr-0.5 h-4 w-4" /> 返回列表
             </button>
           </div>
-          <aside className="row-span-2 flex h-full flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+          <aside className="row-span-2 flex h-full min-w-0 flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h1 className="text-[22px] font-semibold leading-snug tracking-tight">{names.primary}</h1>
@@ -387,17 +412,17 @@ export function ProductWorkbench({
                 </button>
               </div>
             </div>
-            <dl className="mt-5 grid grid-cols-[4.5rem_1fr] gap-y-3 text-sm">
+            <dl className="mt-5 grid grid-cols-[4.5rem_minmax(0,1fr)] gap-y-3 text-sm">
               {specRows.map(([label, value]) => (
                 <div key={label} className="contents">
                   <dt className="text-slate-400">{label}</dt>
-                  <dd className={cn('text-slate-800', value === MISSING && 'text-slate-300')}>{value}</dd>
+                  <dd className={cn('break-words text-slate-800', value === MISSING && 'text-slate-300')}>{value}</dd>
                 </div>
               ))}
             </dl>
             <div className="mt-auto pt-5">{actions(() => setArOpen(true))}</div>
           </aside>
-          <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+          <section className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
             <div ref={stageRef} className="fds-product-stage flex gap-3">
               <div className="fds-stage-rail flex h-[420px] w-20 shrink-0 flex-col items-center gap-2 overflow-y-auto px-1 py-0.5">
                 {detail.images.map((src, index) => (
@@ -441,7 +466,10 @@ export function ProductWorkbench({
                     resetKey={resetKey}
                     onProgress={setGlbProgress}
                     onReady={() => setGlbReady(true)}
-                    onFailed={setGlbError}
+                    onFailed={(message) => {
+                      setGlbError(message);
+                      if (glbPath) void evictCachedGlb(glbPath);
+                    }}
                   />
                 )}
                 {stage === '3d' && (!glb || glbError) && (
@@ -451,9 +479,6 @@ export function ProductWorkbench({
                     onZoom={() => setZoomed(true)}
                     emptyLabel={glb ? '模型載入失敗' : '暫無 3D 模型'}
                   />
-                )}
-                {stage === '3d' && glb && !glbUrl && !glbError && (
-                  <ImageStage detail={detail} activeImage={activeImage} onZoom={() => setZoomed(true)} />
                 )}
                 {stage === '3d' && glb && !glbReady && !glbError && <ModelLoadBar ratio={glbRatio} label={glbProgress} />}
                 {stage === 'image' && (
@@ -474,12 +499,12 @@ export function ProductWorkbench({
                     重試
                   </button>
                 )}
-                {showSize && stage === '3d' && (
+                {showSize && stage === '3d' && !loading3d && (
                   <p className="absolute bottom-14 left-1/2 z-10 -translate-x-1/2 rounded-full bg-white/95 px-3 py-1 text-xs text-slate-600 shadow">
                     {sizeText ? `${sizeText} mm` : MISSING} · 官方規格，不是模型量度
                   </p>
                 )}
-                {stage !== 'image' && (
+                {stage !== 'image' && !loading3d && (
                   <>
                     <div className="absolute left-3 top-3 z-10 flex max-w-[55%] flex-wrap gap-2">
                       {(
@@ -532,7 +557,7 @@ export function ProductWorkbench({
                     </div>
                   </>
                 )}
-                <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+                <div className={cn('absolute right-3 top-3 z-10 flex items-center gap-2', loading3d && 'hidden')}>
                   {stage !== 'image' && (
                     <div className="flex items-center gap-1 rounded-md bg-white/90 p-0.5 text-xs text-slate-500 shadow-sm">
                       <button type="button" className={cn('rounded-md px-2 py-1', wireframe && 'bg-slate-900 text-white')} onClick={() => setWireframe((v) => !v)}>線框</button>
@@ -562,8 +587,8 @@ export function ProductWorkbench({
           </section>
         </div>
 
-        <div className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,1.85fr)_minmax(300px,1fr)]">
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className={cn('mt-4 grid items-start gap-4', DETAIL_COLUMNS)}>
+          <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex flex-wrap gap-4 border-b border-slate-100 text-sm">
               {(
                 [
@@ -601,7 +626,7 @@ export function ProductWorkbench({
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">同型號比較</h2>
               <span className="text-xs text-slate-500">已選 {selected.length}/{MAX_COMPARE}</span>
@@ -710,84 +735,84 @@ export function ProductWorkbench({
         </div>
       </div>
 
-      <Dialog open={arOpen} onOpenChange={setArOpen}>
-        <DialogContent className="bg-white text-slate-900">
-          <DialogHeader>
-            <DialogTitle>手機 AR 預覽</DialogTitle>
-            <DialogDescription className="text-slate-500">
-              {detail.title}。用手機掃描後打開同一件產品，在手機上旋轉 3D。尺寸只供設計參考。
-            </DialogDescription>
-          </DialogHeader>
-          <ArPanel title={detail.title} link={arLink} qr={qr} />
-        </DialogContent>
-      </Dialog>
+      <Modal
+        open={arOpen}
+        onOpenChange={setArOpen}
+        size="md"
+        icon={<Smartphone className="h-5 w-5" />}
+        title="手機 AR 預覽"
+        description={`${detail.title}。用手機掃描後打開同一件產品，在手機上旋轉 3D。尺寸只供設計參考。`}
+      >
+        <ArPanel title={detail.title} link={arLink} qr={qr} />
+      </Modal>
 
-      <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
-        <DialogContent className="max-w-4xl bg-white text-slate-900">
-          <DialogHeader>
-            <DialogTitle>規格比較</DialogTitle>
-            <DialogDescription className="text-slate-500">空值是未提供，不會當成 0。不同的欄位以淺色標出。</DialogDescription>
-          </DialogHeader>
-          <label className="flex items-center gap-2 text-xs text-slate-600">
-            <Checkbox checked={hideSame} onCheckedChange={(value) => setHideSame(value === true)} />
-            隱藏相同項目
-          </label>
-          <div className="max-h-[60vh] overflow-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b text-left">
-                  <th className="sticky left-0 bg-white px-2 py-2 font-medium">項目</th>
-                  {selectedCards.map((card, index) => (
-                    <th key={card.id} className="min-w-36 px-2 py-2 font-medium">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="truncate">{card.model || card.sku || MISSING}</span>
-                        {index === 0 && <span className="text-[10px] text-[#5b4dff]">基準</span>}
-                      </div>
-                      <div className="mt-1 flex gap-2 font-normal text-[#5b4dff]">
-                        {index > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setSelected((cur) => [card.id, ...cur.filter((id) => id !== card.id)])}
-                          >
-                            設為基準
-                          </button>
-                        )}
-                        <button type="button" onClick={() => toggle(card.id)}>移除</button>
+      <Modal
+        open={compareOpen}
+        onOpenChange={setCompareOpen}
+        size="4xl"
+        icon={<GitCompare className="h-5 w-5" />}
+        title="規格比較"
+        description="空值是未提供，不會當成 0。不同的欄位以淺色標出。"
+      >
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <Checkbox checked={hideSame} onCheckedChange={(value) => setHideSame(value === true)} />
+          隱藏相同項目
+        </label>
+        <div className="mt-2 max-h-[60vh] overflow-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="sticky left-0 bg-white px-2 py-2 font-medium">項目</th>
+                {selectedCards.map((card, index) => (
+                  <th key={card.id} className="min-w-36 px-2 py-2 font-medium">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="truncate">{card.model || card.sku || MISSING}</span>
+                      {index === 0 && <span className="text-[10px] text-[#5b4dff]">基準</span>}
+                    </div>
+                    <div className="mt-1 flex gap-2 font-normal text-[#5b4dff]">
+                      {index > 0 && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setCompareOpen(false);
-                            if (card.id !== detail.id) onOpenProduct(card.id);
-                          }}
+                          onClick={() => setSelected((cur) => [card.id, ...cur.filter((id) => id !== card.id)])}
                         >
-                          查看
+                          設為基準
                         </button>
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {COMPARE_FIELDS.map((field) => {
-                  const values = selectedCards.map((card) => field.value(card, flags));
-                  const same = values.every((value) => value === values[0]);
-                  if (hideSame && same) return null;
-                  return (
-                    <tr key={field.key} className="border-b border-slate-100">
-                      <th className="sticky left-0 bg-white px-2 py-2 text-left font-normal text-slate-500">{field.label}</th>
-                      {values.map((value, index) => (
-                        <td key={selectedCards[index].id} className={cn('px-2 py-2', !same && 'bg-amber-50')}>
-                          {value}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </DialogContent>
-      </Dialog>
+                      )}
+                      <button type="button" onClick={() => toggle(card.id)}>移除</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCompareOpen(false);
+                          if (card.id !== detail.id) onOpenProduct(card.id);
+                        }}
+                      >
+                        查看
+                      </button>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {COMPARE_FIELDS.map((field) => {
+                const values = selectedCards.map((card) => field.value(card, flags));
+                const same = values.every((value) => value === values[0]);
+                if (hideSame && same) return null;
+                return (
+                  <tr key={field.key} className="border-b border-slate-100">
+                    <th className="sticky left-0 bg-white px-2 py-2 text-left font-normal text-slate-500">{field.label}</th>
+                    {values.map((value, index) => (
+                      <td key={selectedCards[index].id} className={cn('px-2 py-2', !same && 'bg-amber-50')}>
+                        {value}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
 
       {zoomed && detail.images.length > 0
         ? createPortal(
@@ -812,19 +837,17 @@ function ModelThumbMark() {
 function ModelLoadBar({ ratio, label }: { ratio: number | null; label: string }) {
   const percent = ratio == null ? null : Math.round(ratio * 100);
   return (
-    <div className="pointer-events-none absolute inset-0 flex items-end bg-[#f7f8fb]/55">
-      <div className="w-full px-8 pb-8">
-        <div className="mx-auto max-w-sm">
-          <div className="mb-2 flex items-center justify-between text-xs text-slate-600">
-            <span>{label}</span>
-            <span>{percent == null ? '' : `${percent}%`}</span>
-          </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined} aria-label={label}>
-            <div
-              className={cn('h-full rounded-full bg-[#5b4dff] transition-[width] duration-150', percent == null && 'w-1/3 animate-pulse')}
-              style={percent == null ? undefined : { width: `${Math.max(percent, 4)}%` }}
-            />
-          </div>
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-10">
+      <div className="w-full max-w-[280px]">
+        <div className="mb-2 flex items-center justify-between gap-3 text-xs text-slate-600">
+          <span className="truncate">{label}</span>
+          <span className="shrink-0 tabular-nums">{percent == null ? '' : `${percent}%`}</span>
+        </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined} aria-label={label}>
+          <div
+            className={cn('h-full rounded-full bg-[#5b4dff] transition-[width] duration-150', percent == null && 'w-1/3 animate-pulse')}
+            style={percent == null ? undefined : { width: `${Math.max(percent, 4)}%` }}
+          />
         </div>
       </div>
     </div>

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { TripoModelTrial } from '@/components/dashboard/TripoModelTrial';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileText, Heart, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search, Smartphone, Sparkles,
+  ChevronDown, ChevronLeft, ChevronRight, Box, Check, ExternalLink, FileText, Heart, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
@@ -14,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Modal, ModalButton, ModalContent, ModalRoot } from '@/components/ui/modal';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,6 +35,7 @@ import { buildFurnitureGlb } from '@/lib/furnitureGlb';
 import { buildFurnitureFbx } from '@/lib/furnitureFbx';
 import { ProductWorkbench } from '@/components/dashboard/ProductWorkbench';
 import { StructureConfirmForm, type StructureDraft } from '@/components/dashboard/StructureConfirmDialog';
+import { useSkpRequirements } from '@/components/dashboard/SkpRequirementsDialog';
 import {
   STYLE_FIELDS,
   buildParametric,
@@ -41,6 +43,7 @@ import {
   fitCustomParts,
   inferFurnitureKindFrom,
   inferModelStyle,
+  initialModelStyle,
   inferShelfTiers,
   resolveStyle,
   sanitizeCustomParts,
@@ -1208,6 +1211,7 @@ type ImageAnalysis = {
   parts?: unknown;
   structure_notes?: string | null;
   image_count?: number;
+  source_dimensions_scope?: 'single' | 'arrangement' | 'unknown';
 };
 
 type AnalysisRequest = {
@@ -1245,7 +1249,7 @@ async function analyzeProductImages(urls: string[], request: AnalysisRequest = {
     result = await invokeEdgeFunctionDirect('generate-furniture-model', body);
   }
   if (result.error || !result.data) throw new Error(result.error?.message ?? '無法辨認圖片');
-  if (result.data.supported === false || !result.data.kind) return null;
+  if (result.data.supported === false || !result.data.kind) throw new Error(result.data.reason || '無法確認單件產品，請提供單品圖片');
   return result.data;
 }
 
@@ -1270,12 +1274,111 @@ const WORKBENCH_TONE = {
   ['--ring' as string]: '243 100% 68%',
 };
 
+type ProgressFlow = 'prepare' | 'generate';
+
+/** Stepper inside the progress dialog: the real stages of each run, keyed by progress label. */
+const PROGRESS_FLOW: Record<ProgressFlow, { steps: string[]; hints: string[]; index: Record<string, number> }> = {
+  prepare: {
+    steps: ['讀取產品資料', '辨認產品圖', '整理結構'],
+    hints: ['正在讀取產品資料，請稍候…', 'AI 正在分析圖片，請稍候…', '正在整理結構，請稍候…'],
+    index: {
+      '準備生成 SU': 0,
+      '準備生成 3D': 0,
+      '檢查 SU 生成環境': 0,
+      '辨認產品圖': 1,
+      '整理結構': 2,
+      '結構已辨認': 2,
+    },
+  },
+  generate: {
+    steps: ['建立模型', '儲存模型', '生成檔案'],
+    hints: ['正在建立模型，請稍候…', '正在儲存模型，請稍候…', '正在寫出模型檔，請稍候…'],
+    index: {
+      '建立模型': 0,
+      '檢查 SU 生成環境': 0,
+      '儲存模型': 1,
+      '排入 SU 生成': 2,
+      '寫出 GLB': 2,
+      '寫出 FBX': 2,
+      'SKP 已可下載': 2,
+      '已排入 SU 生成': 2,
+      '3D 模型已生成': 2,
+      '3D 只完成一部分': 2,
+    },
+  },
+};
+
+/** Lavender icon disc wrapped by a determinate progress ring. */
+function ProgressRing({ percent, children }: { percent: number; children: React.ReactNode }) {
+  const radius = 32;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.min(100, Math.max(0, percent));
+  return (
+    <span className="relative grid h-14 w-14 place-items-center">
+      <svg
+        viewBox="0 0 72 72"
+        aria-hidden="true"
+        className="absolute -left-2 -top-2 -rotate-90"
+        style={{ width: 72, height: 72 }}
+      >
+        <circle cx="36" cy="36" r={radius} fill="none" strokeWidth="3" stroke="currentColor" className="text-primary/15" />
+        <circle
+          cx="36"
+          cy="36"
+          r={radius}
+          fill="none"
+          strokeWidth="3"
+          strokeLinecap="round"
+          stroke="currentColor"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - clamped / 100)}
+          className="text-primary transition-[stroke-dashoffset] duration-500 ease-out"
+        />
+      </svg>
+      {children}
+    </span>
+  );
+}
+
+function ProgressSteps({ steps, current }: { steps: string[]; current: number }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-2" aria-hidden="true">
+      {steps.map((step, index) => {
+        const state = index < current ? 'done' : index === current ? 'active' : 'todo';
+        return (
+          <Fragment key={step}>
+            {index > 0 && <span className="hidden h-px min-w-4 flex-1 bg-border sm:block" />}
+            <span className="flex shrink-0 items-center gap-2">
+              {state === 'done' ? (
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="h-4 w-4" strokeWidth={3} />
+                </span>
+              ) : state === 'active' ? (
+                <span className="h-7 w-7 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+              ) : (
+                <span className="h-7 w-7 rounded-full bg-muted" />
+              )}
+              <span
+                className={cn(
+                  'whitespace-nowrap text-[13px] sm:text-sm',
+                  state === 'active' ? 'font-semibold text-primary' : state === 'done' ? 'font-medium text-foreground' : 'text-muted-foreground',
+                )}
+              >
+                {step}
+              </span>
+            </span>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProductModelsSection({
   product,
   canManage,
   onChanged,
   onFiles,
-  onAr,
   appearance = 'plain',
 }: {
   product: ProductDetail;
@@ -1283,7 +1386,6 @@ function ProductModelsSection({
   canManage: boolean;
   onChanged: () => void;
   onFiles?: (files: ProductModelFile[]) => void;
-  onAr?: () => void;
   appearance?: 'plain' | 'workbench';
 }) {
   const productId = product.id;
@@ -1298,10 +1400,13 @@ function ProductModelsSection({
   const savedRef = useRef<{ key: string; id: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [genProgress, setGenProgress] = useState<{ percent: number; label: string } | null>(null);
-  /** Same dialog: false keeps the percentage, true reveals the structure form. */
+  const skpRequirements = useSkpRequirements();
+  /** Gate for the structure form: opened once the progress dialog hands over. */
   const [confirmShown, setConfirmShown] = useState(false);
+  const [progressFlow, setProgressFlow] = useState<ProgressFlow>('prepare');
   const creepRef = useRef<number | null>(null);
   const progressCloseRef = useRef<number | null>(null);
+  const lastProgressRef = useRef<{ percent: number; label: string } | null>(null);
 
   const stopCreep = () => {
     if (creepRef.current != null) {
@@ -1344,17 +1449,15 @@ function ProductModelsSection({
     }, 700);
   };
 
-  /** Hold 100%, then let the same dialog expand into the structure form. */
+  /** Hold 100%, then cross-fade into the structure form. */
   const handoffToConfirm = () => {
     stopCreep();
     showProgress(100, '結構已辨認');
     if (progressCloseRef.current != null) window.clearTimeout(progressCloseRef.current);
     progressCloseRef.current = window.setTimeout(() => {
+      progressCloseRef.current = null;
       setConfirmShown(true);
-      progressCloseRef.current = window.setTimeout(() => {
-        progressCloseRef.current = null;
-        setGenProgress(null);
-      }, 520);
+      setGenProgress(null);
     }, 420);
   };
 
@@ -1459,8 +1562,16 @@ function ProductModelsSection({
     setBusy(target);
     setConfirmShown(false);
     clearProgress();
+    setProgressFlow('prepare');
     showProgress(8, target === 'su' ? '準備生成 SU' : '準備生成 3D');
     try {
+      if (target === 'su') {
+        showProgress(8, '檢查 SU 生成環境');
+        if (!await skpRequirements.check()) {
+          clearProgress();
+          return;
+        }
+      }
       const text = [product.title, product.model, product.category, product.level1_category, product.level2_category]
         .filter(Boolean)
         .join(' ');
@@ -1475,7 +1586,7 @@ function ProductModelsSection({
       let depth = measuredMm(product.dimension_w_mm);
       let height = measuredMm(product.dimension_h_mm);
       const estimated: SizeAxis[] = [];
-      const nameStyle = inferModelStyle(text);
+      const nameStyle = initialModelStyle(kind, text);
       let style: Partial<ModelStyle> = nameStyle;
       let styleSource: ModelDraft['styleSource'] = 'name';
       let notes: string | null = null;
@@ -1494,6 +1605,20 @@ function ProductModelsSection({
           });
           if (guess) {
             if (!kind && guess.kind) kind = guess.kind;
+            if (kind === 'desk' && guess.source_dimensions_scope === 'arrangement') {
+              if (guess.width_mm && guess.width_mm > 0) {
+                width = Math.round(guess.width_mm);
+                estimated.push('width');
+              }
+              if (guess.depth_mm && guess.depth_mm > 0) {
+                depth = Math.round(guess.depth_mm);
+                estimated.push('depth');
+              }
+              if (guess.height_mm && guess.height_mm > 0) {
+                height = Math.round(guess.height_mm);
+                estimated.push('height');
+              }
+            }
             parts = sanitizeCustomParts(guess.parts);
             if (kind === 'custom') notes = guess.structure_notes ?? null;
             if (width == null && guess.width_mm) {
@@ -1509,13 +1634,18 @@ function ProductModelsSection({
               estimated.push('height');
             }
             if (guess.style) {
-              // Counts and features written in the name (三人位, 線盒) beat a guess from the photo.
-              style = { ...guess.style, ...nameStyle };
+              // Preserve named features, but workstation output starts with one desk.
+              style = initialModelStyle(kind, text, guess.style);
               styleSource = 'image';
               notes = guess.structure_notes ?? null;
             }
           }
         } catch (err) {
+          if (kind === 'desk' && (inferModelStyle(text).seats ?? 1) > 1) {
+            width = null;
+            depth = null;
+            notes = '圖片分析未完成；原資料為多人組合，請填寫單張辦公枱的闊、深，避免使用整組尺寸。';
+          }
           toast('讀不到產品圖，結構先按產品名稱判斷', { description: errorText(err) });
         } finally {
           stopCreep();
@@ -1690,8 +1820,18 @@ function ProductModelsSection({
     }
     setBusy(target);
     setConfirmShown(false);
+    setProgressFlow('generate');
     showProgress(12, '建立模型');
     try {
+      // The Worker may have gone offline while the structure dialog was open.
+      if (target === 'su') {
+        showProgress(12, '檢查 SU 生成環境');
+        if (!await skpRequirements.check()) {
+          clearProgress();
+          setConfirmShown(true);
+          return;
+        }
+      }
       const model = buildParametric({
         kind,
         width_mm: width,
@@ -1755,6 +1895,23 @@ function ProductModelsSection({
     : null;
 
   const workbench = appearance === 'workbench';
+  /** Keep the last frame while the dialog animates out, so it never collapses empty. */
+  if (genProgress) lastProgressRef.current = genProgress;
+  const shownProgress = genProgress ?? lastProgressRef.current;
+  const progressFlowConfig = PROGRESS_FLOW[progressFlow];
+  const progressView = {
+    steps: progressFlowConfig.steps,
+    current: shownProgress
+      ? shownProgress.percent >= 100
+        ? progressFlowConfig.steps.length
+        : progressFlowConfig.index[shownProgress.label] ?? 0
+      : 0,
+  };
+  const progressHint = !shownProgress
+    ? ''
+    : shownProgress.percent >= 100
+      ? '已完成'
+      : progressFlowConfig.hints[progressFlowConfig.index[shownProgress.label] ?? 0] ?? '正在處理，請稍候…';
   const uploadInput = canManage ? (
     <input
       ref={inputRef}
@@ -1781,6 +1938,7 @@ function ProductModelsSection({
   }
   return (
     <section className="space-y-1.5">
+      {skpRequirements.dialog}
       <div className={workbench ? 'flex flex-wrap gap-2' : 'flex flex-wrap items-center justify-between gap-2'}>
         {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
         <div className="flex flex-wrap gap-1.5">
@@ -1792,6 +1950,7 @@ function ProductModelsSection({
             {busy === '3d' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
             生成 3D
           </Button>
+          {canManage && <TripoModelTrial key={productId} productId={productId} title={product.title} images={product.images} disabled={busy != null} onComplete={() => { setReload(n => n + 1); onChanged(); }} />}
           {workbench ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1824,11 +1983,6 @@ function ProductModelsSection({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          {workbench && (
-            <Button size="sm" variant="outline" className="h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50" onClick={onAr}>
-              <Smartphone className="mr-1 h-3.5 w-3.5" /> 手機 AR 預覽
-            </Button>
-          )}
           {!workbench && canManage && (
             <Button size="sm" variant="outline" className="h-7" disabled={busy != null} onClick={() => inputRef.current?.click()}>
               {busy === 'upload' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
@@ -1844,104 +1998,101 @@ function ProductModelsSection({
         </p>
       )}
       {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
-      <Dialog open={reuse != null && genProgress == null && draft == null} onOpenChange={(open) => { if (!open && busy == null) setReuse(null); }}>
-        <DialogContent className="bg-white text-slate-900 sm:max-w-md" style={workbench ? WORKBENCH_TONE : undefined}>
-          {reuse && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="text-base">已有模型檔</DialogTitle>
-                <DialogDescription>
-                  {`這件產品已有 ${[...new Set(reuse.files.map((file) => file.format.toUpperCase()))].join('、')}（${[...new Set(reuse.files.map((file) => modelSourceLabel(file.source)))].join('、')}），可以直接下載，不用再生成。`}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  className={workbench ? 'h-9 rounded-lg' : 'h-8'}
-                  onClick={() => {
-                    const f = reuse.files[0];
-                    void downloadModel(f.storage_path, f.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }));
-                  }}
-                >
-                  下載現有檔
-                </Button>
-                <Button size="sm" variant="outline" className={workbench ? 'h-9 rounded-lg' : 'h-8'} disabled={busy != null} onClick={() => start(reuse.target, true)}>
-                  仍要重新生成
-                </Button>
-                <Button size="sm" variant="ghost" className={workbench ? 'h-9 rounded-lg' : 'h-8'} onClick={() => setReuse(null)}>
-                  取消
-                </Button>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={genProgress != null || draft != null}
-        onOpenChange={(open) => {
-          if (open || busy != null || partsBusy || genProgress != null) return;
-          setDraft(null);
-          setConfirmShown(false);
-        }}
-      >
-        <DialogContent
-          className={cn(
-            'overflow-hidden border-slate-200 bg-white text-slate-900 shadow-[0_28px_80px_-28px_rgba(15,23,42,0.55)] transition-[max-width,height] duration-500 ease-out',
-            confirmShown
-              ? 'flex h-[min(820px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] max-w-[min(1080px,calc(100vw-1.5rem))] flex-col gap-0 p-0 sm:rounded-2xl'
-              : 'max-w-sm',
-          )}
-          hideClose
-          style={workbench ? WORKBENCH_TONE : undefined}
-          onInteractOutside={(event) => { if (genProgress != null || busy != null || partsBusy) event.preventDefault(); }}
-          onEscapeKeyDown={(event) => { if (genProgress != null || busy != null || partsBusy) event.preventDefault(); }}
-        >
-          <div className={cn('grid min-h-0 transition-[grid-template-rows] duration-500 ease-out', confirmShown ? 'flex-1 grid-rows-[0fr_1fr]' : 'grid-rows-[1fr_0fr]')}>
-            <div className="min-h-0 overflow-hidden">
-              <div className={cn('px-6 py-6 transition-all duration-500 ease-out', confirmShown ? '-translate-y-2 scale-95 opacity-0' : 'translate-y-0 scale-100 opacity-100')}>
-                {genProgress && (
-                  <>
-                    <DialogHeader>
-                      <DialogTitle className="text-base">{genProgress.label}</DialogTitle>
-                      <DialogDescription className="sr-only">生成進度 {genProgress.percent}%</DialogDescription>
-                    </DialogHeader>
-                    <p className="py-2 text-center text-4xl font-semibold tabular-nums text-[#5b4dff]">{genProgress.percent}%</p>
-                    <Progress value={genProgress.percent} className="h-2" />
-                  </>
-                )}
-              </div>
-            </div>
-            <div
-              className="min-h-0 overflow-hidden"
-              ref={(node) => {
-                if (node) node.toggleAttribute('inert', !confirmShown);
+      <Modal
+        open={reuse != null && genProgress == null && draft == null}
+        onOpenChange={(open) => { if (!open && busy == null) setReuse(null); }}
+        size="md"
+        icon={<Package className="h-6 w-6" />}
+        title="已有模型檔"
+        description={`這件產品已有 ${[...new Set((reuse?.files ?? []).map((file) => file.format.toUpperCase()))].join('、')}（${[...new Set((reuse?.files ?? []).map((file) => modelSourceLabel(file.source)))].join('、')}），可以直接下載，不用再生成。`}
+        style={workbench ? WORKBENCH_TONE : undefined}
+        footer={
+          <>
+            <ModalButton
+              onClick={() => {
+                const f = reuse?.files[0];
+                if (!f) return;
+                void downloadModel(f.storage_path, f.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }));
               }}
             >
-              <div className={cn('h-full transition-all duration-500 ease-out', confirmShown ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0')}>
-          {draft && (
-        <StructureConfirmForm
-          draft={draft}
-          shownStyle={shownStyle}
-          preview={previewModel}
-          generating={busy != null}
-          partsBusy={partsBusy}
-          onChange={updateDraft}
-          onGenerate={() => void generate()}
-          onCancel={() => {
-            setDraft(null);
-            setConfirmShown(false);
-          }}
-          onLoadParts={() => void loadParts()}
-          onResizePart={resizePart}
-          onRemovePart={removePart}
-          fittedParts={draft.kind === 'custom' ? fittedParts(draft) : []}
-        />
-          )}
-              </div>
-            </div>
+              下載現有檔
+            </ModalButton>
+            <ModalButton
+              variant="secondary"
+              disabled={busy != null}
+              onClick={() => { if (reuse) start(reuse.target, true); }}
+            >
+              仍要重新生成
+            </ModalButton>
+            <ModalButton variant="ghost" onClick={() => setReuse(null)}>
+              取消
+            </ModalButton>
+          </>
+        }
+      />
+      <Modal
+        open={genProgress != null}
+        onOpenChange={() => { /* a running job cannot be dismissed */ }}
+        size="2xl"
+        hideClose
+        icon={shownProgress ? (
+          <ProgressRing percent={shownProgress.percent}>
+            <Box className="h-7 w-7" strokeWidth={1.6} />
+          </ProgressRing>
+        ) : null}
+        title={shownProgress?.label}
+        description={shownProgress ? <span className="text-[15px]">{progressHint}</span> : undefined}
+        headerAside={shownProgress ? (
+          <span className="text-[28px] font-semibold leading-none tabular-nums text-primary">{shownProgress.percent}%</span>
+        ) : null}
+        headerClassName="px-6 pt-6 pb-5 sm:px-8 sm:pt-8 sm:pb-6"
+        bodyClassName="px-6 pb-7 sm:px-8 sm:pb-8"
+        style={workbench ? WORKBENCH_TONE : undefined}
+      >
+        {shownProgress && (
+          <div className="space-y-6">
+            <Progress value={shownProgress.percent} className="h-2" />
+            <ProgressSteps steps={progressView.steps} current={progressView.current} />
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+      </Modal>
+      <ModalRoot
+        open={!skpRequirements.open && confirmShown && draft != null}
+        onOpenChange={(open) => {
+          if (open || busy != null || partsBusy) return;
+          setConfirmShown(false);
+          setDraft(null);
+        }}
+      >
+        <ModalContent
+          className="flex h-[min(820px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] max-w-[min(1080px,calc(100vw-1.5rem))] flex-col gap-0 p-0"
+          hideClose
+          bodyClassName="p-0 overflow-visible"
+          style={workbench ? WORKBENCH_TONE : undefined}
+          onInteractOutside={(event) => { if (busy != null || partsBusy) event.preventDefault(); }}
+          onEscapeKeyDown={(event) => { if (busy != null || partsBusy) event.preventDefault(); }}
+        >
+          {draft && (
+            <StructureConfirmForm
+              draft={draft}
+              shownStyle={shownStyle}
+              preview={previewModel}
+              generating={busy != null}
+              partsBusy={partsBusy}
+              onChange={updateDraft}
+              onGenerate={() => void generate()}
+              onCancel={() => {
+                setDraft(null);
+                setConfirmShown(false);
+              }}
+              onLoadParts={() => void loadParts()}
+              onResizePart={resizePart}
+              onRemovePart={removePart}
+              fittedParts={draft.kind === 'custom' ? fittedParts(draft) : []}
+            />
+          )}
+        </ModalContent>
+      </ModalRoot>
       {skp && skp.status !== 'none' && (
         <p className={skp.status === 'failed' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
           {skpStatusText(skp)}
@@ -2157,7 +2308,7 @@ function ProductDetailPage({
         }
       }}
       onOpenProduct={onOpenProduct}
-      actions={(openAr) => (
+      actions={() => (
         <div
           className="text-slate-900"
           style={{
@@ -2175,7 +2326,6 @@ function ProductDetailPage({
             canManage={detail.can_view_cost}
             onChanged={onModelsChanged}
             onFiles={setModelFiles}
-            onAr={openAr}
             appearance="workbench"
           />
         </div>
