@@ -12,7 +12,8 @@
  * must be the same string as PDF_SPLIT_SECRET. This file does not read CRON_SECRET.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash } from 'node:crypto';
+import { readEnv, secretsMatch } from './pdfSplitSecret.mjs';
 import { partStoragePath, PDF_EDGE_MAX_BYTES, splitPdfUnderTarget } from '../src/lib/pdfSplitCore.mjs';
 
 export const maxDuration = 800;
@@ -52,14 +53,6 @@ function permanent(message: string): boolean {
     || message.includes('document_not_found');
 }
 
-function secretsMatch(provided: string | null, expected: string): boolean {
-  if (!provided || !expected) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
 function providedSecret(req: Request): string | null {
   const header = req.headers.get('x-pdf-split-secret');
   if (header) return header;
@@ -69,7 +62,7 @@ function providedSecret(req: Request): string | null {
 }
 
 function authorized(req: Request): boolean {
-  return secretsMatch(providedSecret(req), process.env.PDF_SPLIT_SECRET ?? '');
+  return secretsMatch(providedSecret(req), readEnv(process.env.PDF_SPLIT_SECRET));
 }
 
 async function kickEdge(url: string, key: string) {
@@ -173,8 +166,8 @@ async function processJob(db: SupabaseClient, job: SplitJob, url: string, key: s
 async function handle(req: Request): Promise<Response> {
   if (!authorized(req)) return json({ error: 'Unauthorized' }, 401);
 
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = readEnv(process.env.SUPABASE_URL);
+  const key = readEnv(process.env.SUPABASE_SERVICE_ROLE_KEY);
   if (!url || !key) return json({ error: 'Supabase not configured' }, 500);
 
   const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
