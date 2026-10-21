@@ -106,6 +106,8 @@ Deno.serve(async (req: Request) => {
     p_in_stock: f.in_stock ?? null,
     p_scope: f.scope || "all",
     p_limit: 5,
+    // The keyword box applies to image search too, so changing it refreshes the hits.
+    p_text: typeof f.text === "string" && f.text.trim() ? f.text.trim() : null,
   });
   if (error) return json({ error: error.message }, 400);
   return json(data);
