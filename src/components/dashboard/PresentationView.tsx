@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight, CheckCircle2, ExternalLink, Info, Link2, Loader2,
+  ArrowRight, CheckCircle2, ExternalLink, FileText, Info, Link2, Loader2,
   Presentation as PresentationIcon, RefreshCcw, Save, Search, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -37,8 +37,10 @@ import {
 const PAGE_SIZE = 50;
 const MAX_ITEMS = 30;
 const PRESENTATION_PATH = '/fds/pm/presentation';
+const TITLE_MAX = 100;
 const PURPOSE_MAX = 200;
 const CONTENT_MAX = 1000;
+const SIDEBAR_PREVIEW = 3;
 const AUTOFILL_DOC_HREF = `https://github.com/chifung-BWSolution/furniture1000/blob/develop/${CANVA_AUTOFILL_DOC_PATH}`;
 const LANGUAGE_OPTIONS = ['繁體中文', '簡體中文', 'English', '中英對照'];
 const STYLE_OPTIONS = ['專業、簡潔', '簡約現代', '高端精品', '活潑清晰'];
@@ -71,17 +73,84 @@ function CanvaMark({ className }: { className?: string }) {
   );
 }
 
-function SlideStack({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 128 104" className={className} aria-hidden>
-      <rect x="34" y="16" width="78" height="52" rx="10" className="fill-indigo-200 dark:fill-indigo-400/35" transform="rotate(8 73 42)" />
-      <rect x="22" y="22" width="78" height="52" rx="10" className="fill-violet-300 dark:fill-violet-400/45" transform="rotate(-7 61 48)" />
-      <rect x="16" y="30" width="84" height="58" rx="12" className="fill-white stroke-indigo-200 dark:fill-slate-900 dark:stroke-indigo-300/40" strokeWidth="1.5" />
-      <rect x="28" y="44" width="34" height="7" rx="3.5" className="fill-indigo-500" />
-      <rect x="28" y="58" width="58" height="4" rx="2" className="fill-indigo-200 dark:fill-indigo-300/50" />
-      <rect x="28" y="68" width="46" height="4" rx="2" className="fill-violet-200 dark:fill-violet-300/40" />
-    </svg>
-  );
+function sessionTitle(session: CanvaDesignSession): string {
+  const title = (session.brief as CanvaDesignBrief | null)?.title?.trim();
+  return title || '未命名';
+}
+
+function sessionClient(session: CanvaDesignSession): string {
+  return (session.brief as CanvaDesignBrief | null)?.client?.trim() || '—';
+}
+
+/** Only a real stored https URL. There is no thumbnail column today. */
+function sessionThumbnail(session: CanvaDesignSession): string | null {
+  const extra = session as CanvaDesignSession & {
+    thumbnail_url?: unknown;
+    thumbnail?: unknown;
+  };
+  const brief = (session.brief ?? {}) as CanvaDesignBrief & {
+    thumbnailUrl?: unknown;
+    thumbnail_url?: unknown;
+  };
+  const report = session.populate_report ?? {};
+  const candidates = [
+    extra.thumbnail_url,
+    extra.thumbnail,
+    brief.thumbnailUrl,
+    brief.thumbnail_url,
+    report.thumbnail_url,
+    report.thumbnail,
+  ];
+  for (const value of candidates) {
+    if (typeof value === 'string' && /^https:\/\//i.test(value)) return value;
+  }
+  return null;
+}
+
+function isCanvaDesign(session: CanvaDesignSession): boolean {
+  return Boolean(session.canva_design_id || session.edit_url);
+}
+
+function designStatusLine(session: CanvaDesignSession): string {
+  const pages = (session.brief as CanvaDesignBrief | null)?.pageCount;
+  const exported = session.status === 'exported' || Boolean(session.export_download_url);
+  const state = exported ? '已匯出 PPTX' : 'Canva 編輯中';
+  return typeof pages === 'number' && pages > 0 ? `${pages} 頁・${state}` : state;
+}
+
+function formatRecentTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const zone = 'Asia/Hong_Kong';
+  const time = new Intl.DateTimeFormat('zh-HK', {
+    timeZone: zone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date);
+  const dayKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const yesterday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(Date.now() - 86_400_000));
+  if (dayKey === today) return `今天 ${time}`;
+  if (dayKey === yesterday) return `昨天 ${time}`;
+  const month = Number(dayKey.slice(5, 7));
+  const day = Number(dayKey.slice(8, 10));
+  return `${month}月${day}日 ${time}`;
 }
 
 function StepCard({
@@ -162,6 +231,8 @@ export function PresentationView() {
   const [versionRows, setVersionRows] = useState<CanvaSessionVersionRow[]>([]);
   const [exportRows, setExportRows] = useState<CanvaDesignExportRow[]>([]);
   const [autofillProbe, setAutofillProbe] = useState<Awaited<ReturnType<typeof probeCanvaNative>> | null>(null);
+  const [showAllDrafts, setShowAllDrafts] = useState(false);
+  const [showAllDesigns, setShowAllDesigns] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     const [statusValue, role] = await Promise.all([
@@ -460,158 +531,55 @@ export function PresentationView() {
     outlineRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const openCanvaShortcut = () => {
-    if (canvaLink?.edit_url) {
-      window.open(canvaLink.edit_url, '_blank', 'noopener,noreferrer');
-      return;
+  const openDesignRow = (session: CanvaDesignSession) => {
+    loadSession(session);
+    if (session.edit_url) {
+      window.open(session.edit_url, '_blank', 'noopener,noreferrer');
     }
-    document.getElementById('canva-connection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const searchResults = result?.items ?? [];
   const selectedIds = useMemo(() => new Set(selected.map((i) => i.id)), [selected]);
+  const titleCount = brief.title.length;
   const purposeCount = (brief.purpose ?? '').length;
   const contentCount = (brief.content ?? '').length;
+  const draftSessions = useMemo(() => sessions.filter((s) => !isCanvaDesign(s)), [sessions]);
+  const designSessions = useMemo(() => sessions.filter(isCanvaDesign), [sessions]);
+  const visibleDrafts = showAllDrafts ? draftSessions : draftSessions.slice(0, SIDEBAR_PREVIEW);
+  const visibleDesigns = showAllDesigns ? designSessions : designSessions.slice(0, SIDEBAR_PREVIEW);
   const languageOptions = optionsWithCurrent(LANGUAGE_OPTIONS, brief.language);
   const styleOptions = optionsWithCurrent(STYLE_OPTIONS, brief.style);
   const showAutofillWarning = Boolean(canImport && autofillProbe && !autofillProbe.ok);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-50 text-foreground dark:bg-background">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-6xl space-y-5 px-4 py-5 md:px-6 md:py-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/30">
-                <PresentationIcon className="h-6 w-6" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">客戶簡報（Canva）</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  F-AI-009：內容確認 → Autofill → Canva 編輯 → 匯出 PPTX 驗收（T-903 版本 / 匯出紀錄）
-                </p>
-              </div>
+    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
+      <div className="mx-auto grid w-full max-w-7xl items-start gap-5 px-4 py-5 md:px-6 lg:grid-cols-3">
+        <div className="min-w-0 space-y-5 lg:col-span-2">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/30">
+              <PresentationIcon className="h-6 w-6" />
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-10 shrink-0 self-start rounded-xl border-border bg-white px-4 shadow-sm hover:bg-slate-50 dark:bg-card dark:hover:bg-accent sm:self-center"
-              onClick={openCanvaShortcut}
-            >
-              <CanvaMark className="h-4 w-4" />
-              Canva 簡報
-            </Button>
+            <div className="min-w-0">
+              <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">客戶簡報（Canva）</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                F-AI-009：內容確認 → Autofill → Canva 編輯 → 匯出 PPTX 驗收（T-903 版本 / 匯出紀錄）
+              </p>
+            </div>
           </div>
-
-          <section
-            id="canva-connection"
-            className="scroll-mt-4 overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-violet-50 to-white shadow-sm dark:border-indigo-500/20 dark:from-indigo-950/50 dark:via-violet-950/35 dark:to-card"
-          >
-            <div className="flex items-center gap-4 p-4 sm:gap-5 sm:p-6">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white shadow-md ring-4 ring-white/80 dark:bg-indigo-950 dark:ring-indigo-500/20">
-                <CanvaMark className="h-11 w-11" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="text-lg font-bold text-foreground">Canva 連接</h3>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  公司帳戶 chifung.login（admin／傢俬組）。T-902 Autofill 需 Pro／Teams 方案、品牌模板 ID，以及
-                  brandtemplate／asset scopes。
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {!canva && (
-                    <span className="text-sm text-muted-foreground">
-                      <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />
-                      偵測中…
-                    </span>
-                  )}
-                  {canva && !canva.configured && (
-                    <p className="text-sm text-muted-foreground">
-                      請在 Edge secrets 設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，redirect URI：
-                      <code className="ml-1 rounded bg-background/80 px-1">{`<域名>${PRESENTATION_PATH}`}</code>
-                    </p>
-                  )}
-                  {canva?.configured && !canImport && (
-                    <p className="text-sm text-muted-foreground">僅 admin／傢俬組可使用 Canva 簡報功能。</p>
-                  )}
-                  {canva?.configured && canImport && !connected && (
-                    <Button type="button" onClick={connect} disabled={disabled} className="bg-indigo-600 text-white hover:bg-indigo-500">
-                      <Link2 className="h-4 w-4" /> 連接 Canva
-                    </Button>
-                  )}
-                  {connected && (
-                    <>
-                      <span className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-500 bg-white px-3 text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                        <CheckCircle2 className="h-4 w-4" />
-                        已連接{canva?.account_name ? `：${canva.account_name}` : ''}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9 rounded-lg bg-white dark:bg-card"
-                        onClick={refreshStatus}
-                      >
-                        <RefreshCcw className="h-4 w-4" />
-                        重新檢查
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9 rounded-lg bg-white dark:bg-card"
-                        onClick={disconnect}
-                        disabled={disabled}
-                      >
-                        <RefreshCcw className="h-4 w-4" />
-                        解除連接
-                      </Button>
-                    </>
-                  )}
-                  {canImport && autofillProbe?.ok && (
-                    <span className="text-sm text-emerald-700 dark:text-emerald-300">Autofill 已就緒（品牌模板已配置）。</span>
-                  )}
-                </div>
-              </div>
-              <SlideStack className="hidden h-24 w-28 shrink-0 lg:block" />
-            </div>
-          </section>
-
-          {showAutofillWarning && (
-            <div className="flex flex-col gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-orange-950 sm:flex-row sm:items-center dark:border-orange-500/30 dark:bg-orange-950/40 dark:text-orange-100">
-              <Info className="h-5 w-5 shrink-0 text-orange-500" />
-              <div className="min-w-0 flex-1 text-sm">
-                <p>
-                  {autofillProbe?.message ??
-                    'Autofill 未就緒：請設定 CANVA_BRAND_TEMPLATE_ID、確認 Canva Pro+，並重新 OAuth。'}
-                </p>
-                {autofillProbe?.missing_scopes?.length ? (
-                  <p className="mt-1 text-xs text-orange-800/80 dark:text-orange-200/80">
-                    缺少 scope：{autofillProbe.missing_scopes.join(', ')}
-                  </p>
-                ) : null}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0 bg-white text-orange-950 hover:bg-orange-100 dark:bg-card dark:text-orange-100 dark:hover:bg-orange-950"
-                asChild
-              >
-                <a href={AUTOFILL_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a>
-              </Button>
-            </div>
-          )}
 
           <StepCard
             n={1}
-            title="匯報內容與設計要求"
+            title="簡報內容與設計要求"
             hint="可不選產品；提交前請確認大綱。建立時會以品牌模板 Autofill 填入封面、大綱與產品圖文（若已配置模板）。"
           >
             <div className="space-y-4">
-              <Field label="簡報標題" required>
+              <Field label="簡報標題" required counter={`${titleCount}/${TITLE_MAX}`}>
                 <Input
                   className="h-10 rounded-lg bg-background"
                   value={brief.title}
                   aria-required
-                  onChange={(e) => setBrief((b) => ({ ...b, title: e.target.value }))}
+                  maxLength={TITLE_MAX}
+                  onChange={(e) => setBrief((b) => ({ ...b, title: e.target.value.slice(0, TITLE_MAX) }))}
                   placeholder="例：2026 Q3 方案匯報"
                 />
               </Field>
@@ -642,61 +610,90 @@ export function PresentationView() {
                   placeholder="例：向客戶說明本季方案重點、報價範圍與下一步"
                 />
               </Field>
-              <div className="grid gap-4 lg:grid-cols-3">
-                <div className="grid content-start gap-4 sm:grid-cols-2 lg:col-span-2">
-                  <Field label="語言">
-                    <Select
-                      value={brief.language || '繁體中文'}
-                      onValueChange={(value) => setBrief((b) => ({ ...b, language: value }))}
-                    >
-                      <SelectTrigger className="h-10 rounded-lg bg-background">
-                        <SelectValue placeholder="選擇語言" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {languageOptions.map((option) => (
-                          <SelectItem key={option} value={option}>{option}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="風格">
-                    <Select
-                      value={brief.style || '專業、簡潔'}
-                      onValueChange={(value) => setBrief((b) => ({ ...b, style: value }))}
-                    >
-                      <SelectTrigger className="h-10 rounded-lg bg-background">
-                        <SelectValue placeholder="選擇風格" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {styleOptions.map((option) => (
-                          <SelectItem key={option} value={option}>{option}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <div className="sm:col-span-2">
-                  <Field label="期望頁數" hint="建議 8–20 頁">
-                    <Input
-                      className="h-10 max-w-xs rounded-lg bg-background"
-                      type="number"
-                      min={4}
-                      max={40}
-                      value={brief.pageCount ?? ''}
-                      onChange={(e) => setBrief((b) => ({ ...b, pageCount: Number(e.target.value) || undefined }))}
-                      placeholder="12"
-                    />
-                  </Field>
-                  </div>
-                </div>
-                <Field label="匯報原文" counter={`${contentCount}/${CONTENT_MAX}`}>
-                  <Textarea
-                    className="min-h-[10.5rem] rounded-lg bg-background lg:min-h-[11.5rem]"
-                    value={brief.content ?? ''}
-                    maxLength={CONTENT_MAX}
-                    onChange={(e) => setBrief((b) => ({ ...b, content: e.target.value.slice(0, CONTENT_MAX) }))}
-                    placeholder="可貼上客戶提供的匯報原文"
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="語言">
+                  <Select
+                    value={brief.language || '繁體中文'}
+                    onValueChange={(value) => setBrief((b) => ({ ...b, language: value }))}
+                  >
+                    <SelectTrigger className="h-10 rounded-lg bg-background">
+                      <SelectValue placeholder="選擇語言" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {languageOptions.map((option) => (
+                        <SelectItem key={option} value={option}>{option}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="風格">
+                  <Select
+                    value={brief.style || '專業、簡潔'}
+                    onValueChange={(value) => setBrief((b) => ({ ...b, style: value }))}
+                  >
+                    <SelectTrigger className="h-10 rounded-lg bg-background">
+                      <SelectValue placeholder="選擇風格" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {styleOptions.map((option) => (
+                        <SelectItem key={option} value={option}>{option}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+              <div className="sm:w-1/2">
+                <Field label="期望頁數" hint="建議 8–20 頁">
+                  <Input
+                    className="h-10 rounded-lg bg-background"
+                    type="number"
+                    min={4}
+                    max={40}
+                    value={brief.pageCount ?? ''}
+                    onChange={(e) => setBrief((b) => ({ ...b, pageCount: Number(e.target.value) || undefined }))}
+                    placeholder="12"
                   />
                 </Field>
+              </div>
+              <Field label="匯報原文" counter={`${contentCount}/${CONTENT_MAX}`}>
+                <Textarea
+                  className="min-h-[8rem] rounded-lg bg-background"
+                  value={brief.content ?? ''}
+                  maxLength={CONTENT_MAX}
+                  onChange={(e) => setBrief((b) => ({ ...b, content: e.target.value.slice(0, CONTENT_MAX) }))}
+                  placeholder="可貼上客戶提供的匯報原文"
+                />
+              </Field>
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-background"
+                  disabled={disabled}
+                  onClick={clearForm}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  清空表單
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-background"
+                  disabled={disabled || !canImport}
+                  onClick={saveDraft}
+                >
+                  {status === 'creating' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  儲存草稿
+                </Button>
+                <Button
+                  type="button"
+                  className="bg-indigo-600 text-white hover:bg-indigo-500"
+                  disabled={disabled}
+                  onClick={generateOutline}
+                >
+                  生成簡報大綱
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </StepCard>
@@ -762,15 +759,22 @@ export function PresentationView() {
                   placeholder="例：客戶回饋後第二稿"
                 />
               </Field>
-              <Button
-                type="button"
-                className="bg-indigo-600 text-white hover:bg-indigo-500"
-                disabled={!canCreateNative || disabled}
-                onClick={createNative}
-              >
-                {status === 'creating' && <Loader2 className="h-4 w-4 animate-spin" />}
-                建立並填入 Canva 簡報
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  className="bg-indigo-600 text-white hover:bg-indigo-500"
+                  disabled={!canCreateNative || disabled}
+                  onClick={createNative}
+                >
+                  {status === 'creating' && <Loader2 className="h-4 w-4 animate-spin" />}
+                  建立並填入 Canva 簡報
+                </Button>
+                {activeSession?.canva_design_id && (
+                  <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => newVersion(activeSession)}>
+                    新版本
+                  </Button>
+                )}
+              </div>
               {!canvaPathReady && canImport && (
                 <p className="text-xs text-amber-700 dark:text-amber-300">請先連接 Canva 後再建立設計。</p>
               )}
@@ -842,79 +846,163 @@ export function PresentationView() {
               )}
             </div>
           </StepCard>
+        </div>
 
-          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
-            <h3 className="mb-4 text-base font-bold text-foreground">最近草稿與設計</h3>
-            <div className="space-y-2">
-              {sessions.length === 0 && (
-                <p className="text-sm text-muted-foreground">尚無紀錄；儲存草稿或建立設計後會出現於此。</p>
+        <aside className="min-w-0 space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:self-start lg:overflow-y-auto">
+          <section id="canva-connection" className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+            <div className="flex flex-col items-center text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white shadow-md ring-4 ring-indigo-50 dark:bg-indigo-950 dark:ring-indigo-500/20">
+                <CanvaMark className="h-11 w-11" />
+              </div>
+              <h3 className="mt-3 text-base font-bold text-foreground">Canva 連接</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                公司帳戶 {canva?.account_name || 'chifung.login'}（admin / 傢俬組）
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Autofill 需 Canva Pro／Teams，以及品牌模板與 brandtemplate／asset scopes。
+              </p>
+            </div>
+            <div className="mt-4 space-y-2">
+              {!canva && (
+                <p className="text-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />
+                  偵測中…
+                </p>
               )}
-              {sessions.map((s) => (
-                <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-xl border bg-background p-2 text-sm">
-                  <Badge variant="outline">{s.status}</Badge>
-                  {s.generation_mode && (
-                    <Badge variant="secondary" className="text-xs">{s.generation_mode}</Badge>
-                  )}
-                  {s.content_version != null && (
-                    <Badge variant="outline" className="text-xs tabular-nums">v{s.content_version}</Badge>
-                  )}
-                  <span className="min-w-0 flex-1 truncate font-medium">
-                    {(s.brief as CanvaDesignBrief).title || '未命名'}
+              {canva && !canva.configured && (
+                <p className="text-xs text-muted-foreground">
+                  請在 Edge secrets 設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，redirect URI：
+                  <code className="ml-1 rounded bg-muted px-1">{`<域名>${PRESENTATION_PATH}`}</code>
+                </p>
+              )}
+              {canva?.configured && !canImport && (
+                <p className="text-sm text-muted-foreground">僅 admin／傢俬組可使用 Canva 簡報功能。</p>
+              )}
+              {canva?.configured && canImport && !connected && (
+                <Button type="button" className="w-full bg-indigo-600 text-white hover:bg-indigo-500" onClick={connect} disabled={disabled}>
+                  <Link2 className="h-4 w-4" /> 連接 Canva
+                </Button>
+              )}
+              {connected && (
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-emerald-500 bg-emerald-50 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    已連接
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(s.created_at).toLocaleString()}
-                  </span>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => loadSession(s)}>載入</Button>
-                  {s.edit_url && (
-                    <Button type="button" size="sm" variant="ghost" asChild>
-                      <a href={s.edit_url} target="_blank" rel="noreferrer">Canva</a>
-                    </Button>
-                  )}
-                  {s.status === 'ready' && (
-                    <Button type="button" size="sm" variant="outline" onClick={() => exportPptx(s.id)}>匯出 PPTX</Button>
-                  )}
-                  {s.canva_design_id && (
-                    <Button type="button" size="sm" variant="outline" onClick={() => newVersion(s)}>新版本</Button>
-                  )}
+                  <Button type="button" variant="outline" className="h-9 bg-background px-1 text-xs" onClick={refreshStatus}>
+                    <RefreshCcw className="h-3.5 w-3.5" />
+                    重新檢查
+                  </Button>
+                  <Button type="button" variant="outline" className="h-9 bg-background px-1 text-xs" onClick={disconnect} disabled={disabled}>
+                    <RefreshCcw className="h-3.5 w-3.5" />
+                    解除連接
+                  </Button>
                 </div>
-              ))}
+              )}
+              {canImport && autofillProbe?.ok && (
+                <p className="text-center text-xs text-emerald-700 dark:text-emerald-300">Autofill 已就緒（品牌模板已配置）。</p>
+              )}
+              {showAutofillWarning && (
+                <div className="rounded-lg bg-orange-50 px-3 py-2 text-xs text-orange-900 dark:bg-orange-950/40 dark:text-orange-100">
+                  <p className="flex gap-1.5">
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500" />
+                    <span>
+                      {autofillProbe?.message ??
+                        'Autofill 未就緒：請設定 CANVA_BRAND_TEMPLATE_ID、確認 Canva Pro+，並重新 OAuth。'}
+                      {autofillProbe?.missing_scopes?.length ? ` 缺少 scope：${autofillProbe.missing_scopes.join(', ')}。` : ''}
+                      {' '}
+                      <a className="underline" href={AUTOFILL_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a>
+                    </span>
+                  </p>
+                </div>
+              )}
             </div>
           </section>
-        </div>
-      </div>
 
-      <div className="shrink-0 border-t border-border bg-white/95 px-4 py-3 shadow-[0_-8px_24px_-16px_rgba(15,23,42,0.45)] backdrop-blur dark:bg-card/95 sm:px-6">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="bg-white dark:bg-background"
-            disabled={disabled}
-            onClick={clearForm}
-          >
-            <Trash2 className="h-4 w-4" />
-            清空表單
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="bg-white dark:bg-background"
-            disabled={disabled || !canImport}
-            onClick={saveDraft}
-          >
-            {status === 'creating' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            儲存草稿
-          </Button>
-          <Button
-            type="button"
-            className="bg-indigo-600 text-white hover:bg-indigo-500"
-            disabled={disabled}
-            onClick={generateOutline}
-          >
-            生成簡報大綱
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </div>
+          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-foreground">最近草稿</h3>
+              <button
+                type="button"
+                className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                onClick={() => setShowAllDrafts((open) => !open)}
+              >
+                {showAllDrafts ? '收起' : '查看全部'}
+              </button>
+            </div>
+            {draftSessions.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">尚無草稿</p>
+            ) : (
+              <ul className="space-y-2">
+                {visibleDrafts.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      onClick={() => loadSession(s)}
+                      className="flex w-full items-start gap-3 rounded-xl border border-transparent px-1 py-2 text-left hover:bg-muted/60"
+                    >
+                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">
+                        <FileText className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-start justify-between gap-2">
+                          <span className="truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
+                          <Badge className="shrink-0 border-transparent bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200">草稿</Badge>
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">客戶：{sessionClient(s)}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-foreground">最近 Canva 設計</h3>
+              <button
+                type="button"
+                className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                onClick={() => setShowAllDesigns((open) => !open)}
+              >
+                {showAllDesigns ? '收起' : '查看全部'}
+              </button>
+            </div>
+            {designSessions.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">尚無 Canva 設計</p>
+            ) : (
+              <ul className="space-y-2">
+                {visibleDesigns.map((s) => {
+                  const thumb = sessionThumbnail(s);
+                  return (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        onClick={() => openDesignRow(s)}
+                        className="flex w-full items-start gap-3 rounded-xl border border-transparent px-1 py-2 text-left hover:bg-muted/60"
+                      >
+                        {thumb ? (
+                          <img src={thumb} alt="" className="h-12 w-16 shrink-0 rounded-md object-cover" />
+                        ) : (
+                          <span className="flex h-12 w-16 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                            <PresentationIcon className="h-4 w-4" />
+                          </span>
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{designStatusLine(s)}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </aside>
       </div>
     </div>
   );
