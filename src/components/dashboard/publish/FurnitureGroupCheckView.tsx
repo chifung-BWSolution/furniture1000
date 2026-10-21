@@ -22,6 +22,7 @@ import {
   type ProductCategoryPair,
 } from '@/lib/productCategoryOptions';
 import { toast } from 'sonner';
+import { ModalContent, ModalRoot } from '@/components/ui/modal';
 
 const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/jpg,image/webp,image/avif,image/png';
 
@@ -582,14 +583,14 @@ export function FGProductDetailModal({
   const textareaCls = `${inputCls} resize-none`;
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="relative flex flex-col bg-background rounded-2xl shadow-2xl overflow-hidden border border-border"
+    <ModalRoot open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <ModalContent
+        hideClose
+        variant="bleed"
+        size="full"
+        className="bg-background"
+        bodyClassName="flex flex-col overflow-hidden p-0"
         style={{ width: '1200px', height: '800px', maxWidth: '96vw', maxHeight: '96vh' }}
-        onClick={(e) => e.stopPropagation()}
       >
         {/* ── Modal Header ── */}
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-6 py-3.5">
@@ -1017,8 +1018,8 @@ export function FGProductDetailModal({
             </div>
           </div>
         ) : null}
-      </div>
-    </div>
+      </ModalContent>
+    </ModalRoot>
   );
 }
 

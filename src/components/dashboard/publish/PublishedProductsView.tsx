@@ -26,16 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import { Checkbox } from '@/components/ui/checkbox';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
@@ -3590,117 +3581,104 @@ export function PublishedProductsView({
       </div>
 
       {/* ── Shopify Import Dialog ─────────────────────────────────────── */}
-      {showImportDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => !isImporting && setShowImportDialog(false)}>
-          <div className="relative flex flex-col bg-card border border-border rounded-2xl shadow-2xl w-full max-w-[62rem] max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-              <div className="flex items-center gap-2">
-                <Store className="h-5 w-5 text-emerald-600" />
-                <h3 className="font-display text-base font-bold">從 Shopify 導入產品</h3>
-                <span className="font-mono-data text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                  共 {previewProducts.length} 件 · 已選 {selectedImportIds.size} 件
-                </span>
-              </div>
-              <button onClick={() => setShowImportDialog(false)} disabled={isImporting} className="rounded-full p-1.5 hover:bg-muted transition-colors text-muted-foreground">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+      <Modal
+        open={showImportDialog}
+        onOpenChange={(open) => { if (!open && !isImporting) setShowImportDialog(false); }}
+        size="5xl"
+        className="max-w-[62rem]"
+        icon={<Store className="h-6 w-6" />}
+        title="從 Shopify 導入產品"
+        description={`已選 ${selectedImportIds.size} / ${previewProducts.length} 件產品。已有本地資料的產品會略過。`}
+        onPointerDownOutside={(event) => { if (isImporting) event.preventDefault(); }}
+        footer={
+          <>
+            <ModalButton
+              onClick={handleConfirmImport}
+              disabled={isImporting || selectedImportIds.size === 0}
+            >
+              {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
+              {isImporting ? '導入中...' : `確定導入 ${selectedImportIds.size} 件`}
+            </ModalButton>
+            <ModalButton
+              variant="ghost"
+              onClick={() => setShowImportDialog(false)}
+              disabled={isImporting}
+            >
+              取消
+            </ModalButton>
+          </>
+        }
+      >
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input value={importSearch} onChange={e => setImportSearch(e.target.value)} placeholder="搜尋產品名稱或廠商..." className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+        </div>
 
-            {/* Search */}
-            <div className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0 bg-muted/20">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input value={importSearch} onChange={e => setImportSearch(e.target.value)} placeholder="搜尋產品名稱或廠商..." className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
-              </div>
-            </div>
-
-            {/* Product list */}
-            <div className="flex-1 overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border">
-                  <tr className="text-xs text-muted-foreground uppercase tracking-wider">
-                    <th className="w-10 px-4 py-2.5">
-                      <input
-                        type="checkbox"
-                        checked={filteredPreview.length > 0 && filteredPreview.every(p => selectedImportIds.has(p.shopify_product_id))}
-                        onChange={e => {
-                          setSelectedImportIds(prev => {
-                            const n = new Set(prev);
-                            filteredPreview.forEach(p => e.target.checked ? n.add(p.shopify_product_id) : n.delete(p.shopify_product_id));
-                            return n;
-                          });
-                        }}
-                        className="rounded border-border"
-                        title="全選"
-                      />
-                    </th>
-                    <th className="px-3 py-2.5 text-left font-medium">產品</th>
-                    <th className="px-3 py-2.5 text-left font-medium">廠商</th>
-                    <th className="px-3 py-2.5 text-left font-medium">類型</th>
-                    <th className="px-3 py-2.5 text-right font-medium">價格</th>
-                    <th className="px-3 py-2.5 text-left font-medium">狀態</th>
+        <div className="mt-3 overflow-hidden rounded-xl border border-border">
+          <div className="max-h-[52vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border">
+                <tr className="text-xs text-muted-foreground uppercase tracking-wider">
+                  <th className="w-10 px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={filteredPreview.length > 0 && filteredPreview.every(p => selectedImportIds.has(p.shopify_product_id))}
+                      onChange={e => {
+                        setSelectedImportIds(prev => {
+                          const n = new Set(prev);
+                          filteredPreview.forEach(p => e.target.checked ? n.add(p.shopify_product_id) : n.delete(p.shopify_product_id));
+                          return n;
+                        });
+                      }}
+                      className="rounded border-border"
+                      title="全選"
+                    />
+                  </th>
+                  <th className="px-3 py-2.5 text-left font-medium">產品</th>
+                  <th className="px-3 py-2.5 text-left font-medium">廠商</th>
+                  <th className="px-3 py-2.5 text-left font-medium">類型</th>
+                  <th className="px-3 py-2.5 text-right font-medium">價格</th>
+                  <th className="px-3 py-2.5 text-left font-medium">狀態</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {filteredPreview.map(p => (
+                  <tr key={p.shopify_product_id} className={cn('hover:bg-muted/30 cursor-pointer', selectedImportIds.has(p.shopify_product_id) && 'bg-emerald-500/5')} onClick={() => toggleImportSelect(p.shopify_product_id)}>
+                    <td className="px-4 py-2.5">
+                      <input type="checkbox" checked={selectedImportIds.has(p.shopify_product_id)} onChange={() => toggleImportSelect(p.shopify_product_id)} onClick={e => e.stopPropagation()} className="rounded border-border" />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2.5">
+                        {p.image_url ? (
+                          <LoadingImage src={productThumbUrl(p.image_url)} alt={p.title} loading="lazy" decoding="async" className="h-9 w-9 rounded-md object-cover bg-muted flex-shrink-0" />
+                        ) : (
+                          <div className="h-9 w-9 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
+                            <Store className="h-4 w-4 text-muted-foreground/40" />
+                          </div>
+                        )}
+                        <span className="font-medium text-foreground text-xs line-clamp-2 max-w-[220px]">{p.title}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground">{p.vendor || '—'}</td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground">{p.product_type || '—'}</td>
+                    <td className="px-3 py-2.5 text-right font-mono-data text-xs">{p.price > 0 ? `$${p.price.toLocaleString()}` : '—'}</td>
+                    <td className="px-3 py-2.5">
+                      <span className={cn('inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium border',
+                        p.status === 'active' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' :
+                        p.status === 'draft' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' :
+                        'bg-muted text-muted-foreground border-border'
+                      )}>{p.status === 'active' ? '已發佈' : p.status === 'draft' ? '草稿' : '已下架'}</span>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40">
-                  {filteredPreview.map(p => (
-                    <tr key={p.shopify_product_id} className={cn('hover:bg-muted/30 cursor-pointer', selectedImportIds.has(p.shopify_product_id) && 'bg-emerald-500/5')} onClick={() => toggleImportSelect(p.shopify_product_id)}>
-                      <td className="px-4 py-2.5">
-                        <input type="checkbox" checked={selectedImportIds.has(p.shopify_product_id)} onChange={() => toggleImportSelect(p.shopify_product_id)} onClick={e => e.stopPropagation()} className="rounded border-border" />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          {p.image_url ? (
-                            <LoadingImage src={productThumbUrl(p.image_url)} alt={p.title} loading="lazy" decoding="async" className="h-9 w-9 rounded-md object-cover bg-muted flex-shrink-0" />
-                          ) : (
-                            <div className="h-9 w-9 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
-                              <Store className="h-4 w-4 text-muted-foreground/40" />
-                            </div>
-                          )}
-                          <span className="font-medium text-foreground text-xs line-clamp-2 max-w-[220px]">{p.title}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground">{p.vendor || '—'}</td>
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground">{p.product_type || '—'}</td>
-                      <td className="px-3 py-2.5 text-right font-mono-data text-xs">{p.price > 0 ? `$${p.price.toLocaleString()}` : '—'}</td>
-                      <td className="px-3 py-2.5">
-                        <span className={cn('inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium border',
-                          p.status === 'active' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' :
-                          p.status === 'draft' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' :
-                          'bg-muted text-muted-foreground border-border'
-                        )}>{p.status === 'active' ? '已發佈' : p.status === 'draft' ? '草稿' : '已下架'}</span>
-                      </td>
-                    </tr>
-                  ))}
-                  {filteredPreview.length === 0 && (
-                    <tr><td colSpan={6} className="px-6 py-10 text-center text-xs text-muted-foreground/60">找不到符合的產品</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-t border-border bg-muted/20 shrink-0">
-              <span className="text-xs text-muted-foreground">
-                已選 <span className="font-semibold text-foreground">{selectedImportIds.size}</span> / {previewProducts.length} 件產品
-              </span>
-              <div className="flex gap-2">
-                <button onClick={() => setShowImportDialog(false)} disabled={isImporting} className="rounded-lg border border-border px-4 py-2 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
-                  取消
-                </button>
-                <button
-                  onClick={handleConfirmImport}
-                  disabled={isImporting || selectedImportIds.size === 0}
-                  className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}
-                  {isImporting ? '導入中...' : `確定導入 ${selectedImportIds.size} 件`}
-                </button>
-              </div>
-            </div>
+                ))}
+                {filteredPreview.length === 0 && (
+                  <tr><td colSpan={6} className="px-6 py-10 text-center text-xs text-muted-foreground/60">找不到符合的產品</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
+      </Modal>
 
       {/* ── Product Detail Modal (FG-style layout) ─────────────────────── */}
       {detailProduct && (
@@ -3744,51 +3722,49 @@ export function PublishedProductsView({
         }}
       />
 
-      <AlertDialog
+      <Modal
         open={categoryConfirmOpen}
         onOpenChange={(open) => {
           setCategoryConfirmOpen(open);
           if (!open) setBulkEditL2('');
         }}
-      >
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="font-display text-base">確認更改分類</AlertDialogTitle>
-            <AlertDialogDescription className="font-body text-sm">
-              是否把所選的{' '}
-              <span className="font-mono-data font-semibold text-foreground">{selectedIds.length}</span>{' '}
-              件產品改到「
-              <span className="font-semibold text-foreground">{bulkEditL1} &gt; {bulkEditL2}</span>
-              」？
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              className="font-display text-xs font-bold"
+        size="md"
+        icon={<FolderTree className="h-6 w-6" />}
+        title="確認更改分類"
+        description={
+          <>
+            是否把所選的{' '}
+            <span className="font-mono-data font-semibold text-foreground">{selectedIds.length}</span>{' '}
+            件產品改到「
+            <span className="font-semibold text-foreground">{bulkEditL1} &gt; {bulkEditL2}</span>
+            」？
+          </>
+        }
+        footer={
+          <>
+            <ModalButton
               disabled={isBulkUpdatingCategory}
-            >
-              否
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="font-display text-xs font-bold"
-              disabled={isBulkUpdatingCategory}
-              onClick={(e) => {
-                e.preventDefault();
-                void confirmBulkCategoryChange();
-              }}
+              onClick={() => void confirmBulkCategoryChange()}
             >
               {isBulkUpdatingCategory ? (
                 <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   更新中...
                 </>
               ) : (
                 '是'
               )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </ModalButton>
+            <ModalButton
+              variant="ghost"
+              disabled={isBulkUpdatingCategory}
+              onClick={() => setCategoryConfirmOpen(false)}
+            >
+              否
+            </ModalButton>
+          </>
+        }
+      />
     </div>
   );
 }

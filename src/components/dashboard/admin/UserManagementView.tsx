@@ -9,6 +9,7 @@ import {
   fetchPlatformAdminData, updatePlatformUserProfile, invitePlatformUser,
 } from '@/lib/adminApi';
 import { toast } from 'sonner';
+import { Modal, ModalButton } from '@/components/ui/modal';
 
 const ROLE_OPTIONS: UserRole[] = ['admin', 'uploader', 'pm', 'designer', 'client'];
 
@@ -228,52 +229,55 @@ export function UserManagementView() {
         </div>
       </div>
 
-      {showInvite && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowInvite(false)}>
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-display text-base font-bold">邀請新用戶</h3>
-              <button type="button" onClick={() => setShowInvite(false)} className="rounded p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+      <Modal
+        open={showInvite}
+        onOpenChange={(open) => { if (!open) setShowInvite(false); }}
+        size="md"
+        icon={<UserPlus className="h-6 w-6" />}
+        title="邀請新用戶"
+        description="輸入新用戶的電郵地址並指派角色，對方會收到邀請連結。"
+        footer={
+          <>
+            <ModalButton onClick={() => void invite()}>
+              <UserPlus className="h-4 w-4" /> 新增用戶
+            </ModalButton>
+            <ModalButton variant="ghost" onClick={() => setShowInvite(false)}>
+              取消
+            </ModalButton>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block font-body text-[12px] font-medium text-muted-foreground">電郵地址</label>
+            <div className="relative">
+              <Mail className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                type="email"
+                placeholder="name@company.com"
+                className="w-full rounded-lg border border-border bg-background pl-8 pr-3 py-2 font-body text-[13px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
             </div>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block font-body text-[12px] font-medium text-muted-foreground">電郵地址</label>
-                <div className="relative">
-                  <Mail className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    type="email"
-                    placeholder="name@company.com"
-                    className="w-full rounded-lg border border-border bg-background pl-8 pr-3 py-2 font-body text-[13px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="mb-1 block font-body text-[12px] font-medium text-muted-foreground">指派角色</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {ROLE_OPTIONS.map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setInviteRole(r)}
-                      className={cn('rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors', inviteRole === r ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
-                    >
-                      {ROLE_META[r].label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setShowInvite(false)} className="rounded-lg border border-border px-3.5 py-2 text-xs font-medium text-muted-foreground hover:bg-accent">取消</button>
-              <button type="button" onClick={() => void invite()} className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90">
-                <UserPlus className="h-3.5 w-3.5" /> 新增用戶
-              </button>
+          </div>
+          <div>
+            <label className="mb-1 block font-body text-[12px] font-medium text-muted-foreground">指派角色</label>
+            <div className="flex flex-wrap gap-1.5">
+              {ROLE_OPTIONS.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setInviteRole(r)}
+                  className={cn('rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors', inviteRole === r ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
+                >
+                  {ROLE_META[r].label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

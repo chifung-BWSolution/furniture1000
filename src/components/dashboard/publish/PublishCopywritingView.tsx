@@ -4,9 +4,11 @@ import {
   UploadCloud, Search, X, Bold, Italic, Underline as UnderlineIcon,
   List, ListOrdered, Image as ImageIcon, Palette,
   AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check, Save, Hash,
-  Ban, Archive, RotateCcw,
+  Ban, Archive, RotateCcw, ImagePlus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Modal, ModalButton } from '@/components/ui/modal';
+import { ImageLightbox as ImageLightboxModal } from '@/components/ui/image-lightbox';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { toast } from 'sonner';
@@ -1377,35 +1379,14 @@ function Field({ label, hint, icon, children }: { label: string; hint?: string; 
 // ─── Image Lightbox ───────────────────────────────────────────────────────────
 
 function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
-
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      {/* Native img so right-click copy/save works normally */}
-      <LoadingImage
-        src={src}
-        alt="預覽"
-        className="max-h-[90vh] max-w-[90vw] rounded-xl shadow-2xl object-contain select-auto"
-        onClick={(e) => e.stopPropagation()}
-        style={{ cursor: 'default' }}
-      />
-      <button
-        onClick={onClose}
-        className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80 transition-colors"
-      >
-        <X className="h-5 w-5" />
-      </button>
-      <p className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-4 py-1.5 font-body text-[11px] text-white/70 pointer-events-none">
-        點擊空白處關閉 · Esc 關閉 · 右鍵可複製或儲存圖片
-      </p>
-    </div>
+    <ImageLightboxModal
+      open
+      onClose={onClose}
+      images={[src]}
+      simple
+      title="預覽"
+    />
   );
 }
 
@@ -1523,22 +1504,35 @@ function ImageUploadDialog({ productId, onConfirm, onClose }: { productId: strin
   const confirmedSrcs = slots.map((s) => s.src).filter(Boolean);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
-      <div
-        className="relative flex flex-col bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-          <div>
-            <h3 className="font-display text-sm font-bold">新增其他圖片</h3>
-            <p className="font-body text-[11px] text-muted-foreground mt-0.5">支援 Ctrl+V 貼上 · 最大 5MB · 自動縮放至 1200×1200</p>
-          </div>
-          <button onClick={onClose} className="rounded-full p-1.5 hover:bg-muted text-muted-foreground"><X className="h-4 w-4" /></button>
-        </div>
-
+    <Modal
+      open
+      onOpenChange={(next) => { if (!next) onClose(); }}
+      size="lg"
+      icon={<ImagePlus className="h-6 w-6" />}
+      title="新增其他圖片"
+      description="支援 Ctrl+V 貼上 · 最大 5MB · 自動縮放至 1200×1200"
+      footer={
+        <>
+          <ModalButton
+            onClick={() => { if (confirmedSrcs.length > 0) { onConfirm(confirmedSrcs); onClose(); } }}
+            disabled={confirmedSrcs.length === 0}
+          >
+            <Check className="h-4 w-4" /> 完成（{confirmedSrcs.length}）
+          </ModalButton>
+          <ModalButton
+            variant="secondary"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <UploadCloud className="h-4 w-4" /> 從本地上傳
+          </ModalButton>
+          <ModalButton variant="ghost" onClick={onClose}>
+            取消
+          </ModalButton>
+        </>
+      }
+    >
         {/* Slot tabs */}
-        <div className="flex items-center gap-1.5 px-5 pt-3 shrink-0 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {slots.map((s, i) => (
             <button
               key={i}
@@ -1561,7 +1555,7 @@ function ImageUploadDialog({ productId, onConfirm, onClose }: { productId: strin
         </div>
 
         {/* Paste / drop area */}
-        <div className="flex-1 overflow-auto px-5 py-4">
+        <div className="mt-3">
           <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
           <div
             ref={pasteAreaRef}
@@ -1619,27 +1613,6 @@ function ImageUploadDialog({ productId, onConfirm, onClose }: { productId: strin
             )}
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-t border-border bg-muted/20 shrink-0">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-xs font-medium hover:bg-muted transition-colors"
-          >
-            <UploadCloud className="h-3.5 w-3.5" /> 從本地上傳
-          </button>
-          <div className="flex items-center gap-2">
-            <span className="font-mono-data text-[11px] text-muted-foreground">{confirmedSrcs.length} 張已就緒</span>
-            <button
-              onClick={() => { if (confirmedSrcs.length > 0) { onConfirm(confirmedSrcs); onClose(); } }}
-              disabled={confirmedSrcs.length === 0}
-              className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40"
-            >
-              <Check className="h-3.5 w-3.5" /> 完成（{confirmedSrcs.length}）
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

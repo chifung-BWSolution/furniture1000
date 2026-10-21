@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { renderPdfPagesToObjectUrls } from '@/lib/floorPlanPdf';
 import { toast } from 'sonner';
+import { ModalContent, ModalRoot } from '@/components/ui/modal';
 import type { DesignProject } from '@/types/solutions';
 
 /** Fit (100%) → staged enlargements requested for the floor-plan viewer. */
@@ -269,18 +270,16 @@ export function FloorPlanViewerModal({
   if (!open || !url) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="flex h-[84vh] w-[84vw] max-h-[84vh] max-w-[84vw] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
+    <ModalRoot open onOpenChange={(next) => { if (!next) onClose(); }}>
+      <ModalContent
+        hideClose
+        variant="bleed"
+        size="full"
+        style={{ width: '84vw', height: '84vh', maxWidth: '84vw', maxHeight: '84vh' }}
+        bodyClassName="flex flex-col overflow-hidden p-0"
         aria-label={`${title} 平面圖預覽`}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <p className="truncate font-display text-base font-bold">{title}</p>
             <p className="text-xs text-muted-foreground">
@@ -428,7 +427,7 @@ export function FloorPlanViewerModal({
             </button>
           </div>
         ) : null}
-      </div>
-    </div>
+      </ModalContent>
+    </ModalRoot>
   );
 }

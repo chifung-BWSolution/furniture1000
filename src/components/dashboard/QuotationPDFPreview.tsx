@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ModalContent, ModalRoot } from '@/components/ui/modal';
 import type { QuotationDimensionMode, QuotationPDFData } from '@/types/quotation-pdf';
 import { parseRemarksContent } from '@/lib/remarksContent';
 import { multiColorToChineseDisplay } from '@/constants/color-map';
@@ -1882,10 +1883,17 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="flex h-[92vh] w-[90vw] max-w-[1100px] flex-col rounded-2xl border border-border bg-card shadow-2xl">
+    <ModalRoot open onOpenChange={(next) => { if (!next) onClose(); }}>
+      <ModalContent
+        hideClose
+        variant="bleed"
+        size="full"
+        className="max-w-[1100px]"
+        bodyClassName="flex flex-col overflow-hidden p-0"
+        style={{ height: '92vh', width: '90vw' }}
+      >
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
           <div>
             <h2 className="font-display text-lg font-bold text-foreground">{labels.modalTitle}</h2>
             <p className="font-body text-xs text-muted-foreground">{labels.modalSubtitle}</p>
@@ -1998,7 +2006,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </ModalContent>
+    </ModalRoot>
   );
 }

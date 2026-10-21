@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Check, ChevronsUpDown, Copy, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -15,14 +15,7 @@ import {
 import { compareQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
 import type { QuoteUiLabels } from "@/lib/quotationLocale";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Modal, ModalButton } from "@/components/ui/modal";
 import {
   Select,
   SelectContent,
@@ -253,13 +246,29 @@ export function CopyQuoteItemsModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <DialogContent className="flex max-h-[88vh] w-[min(1100px,calc(100vw-1.5rem))] max-w-none flex-col gap-4 overflow-hidden">
-        <DialogHeader>
-          <DialogTitle>{labels.copyFromOtherQuoteTitle}</DialogTitle>
-          <DialogDescription>{labels.copyFromOtherQuoteHint}</DialogDescription>
-        </DialogHeader>
-
+    <Modal
+      open={open}
+      onOpenChange={(next) => { if (!next) onClose(); }}
+      size="4xl"
+      icon={<Copy className="h-6 w-6" />}
+      title={labels.copyFromOtherQuoteTitle}
+      description={labels.copyFromOtherQuoteHint}
+      className="max-w-none w-[min(1100px,calc(100vw-1.5rem))]"
+      footer={
+        <>
+          <ModalButton
+            disabled={selectedKeys.size === 0}
+            onClick={addSelected}
+          >
+            {labels.copyFromOtherQuoteAddSelected}
+            {selectedKeys.size > 0 ? ` (${selectedKeys.size})` : ""}
+          </ModalButton>
+          <ModalButton variant="ghost" onClick={onClose}>
+            {labels.copyFromOtherQuoteClose}
+          </ModalButton>
+        </>
+      }
+    >
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="min-w-0 space-y-1.5">
             <label className="font-body text-xs font-medium text-muted-foreground">
@@ -462,26 +471,6 @@ export function CopyQuoteItemsModal({
             </table>
           )}
         </div>
-
-        <DialogFooter>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-border px-3 py-1.5 font-body text-sm text-foreground hover:bg-muted"
-          >
-            {labels.copyFromOtherQuoteClose}
-          </button>
-          <button
-            type="button"
-            disabled={selectedKeys.size === 0}
-            onClick={addSelected}
-            className="rounded-md bg-primary px-3 py-1.5 font-body text-sm font-medium text-primary-foreground disabled:opacity-50"
-          >
-            {labels.copyFromOtherQuoteAddSelected}
-            {selectedKeys.size > 0 ? ` (${selectedKeys.size})` : ""}
-          </button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </Modal>
   );
 }

@@ -3,16 +3,7 @@ import { ChevronDown, ChevronUp, Clock, Copy, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import {
   loadPitchingsForQuoteRows,
   pitchingDisplayTitle,
@@ -1025,51 +1016,49 @@ export function QuotationListView({
         </ListTableCard>
       </ListPageShell>
 
-      <AlertDialog
+      <Modal
         open={!!deleteTarget}
         onOpenChange={(open) => {
           if (!open && !isDeleting) setDeleteTarget(null);
         }}
-      >
-        <AlertDialogContent className="max-w-md border-destructive/20">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="font-display flex items-center gap-2">
-              <Trash2 className="h-5 w-5 text-destructive" />
-              確認刪除
-            </AlertDialogTitle>
-            <AlertDialogDescription className="font-body text-sm">
-              確定要刪除報價單版本{' '}
-              <span className="font-mono-data font-bold text-foreground">
-                {deleteTarget ? displayQuoteVersion(deleteTarget.version) : ''}
-              </span>
-              （{deleteTarget ? quoteCode(deleteTarget) : ''}）嗎？
-              <br />
-              <span className="mt-2 block text-xs text-muted-foreground">
-                「{deleteLabel}」的此版本將永久移除；其他版本不受影響。
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
+        size="md"
+        icon={<Trash2 className="h-6 w-6" />}
+        title="確認刪除"
+        description={
+          <>
+            確定要刪除報價單版本{' '}
+            <span className="font-mono-data font-bold text-foreground">
+              {deleteTarget ? displayQuoteVersion(deleteTarget.version) : ''}
+            </span>
+            （{deleteTarget ? quoteCode(deleteTarget) : ''}）嗎？
+            <br />
+            <span className="mt-2 block text-xs text-muted-foreground">
+              「{deleteLabel}」的此版本將永久移除；其他版本不受影響。
+            </span>
+          </>
+        }
+        footer={
+          <>
+            <ModalButton
+              variant="destructive"
               disabled={isDeleting}
-              className="font-display text-xs font-bold"
-            >
-              否
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isDeleting}
-              onClick={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 void handleConfirmDelete();
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-display text-xs font-bold gap-1.5"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-4 w-4" />
               {isDeleting ? '刪除中...' : '是，刪除'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </ModalButton>
+            <ModalButton
+              variant="ghost"
+              disabled={isDeleting}
+              onClick={() => setDeleteTarget(null)}
+            >
+              否
+            </ModalButton>
+          </>
+        }
+      />
     </>
   );
 }

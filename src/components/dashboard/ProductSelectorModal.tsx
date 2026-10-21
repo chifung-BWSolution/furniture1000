@@ -9,6 +9,7 @@ import {
   Loader2,
   Check,
 } from 'lucide-react';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
@@ -378,52 +379,54 @@ export function ProductSelectorModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative mx-4 flex max-h-[92vh] w-full max-w-[1180px] flex-col rounded-2xl border border-border bg-card shadow-2xl">
-        <div className="flex items-start justify-between border-b border-border px-6 py-4">
-          <div className="min-w-0 flex-1 pr-4">
-            <h2 className="font-display text-lg font-bold text-foreground">產品目錄</h2>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <p className="font-body text-xs text-muted-foreground">
-                從資料庫搜尋產品並加入報價單
-                {stockFilterActive ? (
-                  <span className="ml-1 text-primary">
-                    · 僅顯示現貨（3-7天）
-                  </span>
-                ) : null}
-                {priorityActive ? (
-                  <span className="ml-1 text-primary">
-                    · 已依報價類別優先排序（{priorityLevel1.join('、')}）
-                  </span>
-                ) : null}
-              </p>
-              {CATALOG_SOURCE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => handleCatalogSourceChange(opt.value)}
-                  className={cn(
-                    'rounded-md border px-2.5 py-1 font-body text-[11px] font-medium transition-all',
-                    catalogSource === opt.value
-                      ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                      : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground',
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
+    <Modal
+      open
+      onOpenChange={(next) => { if (!next) onClose(); }}
+      size="5xl"
+      className="max-w-[1180px]"
+      icon={<Package className="h-6 w-6" />}
+      title="產品目錄"
+      description={
+        <>
+          從資料庫搜尋產品並加入報價單
+          {stockFilterActive ? (
+            <span className="ml-1 text-primary">· 僅顯示現貨（3-7天）</span>
+          ) : null}
+          {priorityActive ? (
+            <span className="ml-1 text-primary">· 已依報價類別優先排序（{priorityLevel1.join('、')}）</span>
+          ) : null}
+        </>
+      }
+      footer={
+        <>
+          <ModalButton onClick={handleAdd}>
+            確認{displaySelectedCount > 0 ? ` (${displaySelectedCount})` : ''}
+          </ModalButton>
+          <ModalButton variant="ghost" onClick={onClose}>
+            取消
+          </ModalButton>
+        </>
+      }
+    >
+        <div className="flex flex-wrap items-center gap-2">
+          {CATALOG_SOURCE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => handleCatalogSourceChange(opt.value)}
+              className={cn(
+                'rounded-md border px-2.5 py-1 font-body text-[11px] font-medium transition-all',
+                catalogSource === opt.value
+                  ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                  : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground',
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
 
-        <div className="flex flex-col gap-3 border-b border-border px-6 py-4 lg:flex-row lg:items-center">
+        <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative min-w-0 flex-[1.6]">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
             <input
@@ -785,16 +788,8 @@ export function ProductSelectorModal({
                 已選 {displaySelectedCount} 件
               </span>
             )}
-            <button
-              type="button"
-              onClick={handleAdd}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
-            >
-              確認{displaySelectedCount > 0 ? ` (${displaySelectedCount})` : ''}
-            </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

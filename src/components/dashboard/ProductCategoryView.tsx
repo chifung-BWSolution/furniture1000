@@ -7,8 +7,9 @@ import { pushProductCategorySettingsToPms } from '@/lib/pmsProductCategorySync';
 import { toast } from 'sonner';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import {
-  FolderTree, Upload, Save, Plus, Trash2, Loader2, Search, X, Check,
+  FolderTree, Upload, Save, Plus, Trash2, Loader2, Search, Check, FileText,
 } from 'lucide-react';
+import { Modal, ModalButton } from '@/components/ui/modal';
 
 interface CategoryRow {
   id: string;
@@ -442,26 +443,31 @@ export function ProductCategoryView() {
       </div>
 
       {/* Import confirm dialog */}
-      {pendingImport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setPendingImport(null)}>
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="font-display text-base font-bold">確認導入</h3>
-              <button onClick={() => setPendingImport(null)} className="rounded p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
-            </div>
-            <p className="font-body text-[13px] text-muted-foreground">
-              已從 Excel 解析出 <span className="font-bold text-primary">{pendingImport.length}</span> 筆二級分類。
-              導入會<span className="font-semibold text-rose-500">取代</span>目前畫面上的所有分類（儲存後才寫入資料庫）。
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setPendingImport(null)} className="rounded-lg border border-border px-3.5 py-2 text-xs font-medium text-muted-foreground hover:bg-accent">取消</button>
-              <button onClick={confirmImport} className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90">
-                <Check className="h-3.5 w-3.5" /> 確認導入
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={Boolean(pendingImport)}
+        onOpenChange={(open) => { if (!open) setPendingImport(null); }}
+        size="md"
+        icon={<FileText className="h-6 w-6" />}
+        title="確認導入"
+        description={
+          <>
+            已從 Excel 解析出{' '}
+            <span className="font-bold text-primary">{pendingImport.length}</span> 筆二級分類。導入會
+            <span className="font-semibold text-rose-500">取代</span>
+            目前畫面上的所有分類（儲存後才寫入資料庫）。
+          </>
+        }
+        footer={
+          <>
+            <ModalButton onClick={confirmImport}>
+              <Check className="h-4 w-4" /> 確認導入
+            </ModalButton>
+            <ModalButton variant="ghost" onClick={() => setPendingImport(null)}>
+              取消
+            </ModalButton>
+          </>
+        }
+      />
     </div>
   );
 }

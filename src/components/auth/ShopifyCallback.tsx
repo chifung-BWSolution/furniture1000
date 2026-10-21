@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { Loader2, CheckCircle2, XCircle, Copy, Check, Key } from 'lucide-react';
 import { toast } from 'sonner';
+import { Modal, ModalButton } from '@/components/ui/modal';
 
 const PRODUCTION_URL = 'https://tempo-deployment-26c0258f-253c-4e4e.vercel.app';
 const SUPABASE_FUNCTION_CALLBACK_URL = 'https://kqwktnplkqucsbasyfjl.supabase.co/functions/v1/supabase-functions-shopify-oauth-callback';
@@ -140,21 +141,31 @@ export function ShopifyCallback() {
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-background">
       {/* Token Display Modal */}
-      {showTokenModal && accessToken && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-2xl space-y-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10">
-                <Key className="h-5 w-5 text-emerald-500" />
-              </div>
-              <div>
-                <h3 className="font-display text-lg font-bold">Shopify Access Token</h3>
-                <p className="text-xs text-muted-foreground font-body">
-                  Copy this token and add it to your Supabase Edge Function Secrets
-                </p>
-              </div>
-            </div>
-
+      <Modal
+        open={showTokenModal && Boolean(accessToken)}
+        onOpenChange={(open) => { if (!open) setShowTokenModal(false); }}
+        size="lg"
+        icon={<Key className="h-6 w-6" />}
+        title="Shopify Access Token"
+        description="Copy this token and add it to your Supabase Edge Function Secrets"
+        footer={
+          <>
+            <ModalButton onClick={handleCopy}>
+              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {copied ? 'Copied!' : 'Copy Token'}
+            </ModalButton>
+            <ModalButton
+              variant="secondary"
+              onClick={() => {
+                setShowTokenModal(false);
+                navigate('/?view=settings', { replace: true });
+              }}
+            >
+              Continue to Settings
+            </ModalButton>
+          </>
+        }
+      >
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground font-body">
                 SHOPIFY_ACCESS_TOKEN
@@ -177,7 +188,7 @@ export function ShopifyCallback() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
               <p className="text-xs text-amber-400 font-body">
                 <strong>⚠️ Important:</strong> Go to{' '}
                 <span className="font-mono-data">
@@ -187,37 +198,7 @@ export function ShopifyCallback() {
                 This token will not be shown again.
               </p>
             </div>
-
-            <div className="flex gap-3 pt-1">
-              <button
-                onClick={handleCopy}
-                className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90 active:scale-[0.98]"
-              >
-                {copied ? (
-                  <>
-                    <Check className="h-4 w-4" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-4 w-4" />
-                    Copy Token
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => {
-                  setShowTokenModal(false);
-                  navigate('/?view=settings', { replace: true });
-                }}
-                className="flex-1 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-all hover:bg-muted active:scale-[0.98]"
-              >
-                Continue to Settings
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Main Status Card */}
       <div className="mx-auto max-w-md space-y-6 rounded-xl border border-border bg-card p-8 text-center shadow-lg">

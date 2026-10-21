@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react';
 import {
-  Check, ChevronLeft, ChevronRight, GripVertical, Loader2, Package, Plus, Search, X,
+  Check, ChevronLeft, ChevronRight, GitMerge, GripVertical, Loader2, Package, Plus, Search, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
@@ -17,9 +17,7 @@ import {
   isHttpUrl,
 } from '@/lib/productMergeImages';
 import { parseInvokeError } from '@/lib/edgeFunctionErrors';
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
 
 interface ShopifyVariant {
   id?: string | number;
@@ -647,32 +645,34 @@ export function PublishedProductMergeModal({
   if (products.length === 0) return null;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!isMerging) onOpenChange(v); }}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-start justify-between pr-6">
-            <div>
-              <DialogTitle className="font-display">
-                合併產品 — {hostTitle}
-              </DialogTitle>
-              <DialogDescription className="font-body text-xs">
-                拖曳左側握把調整順序（第一行為主產品）。相同 SKU 會按售價由低至高自動編號（最低保留原 SKU，其餘為 -1、-2…）；不同 SKU 則維持不變。
-              </DialogDescription>
-            </div>
-            <Button
-              size="sm"
-              className="shrink-0 gap-1.5 font-display text-xs"
-              disabled={isMerging || rows.length < 2}
-              onClick={() => void handleComplete()}
-            >
-              {isMerging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-              完成
-            </Button>
-          </div>
-        </DialogHeader>
-
+    <Modal
+      open={open}
+      onOpenChange={(v) => { if (!isMerging) onOpenChange(v); }}
+      size="3xl"
+      icon={<GitMerge className="h-6 w-6" />}
+      title={`合併產品 — ${hostTitle}`}
+      description="拖曳左側握把調整順序（第一行為主產品）。相同 SKU 會按售價由低至高自動編號（最低保留原 SKU，其餘為 -1、-2…）；不同 SKU 則維持不變。"
+      footer={
+        <>
+          <ModalButton
+            disabled={isMerging || rows.length < 2}
+            onClick={() => void handleComplete()}
+          >
+            {isMerging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            完成
+          </ModalButton>
+          <ModalButton
+            variant="ghost"
+            disabled={isMerging}
+            onClick={() => onOpenChange(false)}
+          >
+            取消
+          </ModalButton>
+        </>
+      }
+    >
         {galleryUrls.length > 0 && (
-          <div className="mt-2 space-y-2">
+          <div className="space-y-2">
             <p className="font-body text-[10px] text-muted-foreground">
               拖曳縮圖至下方各規格的「產品主圖」；點擊縮圖可在新視窗查看原圖
             </p>
@@ -861,7 +861,6 @@ export function PublishedProductMergeModal({
             )}
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+    </Modal>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, AlertTriangle } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { toast } from 'sonner';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { fetchQuoteStaffFilterOptions } from '@/lib/quoteStaffOptions';
@@ -207,42 +208,47 @@ export function SubmitReviewModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="font-display text-lg font-bold text-foreground">
-            提交審核
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    <Modal
+      open={open}
+      onOpenChange={(next) => { if (!next) onClose(); }}
+      size="md"
+      icon={<Send className="h-6 w-6" />}
+      title="提交審核"
+      description={
+        <>
+          提交後將產生新版本快照{' '}
+          <span className="font-semibold text-foreground">{version}</span>
+          ，此版本內容將無法修改。如需修改，須建立新版本重新提交審核。
+          編輯中請用「保存現有版本」寫入伺服器；需要開新版本時再按「版本審核」。
+        </>
+      }
+      footer={
+        <>
+          <ModalButton
+            onClick={() => void handleSubmit()}
+            disabled={isSubmitting || emptyStateBlocked}
           >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Warning — same muted surface as 報價總金額 below (no amber wash) */}
-        <div className="mb-5 flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4">
-          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-muted-foreground" />
-          <p className="font-body text-xs leading-relaxed text-foreground/80">
-            提交後將產生新版本快照{' '}
-            <span className="font-semibold text-foreground">{version}</span>
-            ，此版本內容將無法修改。如需修改，須建立新版本重新提交審核。
-            編輯中請用「保存現有版本」寫入伺服器；需要開新版本時再按「版本審核」。
-          </p>
-        </div>
-
-        {/* Total Amount */}
-        <div className="mb-5 rounded-xl border border-border bg-muted/30 p-4">
+            {isSubmitting ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                上傳圖片並提交中...
+              </span>
+            ) : (
+              '確認提交'
+            )}
+          </ModalButton>
+          <ModalButton
+            variant="ghost"
+            onClick={onClose}
+            disabled={isSubmitting}
+          >
+            取消
+          </ModalButton>
+        </>
+      }
+    >
+      {/* Total Amount */}
+      <div className="rounded-xl border border-border bg-muted/30 p-4">
           <label className="font-body text-xs text-muted-foreground">
             報價總金額
           </label>
@@ -257,7 +263,7 @@ export function SubmitReviewModal({
         </div>
 
         {/* Submitter Input */}
-        <div className="mb-6">
+        <div className="mt-4">
           <label
             htmlFor="submit-review-submitter"
             className="mb-1.5 block font-body text-sm font-medium text-foreground"
@@ -280,34 +286,6 @@ export function SubmitReviewModal({
             <p className="mt-1.5 font-body text-xs text-rose-400">{error}</p>
           )}
         </div>
-
-        {/* Footer Buttons */}
-        <div className="flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="rounded-lg border border-border px-5 py-2.5 font-body text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={isSubmitting || emptyStateBlocked}
-            className="rounded-lg bg-amber-500 px-5 py-2.5 font-body text-sm font-semibold text-white shadow-md shadow-amber-500/20 transition-all hover:bg-amber-600 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? (
-              <span className="flex items-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                上傳圖片並提交中...
-              </span>
-            ) : (
-              '確認提交'
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

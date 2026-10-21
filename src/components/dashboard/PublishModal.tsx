@@ -1,14 +1,6 @@
 import { Product } from '@/types/product';
-import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import { Upload, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 interface PublishModalProps {
@@ -52,63 +44,60 @@ export function PublishModal({ open, onClose, onConfirm, products }: PublishModa
   const jsonString = JSON.stringify({ products: payload }, null, 2);
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="font-display flex items-center gap-2">
-            <Upload className="h-5 w-5 text-primary" />
-            確認上傳到 Shopify
-          </DialogTitle>
-          <DialogDescription className="font-body">
-            {newProducts.length > 0
-              ? `即將上傳 ${newProducts.length} 個產品到 Shopify（準備上載內容）`
-              : '沒有產品可上傳'}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="my-2 space-y-2">
-          <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500 font-body">
-            <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" />
-            <span>
-              <strong>安全模式：</strong>已有 Shopify ID 的產品會被跳過，避免重複建立。
-            </span>
-          </div>
-
-          {newProducts.length === 0 && (
-            <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-500 font-body">
-              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
-              沒有已選產品。請先選擇要上傳的產品。
-            </div>
-          )}
-        </div>
-
-        {newProducts.length > 0 && (
-          <ScrollArea className="h-[300px] rounded-lg border border-border bg-background p-1">
-            <pre className="p-4 font-mono-data text-[11px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
-              <code>{jsonString}</code>
-            </pre>
-          </ScrollArea>
-        )}
-
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose} className="font-body">
-            取消
-          </Button>
-          <Button
+    <Modal
+      open={open}
+      onOpenChange={(next) => { if (!next) onClose(); }}
+      size="2xl"
+      icon={<Upload className="h-6 w-6" />}
+      title="確認上傳到 Shopify"
+      description={
+        newProducts.length > 0
+          ? `即將上傳 ${newProducts.length} 個產品到 Shopify（準備上載內容）`
+          : '沒有產品可上傳'
+      }
+      footer={
+        <>
+          <ModalButton
             onClick={() => {
               onConfirm();
               onClose();
             }}
             disabled={newProducts.length === 0}
-            className="gap-2 bg-primary font-display font-bold text-primary-foreground animate-pulse-glow"
           >
             <Upload className="h-4 w-4" />
             {newProducts.length > 0
               ? `上傳 ${newProducts.length} 個產品到 Shopify`
               : '沒有產品可上傳'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </ModalButton>
+          <ModalButton variant="ghost" onClick={onClose}>
+            取消
+          </ModalButton>
+        </>
+      }
+    >
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500 font-body">
+          <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>
+            <strong>安全模式：</strong>已有 Shopify ID 的產品會被跳過，避免重複建立。
+          </span>
+        </div>
+
+        {newProducts.length === 0 && (
+          <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-500 font-body">
+            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+            沒有已選產品。請先選擇要上傳的產品。
+          </div>
+        )}
+      </div>
+
+      {newProducts.length > 0 && (
+        <ScrollArea className="mt-2 h-[300px] rounded-lg border border-border bg-background p-1">
+          <pre className="p-4 font-mono-data text-[11px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
+            <code>{jsonString}</code>
+          </pre>
+        </ScrollArea>
+      )}
+    </Modal>
   );
 }

@@ -18,6 +18,8 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { LoadingImage } from '@/components/ui/loading-image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Modal, ModalButton } from '@/components/ui/modal';
+import { ImageLightbox } from '@/components/ui/image-lightbox';
 import { Badge } from '@/components/ui/badge';
 import { saveMappings, loadMappings } from '@/lib/sessionStore';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -507,17 +509,36 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={onClose}
+    <Modal
+      open
+      onOpenChange={(next) => { if (!next) onClose(); }}
+      size="lg"
+      icon={<ImageIcon className="h-6 w-6" />}
+      title={mode === 'replace' ? '圖片管理' : '新增圖片'}
+      description="點擊選擇、拖放圖片，或按 Ctrl+V 貼上（PNG · JPG · WEBP · SVG，上限 5MB）"
+      footer={
+        <>
+          <ModalButton
+            onClick={handleConfirm}
+            disabled={!previewImage || (!isReplacing && mode === 'add')}
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            確定
+          </ModalButton>
+          {mode === 'replace' && !isReplacing ? (
+            <ModalButton
+              variant="secondary"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              更換
+            </ModalButton>
+          ) : null}
+          <ModalButton variant="ghost" onClick={onClose}>
+            取消
+          </ModalButton>
+        </>
+      }
     >
-      <div
-        ref={modalRef}
-        className="relative bg-card border border-border rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4 space-y-4 outline-none"
-        onClick={(e) => e.stopPropagation()}
-        tabIndex={0}
-        autoFocus
-      >
         {/* Always-present hidden file input */}
         <input
           ref={fileInputRef}
@@ -526,19 +547,6 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
           onChange={handleFileSelect}
           className="hidden"
         />
-
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h3 className="font-[Syne] font-bold text-lg text-foreground">
-            {mode === 'replace' ? '圖片管理' : '新增圖片'}
-          </h3>
-          <button
-            onClick={onClose}
-            className="rounded-full p-1.5 hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-          >
-            ✕
-          </button>
-        </div>
 
         {/* Image Preview / Drop Zone */}
         {(!isReplacing && previewImage) ? (
@@ -608,43 +616,9 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
 
         {/* Error message */}
         {fileError && (
-          <p className="text-xs text-rose-500 text-center">{fileError}</p>
+          <p className="mt-3 text-xs text-rose-500 text-center">{fileError}</p>
         )}
-
-        {/* Action Buttons */}
-        <div className="flex items-center justify-end gap-2 pt-2">
-          {mode === 'replace' && !isReplacing && (
-            <>
-              <Button
-                variant="outline"
-                onClick={readClipboardImage}
-                disabled={isPasting}
-                className="gap-2 text-sm"
-              >
-                {isPasting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                貼上
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
-                className="gap-2 text-sm"
-              >
-                <RefreshCw className="w-4 h-4" />
-                更換
-              </Button>
-            </>
-          )}
-          <Button
-            onClick={handleConfirm}
-            disabled={!previewImage || (!isReplacing && mode === 'add')}
-            className="gap-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white"
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            確定
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -2502,26 +2476,13 @@ export function ExcelPreviewTable({
       />
 
       {/* Fallback: Image Enlarge Modal (for non-override views) */}
-      {enlargedImage && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm cursor-pointer"
-          onClick={() => setEnlargedImage(null)}
-        >
-          <div className="relative max-h-[80vh] max-w-[80vw]">
-            <LoadingImage
-              src={enlargedImage}
-              alt="Enlarged preview"
-              className="max-h-[80vh] max-w-[80vw] rounded-xl object-contain shadow-2xl border border-white/10"
-            />
-            <button
-              onClick={() => setEnlargedImage(null)}
-              className="absolute -right-3 -top-3 rounded-full bg-black/80 p-2 text-white hover:bg-black border border-white/20"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
+      <ImageLightbox
+        open={Boolean(enlargedImage)}
+        onClose={() => setEnlargedImage(null)}
+        images={enlargedImage ? [enlargedImage] : []}
+        title="圖片預覽"
+        simple
+      />
     </div>
   );
 }

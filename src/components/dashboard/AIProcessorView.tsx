@@ -9,6 +9,7 @@ import { LoadingImage } from '@/components/ui/loading-image';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ImageLightbox } from '@/components/ui/image-lightbox';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { motion, AnimatePresence } from 'framer-motion';
 import { NavInk } from '@/components/motion/NavInk';
@@ -5330,16 +5331,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       </div>
 
       {/* Image Preview Modal */}
-      <AnimatePresence>
-        {previewImage && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
-            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} className="relative max-h-[80vh] max-w-[80vw]">
-              <LoadingImage src={previewImage} alt="Preview" className="max-h-[80vh] max-w-[80vw] rounded-xl object-contain shadow-2xl" />
-              <button onClick={() => setPreviewImage(null)} className="absolute -right-3 -top-3 rounded-full bg-black/80 p-2 text-white hover:bg-black"><X className="h-4 w-4" /></button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <ImageLightbox
+        open={Boolean(previewImage)}
+        onClose={() => setPreviewImage(null)}
+        images={previewImage ? [previewImage] : []}
+        title="圖片預覽"
+        simple
+      />
 
       {/* ══════ BOTTOM SECTION: Product Preview Results ══════ */}
       <div className="flex-1 p-6 pt-0 max-w-6xl mx-auto w-full">

@@ -12,7 +12,9 @@ import {
   Building2,
   Calendar,
   FileText,
+  FolderPlus,
 } from 'lucide-react';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import {
   createProject,
   createZone,
@@ -514,15 +516,36 @@ export function SolutionProjectListView() {
         )}
       </div>
 
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-xl md:p-8">
-            <h3 className="font-display text-xl font-bold">建立新專案</h3>
-            <p className="mt-1 font-body text-sm text-muted-foreground">
-              上傳平面圖（PDF/JPG）後，系統會自動產生分區建議（如 B1 老闆區、M1 會議室）。所有資料會儲存至資料庫。
-            </p>
-
-            <div className="mt-6 space-y-5">
+      <Modal
+        open={showCreate}
+        onOpenChange={(open) => { if (!open) { setShowCreate(false); resetCreateForm(); } }}
+        size="3xl"
+        icon={<FolderPlus className="h-6 w-6" />}
+        title="建立新專案"
+        description="上傳平面圖（PDF/JPG）後，系統會自動產生分區建議（如 B1 老闆區、M1 會議室）。所有資料會儲存至資料庫。"
+        footer={
+          <>
+            <ModalButton
+              disabled={creating}
+              onClick={() => void handleCreate()}
+            >
+              {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              建立並進入分區
+            </ModalButton>
+            <ModalButton
+              variant="ghost"
+              disabled={creating}
+              onClick={() => {
+                setShowCreate(false);
+                resetCreateForm();
+              }}
+            >
+              取消
+            </ModalButton>
+          </>
+        }
+      >
+            <div className="space-y-5">
               <label className="block">
                 <span className="mb-1 block font-body text-xs font-medium text-muted-foreground">專案名稱 *</span>
                 <input
@@ -623,32 +646,7 @@ export function SolutionProjectListView() {
                 </p>
               </div>
             </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                disabled={creating}
-                onClick={() => {
-                  setShowCreate(false);
-                  resetCreateForm();
-                }}
-                className="rounded-lg border border-border px-4 py-2 font-body text-sm hover:bg-muted"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                disabled={creating}
-                onClick={() => void handleCreate()}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-              >
-                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                建立並進入分區
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       <FloorPlanViewerModal
         open={Boolean(viewerProject?.floorPlanUrl)}

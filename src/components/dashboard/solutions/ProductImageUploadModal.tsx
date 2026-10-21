@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { LoadingImage } from '@/components/ui/loading-image';
-import { Loader2, Upload, X } from 'lucide-react';
+import { Modal } from '@/components/ui/modal';
+import { ImagePlus, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ALLOWED_IMAGE_MIME = [
@@ -98,33 +99,17 @@ export function ProductImageUploadModal({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={() => {
-        if (!isBusy) onClose();
-      }}
+    <Modal
+      open
+      onOpenChange={(next) => { if (!next && !isBusy) onClose(); }}
+      size="md"
+      icon={<ImagePlus className="h-6 w-6" />}
+      title={title}
+      description="支援 PNG、JPG、JPEG、WEBP、TIFF、SVG（最大 5 MB）"
+      onPointerDownOutside={(event) => { if (isBusy) event.preventDefault(); }}
     >
-      <div
-        className="w-full max-w-xl rounded-xl bg-card p-5 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-display text-sm font-bold text-foreground">
-            {title}
-          </h3>
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={onClose}
-            className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground disabled:opacity-50"
-            aria-label="關閉"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
         {previewUrl ? (
-          <div className="mb-4 flex max-h-[50vh] items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/20 p-3">
+          <div className="mb-4 flex max-h-[46vh] items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/20 p-3">
             <LoadingImage
               src={previewUrl}
               alt=""
@@ -183,7 +168,6 @@ export function ProductImageUploadModal({
             if (file) void handleFile(file);
           }}
         />
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { toast } from 'sonner';
-import { Check, ExternalLink, ImageOff, Loader2, Lock, PackagePlus, Pencil, RefreshCw, Search, X } from 'lucide-react';
+import { Check, ExternalLink, ImageOff, Loader2, Lock, PackagePlus, Pencil, PencilLine, RefreshCw, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
 import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
 import { importExtractedProducts } from '@/lib/productSearch';
@@ -637,17 +638,35 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            修正提取結果
-            <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={onOpenSource}>
-              原文第 {item.page_no ?? '?'} 頁 <ExternalLink className="ml-1 h-3 w-3" />
-            </Button>
-          </DialogTitle>
-        </DialogHeader>
-
+    <Modal
+      open
+      onOpenChange={(open) => !open && onClose()}
+      size="3xl"
+      icon={<PencilLine className="h-6 w-6" />}
+      title={
+        <>
+          修正提取結果
+          <Button variant="link" size="sm" className="ml-2 h-auto p-0 text-xs font-normal" onClick={onOpenSource}>
+            原文第 {item.page_no ?? '?'} 頁 <ExternalLink className="ml-1 h-3 w-3" />
+          </Button>
+        </>
+      }
+      description="只會儲存與 AI 原值不同的欄位；已審核的項目重新解析時會保留。"
+      footer={
+        <>
+          <ModalButton disabled={saving} onClick={() => void save('approved')}>
+            {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            保存並通過
+          </ModalButton>
+          <ModalButton variant="secondary" disabled={saving} onClick={() => void save(item.status)}>
+            只保存
+          </ModalButton>
+          <ModalButton variant="ghost" disabled={saving} onClick={() => void save('rejected')}>
+            拒絕
+          </ModalButton>
+        </>
+      }
+    >
         {item.raw_json.price_text && (
           <p className="text-xs text-muted-foreground">
             原文價格：<span className="font-mono">{item.raw_json.price_text}</span>
@@ -731,20 +750,6 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
           <Label className="text-xs">審核備註</Label>
           <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
-
-        <DialogFooter className="gap-2">
-          <Button variant="outline" disabled={saving} onClick={() => void save('rejected')}>
-            拒絕
-          </Button>
-          <Button variant="secondary" disabled={saving} onClick={() => void save(item.status)}>
-            只保存
-          </Button>
-          <Button disabled={saving} onClick={() => void save('approved')}>
-            {saving && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-            保存並通過
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </Modal>
   );
 }

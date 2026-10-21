@@ -2,14 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import {
-  AlertCircle, Clock, Coins, Download, ListChecks, RefreshCw, Search, Trash2, Users,
+  AlertCircle, Clock, Coins, Download, ListChecks, RefreshCw, ScrollText, Search, Trash2, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -335,33 +333,42 @@ export function DailyCommandLogsView() {
         </Tabs>
       )}
 
-      <Dialog open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null); }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{selected?.developerName} · {selected ? statusLabels[selected.status] : ''}</DialogTitle>
-          </DialogHeader>
-          {selected && (
-            <dl className="space-y-2 text-sm">
-              <Detail label="電郵" value={selected.developerEmail} />
-              <Detail label="指令字眼" value={selected.instructionText} />
-              <Detail label="開始" value={formatHkDateTime(selected.startedAt)} />
-              <Detail label="完成" value={formatHkDateTime(selected.completedAt)} />
-              <Detail label="所需時間" value={formatDuration(selected.durationSeconds)} />
-              <Detail label="模型" value={selected.model ?? '—'} />
-              <Detail label="Credit" value={formatNumber(selected.creditsUsed)} />
-              <Detail label="成本 (USD)" value={formatUsd(selected.costUsd)} />
-              <Detail label="結果" value={selected.resultSummary ?? '—'} />
-              <Detail label="失敗原因" value={selected.failureReason ?? '—'} />
-              <div className="flex justify-end pt-2">
-                <Button type="button" variant="destructive" size="sm" onClick={() => void remove(selected)}>
-                  <Trash2 className="mr-1 h-4 w-4" />
-                  刪除
-                </Button>
-              </div>
-            </dl>
-          )}
-        </DialogContent>
-      </Dialog>
+      <Modal
+        open={Boolean(selected)}
+        onOpenChange={(open) => { if (!open) setSelected(null); }}
+        size="2xl"
+        icon={<ScrollText className="h-6 w-6" />}
+        title={`${selected?.developerName ?? ''} · ${selected ? statusLabels[selected.status] : ''}`}
+        description="指令執行紀錄詳情"
+        footer={
+          selected ? (
+            <>
+              <ModalButton variant="destructive" onClick={() => void remove(selected)}>
+                <Trash2 className="h-4 w-4" />
+                刪除
+              </ModalButton>
+              <ModalButton variant="ghost" onClick={() => setSelected(null)}>
+                關閉
+              </ModalButton>
+            </>
+          ) : null
+        }
+      >
+        {selected && (
+          <dl className="space-y-2 text-sm">
+            <Detail label="電郵" value={selected.developerEmail} />
+            <Detail label="指令字眼" value={selected.instructionText} />
+            <Detail label="開始" value={formatHkDateTime(selected.startedAt)} />
+            <Detail label="完成" value={formatHkDateTime(selected.completedAt)} />
+            <Detail label="所需時間" value={formatDuration(selected.durationSeconds)} />
+            <Detail label="模型" value={selected.model ?? '—'} />
+            <Detail label="Credit" value={formatNumber(selected.creditsUsed)} />
+            <Detail label="成本 (USD)" value={formatUsd(selected.costUsd)} />
+            <Detail label="結果" value={selected.resultSummary ?? '—'} />
+            <Detail label="失敗原因" value={selected.failureReason ?? '—'} />
+          </dl>
+        )}
+      </Modal>
     </div>
   );
 }

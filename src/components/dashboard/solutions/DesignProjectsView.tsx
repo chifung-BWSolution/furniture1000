@@ -10,6 +10,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
   ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare, Layers,
@@ -3687,27 +3688,23 @@ export function DesignProjectsView() {
       </div>
 
       {/* Furniture division modal */}
-      {divisionModalZoneId ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center sm:p-6">
-          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
-            <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
-              <div>
-                <h3 className="font-display text-lg font-bold">傢俬劃分</h3>
-                <p className="mt-1 text-[15px] text-muted-foreground">
-                  {zones.find((zone) => zone.id === divisionModalZoneId)?.name ||
-                    '間隔'}
-                  — 選擇一級／二級分類與數量
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDivisionModalZoneId(null)}
-                className="rounded-md p-1.5 hover:bg-muted"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-4 px-5 py-4">
+      <Modal
+        open={Boolean(divisionModalZoneId)}
+        onOpenChange={(open) => { if (!open) setDivisionModalZoneId(null); }}
+        size="xl"
+        icon={<LayoutGrid className="h-6 w-6" />}
+        title="傢俬劃分"
+        description={`${zones.find((zone) => zone.id === divisionModalZoneId)?.name || '間隔'} — 選擇一級／二級分類與數量`}
+        footer={
+          <>
+            <ModalButton onClick={confirmDivisionModal}>確定</ModalButton>
+            <ModalButton variant="ghost" onClick={() => setDivisionModalZoneId(null)}>
+              取消
+            </ModalButton>
+          </>
+        }
+      >
+            <div className="space-y-4">
               <div>
                 <p className="mb-2 text-[13px] font-semibold text-muted-foreground">
                   一級分類
@@ -3840,74 +3837,36 @@ export function DesignProjectsView() {
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setDivisionModalZoneId(null)}
-                className="rounded-lg border border-border px-4 py-2 text-[15px] font-medium hover:bg-muted"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={confirmDivisionModal}
-                className="rounded-lg bg-primary px-4 py-2 text-[15px] font-semibold text-primary-foreground hover:bg-primary/90"
-              >
-                確定
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      </Modal>
 
       {/* Product picker modal */}
-      {pickerOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center sm:p-6">
-          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-              <div>
-                <h3 className="font-display text-base font-bold">選擇產品</h3>
-                <p className="text-[15px] text-muted-foreground">
-                  {replacingZoneProductId ? (
-                    <>
-                      更換：
-                      {zoneProducts.find((item) => item.id === replacingZoneProductId)
-                        ?.productTitle || '目前產品'}
-                    </>
-                  ) : schemeForProductId ? (
-                    <>
-                      更多方案：
-                      {zoneProducts.find((item) => item.id === schemeForProductId)
-                        ?.productTitle || '目前產品'}
-                    </>
-                  ) : (
-                    <>
-                      加入至：
-                      {pickerZoneId
-                        ? zones.find((z) => z.id === pickerZoneId)?.name ||
-                          '指定間隔'
-                        : zones[0]?.name || '第一個間隔'}
-                    </>
-                  )}
-                </p>
-                <p className="mt-1 text-[13px] text-muted-foreground">
-                  {replacingZoneProductId
-                    ? '點選產品後會替換目前項目的名稱、圖片與價錢（數量／備註／狀態保留）'
-                    : schemeForProductId
-                      ? '點選「加入方案」可連續加入多款替代方案（相同一級／二級分類）；完成後按右上角關閉'
-                      : '只顯示目前可供選購並已有售價的產品'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closePicker}
-                className="rounded-md p-1.5 hover:bg-muted"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2 border-b border-border px-4 py-3">
+      <Modal
+        open={pickerOpen}
+        onOpenChange={(open) => { if (!open) closePicker(); }}
+        size="5xl"
+        icon={<LayoutGrid className="h-6 w-6" />}
+        title="選擇產品"
+        description={
+          <>
+            {replacingZoneProductId ? (
+              <>更換：{zoneProducts.find((item) => item.id === replacingZoneProductId)?.productTitle || '目前產品'}</>
+            ) : schemeForProductId ? (
+              <>更多方案：{zoneProducts.find((item) => item.id === schemeForProductId)?.productTitle || '目前產品'}</>
+            ) : (
+              <>加入至：{pickerZoneId ? zones.find((z) => z.id === pickerZoneId)?.name || '指定間隔' : zones[0]?.name || '第一個間隔'}</>
+            )}
+            <span className="mt-1 block text-xs">
+              {replacingZoneProductId
+                ? '點選產品後會替換目前項目的名稱、圖片與價錢（數量／備註／狀態保留）'
+                : schemeForProductId
+                  ? '點選「加入方案」可連續加入多款替代方案（相同一級／二級分類）'
+                  : '只顯示目前可供選購並已有售價的產品'}
+            </span>
+          </>
+        }
+        headerClassName="pr-14"
+      >
+            <div className="space-y-2">
               <div className="flex flex-wrap items-stretch gap-2">
                 <div className="relative min-w-0 flex-1">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -4222,9 +4181,7 @@ export function DesignProjectsView() {
                 <p className="py-12 text-center text-sm text-muted-foreground">找不到產品</p>
               ) : null}
             </div>
-          </div>
-        </div>
-      ) : null}
+      </Modal>
 
       {lightbox ? (
         <ProductImageGalleryLightbox

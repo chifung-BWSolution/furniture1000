@@ -9,6 +9,7 @@ import { fetchActiveShopifyProducts } from '@/lib/solutionsApi';
 import type { SearchProduct } from '@/types/solutions';
 import { toast } from 'sonner';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
 
 const CART_KEY = 'fds-portal-inquiry-cart';
@@ -744,20 +745,20 @@ export function CustomerProductSearchView() {
         </div>
       </div>
 
-      {showCart && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
-          <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-display text-lg font-bold">查詢車</h3>
-              <button
-                type="button"
-                onClick={() => setShowCart(false)}
-                className="text-sm text-muted-foreground"
-              >
-                關閉
-              </button>
-            </div>
-            <div className="mt-3 space-y-2">
+      <Modal
+        open={showCart}
+        onOpenChange={(open) => { if (!open) setShowCart(false); }}
+        size="md"
+        icon={<ShoppingCart className="h-6 w-6" />}
+        title="查詢車"
+        description="查詢車只保留本機選擇；未有正式查詢紀錄前不會顯示「已送出」狀態。"
+        footer={
+          <ModalButton variant="ghost" onClick={() => setShowCart(false)}>
+            關閉
+          </ModalButton>
+        }
+      >
+            <div className="space-y-2">
               {cart.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">查詢車是空的</p>
               ) : (
@@ -788,14 +789,7 @@ export function CustomerProductSearchView() {
                 ))
               )}
             </div>
-            {cart.length > 0 ? (
-              <p className="mt-4 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                查詢車只保留本機選擇；未有正式查詢紀錄前不會顯示「已送出」狀態。
-              </p>
-            ) : null}
-          </div>
-        </div>
-      )}
+      </Modal>
     </PortalPageShell>
   );
 }

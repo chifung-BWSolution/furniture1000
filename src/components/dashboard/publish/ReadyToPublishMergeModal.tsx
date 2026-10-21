@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react';
 import {
-  Check, ChevronLeft, ChevronRight, GripVertical, Loader2, Package, Plus, Search, X,
+  Check, ChevronLeft, ChevronRight, GripVertical, Layers, Loader2, Package, Plus, Search, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
@@ -9,9 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import type { Product } from '@/types/product';
 import {
   assignDuplicateMergeSkus,
@@ -711,30 +709,32 @@ export function ReadyToPublishMergeModal({
   if (!product) return null;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!isSaving) onOpenChange(v); }}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-start justify-between pr-6">
-            <div>
-              <DialogTitle className="font-display">
-                變體 — {hostTitle}
-              </DialogTitle>
-              <DialogDescription className="font-body text-xs">
-                拖曳左側握把調整順序（第一行為主產品）。相同 SKU 會按售價由低至高自動編號（最低保留原 SKU，其餘為 -1、-2…）；不同 SKU 則維持不變。拖曳縮圖至各規格「產品主圖」。
-              </DialogDescription>
-            </div>
-            <Button
-              size="sm"
-              className="shrink-0 gap-1.5 font-display text-xs"
-              disabled={isSaving || loading || rows.length < 1}
-              onClick={() => void handleComplete()}
-            >
-              {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-              完成
-            </Button>
-          </div>
-        </DialogHeader>
-
+    <Modal
+      open={open}
+      onOpenChange={(v) => { if (!isSaving) onOpenChange(v); }}
+      size="3xl"
+      icon={<Layers className="h-6 w-6" />}
+      title={`變體 — ${hostTitle}`}
+      description="拖曳左側握把調整順序（第一行為主產品）。相同 SKU 會按售價由低至高自動編號（最低保留原 SKU，其餘為 -1、-2…）；不同 SKU 則維持不變。拖曳縮圖至各規格「產品主圖」。"
+      footer={
+        <>
+          <ModalButton
+            disabled={isSaving || loading || rows.length < 1}
+            onClick={() => void handleComplete()}
+          >
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            完成
+          </ModalButton>
+          <ModalButton
+            variant="ghost"
+            disabled={isSaving}
+            onClick={() => onOpenChange(false)}
+          >
+            取消
+          </ModalButton>
+        </>
+      }
+    >
         {loading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin" />
@@ -742,7 +742,7 @@ export function ReadyToPublishMergeModal({
         ) : (
           <>
             {galleryUrls.length > 0 && (
-              <div className="mt-2 space-y-2">
+              <div className="space-y-2">
                 <p className="font-body text-[10px] text-muted-foreground">
                   拖曳縮圖至下方各規格的「產品主圖」；點擊縮圖可在新視窗查看原圖。第一張為 Shopify 主圖。
                 </p>
@@ -937,7 +937,6 @@ export function ReadyToPublishMergeModal({
             )}
           </>
         )}
-      </DialogContent>
-    </Dialog>
+    </Modal>
   );
 }

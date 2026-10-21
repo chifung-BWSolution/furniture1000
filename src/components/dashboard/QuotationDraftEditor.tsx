@@ -38,6 +38,7 @@ import {
 import { fetchFactoriesWithIds } from "@/lib/factorySupabase";
 import { CopyQuoteItemsModal } from "@/components/dashboard/CopyQuoteItemsModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Modal, ModalButton } from "@/components/ui/modal";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Command,
@@ -537,27 +538,17 @@ function ImageUploadModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
+    <Modal
+      open
+      onOpenChange={(next) => { if (!next && !busy) onClose(); }}
+      size="xl"
+      icon={<ImagePlus className="h-6 w-6" />}
+      title={title}
+      description="支援 PNG、JPG、JPEG、WEBP、TIFF、SVG（最大 10 MB）"
+      onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}
     >
-      <div
-        className="w-full max-w-xl rounded-xl bg-card p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-display text-sm font-bold text-foreground">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
         {previewUrl ? (
-          <div className="mb-4 flex max-h-[50vh] items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/20 p-3">
+          <div className="mb-4 flex max-h-[46vh] items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/20 p-3">
             <TrimmedEdgeImage
               src={previewUrl}
               className="max-h-[46vh] max-w-full object-contain"
@@ -602,8 +593,7 @@ function ImageUploadModal({
           className="hidden"
           onChange={handleInput}
         />
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -4738,32 +4728,35 @@ export function QuotationDraftEditor({
         />
       ) : null}
 
-      {shareModalOpen ? (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4"
-          onClick={() => setShareModalOpen(false)}
-        >
-          <div
-            className="relative w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+      <Modal
+        open={shareModalOpen}
+        onOpenChange={setShareModalOpen}
+        size="md"
+        icon={<QrCode className="h-6 w-6" />}
+        title={t.generateQrLink}
+        description="掃描 QR Code 或複製連結後，可免登入進入客戶專區查看此報價單，並瀏覽產品搜尋、傢俬訂製、付款+送貨、訂單狀況、成功案例、服務一覽、公司資料及聯絡我們等頁面（不含機構採購帳號）。"
+        footer={
+          <ModalButton
+            variant="secondary"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(shareUrl);
+                setShareCopied(true);
+                toast.success("已複製連結");
+              } catch {
+                toast.error("複製失敗");
+              }
+            }}
           >
-            <button
-              type="button"
-              onClick={() => setShareModalOpen(false)}
-              className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              aria-label="關閉"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            <div className="mb-3 flex items-center gap-2">
-              <QrCode className="h-5 w-5 text-sky-600" />
-              <h3 className="font-display text-base font-bold">
-                {t.generateQrLink}
-              </h3>
-            </div>
-            <p className="mb-4 font-body text-xs text-muted-foreground">
-              掃描 QR Code 或複製連結後，可免登入進入客戶專區查看此報價單，並瀏覽產品搜尋、傢俬訂製、付款+送貨、訂單狀況、成功案例、服務一覽、公司資料及聯絡我們等頁面（不含機構採購帳號）。
-            </p>
+            {shareCopied ? (
+              <Check className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+            {shareCopied ? "已複製" : "複製連結"}
+          </ModalButton>
+        }
+      >
             <div className="mb-4 flex justify-center rounded-xl border border-border bg-background p-4">
               {shareUrl ? (
                 <img
@@ -4778,41 +4771,17 @@ export function QuotationDraftEditor({
             <label className="mb-1 block font-body text-xs text-muted-foreground">
               網址連結
             </label>
-            <div className="flex items-stretch gap-2">
-              <input
-                type="text"
-                readOnly
-                value={shareUrl}
-                className="min-w-0 flex-1 rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono-data text-[11px] text-foreground"
-              />
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(shareUrl);
-                    setShareCopied(true);
-                    toast.success("已複製連結");
-                  } catch {
-                    toast.error("複製失敗");
-                  }
-                }}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 font-body text-xs font-semibold hover:bg-muted/50"
-              >
-                {shareCopied ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-600" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-                {shareCopied ? "已複製" : "複製"}
-              </button>
-            </div>
+            <input
+              type="text"
+              readOnly
+              value={shareUrl}
+              className="w-full rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono-data text-[11px] text-foreground"
+            />
             <div className="mt-3 flex items-center gap-1.5 font-body text-[11px] text-muted-foreground">
               <Link2 className="h-3.5 w-3.5" />
               每次按「生成」都會建立全新連結與 QR Code
             </div>
-          </div>
-        </div>
-      ) : null}
+      </Modal>
 
     </>
   );

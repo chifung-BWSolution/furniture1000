@@ -3,14 +3,13 @@ import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import {
-  Boxes, Check, ChevronLeft, ChevronRight, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X, ZoomIn,
+  Boxes, Check, ChevronLeft, ChevronRight, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, Undo2, X, ZoomIn,
 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
+import { ImageLightbox } from '@/components/ui/image-lightbox';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
@@ -731,36 +730,38 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
       {Pagination}
 
       {/* Lightbox overlay */}
-      {lightboxSrc && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setLightboxSrc(null)}
-        >
-          <button
-            onClick={() => setLightboxSrc(null)}
-            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-          >
-            <X className="h-4 w-4" />
-          </button>
-          <LoadingImage
-            src={lightboxSrc}
-            alt="放大圖片"
-            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+      <ImageLightbox
+        open={Boolean(lightboxSrc)}
+        onClose={() => setLightboxSrc(null)}
+        images={lightboxSrc ? [lightboxSrc] : []}
+        title="放大圖片"
+        simple
+      />
 
       {/* Revert Reason Dialog */}
-      <Dialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-display">退回原因（必選）</DialogTitle>
-            <DialogDescription className="font-body text-sm">
-              請選擇退回原因（至少選一項）。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2 py-2">
+      <Modal
+        open={showRevertDialog}
+        onOpenChange={setShowRevertDialog}
+        size="md"
+        icon={<Undo2 className="h-6 w-6" />}
+        title="退回原因（必選）"
+        description="請選擇退回原因（至少選一項）。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。"
+        footer={
+          <>
+            <ModalButton
+              disabled={isReverting || (revertReasons.length === 0 && !revertOther.trim())}
+              onClick={handleConfirmRevert}
+            >
+              {isReverting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              確認退回 ({selected.size})
+            </ModalButton>
+            <ModalButton variant="ghost" onClick={() => setShowRevertDialog(false)}>
+              取消
+            </ModalButton>
+          </>
+        }
+      >
+          <div className="flex flex-col gap-2">
             {REVERT_OPTIONS.map(opt => (
               <label key={opt} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 hover:bg-accent">
                 <input
@@ -786,22 +787,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
               />
             )}
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" className="font-display text-xs" onClick={() => setShowRevertDialog(false)}>
-              取消
-            </Button>
-            <Button
-              size="sm"
-              className="font-display text-xs bg-amber-500 hover:bg-amber-600 text-white"
-              disabled={isReverting || (revertReasons.length === 0 && !revertOther.trim())}
-              onClick={handleConfirmRevert}
-            >
-              {isReverting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-              確認退回 ({selected.size})
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </Modal>
     </div>
   );
 }

@@ -42,13 +42,7 @@ import {
   Layers,
   Clapperboard,
 } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
+import { Modal, ModalButton, ModalContent, ModalRoot } from '@/components/ui/modal';
 import { supabase } from '@/lib/supabase';
 import {
   productImageFieldsPendingStorage,
@@ -281,12 +275,21 @@ function ImageLightbox({
   const displaySrc = pastedImage ?? images[currentIndex]?.src;
 
   return (
+    <ModalRoot open onOpenChange={(next) => { if (!next && !pastedImage) onClose(); }}>
+      <ModalContent
+        hideClose
+        variant="bleed"
+        size="full"
+        overlayClassName="bg-black/90 backdrop-blur-md"
+        className="border-0 bg-transparent shadow-none"
+        bodyClassName="flex-col"
+      >
     <motion.div
       ref={containerRef}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md outline-none"
+      className="relative flex h-full w-full items-center justify-center outline-none"
       tabIndex={-1}
       onClick={() => { if (!pastedImage) onClose(); }}
       onPaste={(e) => { e.preventDefault(); processPaste(e.clipboardData); }}
@@ -399,6 +402,8 @@ function ImageLightbox({
         </div>
       )}
     </motion.div>
+      </ModalContent>
+    </ModalRoot>
   );
 }
 
@@ -985,22 +990,15 @@ export function ProductDetailModal({
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm overflow-y-auto"
-        >
-          <motion.div
-            initial={{ opacity: 0, y: 40, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 40, scale: 0.97 }}
-            transition={{ duration: 0.3, ease: 'easeOut' }}
-            className="relative w-full max-w-5xl mx-4 my-8 rounded-xl border border-border bg-background shadow-2xl"
+        <ModalRoot open onOpenChange={(next) => { if (!next) onClose(); }}>
+          <ModalContent
+            hideClose
+            size="5xl"
+            className="max-h-[88vh]"
+            bodyClassName="min-h-0 flex-1 overflow-y-auto p-0"
           >
             {/* Top Bar */}
-            <div className="sticky top-0 z-10 flex items-center justify-between rounded-t-xl border-b border-border bg-background/95 backdrop-blur-sm px-6 py-4">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/95 px-6 py-4 backdrop-blur-sm">
               <div className="flex items-center gap-3">
                 <Button
                   variant="ghost"
@@ -1648,41 +1646,58 @@ export function ProductDetailModal({
 
               </div>
             </div>
-          </motion.div>
-
-          {/* Lightbox */}
-          <AnimatePresence>
-            {lightboxOpen && images.length > 0 && (
-              <ImageLightbox
-                images={images}
-                initialIndex={lightboxIndex}
-                onClose={() => setLightboxOpen(false)}
-                productId={product.id}
-                onReplaceMain={(newSrc) => {
-                  setImages((prev) =>
-                    prev.map((img, idx) => (idx === lightboxIndex ? { ...img, src: newSrc } : img))
-                  );
-                }}
-              />
-            )}
-          </AnimatePresence>
-        </motion.div>
+          </ModalContent>
+        </ModalRoot>
       )}
+
+      {/* Lightbox */}
+      <AnimatePresence>
+        {lightboxOpen && images.length > 0 && (
+          <ImageLightbox
+            images={images}
+            initialIndex={lightboxIndex}
+            onClose={() => setLightboxOpen(false)}
+            productId={product.id}
+            onReplaceMain={(newSrc) => {
+              setImages((prev) =>
+                prev.map((img, idx) => (idx === lightboxIndex ? { ...img, src: newSrc } : img))
+              );
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Scene Generation Dialog */}
       {showAIImageTools && (
-        <Dialog open={showSceneDialog} onOpenChange={setShowSceneDialog}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="font-display flex items-center gap-2">
-                <Clapperboard className="h-4 w-4 text-emerald-500" />
-                場景圖生成
-              </DialogTitle>
-              <DialogDescription className="font-body text-sm">
-                選擇場景（可多選），AI 將為產品生成對應環境的效果圖
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
+        <Modal
+          open={showSceneDialog}
+          onOpenChange={setShowSceneDialog}
+          size="md"
+          icon={<Clapperboard className="h-6 w-6" />}
+          title="場景圖生成"
+          description="選擇場景（可多選），AI 將為產品生成對應環境的效果圖"
+          footer={
+            <>
+              <ModalButton
+                onClick={() => {
+                  if (selectedScenes.length === 0) { toast.error('請至少選擇一個場景'); return; }
+                  toast.info(`場景圖生成功能即將推出（已選：${selectedScenes.map(s => s.split(':')[1]).join('、')}）`);
+                  setShowSceneDialog(false);
+                  setSelectedScenes([]);
+                }}
+              >
+                生成場景圖
+              </ModalButton>
+              <ModalButton
+                variant="ghost"
+                onClick={() => { setShowSceneDialog(false); setSelectedScenes([]); }}
+              >
+                取消
+              </ModalButton>
+            </>
+          }
+        >
+            <div className="space-y-4">
               {[
                 { group: '辦公區室', scenes: ['老闆房', '大會議室', '小會議室', 'Pantry', '水吧', '接待區'] },
                 { group: '學校場所', scenes: ['課室', '禮堂', '飯堂'] },
@@ -1717,32 +1732,10 @@ export function ProductDetailModal({
                 </div>
               ))}
             </div>
-            <div className="flex items-center justify-between pt-2">
-              <span className="font-mono-data text-xs text-muted-foreground">
-                已選 {selectedScenes.length} 個場景
-              </span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { setShowSceneDialog(false); setSelectedScenes([]); }}
-                  className="rounded-md border border-border px-3 py-1.5 text-xs font-display font-bold hover:bg-muted transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={() => {
-                    if (selectedScenes.length === 0) { toast.error('請至少選擇一個場景'); return; }
-                    toast.info(`場景圖生成功能即將推出（已選：${selectedScenes.map(s => s.split(':')[1]).join('、')}）`);
-                    setShowSceneDialog(false);
-                    setSelectedScenes([]);
-                  }}
-                  className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-display font-bold text-white hover:bg-emerald-500 transition-colors"
-                >
-                  生成場景圖
-                </button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+            <p className="mt-4 font-mono-data text-xs text-muted-foreground">
+              已選 {selectedScenes.length} 個場景
+            </p>
+        </Modal>
       )}
     </AnimatePresence>
   );

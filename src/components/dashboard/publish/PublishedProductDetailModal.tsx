@@ -22,6 +22,8 @@ import { fetchFactoriesWithIds, type FactoryItem } from '@/lib/factorySupabase';
 import { buildMoreImageMetafieldColumns } from '@/lib/shopifyMetafieldImages';
 import { syncShopifyProductToProduct, syncShopifyCostsToProducts } from '@/lib/rtsProductSync';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
+import { Modal, ModalButton, ModalContent, ModalRoot } from '@/components/ui/modal';
+import { ImageLightbox } from '@/components/ui/image-lightbox';
 
 interface ShopifyVariant {
   id?: string | number;
@@ -608,18 +610,23 @@ export function PublishedProductDetailModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={() => {
+    <>
+    <ModalRoot
+      open
+      onOpenChange={(open) => {
+        if (open) return;
         // Don't close product detail while an image lightbox is open
         if (mediaLightboxSrc || variantLightboxSrc) return;
         onClose();
       }}
     >
-      <div
-        className="relative flex flex-col bg-background rounded-2xl shadow-2xl overflow-hidden border border-border"
+      <ModalContent
+        hideClose
+        variant="bleed"
+        size="full"
+        className="bg-background"
+        bodyClassName="flex flex-col overflow-hidden p-0"
         style={{ width: '1200px', height: '800px', maxWidth: '96vw', maxHeight: '96vh' }}
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-6 py-3.5">
@@ -1166,125 +1173,123 @@ export function PublishedProductDetailModal({
             </section>
           </div>
         </div>
-      </div>
+      </ModalContent>
+    </ModalRoot>
 
-      {variantImagePickerKey && (
-        <div
-          className="fixed inset-0 z-[220] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          onClick={() => setVariantImagePickerKey(null)}
-        >
-          <div
-            className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-background p-5 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <div>
-                <h3 className="font-display text-sm font-semibold text-foreground">選擇規格主圖</h3>
-                <p className="mt-0.5 font-body text-[11px] text-muted-foreground">
-                  從此產品的媒體中選一張作為該尺寸的主圖
-                </p>
-              </div>
+    <VariantImagePickerModal
+      open={Boolean(variantImagePickerKey)}
+      images={editImages}
+      selected={variantImagePickerKey ? editVariantImageSrc[variantImagePickerKey] : undefined}
+      onPick={(src) => {
+        if (!variantImagePickerKey) return;
+        setEditVariantImageSrc((prev) => ({
+          ...prev,
+          [variantImagePickerKey]: src,
+        }));
+        setVariantImagePickerKey(null);
+      }}
+      onClose={() => setVariantImagePickerKey(null)}
+      onPreview={(src) => setVariantLightboxSrc(src)}
+    />
+
+    <MediaLightbox
+      src={mediaLightboxSrc}
+      title={editTitle || '產品圖片'}
+      onClose={() => closeMediaLightbox()}
+    />
+
+    <MediaLightbox
+      src={variantLightboxSrc}
+      title="規格原圖"
+      onClose={() => closeVariantLightbox()}
+    />
+    </>
+  );
+}
+
+function VariantImagePickerModal({
+  open,
+  images,
+  selected,
+  onPick,
+  onClose,
+  onPreview,
+}: {
+  open: boolean;
+  images: string[];
+  selected: string | undefined;
+  onPick: (src: string) => void;
+  onClose: () => void;
+  onPreview: (src: string) => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(next) => { if (!next) onClose(); }}
+      size="lg"
+      icon={<ImageIcon className="h-6 w-6" />}
+      title="選擇規格主圖"
+      description="從此產品的媒體中選一張作為該尺寸的主圖"
+      footer={
+        <>
+          {selected ? (
+            <ModalButton variant="secondary" onClick={() => onPreview(selected)}>
+              查看目前選中圖片原尺寸
+            </ModalButton>
+          ) : null}
+          <ModalButton variant="ghost" onClick={onClose}>
+            取消
+          </ModalButton>
+        </>
+      }
+    >
+      {images.length === 0 ? (
+        <p className="py-8 text-center text-xs text-muted-foreground">此產品沒有可選媒體圖片</p>
+      ) : (
+        <div className="grid grid-cols-4 gap-2">
+          {images.map((src) => {
+            const isSelected = selected === src;
+            return (
               <button
+                key={src}
                 type="button"
-                onClick={() => setVariantImagePickerKey(null)}
-                className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
+                onClick={() => onPick(src)}
+                className={cn(
+                  'relative aspect-square overflow-hidden rounded-lg border-2 transition-all',
+                  isSelected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50',
+                )}
               >
-                <X className="h-4 w-4" />
+                <img src={productThumbUrl(src)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                {isSelected && (
+                  <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="h-3 w-3" />
+                  </span>
+                )}
               </button>
-            </div>
-            {editImages.length === 0 ? (
-              <p className="py-8 text-center text-xs text-muted-foreground">此產品沒有可選媒體圖片</p>
-            ) : (
-              <div className="grid grid-cols-4 gap-2">
-                {editImages.map((src) => {
-                  const isSelected = variantImagePickerKey
-                    && editVariantImageSrc[variantImagePickerKey] === src;
-                  return (
-                    <button
-                      key={src}
-                      type="button"
-                      onClick={() => {
-                        if (!variantImagePickerKey) return;
-                        setEditVariantImageSrc((prev) => ({
-                          ...prev,
-                          [variantImagePickerKey]: src,
-                        }));
-                        setVariantImagePickerKey(null);
-                      }}
-                      className={cn(
-                        'relative aspect-square overflow-hidden rounded-lg border-2 transition-all',
-                        isSelected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50',
-                      )}
-                    >
-                      <LoadingImage src={productThumbUrl(src)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
-                      {isSelected && (
-                        <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                          <Check className="h-3 w-3" />
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {variantImagePickerKey && editVariantImageSrc[variantImagePickerKey] && (
-              <button
-                type="button"
-                onClick={() => setVariantLightboxSrc(editVariantImageSrc[variantImagePickerKey])}
-                className="mt-3 text-[11px] text-primary hover:underline"
-              >
-                查看目前選中圖片原尺寸
-              </button>
-            )}
-          </div>
+            );
+          })}
         </div>
       )}
+    </Modal>
+  );
+}
 
-      {mediaLightboxSrc && createPortal(
-        <div
-          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={closeMediaLightbox}
-        >
-          <button
-            type="button"
-            onClick={closeMediaLightbox}
-            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-            aria-label="關閉放大圖片"
-          >
-            <X className="h-4 w-4" />
-          </button>
-          <LoadingImage
-            src={mediaLightboxSrc}
-            alt={editTitle || '產品圖片'}
-            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>,
-        document.body,
-      )}
-
-      {variantLightboxSrc && createPortal(
-        <div
-          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={closeVariantLightbox}
-        >
-          <button
-            type="button"
-            onClick={closeVariantLightbox}
-            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-            aria-label="關閉放大圖片"
-          >
-            <X className="h-4 w-4" />
-          </button>
-          <LoadingImage
-            src={variantLightboxSrc}
-            alt="規格原圖"
-            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>,
-        document.body,
-      )}
-    </div>
+function MediaLightbox({
+  src,
+  title,
+  onClose,
+}: {
+  src: string | null;
+  title?: string;
+  onClose: () => void;
+}) {
+  return (
+    <ImageLightbox
+      open={Boolean(src)}
+      onClose={onClose}
+      images={src ? [src] : []}
+      title={title}
+      simple
+    />
   );
 }
