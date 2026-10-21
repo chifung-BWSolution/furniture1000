@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 import { fetchUploadLogReportServer } from "./uploadLogReportServer.ts";
 import { formatTodayUploadLogReportAsHtml, formatUploadLogReportAsHtml } from "./uploadLogReportHtml.ts";
 import { formatTodayUploadLogReportAsText, formatUploadLogReportAsText } from "./uploadLogReportText.ts";
@@ -189,6 +190,36 @@ async function sendEmailViaResend(args: {
   return payload as { id?: string };
 }
 
+async function recordEmailLogs(args: {
+  recipients: string[];
+  status: "success" | "failed";
+  errorMessage?: string | null;
+  provider?: string | null;
+  messageId?: string | null;
+  payload: Record<string, unknown>;
+  resendOf?: string | null;
+}): Promise<void> {
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!url || !key || args.recipients.length === 0) return;
+  const admin = createClient(url, key, { auth: { persistSession: false } });
+  const { error } = await admin.from("email_notification_logs").insert(
+    args.recipients.map((recipient) => ({
+      recipient,
+      notification_type: "upload_log_report",
+      status: args.status,
+      error_message: args.errorMessage ?? null,
+      provider: args.provider ?? null,
+      message_id: args.messageId ?? null,
+      payload: args.payload,
+      resend_of: args.resendOf ?? null,
+    })),
+  );
+  if (error) {
+    console.error("[send-upload-log-report-email] log insert", error.message);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders, status: 200 });
@@ -205,6 +236,7 @@ Deno.serve(async (req: Request) => {
     include_all_dates?: boolean;
     preview_only?: boolean;
     day_count?: number;
+    resend_of?: string;
   } = {};
 
   try {
@@ -251,6 +283,21 @@ Deno.serve(async (req: Request) => {
     }
 
     const result = await sendReportEmail({ to, subject, text, html });
+    const logPayload = {
+      test: body.test === true,
+      to,
+      forward_to: forwardTo || null,
+      include_all_dates: includeAllDates,
+      day_count: dayCount,
+    };
+    await recordEmailLogs({
+      recipients: to,
+      status: "success",
+      provider: result.provider,
+      messageId: result.id ?? null,
+      payload: logPayload,
+      resendOf: body.resend_of?.trim() || null,
+    });
 
     return jsonResponse({
       ok: true,
@@ -264,8 +311,22 @@ Deno.serve(async (req: Request) => {
     });
   } catch (err) {
     console.error("[send-upload-log-report-email]", err);
+    const message = err instanceof Error ? err.message : "Send failed";
+    await recordEmailLogs({
+      recipients: to,
+      status: "failed",
+      errorMessage: message,
+      payload: {
+        test: body.test === true,
+        to,
+        forward_to: forwardTo || null,
+        include_all_dates: includeAllDates,
+        day_count: dayCount,
+      },
+      resendOf: body.resend_of?.trim() || null,
+    });
     return jsonResponse(
-      { error: err instanceof Error ? err.message : "Send failed" },
+      { error: message },
       500,
     );
   }
