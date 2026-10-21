@@ -221,6 +221,10 @@ const CustomerOrgAccountView = lazy(() =>
 const QuoteTrashView = lazy(() =>
   import("./QuoteTrashView").then((mod) => ({ default: mod.QuoteTrashView }))
 );
+const PmBudgetView = lazy(() =>
+  import("./PmBudgetView").then((mod) => ({ default: mod.PmBudgetView }))
+);
+);
 
 // Views that fetch their own data independently of the app store's product
 // load — they must not be gated by store.isLoading, so they render immediately.
@@ -260,6 +264,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-publish-similar",
   "fds2-pm-presentation",
   "fds2-quote-trash",
+  "fds2-pm-budget",
   "report-factory",
   "report-product",
   "user-management",
@@ -972,6 +977,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-pm-presentation') return <PresentationView />;
     if (store.currentView === 'fds2-publish-similar') return <SimilarProductsView />;
     if (store.currentView === 'fds2-quote-trash') return <QuoteTrashView />;
+    if (store.currentView === 'fds2-pm-budget') return <PmBudgetView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
