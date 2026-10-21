@@ -54,7 +54,7 @@ for (const parts of [[], Array(31).fill(customPart)]) {
 }
 console.log('PASS: Edge handler preserves base choices, custom extraction, confirmed dimensions, and rejects incomplete lists (mocked Grok)');
 for (const mode of ['classify', 'parts']) {
-  for (const images of [[], [{ image_base64: 'AAAA' }], ['AAAA', 'AAAA', 'AAAA'].map(image_base64 => ({ image_base64 })), ['AAAA', 'BBBB', 'AA AA'].map(image_base64 => ({ image_base64 }))]) {
+  for (const images of [[], [{ image_base64: 'AAAA' }], ['AAAA', 'AAAA', 'AAAA'].map(image_base64 => ({ image_base64 })), ['AAAA', 'AA AA'].map(image_base64 => ({ image_base64 }))]) {
     const rejected = await analyze({ mode, images }, []);
     assert.equal(rejected.status, 400);
     assert.equal(requests.length, 0, 'Invalid reference sets must not incur an AI call');
@@ -62,6 +62,9 @@ for (const mode of ['classify', 'parts']) {
 }
 const legacy = await analyze({ images: undefined, image_base64: 'AAAA' }, []);
 assert.equal(legacy.status, 400, 'Legacy single-image requests cannot bypass the minimum');
+const pair = await analyze({ images: ['AAAA', 'BBBB'].map(image_base64 => ({ image_base64 })) }, [{ kind: 'side_chair', chair_base: 'four', arms: false }]);
+assert.equal(pair.status, 200);
+assert.equal(pair.body.structure.leg_count, 1, 'Two distinct views must still return structure evidence');
 for (const extraction of [{ parts:[defaultPart],structure:{} }, { parts:[{ ...defaultPart, role:undefined }],structure }]) {
   const invalid=await analyze({},[extraction,{kind:'side_chair'}]);
   assert.equal(invalid.status,502,'Incomplete structural evidence must never fall back to a template');

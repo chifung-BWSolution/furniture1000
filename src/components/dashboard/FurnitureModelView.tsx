@@ -10,7 +10,7 @@ import { buildFurnitureGlb } from '@/lib/furnitureGlb';
 import { downloadModel, fetchSkpStatus, requestSkp, type SkpStatus } from '@/lib/productModels';
 import { useSkpRequirements } from '@/components/dashboard/SkpRequirementsDialog';
 import { FurnitureProductScopeDialog, type ProductCountDetection, type ProductScopeChoice } from '@/components/dashboard/FurnitureProductScopeDialog';
-import { selectFurnitureGeometry, validateFurnitureStructure, type StructureEvidence } from '@/lib/furnitureStructure';
+import { hasStructureEvidence, selectFurnitureGeometry, validateFurnitureStructure, type StructureEvidence } from '@/lib/furnitureStructure';
 import {
   DEFAULT_TABLE_STYLE,
   FURNITURE_KINDS,
@@ -181,7 +181,7 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
     structure?: StructureEvidence;
   }) => {
     if (!next && !hasReferences) {
-      toast.error('請先選擇最少 3 張不同角度圖片完成辨認');
+      toast.error('請先選擇最少 2 張不同角度圖片完成辨認');
       return;
     }
     const rawParts = next?.parts ?? model?.custom_parts ?? [];
@@ -199,6 +199,7 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
       parts: rawParts.length && w && d && h ? fitCustomParts(rawParts, w, d, h) : rawParts,
     });
     const evidence = next?.structure ?? structure;
+    if (!hasStructureEvidence(evidence)) throw new Error('缺少結構辨認資料，請重新辨認圖片');
     const errors = validateFurnitureStructure(built, evidence, next?.parts ?? referenceParts);
     if (errors.length) throw new Error(errors.join('；'));
     built.structure_evidence = evidence;
@@ -209,16 +210,16 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
   };
 
   const readImage = async (files: File[], choice?: ProductScopeChoice) => {
-    if (files.length < 3 || files.length > 6) {
-      toast.error('請選擇 3 至 6 張同款家具的不同角度圖片');
+    if (files.length < 2 || files.length > 6) {
+      toast.error('請選擇 2 至 6 張同款家具的不同角度圖片');
       return;
     }
     setReading(true);
     try {
       const images = await Promise.all(files.map(async file => ({ image_base64: await fileToJpeg(file), mime_type: 'image/jpeg' })));
       const body = { images, product_scope: choice?.scope, product_count: choice?.count };
-      if (new Set(images.map(image => image.image_base64)).size < 3) throw new Error('最少需要 3 張不同圖片，重複圖片不計算');
-      let result = await invokeEdgeFunctionDirect<{
+      if (new Set(images.map(image => image.image_base64)).size < 2) throw new Error('最少需要 2 張不同圖片，重複圖片不計算');
+      type AnalysisResponse = {
         supported?: boolean;
         kind?: FurnitureKind;
         width_mm?: number | null;
@@ -233,11 +234,28 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
         structure?: StructureEvidence;
         requires_product_scope_confirmation?: boolean;
         detection?: ProductCountDetection;
-      }>('supabase-functions-generate-furniture-model', body);
-      if (result.status === 404) {
-        result = await invokeEdgeFunctionDirect('generate-furniture-model', body);
+      };
+      let result: Awaited<ReturnType<typeof invokeEdgeFunctionDirect<AnalysisResponse>>> | null = null;
+      let legacy: typeof result = null;
+      for (const slug of ['supabase-functions-generate-furniture-model', 'generate-furniture-model'] as const) {
+        const next = await invokeEdgeFunctionDirect<AnalysisResponse>(slug, body);
+        if (next.status === 404) continue;
+        if (next.error || !next.data) {
+          result = next;
+          break;
+        }
+        if ((next.data.requires_product_scope_confirmation && next.data.detection) || next.data.supported === false) {
+          result = next;
+          break;
+        }
+        if (hasStructureEvidence(next.data.structure)) {
+          result = next;
+          break;
+        }
+        legacy = next;
       }
-      if (result.error || !result.data) throw new Error(result.error?.message ?? '無法辨認圖片');
+      result = result ?? legacy;
+      if (!result || result.error || !result.data) throw new Error(result?.error?.message ?? '無法辨認圖片');
       if (result.data.requires_product_scope_confirmation && result.data.detection) {
         setScopeRequest({ files, detection: result.data.detection });
         return;
@@ -290,9 +308,9 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
         estimatedAxes,
         style: imageStyle,
         parts: imageParts,
-        structure: result.data.structure,
+        structure: hasStructureEvidence(result.data.structure) ? result.data.structure : undefined,
       });
-      setStructure(result.data.structure);
+      setStructure(hasStructureEvidence(result.data.structure) ? result.data.structure : undefined);
       setReferenceParts(imageParts);
       setHasReferences(true);
     } catch (err) {
@@ -414,7 +432,7 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
         }} />
         <Button size="sm" variant="outline" disabled={reading} onClick={() => fileRef.current?.click()}>
           {reading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-          從圖片估算（3–6 張不同角度）
+          從圖片估算（2–6 張不同角度）
         </Button>
       </div>
 

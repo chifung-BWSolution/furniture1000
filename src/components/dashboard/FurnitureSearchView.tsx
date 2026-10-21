@@ -39,7 +39,7 @@ import { StructureConfirmForm, type StructureDraft } from '@/components/dashboar
 import { buildDimensionConflicts, type DimensionEstimate } from '@/lib/dimensionConflicts';
 import { useSkpRequirements } from '@/components/dashboard/SkpRequirementsDialog';
 import { FurnitureProductScopeDialog, type ProductCountDetection, type ProductScopeChoice } from '@/components/dashboard/FurnitureProductScopeDialog';
-import { selectFurnitureGeometry, validateFurnitureStructure, type StructureEvidence } from '@/lib/furnitureStructure';
+import { hasStructureEvidence, selectFurnitureGeometry, validateFurnitureStructure, type StructureEvidence } from '@/lib/furnitureStructure';
 import {
   buildParametric,
   customPartsSize,
@@ -1231,10 +1231,13 @@ type AnalysisRequest = {
 };
 
 /**
- * Require at least three distinct readable references; send at most six views.
+ * Require at least two distinct readable references; send at most six views.
  * mode 'parts' asks only for the part list used when no template fits.
+ * The prefixed slug is tried first. A legacy 200 that classifies kind but omits
+ * structure is not accepted; the bare slug is tried before giving up.
  */
 async function analyzeProductImages(urls: (string | File)[], request: AnalysisRequest = {}): Promise<ImageAnalysis | null> {
+  const furnitureModelSlugs = ['supabase-functions-generate-furniture-model', 'generate-furniture-model'] as const;
   const images: { image_base64: string; mime_type: string }[] = [];
   const seen = new Set<string>();
   for (const url of urls) {
@@ -1251,19 +1254,35 @@ async function analyzeProductImages(urls: (string | File)[], request: AnalysisRe
       // A broken photo should not stop the others from being read.
     }
   }
-  if (images.length < 3) throw Object.assign(new Error(`只有 ${images.length} 張可讀取的不同圖片，請補充至最少 3 張`), { code: 'reference_images_required' });
+  if (images.length < 2) throw Object.assign(new Error(`只有 ${images.length} 張可讀取的不同圖片，請補充至最少 2 張`), { code: 'reference_images_required' });
   const body = { images, ...request };
-  let result = await invokeEdgeFunctionDirect<ImageAnalysis & { supported?: boolean; reason?: string }>(
-    'supabase-functions-generate-furniture-model',
-    body,
-  );
-  if (result.status === 404) {
-    result = await invokeEdgeFunctionDirect('generate-furniture-model', body);
+  type AnalysisResponse = ImageAnalysis & { supported?: boolean; reason?: string };
+  let result: Awaited<ReturnType<typeof invokeEdgeFunctionDirect<AnalysisResponse>>> | null = null;
+  let legacy: typeof result = null;
+  for (const slug of furnitureModelSlugs) {
+    const next = await invokeEdgeFunctionDirect<AnalysisResponse>(slug, body);
+    if (next.status === 404) continue;
+    if (next.error || !next.data) {
+      result = next;
+      break;
+    }
+    if ((next.data.requires_product_scope_confirmation && next.data.detection) || next.data.supported === false) {
+      result = next;
+      break;
+    }
+    if (hasStructureEvidence(next.data.structure)) {
+      result = next;
+      break;
+    }
+    legacy = next;
   }
-  if (result.error || !result.data) throw new Error(result.error?.message ?? '無法辨認圖片');
+  result = result ?? legacy;
+  if (!result || result.error || !result.data) throw new Error(result?.error?.message ?? '無法辨認圖片');
   if (result.data.requires_product_scope_confirmation && result.data.detection) return result.data;
   if (result.data.supported === false || !result.data.kind) throw new Error(result.data.reason || '無法確認單件產品，請提供單品圖片');
-  return result.data;
+  const structure = hasStructureEvidence(result.data.structure) ? result.data.structure : undefined;
+  if (!structure) throw new Error('缺少結構辨認資料，請重新辨認圖片');
+  return { ...result.data, structure };
 }
 
 type ModelDraft = StructureDraft;
@@ -1611,8 +1630,8 @@ function ProductModelsSection({
 
   /** T-801: read kind, size, and table structure, then hand a draft to the user to confirm. */
   const prepare = async (target: 'su' | '3d', choice = scopeChoice) => {
-    if (modelPhotos.length < 3) {
-      setPhotoRequest({ target, message: `目前只有 ${modelPhotos.length} 張候選圖片，最少需要 3 張不同角度圖片。` });
+    if (modelPhotos.length < 2) {
+      setPhotoRequest({ target, message: `目前只有 ${modelPhotos.length} 張候選圖片，最少需要 2 張不同角度圖片。` });
       return;
     }
     setBusy(target);
@@ -1685,7 +1704,7 @@ function ProductModelsSection({
               }
             }
             parts = sanitizeCustomParts(guess.parts);
-            structure = guess.structure;
+            structure = hasStructureEvidence(guess.structure) ? guess.structure : undefined;
             notes = guess.structure_notes ?? null;
             style = initialModelStyle(kind, text, guess.style);
             styleSource = 'image';
@@ -1770,9 +1789,11 @@ function ProductModelsSection({
         if (editedAxis === axis || (patch[axis] != null && patch[axis] !== current[axis])) resolved.add(axis);
       });
       const resolvedSizeAxes = [...resolved];
+      const { structure: patchedStructure, ...rest } = patch;
       const next = {
         ...current,
-        ...patch,
+        ...rest,
+        ...(hasStructureEvidence(patchedStructure) ? { structure: patchedStructure } : {}),
         ...(patch.style ? { style: { ...current.style, ...patch.style } } : {}),
         estimated,
         resolvedSizeAxes,
@@ -1794,9 +1815,9 @@ function ProductModelsSection({
   const loadParts = async (choice = scopeChoice) => {
     if (!draft) return;
     const photos = modelPhotos;
-    if (photos.length < 3) {
+    if (photos.length < 2) {
       setConfirmShown(false);
-      setPhotoRequest({ target: 'parts', message: '最少需要 3 張不同角度圖片，請補充參考圖。' });
+      setPhotoRequest({ target: 'parts', message: '最少需要 2 張不同角度圖片，請補充參考圖。' });
       return;
     }
     const size = (value: string) => (Number(value) > 0 ? Number(value) : null);
@@ -1822,7 +1843,7 @@ function ProductModelsSection({
       const partsSize = customPartsSize(parts);
       updateDraft({
         parts,
-        structure: result?.structure,
+        ...(hasStructureEvidence(result?.structure) ? { structure: result.structure } : {}),
         notes: result?.structure_notes ?? draft.notes,
         ...(partsSize ? Object.fromEntries(missing.map((axis) => [axis, String(partsSize[AXIS_INDEX[axis]])])) : {}),
         estimated: [...new Set([...draft.estimated, ...missing])],
@@ -2142,7 +2163,7 @@ function ProductModelsSection({
         description={extraPhotos.length > 0 ? '已加入補充圖片，繼續後會再次檢查可讀取且不重複的圖片數量。' : photoRequest?.message}
         style={workbench ? WORKBENCH_TONE : undefined}
         footer={<>
-          <ModalButton disabled={modelPhotos.length < 3} onClick={() => {
+          <ModalButton disabled={modelPhotos.length < 2} onClick={() => {
             if (!photoRequest) return;
             const target = photoRequest.target;
             setPhotoRequest(null);
