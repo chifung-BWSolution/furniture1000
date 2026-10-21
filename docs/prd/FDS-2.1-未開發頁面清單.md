@@ -5,7 +5,7 @@
 
 未掛上既有頁、也沒有在 `renderView()` 另行接上的 `fds2-*` 會進 `PlannedPage`，畫面文字是「此頁面待開發」。`AppShell` 裡的 `PlaceholderView`（「即將推出 · Coming Soon」）目前沒有被任何路由呼叫。
 
-已接上真頁、不在下表：設計師的產品類型／產品 PDF／常用傢俬／最新產品、PM 快速報價與簡報生成、報價一覽與大金額投標、廠家資訊與上載產品 PDF、產品管理與網上發布（含整合相似）、三份分析報表、系統設定裡除電郵通知以外的項目、全部客戶專區。`/fds/designer/su` 與 `/fds/designer/3d` 已不在側欄，舊網址回到產品類型。
+已接上真頁、不在下表：設計師的產品類型／產品 PDF／常用傢俬／最新產品、PM 報價預算、快速報價、專業說明 PDF、簡報生成、報價一覽與大金額投標、廠家資訊與上載產品 PDF、產品管理與網上發布（含整合相似）、三份分析報表、系統設定裡除電郵通知以外的項目、全部客戶專區。PM 這四頁屬於 BWA，與傢俬報價（`bwf_quote`、`/fds/quote/*`）分離，規則見 `FDS-2.1-完整需求規格.md` §1.1.1。`/fds/designer/su` 與 `/fds/designer/3d` 已不在側欄，舊網址回到產品類型。
 
 規格第 12 節仍寫「產品類型／產品 PDF 待開發」。程式已接上，以這份清單為準。
 
@@ -13,8 +13,6 @@
 |---|---|---|---|---|---|---|
 | `/fds/quote/trash` | 報價回收桶 | 傢俬報價 | FDS 2.0 R2.4；差異對照「回收桶保留並加確認」 | 現有 `bwf_quote.status`＝`回收桶`，原狀態寫進 `project_data._fdsTrash`。列表、用量統計、客戶報價方案排除此狀態。已接上，報價一覽改為移入而非永久刪除 | 小 | P0 |
 | `/fds/quote/format` | 報價單格式設定 | 傢俬報價 | FDS 2.0 R1.1 QR 文案、R1.2 修訂日期、R2.2 分區小計；決議第 1、2 項 | 尚無格式設定表。版面現在散落在報價編輯器與 `quotationLocale` | 大 | P0 |
-| `/fds/pm/budget` | 報價預算 | PM報價 | FDS 2.0 R5.1 預算報價／正式報價 | PMS `bwf_pitchings.estimated_income`（edge `fetch-pms-pitchings`）與 Furniture `bwf_quote` 的 `total_amount` | 中 | P1 |
-| `/fds/pm/pro-pdf` | 專業說明 PDF (常用廠家) | PM報價 | FDS 2.0 R5.2 七段式；FDS 2.1 §12、決議第 16 項；F-AI-009 只共用內容 | `bwf_quote`、`bwf_quote_item`（售價，不含成本）、`bwf_quote_share_links`、報價用量裡的常用廠家、`src/content/bwCorporate.ts` 的公開案例 | 大 | P1 |
 | `/fds/settings/email` | 電郵通知 | 系統設定 | FDS 2.0 R6.5；決議第 18 項。記錄時間、收件人、類型、關聯單、成功／失敗、可重發 | 尚無發送紀錄表。現有 `send-upload-log-report-email` 寄出後不落庫 | 中 | P1 |
 | `/fds/cases/orders` | 訂單數據 | 成功案例 | FDS 2.0 R5.2 第 4 段、R6.3 | 沒有內部訂單表。公開工程在 `BW_PUBLIC_CASES`（名稱、地區、面積、相片） | 中 | P1 |
 | `/fds/cases/photos` | 完工相片 | 成功案例 | 同上 | 同上，公開案例圖片 URL | 小 | P1 |

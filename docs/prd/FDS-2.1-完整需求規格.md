@@ -1,6 +1,6 @@
 # FDS 2.1 完整需求規格（Furniture Intelligence Platform）
 
-最後更新：2026-10-19
+最後更新：2026-10-21
 
 > **文件定位**：本文件是 FDS 2.0 的**擴展合併版**，而非取代。FDS 2.0 全部業務需求、角色、流程與權限**原樣保留**；本文件只新增 AI 能力並記錄整合方式。
 > **來源**：
@@ -24,6 +24,16 @@
 ### 1.1 定位
 
 **Furniture Intelligence Platform — 家具智能採購與設計平台**：在現有 FDS 2.0 之上，整合家具產品資料、供應商報價、AI 搜索、3D 建模及商務演示，讓 PM 更有效率完成選型、成本查詢與方案製作。
+
+### 1.1.1 PM報價與傢俬報價分離（2026-10-21）
+
+**PM報價**（`/fds/pm/*`：報價預算、快速報價、專業說明 PDF、簡報生成，以及日後加在此區的頁）給 **BWA 的項目經理**。它與 **傢俬報價**（`/fds/quote/*`、`/quote/*`，表 `bwf_quote`／`bwf_quote_item`／`bwf_quote_share_links`，含快速報價、報價一覽、回收桶）是兩個模組。
+
+- PM 頁只讀 PMS Pitching（與 `PmsPitchingGate` 相同的 `fetch-pms-pitchings`），顯示預計收入、預計支出、預計毛利。不讀、不寫 `bwf_quote`，不連結傢俬報價畫面。
+- 對外文件的品牌是 **BWA**。不使用 BW Furniture 的公司介紹、公開案例、服務承諾或客戶專區 QR。
+- `PmsPitchingGate` 會用最新傢俬報價覆蓋 Pitching 金額，只屬於傢俬報價。
+- 權限維持現狀：PM 區不是管理員專頁；`pm` 仍依平台角色進入 FDS，不因這條規則被鎖出或被導進傢俬報價。
+- **待確認**：這次沿用的 Pitching 清單目前查的是 PMS `bwf_pitchings`。規格沒有寫明 BWA PM 是否應改查 `bwa_pitchings`，也沒有 BWA 法定名稱、地址、電話、案例與互動連結。未確認前不猜測、不新建表。
 
 ### 1.2 核心業務目標（新增）
 
@@ -614,8 +624,9 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 | 設計師選傢俬 → 產品PDF | `fds2-designer-pdf` | 待開發 | D-2／F-AI-001 |
 | 設計師選傢俬 → SU模型 | `fds2-designer-su` | 待開發 | D-5／**F-AI-008** |
 | 設計師選傢俬 → 3D模型 | `fds2-designer-3d` | 待開發 | D-6／**F-AI-008** |
-| PM報價 → 專業說明 PDF | `fds2-pm-pro-pdf` | 待開發 | R5.2／F-AI-009 |
-| PM報價 → 快速報價 | `fds2-pm-quick` → `quick-quote` | 已存在 | R5.1 |
+| PM報價 → 專業說明 PDF | `fds2-pm-pro-pdf` | 已接上，只用 PMS Pitching 與 BWA 品牌 | R5.2／§1.1.1 |
+| PM報價 → 快速報價 | `fds2-pm-quick` | 已接上，不進入 `quick-quote` | R5.1／§1.1.1 |
+| PM報價 → 報價預算 | `fds2-pm-budget` | 已接上，只用 PMS Pitching 預算 | R5.1／§1.1.1 |
 | 系統設定 → 電郵通知 | `fds2-admin-email` | 待開發 | R6.5 |
 | **新增：AI 解析／審核** | 建議新 view（如 `fds2-products-ai-review`） | 新增 | F-AI-002/003 |
 | **新增：供應商報價比較** | 建議新 view | 新增 | F-AI-007 |

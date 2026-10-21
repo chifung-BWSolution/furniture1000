@@ -219,7 +219,6 @@ export const ADMIN_ONLY_VIEWS: ViewType[] = [
  * `primary` is the menu item that stays highlighted for that original page.
  */
 const MOVED_PAGES: { sitemap: ViewType; legacy: ViewType; primary?: boolean }[] = [
-  { sitemap: 'fds2-pm-quick', legacy: 'quick-quote' },
   { sitemap: 'fds2-quote-factories', legacy: 'manufacturer-catalog' },
   { sitemap: 'fds2-quote-quick', legacy: 'quick-quote', primary: true },
   { sitemap: 'fds2-quote-list', legacy: 'quotation-list', primary: true },

@@ -224,6 +224,9 @@ const QuoteTrashView = lazy(() =>
 const PmBudgetView = lazy(() =>
   import("./PmBudgetView").then((mod) => ({ default: mod.PmBudgetView }))
 );
+const PmQuickView = lazy(() =>
+  import("./PmQuickView").then((mod) => ({ default: mod.PmQuickView }))
+);
 const ProPdfView = lazy(() =>
   import("./ProPdfView").then((mod) => ({ default: mod.ProPdfView }))
 );
@@ -291,6 +294,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-pm-presentation",
   "fds2-quote-trash",
   "fds2-pm-budget",
+  "fds2-pm-quick",
   "fds2-pm-pro-pdf",
   "fds2-factory-sales",
   "fds2-quote-format",
@@ -1027,6 +1031,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-publish-similar') return <SimilarProductsView />;
     if (store.currentView === 'fds2-quote-trash') return <QuoteTrashView />;
     if (store.currentView === 'fds2-pm-budget') return <PmBudgetView />;
+    if (store.currentView === 'fds2-pm-quick') return <PmQuickView />;
     if (store.currentView === 'fds2-pm-pro-pdf') return <ProPdfView />;
     if (store.currentView === 'fds2-factory-sales') return <FactorySalesView />;
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;
