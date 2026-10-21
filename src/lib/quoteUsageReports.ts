@@ -8,6 +8,7 @@
  */
 import { supabase } from '@/lib/supabase';
 import { normalizeFactoryDisplayName } from '@/lib/factoryNames';
+import { QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
 
 const PAGE_SIZE = 1000;
 
@@ -97,24 +98,19 @@ async function fetchAllQuoteItemRows(): Promise<QuoteItemScanRow[]> {
   return rows;
 }
 
-/** Latest bwf_quote.id per quote_id chain (same grouping as 報價單一覽). */
+/**
+ * Latest non-trash bwf_quote.id per quote_id chain (same grouping as 報價一覽).
+ * Scans headers instead of latest_quote_version_ids, which still returns a
+ * version after it has been moved to 回收桶.
+ */
 async function fetchLatestQuoteUuidSet(): Promise<Set<string>> {
-  // Preferred: one server-side DISTINCT ON round-trip (one id per quote_id).
-  const { data: rpcRows, error: rpcErr } = await supabase.rpc('latest_quote_version_ids');
-  if (!rpcErr && rpcRows) {
-    return new Set((rpcRows as { id: string }[]).map((row) => String(row.id)));
-  }
-  console.warn(
-    '[quoteUsageReports] latest_quote_version_ids RPC unavailable, falling back to scan:',
-    rpcErr?.message,
-  );
-
   const latestByQuoteId = new Map<string, { id: string; createdAt: number }>();
   let from = 0;
   for (;;) {
     const { data, error } = await supabase
       .from('bwf_quote')
       .select('id, quote_id, created_at')
+      .neq('status', QUOTE_TRASH_STATUS)
       .order('created_at', { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;

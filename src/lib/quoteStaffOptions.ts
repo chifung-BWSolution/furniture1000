@@ -63,6 +63,7 @@ export async function fetchQuoteStaffFilterOptions(): Promise<string[]> {
     const { data, error } = await supabase
       .from('bwf_quote')
       .select('submitter, bwf_pitching_id, project_data')
+      .neq('status', '回收桶')
       .order('modified_date', { ascending: false, nullsFirst: false })
       .limit(500);
 

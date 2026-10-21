@@ -1398,6 +1398,7 @@ export function CustomerQuoteSchemesView() {
       const { data, error } = await supabase
         .from('bwf_quote')
         .select(LIST_SELECT)
+        .neq('status', '回收桶')
         .order('created_at', { ascending: false })
         .limit(120);
       if (error) throw error;
