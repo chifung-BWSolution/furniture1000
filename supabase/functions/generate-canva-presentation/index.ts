@@ -8,6 +8,12 @@ import {
   productImageFieldNeeds,
   type ProductRow,
 } from "./autofill.ts";
+import {
+  exportFormatBody,
+  pickDownloadUrl,
+  type CanvaExportFormat,
+  type CanvaExportJob,
+} from "./exports.ts";
 
 /**
  * FDS 2.1 Day 9 — Canva PPT（T-901，F-AI-009）
@@ -24,7 +30,7 @@ import {
  * - save_draft  → { brief, product_ids?, session_id?, parent_id? }
  * - create_native → { session_id } autofill brand template (T-902) or blank presentation (T-901)
  * - template_dataset → 列出品牌模板 dataset 欄位（除錯）
- * - export_pptx → { session_id } POST /v1/exports pptx → 輪詢 job
+ * - export_pptx / export_pdf / export_design → { session_id, format? } Canva export + 審計列（T-903）
  *
  * Secrets：CANVA_CLIENT_ID、CANVA_CLIENT_SECRET、CANVA_BASE_URL（可選，
  * 預設 https://api.canva.com/rest/v1）。token 只能在 canva_connections
@@ -466,15 +472,8 @@ Deno.serve(async (req: Request) => {
       : [];
     const sessionId = body.session_id ? String(body.session_id) : null;
     const parentId = body.parent_id ? String(body.parent_id) : null;
+    const versionNote = body.version_note != null ? String(body.version_note).slice(0, 500) : null;
     const now = new Date().toISOString();
-    const row = {
-      staff_id: userId,
-      parent_id: parentId,
-      status: "draft",
-      brief,
-      product_ids: productIds,
-      updated_at: now,
-    };
     if (sessionId) {
       const { data: existing } = await service
         .from("canva_design_sessions")
@@ -483,17 +482,61 @@ Deno.serve(async (req: Request) => {
         .eq("staff_id", userId)
         .maybeSingle();
       if (!existing?.id) return json({ error: "session_not_found" }, 404);
-      const { error: updErr } = await service.from("canva_design_sessions").update(row).eq("id", sessionId);
+      const patch: Record<string, unknown> = {
+        status: "draft",
+        brief,
+        product_ids: productIds,
+        updated_at: now,
+      };
+      if (versionNote != null) patch.version_note = versionNote;
+      const { error: updErr } = await service.from("canva_design_sessions").update(patch).eq("id", sessionId);
       if (updErr) return json({ error: updErr.message }, 500);
       return json({ session_id: sessionId });
     }
+
+    let rootId: string | null = null;
+    let contentVersion = 1;
+    if (parentId) {
+      const { data: parent } = await service
+        .from("canva_design_sessions")
+        .select("id,root_id,content_version")
+        .eq("id", parentId)
+        .eq("staff_id", userId)
+        .maybeSingle();
+      if (!parent?.id) return json({ error: "parent_not_found" }, 404);
+      rootId = (parent.root_id as string | null) ?? parent.id;
+      const { data: siblings } = await service
+        .from("canva_design_sessions")
+        .select("content_version")
+        .eq("root_id", rootId);
+      const maxV = (siblings ?? []).reduce(
+        (m, r) => Math.max(m, Number((r as { content_version?: number }).content_version ?? 1)),
+        1,
+      );
+      contentVersion = maxV + 1;
+    }
+
     const { data: inserted, error: insErr } = await service
       .from("canva_design_sessions")
-      .insert(row)
+      .insert({
+        staff_id: userId,
+        parent_id: parentId,
+        root_id: rootId,
+        content_version: contentVersion,
+        version_note: versionNote,
+        status: "draft",
+        brief,
+        product_ids: productIds,
+        updated_at: now,
+      })
       .select("id")
       .single();
     if (insErr) return json({ error: insErr.message }, 500);
-    return json({ session_id: inserted.id });
+    const newId = inserted.id as string;
+    if (!parentId) {
+      await service.from("canva_design_sessions").update({ root_id: newId }).eq("id", newId);
+    }
+    return json({ session_id: newId, content_version: contentVersion, root_id: rootId ?? newId });
   }
 
   // ── create_native：T-902 autofill 或 T-901 空白 presentation ───
@@ -508,6 +551,19 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
     if (sessErr) return json({ error: sessErr.message }, 500);
     if (!session) return json({ error: "session_not_found" }, 404);
+
+    if (session.status === "creating") {
+      const ageMs = Date.now() - new Date(String(session.updated_at)).getTime();
+      if (ageMs < 120_000) return json({ error: "create_in_progress" }, 409);
+    }
+    if (session.canva_design_id && session.status === "ready") {
+      return json({
+        error: "design_already_exists",
+        message: "此草稿已有 Canva 設計；請用「新版本」建立另一條設計鏈，勿覆蓋 Canva 內修改。",
+        edit_url: session.edit_url,
+        session_id: sessionId,
+      }, 409);
+    }
 
     const { data: connScope } = await service
       .from("canva_connections")
@@ -752,134 +808,184 @@ Deno.serve(async (req: Request) => {
     return json(updated);
   }
 
-  // ── export_pptx：POST /v1/exports ─────────────────────────────────
-  if (action === "export_pptx") {
+  // ── export_design / export_pptx / export_pdf（T-903）────────────────
+  if (action === "export_design" || action === "export_pptx" || action === "export_pdf") {
     const sessionId = String(body.session_id ?? "");
     if (!sessionId) return json({ error: "session_id_required" }, 400);
-    const { data: session, error: sessErr } = await service
-      .from("canva_design_sessions")
-      .select("*")
-      .eq("id", sessionId)
-      .eq("staff_id", userId)
-      .maybeSingle();
-    if (sessErr) return json({ error: sessErr.message }, 500);
-    if (!session?.canva_design_id) return json({ error: "design_not_ready" }, 400);
-
-    const { data: connScope } = await service
-      .from("canva_connections")
-      .select("scope")
-      .eq("staff_id", userId)
-      .maybeSingle();
-    const miss = missingExportScopes((connScope as { scope?: string } | null)?.scope ?? null);
-    if (miss.includes("design:content:read")) {
-      return json({ error: "missing_scope", missing_scopes: miss }, 403);
+    let format: CanvaExportFormat = "pptx";
+    if (action === "export_pdf") format = "pdf";
+    else if (action === "export_design") {
+      const f = String(body.format ?? "pptx");
+      format = f === "pdf" ? "pdf" : "pptx";
     }
-
-    const tokenRow = await loadAndRefreshToken(service, userId, credentials);
-    if ("error" in tokenRow) return json({ error: tokenRow.error }, 401);
-
-    await service
-      .from("canva_design_sessions")
-      .update({
-        status: "exporting",
-        export_error: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", sessionId);
-
-    let res = await canvaAuthedFetch(tokenRow.access_token, "/exports", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        design_id: session.canva_design_id,
-        format: { type: "pptx" },
-      }),
+    const exportResult = await runCanvaSessionExport({
+      service,
+      userId,
+      credentials,
+      sessionId,
+      format,
     });
-    if (res.status === 401 && tokenRow.refresh_token) {
-      const refreshed = await refreshToken(service, userId, credentials, tokenRow.refresh_token);
-      if (refreshed) {
-        res = await canvaAuthedFetch(refreshed.access_token, "/exports", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            design_id: session.canva_design_id,
-            format: { type: "pptx" },
-          }),
-        });
-      }
+    if ("error" in exportResult) {
+      return json(exportResult.body, exportResult.status);
     }
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      await service
-        .from("canva_design_sessions")
-        .update({
-          status: "ready",
-          export_error: `export_start_${res.status}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", sessionId);
-      return json({ error: `canva_export_failed_${res.status}`, detail: detail.slice(0, 500) }, 502);
-    }
-    const exportBody = await res.json();
-    const jobId = exportBody?.job?.id as string | undefined;
-    if (!jobId) return json({ error: "canva_export_no_job" }, 502);
-
-    const deadline = Date.now() + POLL_BUDGET_MS;
-    let job: {
-      status?: string;
-      urls?: { url?: string }[];
-      error?: { code?: string; message?: string };
-    } | null = null;
-    let access = tokenRow.access_token;
-    while (Date.now() < deadline) {
-      await sleep(POLL_INTERVAL_MS);
-      const poll = await canvaAuthedFetch(access, `/exports/${jobId}`);
-      if (poll.status === 401 && tokenRow.refresh_token) {
-        const refreshed = await refreshToken(service, userId, credentials, tokenRow.refresh_token);
-        if (refreshed) access = refreshed.access_token;
-        continue;
-      }
-      if (!poll.ok) continue;
-      const polled = await poll.json();
-      job = polled?.job ?? null;
-      if (job?.status !== "in_progress") break;
-    }
-    if (!job || job.status !== "success") {
-      const errMsg = job?.error?.message ?? job?.error?.code ?? "export_timeout";
-      await service
-        .from("canva_design_sessions")
-        .update({
-          status: "ready",
-          export_job_id: jobId,
-          export_error: errMsg,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", sessionId);
-      return json({ error: "canva_export_failed", detail: errMsg, export_job_id: jobId }, 502);
-    }
-    const downloadUrl = job.urls?.[0]?.url ?? null;
-    const { data: updated, error: updErr } = await service
-      .from("canva_design_sessions")
-      .update({
-        status: "exported",
-        export_job_id: jobId,
-        export_download_url: downloadUrl,
-        export_error: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", sessionId)
-      .select("*")
-      .single();
-    if (updErr) return json({ error: updErr.message }, 500);
-    return json({
-      export_job_id: jobId,
-      export_download_url: downloadUrl,
-      session: updated,
-    });
+    return json(exportResult.body);
   }
 
   return json({ error: "unknown_action" }, 400);
 });
+
+const EXPORT_URL_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function runCanvaSessionExport(opts: {
+  service: ReturnType<typeof createClient>;
+  userId: string;
+  credentials: string;
+  sessionId: string;
+  format: CanvaExportFormat;
+}): Promise<
+  | { body: Record<string, unknown> }
+  | { error: true; status: number; body: Record<string, unknown> }
+> {
+  const { service, userId, credentials, sessionId, format } = opts;
+  const { data: session, error: sessErr } = await service
+    .from("canva_design_sessions")
+    .select("*")
+    .eq("id", sessionId)
+    .eq("staff_id", userId)
+    .maybeSingle();
+  if (sessErr) return { error: true, status: 500, body: { error: sessErr.message } };
+  if (!session?.canva_design_id) return { error: true, status: 400, body: { error: "design_not_ready" } };
+
+  const { data: connScope } = await service
+    .from("canva_connections")
+    .select("scope")
+    .eq("staff_id", userId)
+    .maybeSingle();
+  const miss = missingExportScopes((connScope as { scope?: string } | null)?.scope ?? null);
+  if (miss.includes("design:content:read")) {
+    return { error: true, status: 403, body: { error: "missing_scope", missing_scopes: miss } };
+  }
+
+  const tokenRow = await loadAndRefreshToken(service, userId, credentials);
+  if ("error" in tokenRow) return { error: true, status: 401, body: { error: tokenRow.error } };
+
+  await service
+    .from("canva_design_sessions")
+    .update({ status: "exporting", export_error: null, updated_at: new Date().toISOString() })
+    .eq("id", sessionId);
+
+  const exportPayload = {
+    design_id: session.canva_design_id,
+    format: exportFormatBody(format),
+  };
+
+  let res = await canvaAuthedFetch(tokenRow.access_token, "/exports", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(exportPayload),
+  });
+  if (res.status === 401 && tokenRow.refresh_token) {
+    const refreshed = await refreshToken(service, userId, credentials, tokenRow.refresh_token);
+    if (refreshed) {
+      res = await canvaAuthedFetch(refreshed.access_token, "/exports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(exportPayload),
+      });
+    }
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    const errText = `export_start_${res.status}`;
+    await service.from("canva_design_exports").insert({
+      session_id: sessionId,
+      staff_id: userId,
+      format,
+      canva_design_id: session.canva_design_id,
+      error: errText,
+    });
+    await service
+      .from("canva_design_sessions")
+      .update({ status: "ready", export_error: errText, updated_at: new Date().toISOString() })
+      .eq("id", sessionId);
+    return { error: true, status: 502, body: { error: `canva_export_failed_${res.status}`, detail: detail.slice(0, 500) } };
+  }
+  const exportBody = await res.json();
+  const jobId = exportBody?.job?.id as string | undefined;
+  if (!jobId) return { error: true, status: 502, body: { error: "canva_export_no_job" } };
+
+  let access = tokenRow.access_token;
+  const job = await pollCanvaJob<CanvaExportJob>(
+    access,
+    `/exports/${jobId}`,
+    (j) => j?.status === "success" || j?.status === "failed",
+    async () => {
+      const refreshed = await refreshToken(service, userId, credentials, tokenRow.refresh_token);
+      if (refreshed) {
+        access = refreshed.access_token;
+        return refreshed.access_token;
+      }
+      return null;
+    },
+  );
+
+  if (!job || job.status !== "success") {
+    const errMsg = job?.error?.message ?? job?.error?.code ?? "export_timeout";
+    await service.from("canva_design_exports").insert({
+      session_id: sessionId,
+      staff_id: userId,
+      format,
+      canva_design_id: session.canva_design_id,
+      export_job_id: jobId,
+      error: errMsg,
+    });
+    await service
+      .from("canva_design_sessions")
+      .update({
+        status: "ready",
+        export_job_id: jobId,
+        export_error: errMsg,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", sessionId);
+    return { error: true, status: 502, body: { error: "canva_export_failed", detail: errMsg, export_job_id: jobId } };
+  }
+
+  const downloadUrl = pickDownloadUrl(job);
+  const urlExpiresAt = new Date(Date.now() + EXPORT_URL_TTL_MS).toISOString();
+  await service.from("canva_design_exports").insert({
+    session_id: sessionId,
+    staff_id: userId,
+    format,
+    canva_design_id: session.canva_design_id,
+    export_job_id: jobId,
+    download_url: downloadUrl,
+    url_expires_at: urlExpiresAt,
+  });
+
+  const { data: updated, error: updErr } = await service
+    .from("canva_design_sessions")
+    .update({
+      status: "exported",
+      export_job_id: jobId,
+      export_download_url: downloadUrl,
+      export_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", sessionId)
+    .select("*")
+    .single();
+  if (updErr) return { error: true, status: 500, body: { error: updErr.message } };
+  return {
+    body: {
+      format,
+      export_job_id: jobId,
+      export_download_url: downloadUrl,
+      url_expires_at: urlExpiresAt,
+      session: updated,
+    },
+  };
+}
 
 /** 取本人 token；已過期（60s buffer）就先 refresh。 */
 async function loadAndRefreshToken(

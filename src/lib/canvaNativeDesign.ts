@@ -29,6 +29,9 @@ export type CanvaSessionStatus =
 export interface CanvaDesignSession {
   id: string;
   parent_id?: string | null;
+  root_id?: string | null;
+  content_version?: number;
+  version_note?: string | null;
   status: CanvaSessionStatus;
   brief: CanvaDesignBrief;
   product_ids: string[];
@@ -69,14 +72,55 @@ export async function saveCanvaDraft(
   productIds: string[],
   sessionId?: string,
   parentId?: string,
-): Promise<{ session_id: string }> {
+  versionNote?: string,
+): Promise<{ session_id: string; content_version?: number; root_id?: string }> {
   return invoke({
     action: 'save_draft',
     session_id: sessionId,
     parent_id: parentId,
+    version_note: versionNote,
     brief,
     product_ids: productIds,
   });
+}
+
+export interface CanvaSessionVersionRow {
+  id: string;
+  parent_id?: string | null;
+  root_id?: string | null;
+  content_version?: number;
+  version_note?: string | null;
+  status: CanvaSessionStatus;
+  canva_design_id?: string | null;
+  edit_url?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CanvaDesignExportRow {
+  id: string;
+  format: 'pptx' | 'pdf';
+  export_job_id?: string | null;
+  download_url?: string | null;
+  url_expires_at?: string | null;
+  error?: string | null;
+  canva_design_id: string;
+  created_at: string;
+}
+
+export async function listCanvaSessionVersions(sessionId: string): Promise<CanvaSessionVersionRow[]> {
+  const { data, error } = await supabase.rpc('fds_list_canva_session_versions', { p_session_id: sessionId });
+  if (error) throw new Error(error.message);
+  return (data as CanvaSessionVersionRow[] | null) ?? [];
+}
+
+export async function listCanvaDesignExports(sessionId: string, limit = 20): Promise<CanvaDesignExportRow[]> {
+  const { data, error } = await supabase.rpc('fds_list_canva_design_exports', {
+    p_session_id: sessionId,
+    p_limit: limit,
+  });
+  if (error) throw new Error(error.message);
+  return (data as CanvaDesignExportRow[] | null) ?? [];
 }
 
 export async function createNativeCanvaDesign(sessionId: string): Promise<CanvaDesignSession> {
@@ -86,8 +130,29 @@ export async function createNativeCanvaDesign(sessionId: string): Promise<CanvaD
 export async function exportCanvaSessionPptx(sessionId: string): Promise<{
   export_download_url: string;
   export_job_id: string;
+  url_expires_at?: string;
+  format?: string;
 }> {
   return invoke({ action: 'export_pptx', session_id: sessionId });
+}
+
+export async function exportCanvaSessionPdf(sessionId: string): Promise<{
+  export_download_url: string;
+  export_job_id: string;
+  url_expires_at?: string;
+}> {
+  return invoke({ action: 'export_pdf', session_id: sessionId });
+}
+
+/** R5.2 專業 PDF 共用內容（獨立渲染，非 Canva 版面）。 */
+export function proPdfHandoffPath(brief: CanvaDesignBrief): string {
+  const q = new URLSearchParams();
+  if (brief.title?.trim()) q.set('briefTitle', brief.title.trim());
+  if (brief.client?.trim()) q.set('client', brief.client.trim());
+  if (brief.project?.trim()) q.set('project', brief.project.trim());
+  if (brief.purpose?.trim()) q.set('purpose', brief.purpose.trim());
+  const s = q.toString();
+  return `/fds/pm/pro-pdf${s ? `?${s}` : ''}`;
 }
 
 export async function probeCanvaNative(): Promise<{
