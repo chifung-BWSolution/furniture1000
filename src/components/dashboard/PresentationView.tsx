@@ -3,24 +3,25 @@
 // Canva 原生 POST /v1/designs（canvaNativeDesign.ts）。
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  CheckCircle2, ChevronDown, ExternalLink, Link2, Loader2,
-  Presentation as PresentationIcon, RefreshCcw, Search, Unlink,
+  ArrowRight, CheckCircle2, ExternalLink, Info, Link2, Loader2,
+  Presentation as PresentationIcon, RefreshCcw, Save, Search, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
-import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import type { SearchProduct, SearchResult } from '@/lib/productSearch';
 import { searchProducts } from '@/lib/productSearch';
+import { CANVA_AUTOFILL_DOC_PATH } from '@/lib/canvaBrandTemplate';
 import {
   canvaDisconnect, exchangeCanvaCode, fetchCanvaStatus,
   readCanvaOauthCallback, startCanvaConnect, clearCanvaOauthState, type CanvaStatus,
@@ -36,11 +37,108 @@ import {
 const PAGE_SIZE = 50;
 const MAX_ITEMS = 30;
 const PRESENTATION_PATH = '/fds/pm/presentation';
+const PURPOSE_MAX = 200;
+const CONTENT_MAX = 1000;
+const AUTOFILL_DOC_HREF = `https://github.com/chifung-BWSolution/furniture1000/blob/develop/${CANVA_AUTOFILL_DOC_PATH}`;
+const LANGUAGE_OPTIONS = ['繁體中文', '簡體中文', 'English', '中英對照'];
+const STYLE_OPTIONS = ['專業、簡潔', '簡約現代', '高端精品', '活潑清晰'];
 
 type Status = 'idle' | 'creating' | 'exporting';
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function optionsWithCurrent(options: string[], current?: string): string[] {
+  const value = current?.trim();
+  if (value && !options.includes(value)) return [value, ...options];
+  return options;
+}
+
+function CanvaMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden>
+      <circle cx="16" cy="16" r="16" fill="#7D2AE8" />
+      <circle cx="16" cy="16" r="10.5" fill="none" stroke="#00C4CC" strokeWidth="2.4" />
+      <path
+        d="M21.2 11.4a6.4 6.4 0 1 0 .2 9.3"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="2.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SlideStack({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 128 104" className={className} aria-hidden>
+      <rect x="34" y="16" width="78" height="52" rx="10" className="fill-indigo-200 dark:fill-indigo-400/35" transform="rotate(8 73 42)" />
+      <rect x="22" y="22" width="78" height="52" rx="10" className="fill-violet-300 dark:fill-violet-400/45" transform="rotate(-7 61 48)" />
+      <rect x="16" y="30" width="84" height="58" rx="12" className="fill-white stroke-indigo-200 dark:fill-slate-900 dark:stroke-indigo-300/40" strokeWidth="1.5" />
+      <rect x="28" y="44" width="34" height="7" rx="3.5" className="fill-indigo-500" />
+      <rect x="28" y="58" width="58" height="4" rx="2" className="fill-indigo-200 dark:fill-indigo-300/50" />
+      <rect x="28" y="68" width="46" height="4" rx="2" className="fill-violet-200 dark:fill-violet-300/40" />
+    </svg>
+  );
+}
+
+function StepCard({
+  n,
+  title,
+  hint,
+  children,
+  id,
+}: {
+  n: number;
+  title: string;
+  hint?: string;
+  children: ReactNode;
+  id?: string;
+}) {
+  return (
+    <section id={id} className="scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+      <div className="mb-5 flex items-start gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
+          {n}
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-base font-bold text-foreground">{title}</h3>
+          {hint ? <p className="mt-1 text-sm text-muted-foreground">{hint}</p> : null}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Field({
+  label,
+  required,
+  hint,
+  counter,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  counter?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-sm font-medium text-foreground">
+          {label}
+          {required ? <span className="ml-0.5 text-red-500">*</span> : null}
+        </Label>
+        {counter ? <span className="text-xs tabular-nums text-muted-foreground">{counter}</span> : null}
+      </div>
+      {children}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
 }
 
 export function PresentationView() {
@@ -53,13 +151,13 @@ export function PresentationView() {
   const [status, setStatus] = useState<Status>('idle');
   const [canvaLink, setCanvaLink] = useState<{ edit_url: string; title?: string } | null>(null);
   const oauthHandledRef = useRef(false);
+  const outlineRef = useRef<HTMLDivElement>(null);
 
   const [brief, setBrief] = useState<CanvaDesignBrief>(() => defaultBrief());
   const [outline, setOutline] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<CanvaDesignSession[]>([]);
   const [activeSession, setActiveSession] = useState<CanvaDesignSession | null>(null);
-  const [productsOpen, setProductsOpen] = useState(false);
   const [versionNote, setVersionNote] = useState('');
   const [versionRows, setVersionRows] = useState<CanvaSessionVersionRow[]>([]);
   const [exportRows, setExportRows] = useState<CanvaDesignExportRow[]>([]);
@@ -343,309 +441,481 @@ export function PresentationView() {
     }
   };
 
+  const clearForm = () => {
+    setBrief(defaultBrief());
+    setOutline('');
+    setSelected([]);
+    setQuery('');
+    setResult(null);
+    setSessionId(null);
+    setActiveSession(null);
+    setCanvaLink(null);
+    setVersionNote('');
+    setVersionRows([]);
+    setExportRows([]);
+  };
+
+  const generateOutline = () => {
+    syncOutline();
+    outlineRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const openCanvaShortcut = () => {
+    if (canvaLink?.edit_url) {
+      window.open(canvaLink.edit_url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    document.getElementById('canva-connection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const searchResults = result?.items ?? [];
   const selectedIds = useMemo(() => new Set(selected.map((i) => i.id)), [selected]);
+  const purposeCount = (brief.purpose ?? '').length;
+  const contentCount = (brief.content ?? '').length;
+  const languageOptions = optionsWithCurrent(LANGUAGE_OPTIONS, brief.language);
+  const styleOptions = optionsWithCurrent(STYLE_OPTIONS, brief.style);
+  const showAutofillWarning = Boolean(canImport && autofillProbe && !autofillProbe.ok);
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold">客戶簡報（Canva）</h2>
-          <p className="text-sm text-muted-foreground">
-            F-AI-009：內容確認 → Autofill → Canva 編輯 → 匯出 PPTX 驗收（T-903 版本／匯出紀錄）。
-          </p>
-        </div>
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <PresentationIcon className="h-4 w-4" /> Canva 連接
-          </CardTitle>
-          <CardDescription>
-            公司帳戶 chifung.login（admin／傢俬組）。T-902 Autofill 需 Pro／Teams 方案、品牌模板 ID，以及
-            brandtemplate／asset scopes（見 repo{' '}
-            <code className="rounded bg-muted px-1">docs/prd/FDS-2.1-Canva品牌模板Autofill.md</code>）。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          {!canva && <span className="text-sm text-muted-foreground"><Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />偵測中…</span>}
-          {canva && !canva.configured && (
-            <div className="text-sm text-muted-foreground">
-              請在 Edge secrets 設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，redirect URI：
-              <code className="rounded bg-muted px-1">{`<域名>${PRESENTATION_PATH}`}</code>
+    <div className="flex h-full min-h-0 flex-col bg-slate-50 text-foreground dark:bg-background">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-6xl space-y-5 px-4 py-5 md:px-6 md:py-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/30">
+                <PresentationIcon className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">客戶簡報（Canva）</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  F-AI-009：內容確認 → Autofill → Canva 編輯 → 匯出 PPTX 驗收（T-903 版本 / 匯出紀錄）
+                </p>
+              </div>
             </div>
-          )}
-          {canva?.configured && !canImport && (
-            <div className="text-sm text-muted-foreground">僅 admin／傢俬組可使用 Canva 簡報功能。</div>
-          )}
-          {canva?.configured && canImport && !connected && (
-            <Button onClick={connect} disabled={disabled}>
-              <Link2 className="mr-2 h-4 w-4" /> 連接 Canva
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 shrink-0 self-start rounded-xl border-border bg-white px-4 shadow-sm hover:bg-slate-50 dark:bg-card dark:hover:bg-accent sm:self-center"
+              onClick={openCanvaShortcut}
+            >
+              <CanvaMark className="h-4 w-4" />
+              Canva 簡報
             </Button>
-          )}
-          {connected && (
-            <>
-              <Badge variant="outline" className="border-emerald-500/40 text-emerald-700">
-                <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                已連接{canva?.account_name ? `：${canva.account_name}` : ''}
-              </Badge>
-              <Button variant="ghost" size="sm" onClick={refreshStatus}>
-                <RefreshCcw className="mr-1 h-3.5 w-3.5" /> 重新檢查
-              </Button>
-              <Button variant="ghost" size="sm" onClick={disconnect} disabled={disabled}>
-                <Unlink className="mr-1 h-3.5 w-3.5" /> 解除連接
-              </Button>
-            </>
-          )}
-          {canImport && autofillProbe && (
-            <div className="w-full text-sm text-muted-foreground">
-              {autofillProbe.ok ? (
-                <span className="text-emerald-700">Autofill 已就緒（品牌模板已配置）。</span>
-              ) : (
-                <span className="text-amber-800">
-                  {autofillProbe.message ??
+          </div>
+
+          <section
+            id="canva-connection"
+            className="scroll-mt-4 overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-violet-50 to-white shadow-sm dark:border-indigo-500/20 dark:from-indigo-950/50 dark:via-violet-950/35 dark:to-card"
+          >
+            <div className="flex items-center gap-4 p-4 sm:gap-5 sm:p-6">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white shadow-md ring-4 ring-white/80 dark:bg-indigo-950 dark:ring-indigo-500/20">
+                <CanvaMark className="h-11 w-11" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-lg font-bold text-foreground">Canva 連接</h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  公司帳戶 chifung.login（admin／傢俬組）。T-902 Autofill 需 Pro／Teams 方案、品牌模板 ID，以及
+                  brandtemplate／asset scopes。
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {!canva && (
+                    <span className="text-sm text-muted-foreground">
+                      <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />
+                      偵測中…
+                    </span>
+                  )}
+                  {canva && !canva.configured && (
+                    <p className="text-sm text-muted-foreground">
+                      請在 Edge secrets 設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，redirect URI：
+                      <code className="ml-1 rounded bg-background/80 px-1">{`<域名>${PRESENTATION_PATH}`}</code>
+                    </p>
+                  )}
+                  {canva?.configured && !canImport && (
+                    <p className="text-sm text-muted-foreground">僅 admin／傢俬組可使用 Canva 簡報功能。</p>
+                  )}
+                  {canva?.configured && canImport && !connected && (
+                    <Button type="button" onClick={connect} disabled={disabled} className="bg-indigo-600 text-white hover:bg-indigo-500">
+                      <Link2 className="h-4 w-4" /> 連接 Canva
+                    </Button>
+                  )}
+                  {connected && (
+                    <>
+                      <span className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-500 bg-white px-3 text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        <CheckCircle2 className="h-4 w-4" />
+                        已連接{canva?.account_name ? `：${canva.account_name}` : ''}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 rounded-lg bg-white dark:bg-card"
+                        onClick={refreshStatus}
+                      >
+                        <RefreshCcw className="h-4 w-4" />
+                        重新檢查
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 rounded-lg bg-white dark:bg-card"
+                        onClick={disconnect}
+                        disabled={disabled}
+                      >
+                        <RefreshCcw className="h-4 w-4" />
+                        解除連接
+                      </Button>
+                    </>
+                  )}
+                  {canImport && autofillProbe?.ok && (
+                    <span className="text-sm text-emerald-700 dark:text-emerald-300">Autofill 已就緒（品牌模板已配置）。</span>
+                  )}
+                </div>
+              </div>
+              <SlideStack className="hidden h-24 w-28 shrink-0 lg:block" />
+            </div>
+          </section>
+
+          {showAutofillWarning && (
+            <div className="flex flex-col gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-orange-950 sm:flex-row sm:items-center dark:border-orange-500/30 dark:bg-orange-950/40 dark:text-orange-100">
+              <Info className="h-5 w-5 shrink-0 text-orange-500" />
+              <div className="min-w-0 flex-1 text-sm">
+                <p>
+                  {autofillProbe?.message ??
                     'Autofill 未就緒：請設定 CANVA_BRAND_TEMPLATE_ID、確認 Canva Pro+，並重新 OAuth。'}
-                  {autofillProbe.missing_scopes?.length ? (
-                    <span className="block text-xs">缺少 scope：{autofillProbe.missing_scopes.join(', ')}</span>
-                  ) : null}
-                </span>
-              )}
+                </p>
+                {autofillProbe?.missing_scopes?.length ? (
+                  <p className="mt-1 text-xs text-orange-800/80 dark:text-orange-200/80">
+                    缺少 scope：{autofillProbe.missing_scopes.join(', ')}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0 bg-white text-orange-950 hover:bg-orange-100 dark:bg-card dark:text-orange-100 dark:hover:bg-orange-950"
+                asChild
+              >
+                <a href={AUTOFILL_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a>
+              </Button>
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">1. 匯報內容與設計要求</CardTitle>
-          <CardDescription>
-            可不選產品；提交前請確認大綱。建立時會以品牌模板 Autofill 填入封面、大綱與產品圖文（若已配置模板）。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2 space-y-1">
-              <Label>簡報標題</Label>
-              <Input
-                value={brief.title}
-                onChange={(e) => setBrief((b) => ({ ...b, title: e.target.value }))}
-                placeholder="例：2026 Q3 方案匯報"
+          <StepCard
+            n={1}
+            title="匯報內容與設計要求"
+            hint="可不選產品；提交前請確認大綱。建立時會以品牌模板 Autofill 填入封面、大綱與產品圖文（若已配置模板）。"
+          >
+            <div className="space-y-4">
+              <Field label="簡報標題" required>
+                <Input
+                  className="h-10 rounded-lg bg-background"
+                  value={brief.title}
+                  aria-required
+                  onChange={(e) => setBrief((b) => ({ ...b, title: e.target.value }))}
+                  placeholder="例：2026 Q3 方案匯報"
+                />
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="客戶">
+                  <Input
+                    className="h-10 rounded-lg bg-background"
+                    value={brief.client ?? ''}
+                    onChange={(e) => setBrief((b) => ({ ...b, client: e.target.value }))}
+                    placeholder="請輸入客戶名稱"
+                  />
+                </Field>
+                <Field label="專案">
+                  <Input
+                    className="h-10 rounded-lg bg-background"
+                    value={brief.project ?? ''}
+                    onChange={(e) => setBrief((b) => ({ ...b, project: e.target.value }))}
+                    placeholder="請輸入專案名稱"
+                  />
+                </Field>
+              </div>
+              <Field label="匯報目的" counter={`${purposeCount}/${PURPOSE_MAX}`}>
+                <Textarea
+                  className="min-h-[5.5rem] rounded-lg bg-background"
+                  value={brief.purpose ?? ''}
+                  maxLength={PURPOSE_MAX}
+                  onChange={(e) => setBrief((b) => ({ ...b, purpose: e.target.value.slice(0, PURPOSE_MAX) }))}
+                  placeholder="例：向客戶說明本季方案重點、報價範圍與下一步"
+                />
+              </Field>
+              <div className="grid gap-4 lg:grid-cols-3">
+                <div className="grid content-start gap-4 sm:grid-cols-2 lg:col-span-2">
+                  <Field label="語言">
+                    <Select
+                      value={brief.language || '繁體中文'}
+                      onValueChange={(value) => setBrief((b) => ({ ...b, language: value }))}
+                    >
+                      <SelectTrigger className="h-10 rounded-lg bg-background">
+                        <SelectValue placeholder="選擇語言" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {languageOptions.map((option) => (
+                          <SelectItem key={option} value={option}>{option}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="風格">
+                    <Select
+                      value={brief.style || '專業、簡潔'}
+                      onValueChange={(value) => setBrief((b) => ({ ...b, style: value }))}
+                    >
+                      <SelectTrigger className="h-10 rounded-lg bg-background">
+                        <SelectValue placeholder="選擇風格" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {styleOptions.map((option) => (
+                          <SelectItem key={option} value={option}>{option}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <div className="sm:col-span-2">
+                  <Field label="期望頁數" hint="建議 8–20 頁">
+                    <Input
+                      className="h-10 max-w-xs rounded-lg bg-background"
+                      type="number"
+                      min={4}
+                      max={40}
+                      value={brief.pageCount ?? ''}
+                      onChange={(e) => setBrief((b) => ({ ...b, pageCount: Number(e.target.value) || undefined }))}
+                      placeholder="12"
+                    />
+                  </Field>
+                  </div>
+                </div>
+                <Field label="匯報原文" counter={`${contentCount}/${CONTENT_MAX}`}>
+                  <Textarea
+                    className="min-h-[10.5rem] rounded-lg bg-background lg:min-h-[11.5rem]"
+                    value={brief.content ?? ''}
+                    maxLength={CONTENT_MAX}
+                    onChange={(e) => setBrief((b) => ({ ...b, content: e.target.value.slice(0, CONTENT_MAX) }))}
+                    placeholder="可貼上客戶提供的匯報原文"
+                  />
+                </Field>
+              </div>
+            </div>
+          </StepCard>
+
+          <div ref={outlineRef}>
+            <StepCard
+              n={2}
+              title="確認大綱"
+              hint="由上方欄位整理。可直接修改；建立 Canva 設計時會用這份大綱。"
+            >
+              <Textarea
+                className="min-h-[8rem] rounded-lg bg-background font-mono text-xs"
+                value={outline}
+                onChange={(e) => setOutline(e.target.value)}
+                placeholder="整理後的大綱；建立 Canva 前請確認"
               />
-            </div>
-            <div className="space-y-1">
-              <Label>客戶</Label>
-              <Input value={brief.client ?? ''} onChange={(e) => setBrief((b) => ({ ...b, client: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>專案</Label>
-              <Input value={brief.project ?? ''} onChange={(e) => setBrief((b) => ({ ...b, project: e.target.value }))} />
-            </div>
-            <div className="sm:col-span-2 space-y-1">
-              <Label>匯報目的</Label>
-              <Input value={brief.purpose ?? ''} onChange={(e) => setBrief((b) => ({ ...b, purpose: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>語言</Label>
-              <Input value={brief.language ?? ''} onChange={(e) => setBrief((b) => ({ ...b, language: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>風格</Label>
-              <Input value={brief.style ?? ''} onChange={(e) => setBrief((b) => ({ ...b, style: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>期望頁數</Label>
-              <Input
-                type="number"
-                min={4}
-                max={40}
-                value={brief.pageCount ?? ''}
-                onChange={(e) => setBrief((b) => ({ ...b, pageCount: Number(e.target.value) || undefined }))}
-              />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label>匯報原文（可貼上客戶提供內容）</Label>
-            <Textarea
-              className="min-h-[8rem]"
-              value={brief.content ?? ''}
-              onChange={(e) => setBrief((b) => ({ ...b, content: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <Label>確認大綱</Label>
-              <Button type="button" variant="outline" size="sm" onClick={syncOutline}>
-                從上方欄位整理
-              </Button>
-            </div>
-            <Textarea
-              className="min-h-[6rem] font-mono text-xs"
-              value={outline}
-              onChange={(e) => setOutline(e.target.value)}
-              placeholder="整理後的大綱；建立 Canva 前請確認"
-            />
+            </StepCard>
           </div>
 
-          <Collapsible open={productsOpen} onOpenChange={setProductsOpen}>
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" className="w-full justify-between">
-                可選：帶入 FDS 產品（{selected.length}）
-                <ChevronDown className={cn('h-4 w-4 transition-transform', productsOpen && 'rotate-180')} />
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 space-y-2 rounded-lg border p-3">
+          <StepCard
+            n={3}
+            title="帶入 FDS 產品"
+            hint={`可選。已選 ${selected.length} / ${MAX_ITEMS} 件，建立時一併交給 Autofill。`}
+          >
+            <div className="space-y-2">
               <div className="flex gap-2">
                 <Input
+                  className="h-10 rounded-lg bg-background"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
                   placeholder="搜尋產品…"
                 />
-                <Button onClick={runSearch} disabled={searching}>
+                <Button type="button" variant="outline" className="h-10 bg-background" onClick={runSearch} disabled={searching}>
                   {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 </Button>
               </div>
-              <div className="max-h-48 space-y-1 overflow-y-auto">
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border bg-background p-2">
+                {searchResults.length === 0 && (
+                  <p className="px-2 py-4 text-center text-sm text-muted-foreground">搜尋後在這裡勾選產品</p>
+                )}
                 {searchResults.slice(0, 20).map((p) => (
-                  <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded border p-2 text-sm">
+                  <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded-md border border-transparent p-2 text-sm hover:bg-muted/60">
                     <Checkbox checked={selectedIds.has(p.id)} onCheckedChange={() => toggle(p)} />
-                    <span className="truncate flex-1">{p.title}</span>
+                    <span className="min-w-0 flex-1 truncate">{p.title}</span>
                   </label>
                 ))}
               </div>
-            </CollapsibleContent>
-          </Collapsible>
-
-          <div className="space-y-1">
-            <Label className="text-xs">新版本備註（建立新版本時使用）</Label>
-            <Input
-              value={versionNote}
-              onChange={(e) => setVersionNote(e.target.value)}
-              placeholder="例：客戶回饋後第二稿"
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={disabled || !canImport} onClick={saveDraft}>
-              儲存草稿
-            </Button>
-            <Button className="flex-1 sm:flex-none" disabled={!canCreateNative || disabled} onClick={createNative}>
-              {status === 'creating' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              建立並填入 Canva 簡報
-            </Button>
-          </div>
-          {!canvaPathReady && canImport && (
-            <p className="text-xs text-amber-700">請先連接 Canva 後再建立設計。</p>
-          )}
-          {canvaLink && (
-            <a
-              href={canvaLink.edit_url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-50/60 p-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-            >
-              <ExternalLink className="h-4 w-4 shrink-0" />
-              <span className="truncate">在 Canva 編輯：{canvaLink.title ?? '設計'}</span>
-            </a>
-          )}
-          {activeSession?.canva_design_id && (
-            <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
-              <p className="text-xs text-muted-foreground">
-                請先在 Canva 保存修改，再匯出；連結約 24 小時有效。專業說明 PDF（R5.2）共用內容、獨立版面：
-                <a className="ml-1 underline" href={proPdfHandoffPath(brief)}>開啟專業 PDF 頁</a>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" disabled={disabled} onClick={() => exportPptx(activeSession.id)}>
-                  {status === 'exporting' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  匯出 PPTX（驗收用）
-                </Button>
-                <Button variant="outline" disabled={disabled} onClick={() => exportPdf(activeSession.id)}>
-                  匯出 PDF（附加）
-                </Button>
-              </div>
             </div>
-          )}
+          </StepCard>
 
-          {(versionRows.length > 0 || exportRows.length > 0) && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {versionRows.length > 0 && (
-                <div className="rounded-lg border p-3 text-sm">
-                  <p className="mb-2 font-medium">版本鏈</p>
-                  <ul className="space-y-1 text-xs">
-                    {versionRows.map((v) => (
-                      <li key={v.id} className="flex justify-between gap-2">
-                        <span>v{v.content_version ?? '?'}{v.version_note ? ` · ${v.version_note}` : ''}</span>
-                        <span className="text-muted-foreground">{v.status}</span>
-                      </li>
-                    ))}
-                  </ul>
+          <StepCard
+            n={4}
+            title="建立 Canva 設計並匯出"
+            hint="請先連接 Canva。已有設計時用「新版本」另建，避免覆蓋 Canva 內的修改。"
+          >
+            <div className="space-y-4">
+              <Field label="新版本備註">
+                <Input
+                  className="h-10 rounded-lg bg-background"
+                  value={versionNote}
+                  onChange={(e) => setVersionNote(e.target.value)}
+                  placeholder="例：客戶回饋後第二稿"
+                />
+              </Field>
+              <Button
+                type="button"
+                className="bg-indigo-600 text-white hover:bg-indigo-500"
+                disabled={!canCreateNative || disabled}
+                onClick={createNative}
+              >
+                {status === 'creating' && <Loader2 className="h-4 w-4 animate-spin" />}
+                建立並填入 Canva 簡報
+              </Button>
+              {!canvaPathReady && canImport && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">請先連接 Canva 後再建立設計。</p>
+              )}
+              {canvaLink && (
+                <a
+                  href={canvaLink.edit_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-50 p-3 text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/70"
+                >
+                  <ExternalLink className="h-4 w-4 shrink-0" />
+                  <span className="truncate">在 Canva 編輯：{canvaLink.title ?? '設計'}</span>
+                </a>
+              )}
+              {activeSession?.canva_design_id && (
+                <div className="space-y-2 rounded-xl border bg-muted/40 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    請先在 Canva 保存修改，再匯出；連結約 24 小時有效。專業說明 PDF（R5.2）共用內容、獨立版面：
+                    <a className="ml-1 underline" href={proPdfHandoffPath(brief)}>開啟專業 PDF 頁</a>
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="secondary" disabled={disabled} onClick={() => exportPptx(activeSession.id)}>
+                      {status === 'exporting' && <Loader2 className="h-4 w-4 animate-spin" />}
+                      匯出 PPTX（驗收用）
+                    </Button>
+                    <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => exportPdf(activeSession.id)}>
+                      匯出 PDF（附加）
+                    </Button>
+                  </div>
                 </div>
               )}
-              {exportRows.length > 0 && (
-                <div className="rounded-lg border p-3 text-sm">
-                  <p className="mb-2 font-medium">匯出紀錄</p>
-                  <ul className="space-y-1 text-xs">
-                    {exportRows.map((e) => {
-                      const expired = e.url_expires_at && new Date(e.url_expires_at) < new Date();
-                      return (
-                        <li key={e.id} className="flex flex-wrap items-center gap-2">
-                          <span className="uppercase">{e.format}</span>
-                          <span className="text-muted-foreground">{new Date(e.created_at).toLocaleString()}</span>
-                          {e.download_url && !expired ? (
-                            <a className="underline" href={e.download_url} target="_blank" rel="noreferrer">下載</a>
-                          ) : (
-                            <span className="text-muted-foreground">{e.error ?? '連結已過期'}</span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
+              {(versionRows.length > 0 || exportRows.length > 0) && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {versionRows.length > 0 && (
+                    <div className="rounded-xl border bg-background p-3 text-sm">
+                      <p className="mb-2 font-medium">版本鏈</p>
+                      <ul className="space-y-1 text-xs">
+                        {versionRows.map((v) => (
+                          <li key={v.id} className="flex justify-between gap-2">
+                            <span className="min-w-0 truncate">v{v.content_version ?? '?'}{v.version_note ? ` · ${v.version_note}` : ''}</span>
+                            <span className="shrink-0 text-muted-foreground">{v.status}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {exportRows.length > 0 && (
+                    <div className="rounded-xl border bg-background p-3 text-sm">
+                      <p className="mb-2 font-medium">匯出紀錄</p>
+                      <ul className="space-y-1 text-xs">
+                        {exportRows.map((e) => {
+                          const expired = e.url_expires_at && new Date(e.url_expires_at) < new Date();
+                          return (
+                            <li key={e.id} className="flex flex-wrap items-center gap-2">
+                              <span className="uppercase">{e.format}</span>
+                              <span className="text-muted-foreground">{new Date(e.created_at).toLocaleString()}</span>
+                              {e.download_url && !expired ? (
+                                <a className="underline" href={e.download_url} target="_blank" rel="noreferrer">下載</a>
+                              ) : (
+                                <span className="text-muted-foreground">{e.error ?? '連結已過期'}</span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </StepCard>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">最近草稿與設計</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {sessions.length === 0 && (
-            <p className="text-sm text-muted-foreground">尚無紀錄；儲存草稿或建立設計後會出現於此。</p>
-          )}
-          {sessions.map((s) => (
-            <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm">
-              <Badge variant="outline">{s.status}</Badge>
-              {s.generation_mode && (
-                <Badge variant="secondary" className="text-xs">{s.generation_mode}</Badge>
+          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+            <h3 className="mb-4 text-base font-bold text-foreground">最近草稿與設計</h3>
+            <div className="space-y-2">
+              {sessions.length === 0 && (
+                <p className="text-sm text-muted-foreground">尚無紀錄；儲存草稿或建立設計後會出現於此。</p>
               )}
-              {s.content_version != null && (
-                <Badge variant="outline" className="text-xs tabular-nums">v{s.content_version}</Badge>
-              )}
-              <span className="min-w-0 flex-1 truncate font-medium">
-                {(s.brief as CanvaDesignBrief).title || '未命名'}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {new Date(s.created_at).toLocaleString()}
-              </span>
-              <Button size="sm" variant="ghost" onClick={() => loadSession(s)}>載入</Button>
-              {s.edit_url && (
-                <Button size="sm" variant="ghost" asChild>
-                  <a href={s.edit_url} target="_blank" rel="noreferrer">Canva</a>
-                </Button>
-              )}
-              {s.status === 'ready' && (
-                <Button size="sm" variant="outline" onClick={() => exportPptx(s.id)}>匯出 PPTX</Button>
-              )}
-              {s.canva_design_id && (
-                <Button size="sm" variant="outline" onClick={() => newVersion(s)}>新版本</Button>
-              )}
+              {sessions.map((s) => (
+                <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-xl border bg-background p-2 text-sm">
+                  <Badge variant="outline">{s.status}</Badge>
+                  {s.generation_mode && (
+                    <Badge variant="secondary" className="text-xs">{s.generation_mode}</Badge>
+                  )}
+                  {s.content_version != null && (
+                    <Badge variant="outline" className="text-xs tabular-nums">v{s.content_version}</Badge>
+                  )}
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {(s.brief as CanvaDesignBrief).title || '未命名'}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(s.created_at).toLocaleString()}
+                  </span>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => loadSession(s)}>載入</Button>
+                  {s.edit_url && (
+                    <Button type="button" size="sm" variant="ghost" asChild>
+                      <a href={s.edit_url} target="_blank" rel="noreferrer">Canva</a>
+                    </Button>
+                  )}
+                  {s.status === 'ready' && (
+                    <Button type="button" size="sm" variant="outline" onClick={() => exportPptx(s.id)}>匯出 PPTX</Button>
+                  )}
+                  {s.canva_design_id && (
+                    <Button type="button" size="sm" variant="outline" onClick={() => newVersion(s)}>新版本</Button>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-        </CardContent>
-      </Card>
+          </section>
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t border-border bg-white/95 px-4 py-3 shadow-[0_-8px_24px_-16px_rgba(15,23,42,0.45)] backdrop-blur dark:bg-card/95 sm:px-6">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="bg-white dark:bg-background"
+            disabled={disabled}
+            onClick={clearForm}
+          >
+            <Trash2 className="h-4 w-4" />
+            清空表單
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="bg-white dark:bg-background"
+            disabled={disabled || !canImport}
+            onClick={saveDraft}
+          >
+            {status === 'creating' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            儲存草稿
+          </Button>
+          <Button
+            type="button"
+            className="bg-indigo-600 text-white hover:bg-indigo-500"
+            disabled={disabled}
+            onClick={generateOutline}
+          >
+            生成簡報大綱
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
