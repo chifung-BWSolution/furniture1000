@@ -63,10 +63,22 @@ export function selectFurnitureGeometry(input: {
   return { kind: 'custom', parts, templateMatched: false };
 }
 
+/** True when a recognition payload carries the structure object generation stores and checks. */
+export function hasStructureEvidence(value: unknown): value is StructureEvidence {
+  if (!value || typeof value !== 'object') return false;
+  const evidence = value as StructureEvidence;
+  return Number.isInteger(evidence.leg_count)
+    && evidence.leg_count >= 0
+    && evidence.leg_count <= 20
+    && typeof evidence.symmetric === 'boolean'
+    && Array.isArray(evidence.uncertainties)
+    && evidence.uncertainties.every((item) => typeof item === 'string');
+}
+
 /** Block structural contradictions; AI evidence remains visible and is never treated as measurement. */
 export function validateFurnitureStructure(model: ParametricModel, evidence: StructureEvidence | undefined, referenceParts?: CustomPartSpec[]): string[] {
   const errors: string[] = [];
-  if (!evidence || !Number.isInteger(evidence.leg_count) || evidence.leg_count < 0 || evidence.leg_count > 20 || typeof evidence.symmetric !== 'boolean' || !Array.isArray(evidence.uncertainties)) return ['缺少完整的結構辨認資料，請重新辨認部件'];
+  if (!hasStructureEvidence(evidence)) return ['缺少完整的結構辨認資料，請重新辨認部件'];
   if (evidence.uncertainties.length) errors.push(...evidence.uncertainties.map(n => `結構待確認：${String(n)}，請補圖後重新辨認`));
   const specs = model.custom_parts ?? referenceParts ?? model.structure_parts ?? [];
   if (specs.length !== model.components.length || specs.some(p => !p.role || !p.form || !Array.isArray(p.connects_to))) return [...errors, '部件用途、形狀或接合關係不完整，請重新辨認部件'];
