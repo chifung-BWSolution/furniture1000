@@ -11,8 +11,16 @@ import { supabase } from '@/lib/supabase';
 
 const EDGE = 'supabase-functions-generate-canva-presentation';
 
-export const CANVA_SCOPES =
-  'design:content:write design:content:read design:meta:read profile:read';
+export const CANVA_SCOPES = [
+  'design:content:write',
+  'design:content:read',
+  'design:meta:read',
+  'brandtemplate:meta:read',
+  'brandtemplate:content:read',
+  'asset:read',
+  'asset:write',
+  'profile:read',
+].join(' ');
 
 export interface CanvaStatus {
   connected: boolean;
