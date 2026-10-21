@@ -16,7 +16,8 @@ import {
  * 呼叫來源：pg_cron（x-worker-secret）、前端 admin / uploader（使用者 JWT）、
  * 以及自己觸發下一批（service role）。
  * 任務狀態一律經 fds_processing_job_* RPC 流轉。超過 60MB 的 PDF 不在這裡拆，
- * 改排 needs_split，由 Windows pdf-split worker 切成約 40MB 的子文件再走 parse_pdf。
+ * 改排 needs_split。有待拆任務時 POST 到 Vercel Function（PDF_SPLIT_URL），
+ * header x-pdf-split-secret = PDF_SPLIT_SECRET。未設定時略過，不影響 parse_pdf。
  *
  * parse_pdf 分批跑（Edge 每次請求只有很短的 CPU 時間）：
  *   extract  — 逐頁抽文字；文字太少的掃描頁抽出內嵌 JPEG 交 Grok OCR
@@ -1187,7 +1188,10 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: error.message }, 500);
   }
   const job = (claimed as Job[] | null)?.[0];
-  if (!job) return jsonResponse({ processed: 0, results: [] });
+  if (!job) {
+    kickPdfSplit(admin);
+    return jsonResponse({ processed: 0, results: [] });
+  }
 
   const result = await runJob(admin, job);
 
@@ -1202,5 +1206,55 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  kickPdfSplit(admin);
   return jsonResponse({ processed: 1, results: [result] });
 });
+
+const PDF_SPLIT_STALE_MS = 10 * 60 * 1000;
+
+/** Notify the Vercel splitter when a needs_split job can be claimed. Does not claim it here. */
+function kickPdfSplit(admin: SupabaseClient) {
+  const splitUrl = Deno.env.get("PDF_SPLIT_URL");
+  const splitSecret = Deno.env.get("PDF_SPLIT_SECRET");
+  if (!splitUrl || !splitSecret) return;
+  EdgeRuntime.waitUntil((async () => {
+    const now = new Date().toISOString();
+    const stale = new Date(Date.now() - PDF_SPLIT_STALE_MS).toISOString();
+    const queued = await admin
+      .from("processing_jobs")
+      .select("id")
+      .eq("job_type", "needs_split")
+      .eq("status", "queued")
+      .lte("run_after", now)
+      .limit(1);
+    if (queued.error) {
+      console.warn("[process-jobs] needs_split lookup failed", queued.error.message);
+      return;
+    }
+    let ready = (queued.data?.length ?? 0) > 0;
+    if (!ready) {
+      const running = await admin
+        .from("processing_jobs")
+        .select("id")
+        .eq("job_type", "needs_split")
+        .eq("status", "running")
+        .lt("heartbeat_at", stale)
+        .limit(1);
+      if (running.error) {
+        console.warn("[process-jobs] needs_split lookup failed", running.error.message);
+        return;
+      }
+      ready = (running.data?.length ?? 0) > 0;
+    }
+    if (!ready) return;
+    const res = await fetch(splitUrl, {
+      method: "POST",
+      headers: {
+        "x-pdf-split-secret": splitSecret,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ source: "process-jobs" }),
+    });
+    await res.body?.cancel();
+  })().catch((err) => console.warn("[process-jobs] pdf-split kick failed", err)));
+}

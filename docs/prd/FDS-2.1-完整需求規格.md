@@ -484,8 +484,8 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 - 新增通用 **`processing_jobs`**：`id`、`job_type`、`status`(queued/running/succeeded/failed/cancelled)、`payload` jsonb、`progress`、`attempts`、`max_attempts`、`error`、`pages`、`ocr_pages`、`tokens`、`cost_estimate`、`cost_actual`、`started_at`、`finished_at`、`created_by`、`idempotency_key`。
 - 支援：非同步、進度、失敗重試、錯誤日誌、取消/安全中止、**冪等與重複任務控制**、成本記錄、並行與資源限制。
 - Worker 調用（**已決議**）：過渡用 **Supabase Edge（Deno）＋ pg_cron/pg_net**；重型 PDF/OCR/3D 用 **Python Worker（Google Cloud Run Jobs，按需執行）**。兩者共用 `processing_jobs`。
-- **超過 60MB 的供應商 PDF** 不排隊等 Python：瀏覽器或 Windows `pdf-split` worker 拆成約 40MB 的分段，由現有 Edge `parse_pdf` 解析，結果合併成一份目錄。部署 worker 後要重啟行程。
-- **不得**讓大型解析走 Vercel 長時間同步請求。
+- **超過 60MB 的供應商 PDF** 不排隊等 Python：新上載由瀏覽器拆成約 40MB 的分段；已存放的大檔由 Vercel Function `api/pdf-split`（`needs_split`）拆分。分段交給現有 Edge `parse_pdf` 解析，結果合併成一份目錄。
+- **不得**讓大型解析走 Vercel 長時間同步請求。拆檔只切頁並交回 Edge，解析仍不在 Vercel 上跑。
 - 驗收：任務失敗可追蹤、可重試、不重複寫入。
 
 ### F-PLT-002 權限、RLS 與操作審計 — P0

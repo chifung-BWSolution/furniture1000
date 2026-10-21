@@ -108,7 +108,7 @@ export interface UploadSupplierDocumentResult {
   jobId: string | null;
   duplicate: boolean;
   partCount?: number;
-  /** browser = split in this tab; worker = needs_split queued for the Windows splitter. */
+  /** browser = split in this tab; worker = needs_split queued for the Vercel pdf-split function. */
   splitMode?: 'browser' | 'worker';
 }
 

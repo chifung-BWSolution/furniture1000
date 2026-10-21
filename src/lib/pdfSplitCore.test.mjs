@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { PDFDocument } from 'pdf-lib';
-import { partStoragePath, splitPdfUnderTarget } from '../../src/lib/pdfSplitCore.mjs';
+import { partStoragePath, splitPdfUnderTarget } from './pdfSplitCore.mjs';
 
 const doc = await PDFDocument.create();
 for (let i = 0; i < 5; i += 1) {

@@ -241,7 +241,20 @@ $$;
 - **過渡期**：沿用 **Supabase Edge（Deno）＋ pg_cron/pg_net** 觸發，處理中小 PDF。
 - **目標**：**Python Worker on Google Cloud Run Jobs**（按需執行、無長期 VPS），處理 OCR／大 PDF／表格／圖片／3D。
 - **共同介面**：兩者都讀寫 `processing_jobs`，狀態一致。
-- **大檔 PDF（2026-10-21）**：不把超過 60MB 的檔留在佇列等 Python。瀏覽器或 Windows `workers/pdf-split`（`needs_split`）把原檔拆成約 40MB 的子文件（`page_offset`），Edge 只解析分段，再合併回父文件。父文件狀態顯示 X/N 段。部署新 worker 程式後要重啟該 Windows 行程。
+- **大檔 PDF（2026-10-21）**：不把超過 60MB 的檔留在佇列等 Python。新上載在瀏覽器拆檔。已存放的大檔由 Vercel Function `api/pdf-split` 領 `needs_split`，把原檔拆成約 40MB 的子文件（`page_offset`），Edge 只解析分段，再合併回父文件。父文件狀態顯示 X/N 段。`process-jobs`（含 pg_cron）發現可領的 `needs_split` 時 POST 該 Function；Vercel Cron 每 5 分鐘為後備。Function 設定見 `vercel.json`（`maxDuration` 800 秒、`memory` 3009MB，Node runtime）。
+
+**拆檔環境變數**（不要加 `VITE_` 前綴，不要打進前端 bundle）：
+
+| 位置 | 名稱 | 用途 |
+|---|---|---|
+| Vercel Runtime（伺服器） | `SUPABASE_URL` | Function 連 Furniture。此名也供 Vite build 寫入公開網址，值是公開的 project URL |
+| Vercel Runtime（伺服器） | `SUPABASE_SERVICE_ROLE_KEY` | Function 以 service role 呼叫既有 RPC 與 Storage。標成 Sensitive，只在 runtime 讀 |
+| Vercel Runtime（伺服器） | `PDF_SPLIT_SECRET` | Function 核對 `x-pdf-split-secret` 或 `Authorization: Bearer` |
+| Vercel（平台 Cron） | `CRON_SECRET` | 設成與 `PDF_SPLIT_SECRET` **同一個字串**。Cron 會帶 `Authorization: Bearer <CRON_SECRET>`。程式只讀 `PDF_SPLIT_SECRET` |
+| Supabase Edge secrets | `PDF_SPLIT_URL` | 正式站的 `https://<域名>/api/pdf-split`。`process-jobs` 用來 POST |
+| Supabase Edge secrets | `PDF_SPLIT_SECRET` | 與 Vercel 的 `PDF_SPLIT_SECRET` 同一個字串。`process-jobs` 放進 `x-pdf-split-secret` |
+
+未設定 `PDF_SPLIT_URL` 或 `PDF_SPLIT_SECRET` 時，Edge 略過叫醒，不影響 `parse_pdf`。改完 Edge secret 後要重新部署 slug `supabase-functions-process-jobs`（含 `tripo.ts`）。
 
 ### 3.2 任務模型
 - 建立：前端/Edge 建 `processing_jobs`（`idempotency_key` 防重）。
