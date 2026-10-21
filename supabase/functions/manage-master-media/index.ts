@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,7 +8,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const MASTER_SUPABASE_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
 const BUCKET_NAME = "product-images";
 
 Deno.serve(async (req: Request) => {
@@ -16,12 +16,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const masterServiceKey = Deno.env.get("MASTER_SERVICE_ROLE_KEY");
+    const masterServiceKey = pmsServiceRoleKey();
     if (!masterServiceKey) {
       return new Response(
         JSON.stringify({
-          error: "MASTER_SERVICE_ROLE_KEY not configured",
-          hint: "Add the service role key for project kqwktnplkqucsbasyfjl in Edge Function Secrets",
+          error: "PMS service role key not configured",
+          hint: `Set FACTORY_SERVICE_ROLE_KEY or MASTER_SERVICE_ROLE_KEY for ${pmsProjectUrl()}`,
         }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -30,7 +30,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const masterClient = createClient(MASTER_SUPABASE_URL, masterServiceKey, {
+    const masterClient = createClient(pmsProjectUrl(), masterServiceKey, {
       auth: { persistSession: false },
     });
 

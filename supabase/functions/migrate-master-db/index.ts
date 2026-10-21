@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { pmsProjectUrl, pmsServiceRoleKey, projectRefFromUrl } from "../_shared/pmsProject.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,19 +9,19 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const MASTER_SUPABASE_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders, status: 200 });
   }
 
   try {
-    const masterServiceKey = Deno.env.get("MASTER_SERVICE_ROLE_KEY");
+    const masterUrl = pmsProjectUrl();
+    const masterServiceKey = pmsServiceRoleKey();
     if (!masterServiceKey) {
       return new Response(
         JSON.stringify({
-          error: "MASTER_SERVICE_ROLE_KEY not configured",
+          error: "PMS service role key not configured",
+          hint: `Set FACTORY_SERVICE_ROLE_KEY or MASTER_SERVICE_ROLE_KEY for ${masterUrl}`,
         }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -55,7 +56,7 @@ Deno.serve(async (req: Request) => {
       try {
         // Method: Use the /pg/query endpoint with service_role key
         // This is available on all Supabase projects via the pooler/pg-meta
-        const response = await fetch(`${MASTER_SUPABASE_URL}/rest/v1/rpc/exec_sql`, {
+        const response = await fetch(`${masterUrl}/rest/v1/rpc/exec_sql`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -79,13 +80,13 @@ Deno.serve(async (req: Request) => {
 
           // Create the exec_sql function by inserting it via a known writable approach
           // Use the Supabase client to create the function
-          const masterClient = createClient(MASTER_SUPABASE_URL, masterServiceKey, {
+          const masterClient = createClient(masterUrl, masterServiceKey, {
             auth: { persistSession: false },
             db: { schema: "public" },
           });
 
           // Try to create exec_sql via the SQL endpoint
-          const createFnResp = await fetch(`${MASTER_SUPABASE_URL}/rest/v1/rpc/query`, {
+          const createFnResp = await fetch(`${masterUrl}/rest/v1/rpc/query`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -103,7 +104,7 @@ Deno.serve(async (req: Request) => {
 
           if (createFnResp.ok) {
             // Retry the original migration
-            const retryResp = await fetch(`${MASTER_SUPABASE_URL}/rest/v1/rpc/exec_sql`, {
+            const retryResp = await fetch(`${masterUrl}/rest/v1/rpc/exec_sql`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -145,7 +146,7 @@ Deno.serve(async (req: Request) => {
         results,
         hint: allSuccess
           ? undefined
-          : "Some migrations failed. Please run the failed SQL statements directly in the master project SQL editor: https://supabase.com/dashboard/project/kqwktnplkqucsbasyfjl/sql",
+          : `Some migrations failed. Please run the failed SQL statements directly in the master project SQL editor: https://supabase.com/dashboard/project/${projectRefFromUrl(masterUrl) ?? ""}/sql`,
         manualSql: results.filter((r) => !r.success).map((r) => r.sql),
       }),
       {

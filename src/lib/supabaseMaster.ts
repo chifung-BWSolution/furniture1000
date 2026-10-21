@@ -1,7 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { jwtProjectRef, projectRefFromUrl, resolvePmsProjectUrl } from '@/lib/pmsProject';
 
 /**
- * Secondary Supabase client for the Global Master Project (kqwktnplkqucsbasyfjl).
+ * Secondary Supabase client for PMS v3.
+ * Production Furniture uses PMS production. Any other Furniture project,
+ * including local develop / FDS2.0, uses the PMS branch QMS_dev.
+ * Set VITE_MASTER_SUPABASE_URL to override. The anon key must belong to that project.
  * 
  * This client connects to the archive/master project that holds the
  * `bwf_product_master` table — a permanent record of all products
@@ -14,20 +18,24 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
  * the permanent archive.
  */
 
-const MASTER_PROJECT_URL = 'https://kqwktnplkqucsbasyfjl.supabase.co';
-
-// The master project anon key — used for client-side reads/writes
-// with RLS policies allowing public access on bwf_product_master.
-// For write operations from the edge function, we use the service role key instead.
 const MASTER_ANON_KEY = import.meta.env.VITE_MASTER_SUPABASE_ANON_KEY || '';
 
+function currentMasterUrl(): string {
+  return resolvePmsProjectUrl(
+    import.meta.env.VITE_SUPABASE_URL || '',
+    import.meta.env.VITE_MASTER_SUPABASE_URL || '',
+  );
+}
+
 let masterClient: SupabaseClient | null = null;
+let masterClientUrl = '';
 
 /**
  * Get the master Supabase client.
- * Returns null if the anon key is not configured.
+ * Returns null if the anon key is not configured or belongs to a different PMS project.
  */
 export function getMasterSupabaseClient(): SupabaseClient | null {
+  const url = currentMasterUrl();
   if (!MASTER_ANON_KEY) {
     console.warn(
       '[supabaseMaster] VITE_MASTER_SUPABASE_ANON_KEY is not set. ' +
@@ -36,8 +44,18 @@ export function getMasterSupabaseClient(): SupabaseClient | null {
     return null;
   }
 
-  if (!masterClient) {
-    masterClient = createClient(MASTER_PROJECT_URL, MASTER_ANON_KEY);
+  const keyRef = jwtProjectRef(MASTER_ANON_KEY);
+  const urlRef = projectRefFromUrl(url);
+  if (keyRef && urlRef && keyRef !== urlRef) {
+    console.warn(
+      `[supabaseMaster] anon key project ${keyRef} does not match ${url}. Skipping client.`,
+    );
+    return null;
+  }
+
+  if (!masterClient || masterClientUrl !== url) {
+    masterClient = createClient(url, MASTER_ANON_KEY);
+    masterClientUrl = url;
   }
 
   return masterClient;
@@ -47,9 +65,13 @@ export function getMasterSupabaseClient(): SupabaseClient | null {
  * Master project constants for use in edge functions.
  */
 export const MASTER_PROJECT_CONFIG = {
-  url: MASTER_PROJECT_URL,
-  projectId: 'kqwktnplkqucsbasyfjl',
-} as const;
+  get url() {
+    return currentMasterUrl();
+  },
+  get projectId() {
+    return projectRefFromUrl(currentMasterUrl()) ?? '';
+  },
+};
 
 export type PmsStaffInfoFromMaster = {
   staff_id: string | null;

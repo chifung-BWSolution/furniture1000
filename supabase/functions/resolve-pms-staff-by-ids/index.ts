@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,7 +9,6 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const PMS_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
 const BATCH_LIMIT = 200;
 
 function jsonResponse(body: unknown, status = 200) {
@@ -145,14 +145,10 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  const pmsServiceKey =
-    Deno.env.get("FACTORY_SERVICE_ROLE_KEY") ??
-    Deno.env.get("PMS_SUPABASE_SERVICE_ROLE_KEY") ??
-    Deno.env.get("MASTER_SERVICE_ROLE_KEY") ??
-    "";
+  const pmsServiceKey = pmsServiceRoleKey();
 
   if (!pmsServiceKey) {
-    return jsonResponse({ error: "PMS service role key not configured" }, 500);
+    return jsonResponse({ error: pmsKeyMissingError() }, 500);
   }
 
   let body: { staff_ids?: string[]; auth_user_ids?: string[] } = {};
@@ -183,7 +179,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const pmsAdmin = createClient(PMS_PROJECT_URL, pmsServiceKey, {
+    const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 

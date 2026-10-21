@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 export type UploadLogStage =
   | "copywriting"
@@ -67,8 +68,6 @@ interface RawLogRow {
   logged_at: string;
   editor_staff_id?: string | null;
 }
-
-const PMS_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
 
 function looksLikeEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -301,17 +300,13 @@ function pushHistorical(
 export async function fetchUploadLogReportServer(dayCount = 30): Promise<UploadLogReport> {
   const furnitureUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const furnitureKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const pmsKey =
-    Deno.env.get("FACTORY_SERVICE_ROLE_KEY") ??
-    Deno.env.get("PMS_SUPABASE_SERVICE_ROLE_KEY") ??
-    Deno.env.get("MASTER_SERVICE_ROLE_KEY") ??
-    "";
+  const pmsKey = pmsServiceRoleKey();
 
   const furnitureSb = createClient(furnitureUrl, furnitureKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const pmsSb = pmsKey
-    ? createClient(PMS_PROJECT_URL, pmsKey, {
+    ? createClient(pmsProjectUrl(), pmsKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     })
     : null;

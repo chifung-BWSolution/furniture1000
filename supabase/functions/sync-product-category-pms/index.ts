@@ -6,6 +6,7 @@ import {
   pushProductCategoryBatchToPms,
   type CategoryRowPayload,
 } from "../_shared/pmsProductCategorySync.ts";
+import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,8 +14,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-sync-origin, x-sync-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-
-const PMS_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -62,17 +61,13 @@ Deno.serve(async (req: Request) => {
   try {
     const furnitureUrl = Deno.env.get("SUPABASE_URL") || "";
     const furnitureServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-    const pmsServiceKey =
-      Deno.env.get("FACTORY_SERVICE_ROLE_KEY") ||
-      Deno.env.get("MASTER_SERVICE_ROLE_KEY") ||
-      Deno.env.get("PMS_SUPABASE_SERVICE_ROLE_KEY") ||
-      "";
+    const pmsServiceKey = pmsServiceRoleKey();
 
     if (!furnitureUrl || !furnitureServiceKey) {
       throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
     }
     if (!pmsServiceKey) {
-      throw new Error("Missing FACTORY_SERVICE_ROLE_KEY for PMS access");
+      throw new Error(pmsKeyMissingError());
     }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -83,7 +78,7 @@ Deno.serve(async (req: Request) => {
     const deletes = normalizeIds(body.deletes);
 
     const furnitureAdmin = createClient(furnitureUrl, furnitureServiceKey);
-    const pmsAdmin = createClient(PMS_PROJECT_URL, pmsServiceKey, {
+    const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
       global: { headers: { "x-sync-origin": "furniture" } },
     });
 

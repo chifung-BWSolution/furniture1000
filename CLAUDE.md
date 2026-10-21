@@ -214,15 +214,20 @@ PMS v1 可只做列表；需要時用此 URL 連回編輯。
 `SUPABASE_SERVICE_ROLE_KEY`（canonical）、`FURNITURE_SUPABASE_SERVICE_ROLE_KEY`、`BWF_SUPABASE_SERVICE_KEY`。
 repo 內所有讀 alias 的地方都有 `|| SUPABASE_SERVICE_ROLE_KEY` fallback。
 
-**PMS v3 service_role**（`kqwktnplkqucsbasyfjl`）——三個名字同一個值：
-`FACTORY_SERVICE_ROLE_KEY`（**edge function 的 canonical**，大部分 `fetch-*` 讀這個）、
-`MASTER_SERVICE_ROLE_KEY`（`upload-to-master-db` / `manage-master-media` 只讀這個，沒有 fallback）、
-`PMS_SUPABASE_SERVICE_ROLE_KEY`（`resolve-pms-staff-by-ids` / `uploadLogReportServer` 的首選，有 fallback）。
-→ Furniture 的 **edge secrets 必須同時保留 `FACTORY_SERVICE_ROLE_KEY` 與 `MASTER_SERVICE_ROLE_KEY`**。
+**PMS v3 service_role** 必須跟實際連到的 PMS project 是同一把 key：
+`FACTORY_SERVICE_ROLE_KEY`（**edge function 的 canonical**）、
+`MASTER_SERVICE_ROLE_KEY`、
+`PMS_SUPABASE_SERVICE_ROLE_KEY`。
+`PMS_V3_SERVICE_ROLE_KEY` 只是最後候補。
+Edge function 用 `supabase/functions/_shared/pmsProject.ts` 選 URL，不再寫死正式庫：
+明確的 `MASTER_SUPABASE_URL`／`PMS_SUPABASE_URL`／`FACTORY_SUPABASE_URL` 優先；
+否則正式 Furniture（`riaubhtruisbwdlwjzur`）連 PMS 正式庫 `kqwktnplkqucsbasyfjl`，
+FDS2.0（`omxizeukbcqzsnjsuwod`）與本機 develop 連 PMS 分支 QMS_dev `alrbbyqkeobmvvvscpma`。
+正式庫的 key 不會拿去打 QMS_dev。
+→ Furniture 的 **edge secrets 必須同時保留 `FACTORY_SERVICE_ROLE_KEY` 與 `MASTER_SERVICE_ROLE_KEY`**，而且兩個都要是那個環境該連的 PMS project。
 → Cursor cloud agent 只需要 `MASTER_SERVICE_ROLE_KEY` 一個（腳本都有 fallback）。
 
-已確認**沒有任何程式讀取**、可從 Furniture edge secrets 刪除的死變數：
-`PMS_V3_URL`、`PMS_V3_SERVICE_ROLE_KEY`。
+`PMS_V3_URL` 沒有被讀取，可以從 edge secrets 刪除。`PMS_V3_SERVICE_ROLE_KEY` 只在前三個 key 都對不上目標 project 時才會用到。
 
 ### 7.4 各 repo 實際讀取的變數名（改 secret 前先對照）
 

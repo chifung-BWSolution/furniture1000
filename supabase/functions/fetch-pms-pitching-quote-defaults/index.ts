@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,8 +8,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-
-const PMS_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
 
 /** NOS collection for customer industry / 客戶產業 tags. */
 const INDUSTRY_COLLECTION_ID = "4f5de598-2dcb-45a6-a106-9d933e9a8007";
@@ -130,17 +129,13 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  const pmsServiceKey =
-    Deno.env.get("FACTORY_SERVICE_ROLE_KEY") ??
-    Deno.env.get("PMS_SUPABASE_SERVICE_ROLE_KEY") ??
-    Deno.env.get("MASTER_SERVICE_ROLE_KEY") ??
-    "";
+  const pmsServiceKey = pmsServiceRoleKey();
 
   const furnitureUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const furnitureAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 
   if (!pmsServiceKey) {
-    return jsonResponse({ error: "PMS service role key not configured" }, 500);
+    return jsonResponse({ error: pmsKeyMissingError() }, 500);
   }
   if (!furnitureUrl || !furnitureAnonKey) {
     return jsonResponse({ error: "Furniture Supabase not configured" }, 500);
@@ -179,7 +174,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const pmsAdmin = createClient(PMS_PROJECT_URL, pmsServiceKey, {
+    const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 

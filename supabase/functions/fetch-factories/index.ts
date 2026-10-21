@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,9 +8,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// External Supabase project for factories
-const FACTORY_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
-const FACTORY_SERVICE_ROLE_KEY = Deno.env.get("FACTORY_SERVICE_ROLE_KEY") || "";
+// External Supabase project for factories. URL follows the Furniture project.
 
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight
@@ -18,13 +17,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    if (!FACTORY_SERVICE_ROLE_KEY) {
-      throw new Error("FACTORY_SERVICE_ROLE_KEY is not configured");
+    const factoryServiceKey = pmsServiceRoleKey();
+    if (!factoryServiceKey) {
+      throw new Error(pmsKeyMissingError());
     }
 
     const factorySupabase = createClient(
-      FACTORY_PROJECT_URL,
-      FACTORY_SERVICE_ROLE_KEY
+      pmsProjectUrl(),
+      factoryServiceKey
     );
 
     const { data, error } = await factorySupabase

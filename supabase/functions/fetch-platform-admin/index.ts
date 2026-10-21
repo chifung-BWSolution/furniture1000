@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,7 +9,6 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const PMS_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
 const ADMIN_EMAILS = new Set([
   "cf@bwsolution.com",
   "chifung.login@gmail.com",
@@ -493,11 +493,7 @@ Deno.serve(async (req: Request) => {
   const furnitureUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const furnitureAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const furnitureServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const pmsServiceKey =
-    Deno.env.get("FACTORY_SERVICE_ROLE_KEY") ??
-    Deno.env.get("PMS_SUPABASE_SERVICE_ROLE_KEY") ??
-    Deno.env.get("MASTER_SERVICE_ROLE_KEY") ??
-    "";
+  const pmsServiceKey = pmsServiceRoleKey();
 
   if (!furnitureUrl || !furnitureAnonKey || !furnitureServiceKey) {
     return jsonResponse({ error: "Furniture Supabase not configured" }, 500);
@@ -535,7 +531,7 @@ Deno.serve(async (req: Request) => {
     if (action === "fetch") {
       let pmsUsers = new Map<string, ReturnType<typeof extractPmsUser>>();
       if (pmsServiceKey) {
-        const pmsAdmin = createClient(PMS_PROJECT_URL, pmsServiceKey, {
+        const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
           auth: { persistSession: false, autoRefreshToken: false },
         });
         pmsUsers = await listPmsUsers(pmsAdmin);

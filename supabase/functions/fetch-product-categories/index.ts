@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,22 +8,18 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const MASTER_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders, status: 200 });
   }
 
   try {
-    const masterServiceKey = Deno.env.get("FACTORY_SERVICE_ROLE_KEY") || "";
+    const masterServiceKey = pmsServiceRoleKey();
     if (!masterServiceKey) {
-      throw new Error(
-        "FACTORY_SERVICE_ROLE_KEY is not configured. Please set this secret in Edge Function Secrets."
-      );
+      throw new Error(pmsKeyMissingError());
     }
 
-    const masterSupabase = createClient(MASTER_PROJECT_URL, masterServiceKey);
+    const masterSupabase = createClient(pmsProjectUrl(), masterServiceKey);
 
     // Fetch all distinct non-null display values from bwf_products
     const { data, error } = await masterSupabase

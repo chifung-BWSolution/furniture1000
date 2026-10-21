@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,7 +8,6 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const MASTER_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
 const BUCKET = "product-images";
 
 function json(body: unknown, status = 200) {
@@ -110,13 +110,13 @@ Deno.serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const masterKey = Deno.env.get("MASTER_SERVICE_ROLE_KEY") ?? "";
+    const masterKey = pmsServiceRoleKey();
     if (!supabaseUrl || !serviceKey || !masterKey) {
-      return json({ error: "Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or MASTER_SERVICE_ROLE_KEY" }, 500);
+      return json({ error: `Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or a PMS service role key for ${pmsProjectUrl()}` }, 500);
     }
 
     const supabase = createClient(supabaseUrl, serviceKey);
-    const master = createClient(MASTER_URL, masterKey);
+    const master = createClient(pmsProjectUrl(), masterKey);
 
     const body = await req.json().catch(() => ({})) as { product_ids?: string[]; dry_run?: boolean };
     const dryRun = !!body.dry_run;
