@@ -1,26 +1,38 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
 import QRCode from "qrcode";
 import {
+  ArrowDown,
+  ArrowUp,
+  Building2,
   ChevronDown,
-  Plus,
-  Trash2,
-  Copy,
-  Scissors,
+  ChevronLeft,
+  ChevronUp,
+  CircleHelp,
   ClipboardPaste,
-  ShieldCheck,
-  ImagePlus,
+  Copy,
   Eye,
-  Pencil,
-  Check,
-  Upload,
-  X,
+  FileText,
+  FolderKanban,
   GripVertical,
+  ImagePlus,
   Loader2,
-  Save,
-  Link2,
-  QrCode,
   PackagePlus,
   PackageSearch,
+  Pencil,
+  Percent,
+  Plus,
+  QrCode,
+  Save,
+  Scissors,
+  ShieldCheck,
+  Trash2,
+  Truck,
+  Upload,
+  UserRound,
+  Wallet,
+  X,
+  Check,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
@@ -333,6 +345,12 @@ function QuoteRowActionButtons({
   onOpenProduct,
   productLinked,
   labels,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = true,
+  canMoveDown = true,
+  collapsed,
+  onToggleCollapse,
 }: {
   itemId: string;
   cutItemId: string | null;
@@ -342,8 +360,16 @@ function QuoteRowActionButtons({
   onOpenProduct?: () => void;
   productLinked?: boolean;
   labels: QuoteUiLabels;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }) {
   const isCut = cutItemId === itemId;
+  const iconBtn =
+    "rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30";
   return (
     <div className="flex h-[34px] items-center gap-0.5">
       {onOpenProduct ? (
@@ -394,6 +420,30 @@ function QuoteRowActionButtons({
       >
         <Copy className="h-4 w-4" />
       </button>
+      {onMoveUp ? (
+        <button
+          type="button"
+          onClick={onMoveUp}
+          disabled={!canMoveUp}
+          className={iconBtn}
+          title="上移"
+          aria-label="上移"
+        >
+          <ArrowUp className="h-4 w-4" />
+        </button>
+      ) : null}
+      {onMoveDown ? (
+        <button
+          type="button"
+          onClick={onMoveDown}
+          disabled={!canMoveDown}
+          className={iconBtn}
+          title="下移"
+          aria-label="下移"
+        >
+          <ArrowDown className="h-4 w-4" />
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() => onRemove(itemId)}
@@ -402,6 +452,22 @@ function QuoteRowActionButtons({
       >
         <Trash2 className="h-4 w-4" />
       </button>
+      {onToggleCollapse ? (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className={iconBtn}
+          title={collapsed ? "展開" : "收合"}
+          aria-label={collapsed ? "展開" : "收合"}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronUp className="h-4 w-4" />
+          )}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -925,6 +991,10 @@ function QuoteProductItemCard({
   factoriesLoading,
   quoteImageScope,
   labels,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: {
   item: QuotationItem;
   index: number;
@@ -952,7 +1022,12 @@ function QuoteProductItemCard({
   /** Scope for Supabase Storage paths (quote id or draft key). */
   quoteImageScope: string;
   labels: QuoteUiLabels;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }) {
+  const [cardCollapsed, setCardCollapsed] = useState(false);
   const dimensionMode = item.dimensionMode ?? 'lwh';
   const registryLocked =
     Boolean(item.productId?.trim()) && Boolean(item.productCategoryId?.trim());
@@ -984,84 +1059,122 @@ function QuoteProductItemCard({
         draggingItemId,
         dropInsertIndex,
         cutItemId,
-        "rounded-lg border border-border bg-background p-4",
+        "rounded-2xl border border-border/80 bg-card p-4 shadow-sm",
       )}
       onDragOver={(e) => onDragOver(e, index)}
       onDrop={onDrop}
     >
-      <div className={QUOTE_CARD_GRID}>
-        {/* Col 1 — serial + drag handle (both rows on xl) */}
-        <div className="col-start-1 row-start-1 flex justify-center pt-4 min-[900px]:row-span-2">
-          <QuoteRowDragHandle
-            itemId={item.id}
-            serialNumber={serialNumber}
-            onDragStart={onDragStart}
-            onDragEnd={onDragEnd}
-          />
+      <div className="flex items-start gap-3">
+        <QuoteRowDragHandle
+          itemId={item.id}
+          serialNumber={serialNumber}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+        />
+        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border/70 bg-muted/30">
+          {item.image ? (
+            <img src={item.image} alt="" className="h-full w-full object-contain" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-muted-foreground/40">
+              <ImagePlus className="h-5 w-5" />
+            </div>
+          )}
         </div>
-
-        {/* 一級/二級分類 · 類別 · 尺寸 · 顏色 */}
-        <div className="col-start-2 min-w-0 w-full space-y-2 min-[900px]:row-start-1">
-          <div className="grid grid-cols-2 gap-2">
-            <QuoteFieldBlock label={labels.level1Category}>
-              <select
-                value={level1Value || "__none__"}
-                disabled={registryLocked || categoryPairsLoading}
-                title={registryLocked ? labels.productCategoryLockedHint : undefined}
-                onChange={(e) =>
-                  onRegistryLevel1Change(
-                    item.id,
-                    e.target.value === "__none__" ? "" : e.target.value,
-                  )
-                }
-                className={registrySelectClass}
-              >
-                <option value="__none__">—</option>
-                {level1Options.map((l1) => (
-                  <option key={l1} value={l1}>
-                    {l1}
-                  </option>
-                ))}
-              </select>
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label={labels.level2Category}>
-              <select
-                value={level2Value || "__none__"}
-                disabled={
-                  registryLocked ||
-                  categoryPairsLoading ||
-                  !level1Value ||
-                  level2Options.length === 0
-                }
-                title={registryLocked ? labels.productCategoryLockedHint : undefined}
-                onChange={(e) =>
-                  onRegistryLevel2Change(
-                    item.id,
-                    e.target.value === "__none__" ? "" : e.target.value,
-                  )
-                }
-                className={registrySelectClass}
-              >
-                <option value="__none__">—</option>
-                {level2Options.map((l2) => (
-                  <option key={l2} value={l2}>
-                    {l2}
-                  </option>
-                ))}
-              </select>
-            </QuoteFieldBlock>
+        <div className="min-w-0 flex-1">
+          <input
+            type="text"
+            value={item.name || ""}
+            placeholder="產品名稱"
+            onChange={(e) => updateItem(item.id, "name", e.target.value)}
+            className="w-full bg-transparent font-display text-sm font-semibold text-foreground placeholder:text-muted-foreground/40 focus:outline-none"
+            aria-label="產品名稱"
+          />
+          <div className="mt-1 flex flex-wrap gap-1">
+            {item.productId?.trim() ? (
+              <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                已連結
+              </span>
+            ) : null}
+            {item.isOptional ? (
+              <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                {labels.optionalProduct}
+              </span>
+            ) : null}
+            {item.hideInPdf ? (
+              <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                {labels.hideInPdf}
+              </span>
+            ) : null}
           </div>
-          <QuoteFieldBlock
-            label={labels.category}
-            trailing={
-              <QuoteItemFlagToggles
-                item={item}
-                updateItem={updateItem}
-                labels={labels}
-                className="min-[900px]:hidden"
-              />
-            }
-          >
+        </div>
+        <QuoteRowActionButtons
+          itemId={item.id}
+          cutItemId={cutItemId}
+          onCut={cutItem}
+          onDuplicate={duplicateItem}
+          onRemove={removeItem}
+          onOpenProduct={() => onOpenProductLink(item)}
+          productLinked={Boolean(item.productId?.trim())}
+          labels={labels}
+          onMoveUp={onMoveUp}
+          onMoveDown={onMoveDown}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+          collapsed={cardCollapsed}
+          onToggleCollapse={() => setCardCollapsed((v) => !v)}
+        />
+      </div>
+
+      {cardCollapsed ? null : (
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <QuoteFieldBlock label={labels.level1Category}>
+            <select
+              value={level1Value || "__none__"}
+              disabled={registryLocked || categoryPairsLoading}
+              title={registryLocked ? labels.productCategoryLockedHint : undefined}
+              onChange={(e) =>
+                onRegistryLevel1Change(
+                  item.id,
+                  e.target.value === "__none__" ? "" : e.target.value,
+                )
+              }
+              className={registrySelectClass}
+            >
+              <option value="__none__">—</option>
+              {level1Options.map((l1) => (
+                <option key={l1} value={l1}>
+                  {l1}
+                </option>
+              ))}
+            </select>
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.level2Category}>
+            <select
+              value={level2Value || "__none__"}
+              disabled={
+                registryLocked ||
+                categoryPairsLoading ||
+                !level1Value ||
+                level2Options.length === 0
+              }
+              title={registryLocked ? labels.productCategoryLockedHint : undefined}
+              onChange={(e) =>
+                onRegistryLevel2Change(
+                  item.id,
+                  e.target.value === "__none__" ? "" : e.target.value,
+                )
+              }
+              className={registrySelectClass}
+            >
+              <option value="__none__">—</option>
+              {level2Options.map((l2) => (
+                <option key={l2} value={l2}>
+                  {l2}
+                </option>
+              ))}
+            </select>
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.category} className="sm:col-span-2">
             <textarea
               value={item.category || ""}
               placeholder="—"
@@ -1070,7 +1183,113 @@ function QuoteProductItemCard({
               className={`${QUOTE_INPUT_CLASS} min-h-[34px] resize-y leading-relaxed`}
             />
           </QuoteFieldBlock>
-          <div className="min-w-0">
+          <QuoteFieldBlock label={labels.material} className="sm:col-span-2 xl:col-span-4">
+            <MaterialRichEditor
+              value={item.material || ""}
+              placeholder="材質及明細..."
+              onChange={(html) => updateItem(item.id, "material", html)}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.quantity}>
+            <input
+              type="number"
+              value={item.quantity || ""}
+              placeholder="1"
+              min={1}
+              onChange={(e) =>
+                updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
+              }
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.unit}>
+            <input
+              type="text"
+              value={item.unit || ""}
+              placeholder="—"
+              maxLength={4}
+              onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+              className={QUOTE_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.factory}>
+            <QuoteFactoryField
+              value={item.factoryName || ""}
+              locked={Boolean(item.factoryFromCatalog)}
+              factories={factories}
+              loading={factoriesLoading}
+              onChange={(name) => updateItem(item.id, "factoryName", name)}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.sku}>
+            <input
+              type="text"
+              value={item.sku || ""}
+              placeholder="—"
+              onChange={(e) => updateItem(item.id, "sku", e.target.value)}
+              className={QUOTE_INPUT_CLASS}
+              aria-label={labels.sku}
+              title="SKU（僅草稿編輯，不顯示於 PDF）"
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.cnyCost}>
+            <input
+              type="number"
+              value={item.costPrice ?? ""}
+              placeholder="—"
+              min={0}
+              onChange={(e) =>
+                updateItem(
+                  item.id,
+                  "costPrice",
+                  e.target.value ? parseFloat(e.target.value) : null,
+                )
+              }
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.exchangeRate}>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
+              placeholder="—"
+              onChange={(e) => updateExchangeRate(item.id, e.target.value)}
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.hkdCost}>
+            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/40 px-2">
+              <span className="truncate font-mono-data text-xs font-medium text-foreground">
+                {formatHkdCostDisplayCeil(item.hkdCostPrice)}
+              </span>
+            </div>
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.hkdUnitPrice}>
+            <input
+              type="number"
+              value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
+              placeholder="0"
+              min={0}
+              onChange={(e) =>
+                updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
+              }
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.hkdSubtotal}>
+            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/40 px-2">
+              <span
+                className={cn(
+                  "truncate font-mono-data text-xs font-medium",
+                  item.isOptional ? "text-muted-foreground" : "text-foreground",
+                )}
+              >
+                ${quoteItemLineSubtotal(item).toLocaleString()}
+              </span>
+            </div>
+          </QuoteFieldBlock>
+          <div className="min-w-0 sm:col-span-2">
             <div className="mb-1 flex min-h-[22px] flex-wrap items-center gap-1.5 font-body text-xs font-medium text-muted-foreground">
               <span className="shrink-0 leading-normal">{labels.dimensionsMm}</span>
               <select
@@ -1153,159 +1372,37 @@ function QuoteProductItemCard({
               className={QUOTE_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-        </div>
-
-        {/* Row 1 — cols 3–4: 材質及明細 (RichText: 粗體 / 斜體 / 底線 / 顏色) */}
-        <QuoteFieldBlock
-          label={labels.material}
-          className={cn("col-start-2 min-w-0 min-[900px]:col-span-2 min-[900px]:col-start-3 min-[900px]:row-start-1", QUOTE_CARD_MEDIA_XL_SHIFT)}
-        >
-          <MaterialRichEditor
-            value={item.material || ""}
-            placeholder="材質及明細..."
-            onChange={(html) => updateItem(item.id, "material", html)}
-          />
-        </QuoteFieldBlock>
-
-        <div className="col-start-2 grid grid-cols-2 gap-3 min-[900px]:contents">
-        <QuoteFieldBlock
-          label={labels.image}
-          className={cn("min-w-0 min-[900px]:col-start-3 min-[900px]:row-start-2", QUOTE_CARD_MEDIA_XL_SHIFT)}
-        >
-          <ReferenceImageCell
-            value={item.image || ""}
-            onChange={(url) => updateItem(item.id, "image", url)}
-            modalTitle="上傳產品圖片"
-            imageFit="contain"
-            fluid
-            uploadImage={uploadProductImage}
-          />
-        </QuoteFieldBlock>
-        <QuoteFieldBlock
-          label={labels.referenceImage}
-          className={cn("min-w-0 min-[900px]:col-start-4 min-[900px]:row-start-2", QUOTE_CARD_MEDIA_XL_SHIFT)}
-        >
-          <ReferenceImageCell
-            value={item.referenceImage || ""}
-            onChange={(url) => updateItem(item.id, "referenceImage", url)}
-            modalTitle="上傳參考圖"
-            imageFit="contain"
-            fluid
-            uploadImage={uploadReferenceImage}
-          />
-        </QuoteFieldBlock>
-        </div>
-
-        <QuoteFieldBlock label={labels.remarks} className="col-start-2 min-w-0 min-[900px]:row-start-2">
-          <RemarksRichEditor
-            key={item.id}
-            compact
-            value={item.remarks || ""}
-            legacyImage={item.remarksImage}
-            onChange={(val) => updateItem(item.id, "remarks", val)}
-            uploadImage={uploadRemarksImage}
-          />
-        </QuoteFieldBlock>
-
-        <div className="col-start-2 grid grid-cols-1 gap-3 min-[650px]:grid-cols-2 min-[900px]:contents">
-        {/* 數量 + 廠家 */}
-        <div
-          className={cn(
-            "flex min-h-0 flex-col self-stretch min-[900px]:col-start-5 min-[900px]:row-start-1",
-            QUOTE_QTY_COST_FIELD_CLASS,
-          )}
-        >
-          <QuoteFieldBlock label={labels.quantity} className="shrink-0">
-            <input
-              type="number"
-              value={item.quantity || ""}
-              placeholder="1"
-              min={1}
-              onChange={(e) =>
-                updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+          <QuoteFieldBlock label={labels.image}>
+            <ReferenceImageCell
+              value={item.image || ""}
+              onChange={(url) => updateItem(item.id, "image", url)}
+              modalTitle="上傳產品圖片"
+              imageFit="contain"
+              fluid
+              uploadImage={uploadProductImage}
             />
           </QuoteFieldBlock>
-          <div className="flex min-h-0 flex-1 items-center">
-            <QuoteFieldBlock label={labels.factory} className="w-full">
-              <QuoteFactoryField
-                value={item.factoryName || ""}
-                locked={Boolean(item.factoryFromCatalog)}
-                factories={factories}
-                loading={factoriesLoading}
-                onChange={(name) => updateItem(item.id, "factoryName", name)}
-              />
-            </QuoteFieldBlock>
-          </div>
-        </div>
-
-        {/* CNY成本 · 匯率 · HKD成本 */}
-        <div
-          className={cn(
-            "flex min-h-0 flex-col self-stretch min-[900px]:col-start-5 min-[900px]:row-start-2",
-            QUOTE_QTY_COST_FIELD_CLASS,
-          )}
-        >
-          <QuoteFieldBlock label={labels.cnyCost} className="shrink-0">
-            <input
-              type="number"
-              value={item.costPrice ?? ""}
-              placeholder="—"
-              min={0}
-              onChange={(e) =>
-                updateItem(
-                  item.id,
-                  "costPrice",
-                  e.target.value ? parseFloat(e.target.value) : null,
-                )
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+          <QuoteFieldBlock label={labels.referenceImage}>
+            <ReferenceImageCell
+              value={item.referenceImage || ""}
+              onChange={(url) => updateItem(item.id, "referenceImage", url)}
+              modalTitle="上傳參考圖"
+              imageFit="contain"
+              fluid
+              uploadImage={uploadReferenceImage}
             />
           </QuoteFieldBlock>
-          <div className="relative z-10 flex min-h-0 flex-1 items-center py-0.5">
-            <QuoteFieldBlock label={labels.exchangeRate} className="w-max">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
-                placeholder="—"
-                onChange={(e) => updateExchangeRate(item.id, e.target.value)}
-                className={cn(QUOTE_COMPACT_NUMBER_INPUT_CLASS, "w-[6em] min-w-[6em] shrink-0")}
-              />
-            </QuoteFieldBlock>
-          </div>
-          <QuoteFieldBlock label={labels.hkdCost} className="shrink-0">
-            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
-              <span className="truncate font-mono-data text-xs font-medium text-foreground">
-                {formatHkdCostDisplayCeil(item.hkdCostPrice)}
-              </span>
-            </div>
+          <QuoteFieldBlock label={labels.remarks} className="sm:col-span-2 xl:col-span-4">
+            <RemarksRichEditor
+              key={item.id}
+              compact
+              value={item.remarks || ""}
+              legacyImage={item.remarksImage}
+              onChange={(val) => updateItem(item.id, "remarks", val)}
+              uploadImage={uploadRemarksImage}
+            />
           </QuoteFieldBlock>
-        </div>
-
-        {/* 單位 · 可選；SKU */}
-        <div
-          className={cn(
-            "flex min-h-0 min-w-0 flex-col self-stretch min-[900px]:col-span-3 min-[900px]:col-start-6 min-[900px]:row-start-1",
-            QUOTE_CARD_PRICING_XL_SHIFT,
-          )}
-        >
-          <div className="flex min-w-0 shrink-0 items-end gap-3">
-            <QuoteFieldBlock
-              label={labels.unit}
-              className={QUOTE_PRICE_FIELD_CLASS}
-            >
-              <input
-                type="text"
-                value={item.unit || ""}
-                placeholder="—"
-                maxLength={4}
-                onChange={(e) => updateItem(item.id, "unit", e.target.value)}
-                className={QUOTE_INPUT_CLASS}
-              />
-            </QuoteFieldBlock>
-          <div className="hidden min-w-0 flex-1 items-end pb-0.5 min-[900px]:flex">
+          <div className="sm:col-span-2 xl:col-span-4">
             <QuoteItemFlagToggles
               item={item}
               updateItem={updateItem}
@@ -1313,82 +1410,7 @@ function QuoteProductItemCard({
             />
           </div>
         </div>
-          <div className="flex min-h-0 flex-1 items-center">
-            <QuoteFieldBlock
-              label={labels.sku}
-              className="w-full max-w-full shrink-0 min-[900px]:w-[14.75em] [&_label]:whitespace-nowrap"
-            >
-              <input
-                type="text"
-                value={item.sku || ""}
-                placeholder="—"
-                onChange={(e) => updateItem(item.id, "sku", e.target.value)}
-                className={QUOTE_INPUT_CLASS}
-                aria-label={labels.sku}
-                title="SKU（僅草稿編輯，不顯示於 PDF）"
-              />
-            </QuoteFieldBlock>
-          </div>
-        </div>
-
-        {/* HKD$單價 · HKD$小計 */}
-        <div
-          className={cn(
-            "flex min-w-0 items-start gap-3 min-[900px]:col-span-3 min-[900px]:col-start-6 min-[900px]:row-start-2",
-            QUOTE_CARD_PRICING_XL_SHIFT,
-          )}
-        >
-          <QuoteFieldBlock
-            label={labels.hkdUnitPrice}
-            className={QUOTE_PRICE_FIELD_CLASS}
-          >
-            <input
-              type="number"
-              value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
-              placeholder="0"
-              min={0}
-              onChange={(e) =>
-                updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock
-            label={labels.hkdSubtotal}
-            className={QUOTE_PRICE_FIELD_CLASS}
-          >
-            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
-              <span
-                className={cn(
-                  "truncate font-mono-data text-xs font-medium",
-                  item.isOptional ? "text-muted-foreground" : "text-foreground",
-                )}
-              >
-                ${quoteItemLineSubtotal(item).toLocaleString()}
-              </span>
-            </div>
-          </QuoteFieldBlock>
-        </div>
-
-        <div
-          className={cn(
-            "col-span-2 flex justify-end pt-0.5",
-            "min-[900px]:col-start-5 min-[900px]:col-span-5 min-[900px]:row-start-3",
-          )}
-        >
-          <QuoteRowActionButtons
-            itemId={item.id}
-            cutItemId={cutItemId}
-            onCut={cutItem}
-            onDuplicate={duplicateItem}
-            onRemove={removeItem}
-            onOpenProduct={() => onOpenProductLink(item)}
-            productLinked={Boolean(item.productId?.trim())}
-            labels={labels}
-          />
-        </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1620,42 +1642,73 @@ function QuoteSectionTitleCard({
   );
 }
 
-function InfoPanelColumn({
-  title,
-  collapsed,
-  onToggle,
+function LabelValueRow({
+  label,
   children,
 }: {
-  title: string;
-  collapsed: boolean;
-  onToggle: () => void;
+  label: string;
   children: ReactNode;
 }) {
   return (
-    <section
-      className={cn(
-        "self-start overflow-hidden rounded-xl border bg-card shadow-sm",
-        !collapsed && "border-primary/35 ring-1 ring-primary/15",
-      )}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between px-4 py-3 transition-colors hover:bg-muted/40"
-      >
-        <h2 className="font-display text-sm font-bold text-foreground/80">{title}</h2>
-        <ChevronDown
+    <div className="flex items-start justify-between gap-3 border-b border-border/40 py-2 last:border-b-0">
+      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-xs leading-5 text-slate-500">{children}</div>
+    </div>
+  );
+}
+
+function InfoPanelColumn({
+  title,
+  icon,
+  iconClassName,
+  collapsed,
+  onToggle,
+  summary,
+  children,
+}: {
+  title: string;
+  icon: ReactNode;
+  iconClassName: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  summary: ReactNode;
+  children: ReactNode;
+}) {
+  const editing = !collapsed;
+  return (
+    <section className="self-start overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm">
+      <div className="flex items-center gap-2 px-3 py-3">
+        <span
           className={cn(
-            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-            !collapsed && "rotate-180",
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+            iconClassName,
           )}
-        />
-      </button>
-      {!collapsed && (
-        <div className="space-y-3 border-t border-border/60 px-3 pb-4 pt-3">
-          {children}
-        </div>
-      )}
+        >
+          {icon}
+        </span>
+        <h2 className="min-w-0 flex-1 font-display text-sm font-bold text-foreground">{title}</h2>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="inline-flex shrink-0 items-center rounded-lg border border-border bg-background px-2.5 py-1 font-body text-xs font-medium text-foreground hover:bg-muted/50"
+        >
+          {editing ? "完成" : "編輯"}
+        </button>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+          aria-expanded={editing}
+          aria-label={editing ? "收合" : "展開編輯"}
+        >
+          <ChevronDown
+            className={cn("h-4 w-4 transition-transform", editing && "rotate-180")}
+          />
+        </button>
+      </div>
+      <div className="border-t border-border/60 px-3 pb-3 pt-1">
+        {editing ? <div className="space-y-3 pt-2">{children}</div> : summary}
+      </div>
     </section>
   );
 }
@@ -1824,7 +1877,7 @@ function QuoteAddRowButtonGroup({
         onClick={onAddCustomTerm}
         className={cn(
           btnBase,
-          "border-amber-500/50 text-amber-600 hover:bg-amber-500/5",
+          "border-orange-400 text-orange-600 hover:bg-orange-50",
         )}
       >
         <Plus className={iconClass} />
@@ -1835,7 +1888,7 @@ function QuoteAddRowButtonGroup({
         onClick={onAddProduct}
         className={cn(
           btnBase,
-          "border-primary/40 text-primary hover:bg-primary/5",
+          "border-indigo-400 text-indigo-700 hover:bg-indigo-50",
         )}
       >
         <Plus className={iconClass} />
@@ -1973,7 +2026,7 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
 
 export function QuotationDraftEditor({
   formData,
-  onBack: _onBack,
+  onBack,
   userEmail,
   onOpenPdfPreview,
   onQuotePersisted,
@@ -2038,6 +2091,11 @@ export function QuotationDraftEditor({
   const [collapseProject, setCollapseProject] = useState(true);
   const [collapseClient, setCollapseClient] = useState(true);
   const [collapseQuoteMeta, setCollapseQuoteMeta] = useState(true);
+  const [contentFilter, setContentFilter] = useState<"product" | "service" | "title">("product");
+  const [summaryEditing, setSummaryEditing] = useState(true);
+  const [activeNav, setActiveNav] = useState<"basic" | "content" | "fees" | "terms" | "output">("basic");
+  const chromeRef = useRef<HTMLDivElement | null>(null);
+  const navLockUntilRef = useRef(0);
   const [showUnifyRatePanel, setShowUnifyRatePanel] = useState(false);
   const [unifyRateDraft, setUnifyRateDraft] = useState("");
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -2729,6 +2787,29 @@ export function QuotationDraftEditor({
       return next;
     });
   }, []);
+
+  const nudgeItem = useCallback((id: string, dir: -1 | 1) => {
+    const fromIndex = items.findIndex((row) => row.id === id);
+    if (fromIndex < 0) return;
+    const kindOf = (row: QuotationItem) =>
+      row.isSectionTitle ? "title" : row.isCustomTerm ? "service" : "product";
+    const kind = kindOf(items[fromIndex]);
+    if (dir < 0) {
+      for (let i = fromIndex - 1; i >= 0; i -= 1) {
+        if (kindOf(items[i]) === kind) {
+          moveItem(id, i);
+          return;
+        }
+      }
+      return;
+    }
+    for (let i = fromIndex + 1; i < items.length; i += 1) {
+      if (kindOf(items[i]) === kind) {
+        moveItem(id, i + 1);
+        return;
+      }
+    }
+  }, [items, moveItem]);
 
   const isQuoteRowDragActive = useCallback(() => {
     if (isForeignQuoteDnDKind("quote-row")) return false;
@@ -3703,21 +3784,145 @@ export function QuotationDraftEditor({
   };
   };
 
+  const shownVersion = existingQuote?.version
+    ? displayQuoteVersion(existingQuote.version)
+    : "—";
+  const activeStep =
+    activeNav === "basic"
+      ? 1
+      : activeNav === "content" || activeNav === "fees"
+        ? 2
+        : activeNav === "terms"
+          ? 3
+          : 4;
+
+  const scrollToNav = useCallback(
+    (nav: "basic" | "content" | "fees" | "terms" | "output") => {
+      const sectionId = {
+        basic: "quote-sec-basic",
+        content: "quote-sec-content",
+        fees: "quote-sec-fees",
+        terms: "quote-sec-terms",
+        output: "quote-sec-output",
+      }[nav];
+      setActiveNav(nav);
+      navLockUntilRef.current = Date.now() + 800;
+      const root = editorScrollRootRef.current;
+      const el = document.getElementById(sectionId);
+      if (!root || !el) return;
+      const chrome = chromeRef.current?.offsetHeight ?? 0;
+      const top =
+        el.getBoundingClientRect().top -
+        root.getBoundingClientRect().top +
+        root.scrollTop -
+        chrome -
+        8;
+      root.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const root = editorScrollRootRef.current;
+    if (!root) return;
+    const ids = [
+      "quote-sec-basic",
+      "quote-sec-content",
+      "quote-sec-fees",
+      "quote-sec-terms",
+      "quote-sec-output",
+    ] as const;
+    const navOf = {
+      "quote-sec-basic": "basic",
+      "quote-sec-content": "content",
+      "quote-sec-fees": "fees",
+      "quote-sec-terms": "terms",
+      "quote-sec-output": "output",
+    } as const;
+    const onScroll = () => {
+      if (Date.now() < navLockUntilRef.current) return;
+      const chrome = chromeRef.current?.offsetHeight ?? 0;
+      const marker = root.getBoundingClientRect().top + chrome + 16;
+      let current: (typeof ids)[number] = ids[0];
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= marker) current = id;
+      }
+      setActiveNav(navOf[current]);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => root.removeEventListener("scroll", onScroll);
+  }, [items.length, contentFilter]);
+
+  useEffect(() => {
+    const chrome = chromeRef.current;
+    const root = editorScrollRootRef.current;
+    if (!chrome || !root) return;
+    const apply = () => {
+      root.style.setProperty("--quote-chrome", `${chrome.offsetHeight + 12}px`);
+    };
+    apply();
+    const obs = new ResizeObserver(apply);
+    obs.observe(chrome);
+    return () => obs.disconnect();
+  }, [showUnifyRatePanel, quoteLocale, autoSaveFailed, lastLocalSavedAt, isSavingDraft]);
+
+  const productCount = items.filter((row) => !row.isSectionTitle && !row.isCustomTerm).length;
+  const serviceCount = items.filter((row) => row.isCustomTerm).length;
+  const titleCount = items.filter((row) => row.isSectionTitle).length;
+  const rowVisible = (row: QuotationItem) => {
+    if (contentFilter === "title") return Boolean(row.isSectionTitle);
+    if (contentFilter === "service") return Boolean(row.isCustomTerm);
+    return !row.isSectionTitle && !row.isCustomTerm;
+  };
+  const canNudge = (index: number, dir: -1 | 1) => {
+    const kindOf = (row: QuotationItem) =>
+      row.isSectionTitle ? "title" : row.isCustomTerm ? "service" : "product";
+    const kind = kindOf(items[index]);
+    if (dir < 0) {
+      for (let i = index - 1; i >= 0; i -= 1) if (kindOf(items[i]) === kind) return true;
+      return false;
+    }
+    for (let i = index + 1; i < items.length; i += 1) if (kindOf(items[i]) === kind) return true;
+    return false;
+  };
+  const summaryLocked = !summaryEditing;
+
   return (
     <>
-      <div ref={editorScrollRootRef} className="h-full overflow-x-hidden overflow-y-auto bg-background">
-        {/* Header — span full available width (parent already adds small side
-            padding) so 報價內容 stretches left-and-right and needs less scrolling */}
-        <div className="mx-auto w-full max-w-none">
-          {/* Info panels + action buttons — above 報價內容
-              Top: 統一匯率 (+ panel) · 預覽 PDF · 生成QR (above ENG)
-              Main: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 保存現有版本 / 版本審核 */}
-          <div className="mb-5 space-y-2">
-            <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
-              <div className="hidden lg:col-span-3 lg:block" aria-hidden />
-              <div className="col-span-2 flex flex-wrap items-stretch justify-end gap-2 lg:col-span-2">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-slate-50">
+      <div ref={editorScrollRootRef} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div
+          ref={chromeRef}
+          className="sticky top-0 z-30 border-b border-border/70 bg-slate-50/95 px-3 pb-2 pt-3 backdrop-blur-sm sm:px-4"
+        >
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <button
+                type="button"
+                onClick={() => onBack?.()}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-body text-sm font-medium text-foreground hover:bg-muted/50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                返回
+              </button>
+              <h1 className="font-display text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                報價單草稿編輯
+              </h1>
+              <p className="flex flex-wrap items-center gap-x-2 font-body text-xs text-muted-foreground">
+                <span className="font-mono-data text-xs tracking-wide text-slate-500">
+                  {quoteId || "—"}
+                </span>
+                <span>目前版本 {shownVersion}</span>
+                <span>送出新版本審核 {currentVersion}</span>
+              </p>
+            </div>
+            <div className="flex flex-col items-stretch gap-2 sm:items-end">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 {showUnifyRatePanel ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-none">
+                  <div className="flex items-center gap-1.5">
                     <span className="shrink-0 font-body text-xs text-muted-foreground">
                       {t.exchangeRate}
                     </span>
@@ -3729,7 +3934,7 @@ export function QuotationDraftEditor({
                         setUnifyRateDraft(sanitizeExchangeRateInput(e.target.value))
                       }
                       placeholder="—"
-                      className="h-9 w-[5.5rem] rounded-md border border-border bg-background px-2 font-mono-data text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                      className="h-9 w-[5.5rem] rounded-lg border border-violet-200 bg-background px-2 font-mono-data text-sm text-foreground focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
                     />
                     <button
                       type="button"
@@ -3739,21 +3944,20 @@ export function QuotationDraftEditor({
                           setUnifyRateDraft("");
                         }
                       }}
-                      className="inline-flex items-center justify-center rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 font-body text-sm font-semibold text-primary hover:bg-primary/15"
+                      className="inline-flex items-center justify-center rounded-lg border border-violet-300 bg-violet-100 px-3 py-2 font-body text-sm font-semibold text-violet-800 hover:bg-violet-200"
                     >
                       {t.confirm}
                     </button>
                   </div>
                 ) : null}
-                {/* Match 保存現有版本 size/style (px-3 py-2 text-sm). */}
                 <button
                   type="button"
                   onClick={() => setShowUnifyRatePanel((v) => !v)}
                   className={cn(
-                    "inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2 font-body text-sm font-medium transition-colors",
+                    "inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 font-body text-sm font-medium transition-colors",
                     showUnifyRatePanel
-                      ? "border-primary/40 bg-primary/10 text-primary"
-                      : "border-border bg-background text-foreground hover:bg-muted/50",
+                      ? "border-violet-400 bg-violet-100 text-violet-800"
+                      : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100",
                   )}
                 >
                   <span className="truncate">
@@ -3765,18 +3969,16 @@ export function QuotationDraftEditor({
                 <button
                   type="button"
                   onClick={() => onOpenPdfPreview?.(buildPDFData())}
-                  className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50"
                 >
                   <Eye className="h-4 w-4 shrink-0" />
                   <span className="truncate">{t.previewPdf}</span>
                 </button>
-              </div>
-              <div className="col-span-2 flex flex-col gap-2 lg:col-span-1">
                 <button
                   type="button"
                   disabled={shareBusy}
                   onClick={() => void handleGenerateQuoteShare()}
-                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-500/15 disabled:opacity-50 dark:text-sky-300"
+                  className="inline-flex min-w-[12rem] items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
                 >
                   {shareBusy ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -3785,24 +3987,162 @@ export function QuotationDraftEditor({
                   )}
                   {t.generateQrLink}
                 </button>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="flex flex-col items-stretch">
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveExistingVersion()}
+                    disabled={isSavingDraft || !hasQuoteData}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    title={t.autoSaveHint}
+                  >
+                    {isSavingDraft ? (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4 shrink-0" />
+                    )}
+                    <span className="truncate">{t.saveDraft}</span>
+                  </button>
+                  <p
+                    className={cn(
+                      "mt-0.5 text-center font-body text-[10px] leading-snug",
+                      autoSaveFailed ? "text-rose-500" : "text-muted-foreground",
+                    )}
+                    title={t.autoSaveHint}
+                  >
+                    {autoSaveFailed
+                      ? "本機備份失敗；請按「保存現有版本」寫入伺服器"
+                      : lastLocalSavedAt
+                        ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+                        : t.autoSaveHint}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenSubmitReview}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 font-body text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
+                  title="開新版本並提交審核"
+                >
+                  <ShieldCheck className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t.versionReview}</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
                     setTermsEditMode(false);
-                    setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'));
+                    setQuoteLocale((l) => (l === "zh" ? "en" : "zh"));
                   }}
-                  className="inline-flex w-full items-center justify-center rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
+                  className="inline-flex min-w-[4.5rem] items-center justify-center rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
+                  aria-label="語言"
                 >
                   {t.langToggle}
                 </button>
               </div>
             </div>
+          </div>
+          <ol aria-label="報價步驟" className="mt-3 grid gap-2 sm:grid-cols-4">
+            {[
+              { step: 1, label: "基本資料", nav: "basic" as const },
+              { step: 2, label: "報價項目", nav: "content" as const },
+              { step: 3, label: "條款付款", nav: "terms" as const },
+              { step: 4, label: "輸出報價單", nav: "output" as const },
+            ].map((item, index, arr) => {
+              const current = item.step === activeStep;
+              const done = item.step < activeStep;
+              return (
+                <li key={item.nav} className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => scrollToNav(item.nav)}
+                    aria-current={current ? "step" : undefined}
+                    className="flex min-w-0 items-center gap-2 text-left"
+                  >
+                    <span
+                      className={cn(
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                        current
+                          ? "bg-indigo-600 text-white"
+                          : done
+                            ? "bg-indigo-100 text-indigo-700"
+                            : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {item.step}
+                    </span>
+                    <span
+                      className={cn(
+                        "truncate text-xs font-medium",
+                        current ? "text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      {item.label}
+                    </span>
+                  </button>
+                  {index < arr.length - 1 ? (
+                    <span className="hidden text-muted-foreground/50 sm:inline" aria-hidden>
+                      →
+                    </span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+          <div className="mt-3 flex gap-1 overflow-x-auto border-b border-border/80" role="tablist">
+            {(
+              [
+                ["basic", "基本資料"],
+                ["content", "報價內容"],
+                ["fees", "費用與總價"],
+                ["terms", "條款及付款"],
+                ["output", "版本與輸出"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={activeNav === id}
+                onClick={() => scrollToNav(id)}
+                className={cn(
+                  "shrink-0 border-b-2 px-3 py-2 font-body text-sm font-medium transition-colors",
+                  activeNav === id
+                    ? "border-indigo-600 text-indigo-700"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
-            <div className="grid min-w-0 grid-cols-1 items-start gap-2 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="px-3 py-4 sm:px-4">
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="contents space-y-5 lg:col-start-1 lg:block lg:min-w-0">
+            <section id="quote-sec-basic" className="order-1 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+              <h2 className="font-display text-base font-bold text-foreground">基本資料</h2>
+              <p className="mb-4 mt-1 font-body text-sm text-muted-foreground">
+                編輯報價單的基礎資訊，包括公司、專案、客戶及報價設定。
+              </p>
+            <div className="grid min-w-0 grid-cols-1 items-start gap-3 sm:grid-cols-2">
               <InfoPanelColumn
                 title="公司資訊"
+                icon={<Building2 className="h-4 w-4" />}
+                iconClassName="bg-sky-50 text-sky-700"
                 collapsed={collapseCompany}
                 onToggle={() => setCollapseCompany((v) => !v)}
+                summary={
+                  <>
+                    <LabelValueRow label="公司名稱">{companyInfo.name || "—"}</LabelValueRow>
+                    <LabelValueRow label="地址">
+                      {(quoteLocale === "en" ? companyInfo.addressEn : companyInfo.address) || "—"}
+                    </LabelValueRow>
+                    <LabelValueRow label="電話">{companyInfo.phone || "—"}</LabelValueRow>
+                    <LabelValueRow label="電郵">{companyInfo.email || "—"}</LabelValueRow>
+                    <LabelValueRow label="網站">{companyInfo.website || "—"}</LabelValueRow>
+                  </>
+                }
               >
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
@@ -3879,8 +4219,41 @@ export function QuotationDraftEditor({
 
               <InfoPanelColumn
                 title="專案分類"
+                icon={<FolderKanban className="h-4 w-4" />}
+                iconClassName="bg-amber-50 text-amber-700"
                 collapsed={collapseProject}
                 onToggle={() => setCollapseProject((v) => !v)}
+                summary={
+                  <>
+                    <LabelValueRow label="客戶產業">
+                      <span className="inline-flex flex-wrap justify-end gap-1">
+                        {formData.clientIndustry.length === 0
+                          ? "—"
+                          : formData.clientIndustry.map((tag) => (
+                              <span
+                                key={tag}
+                                className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                      </span>
+                    </LabelValueRow>
+                    <LabelValueRow label="辦公室傢俬級別">
+                      {formData.quotationType.length === 0
+                        ? "—"
+                        : formData.quotationType.join("、")}
+                    </LabelValueRow>
+                    <LabelValueRow label="辦公室傢俬類別">
+                      {formData.serviceScope.length === 0
+                        ? "—"
+                        : formData.serviceScope.join("、")}
+                    </LabelValueRow>
+                    <p className="pt-1 text-left text-[11px] text-muted-foreground/70">
+                      * 如需修改，請點擊「基本資訊」回到編輯頁
+                    </p>
+                  </>
+                }
               >
                 <div>
                   <label className="mb-1.5 block font-body text-xs text-muted-foreground">
@@ -3949,8 +4322,18 @@ export function QuotationDraftEditor({
 
               <InfoPanelColumn
                 title="客戶資訊"
+                icon={<UserRound className="h-4 w-4" />}
+                iconClassName="bg-emerald-50 text-emerald-700"
                 collapsed={collapseClient}
                 onToggle={() => setCollapseClient((v) => !v)}
+                summary={
+                  <>
+                    <LabelValueRow label="公司名稱">{clientInfo.name || "—"}</LabelValueRow>
+                    <LabelValueRow label="客戶名稱">{clientInfo.contactName || "—"}</LabelValueRow>
+                    <LabelValueRow label="電話">{clientInfo.phone || "—"}</LabelValueRow>
+                    <LabelValueRow label="電郵">{clientInfo.email || "—"}</LabelValueRow>
+                  </>
+                }
               >
                 <div className="flex items-start gap-2">
                   <label className="w-14 shrink-0 pt-2 font-body text-xs text-muted-foreground">
@@ -4012,8 +4395,21 @@ export function QuotationDraftEditor({
 
               <InfoPanelColumn
                 title={t.quoteInfo}
+                icon={<FileText className="h-4 w-4" />}
+                iconClassName="bg-violet-50 text-violet-700"
                 collapsed={collapseQuoteMeta}
                 onToggle={() => setCollapseQuoteMeta((v) => !v)}
+                summary={
+                  <>
+                    <LabelValueRow label={t.quoteNo}>{quoteId || "—"}</LabelValueRow>
+                    <LabelValueRow label={t.pic}>{quoteMeta.pmName || "—"}</LabelValueRow>
+                    <LabelValueRow label={t.quoteDate}>{quoteMeta.date || "—"}</LabelValueRow>
+                    <LabelValueRow label={t.validityDays}>{quoteMeta.validity || "—"}</LabelValueRow>
+                    <LabelValueRow label={t.deliveryAddress}>
+                      {quoteMeta.deliveryAddress || "—"}
+                    </LabelValueRow>
+                  </>
+                }
               >
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
@@ -4094,72 +4490,72 @@ export function QuotationDraftEditor({
                   />
                 </div>
               </InfoPanelColumn>
-
-              {/* Col 5: 保存現有版本 — vertically under 預覽 PDF */}
-              <div className="col-span-1 flex flex-col items-stretch gap-1">
-                <button
-                  type="button"
-                  onClick={() => void handleSaveExistingVersion()}
-                  disabled={isSavingDraft || !hasQuoteData}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
-                  title={t.autoSaveHint}
-                >
-                  {isSavingDraft ? (
-                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4 shrink-0" />
-                  )}
-                  <span className="truncate">{t.saveDraft}</span>
-                </button>
-                <p
-                  className={cn(
-                    "text-center font-body text-[10px] leading-snug",
-                    autoSaveFailed
-                      ? "text-rose-500"
-                      : "text-muted-foreground",
-                  )}
-                  title={t.autoSaveHint}
-                >
-                  {autoSaveFailed
-                    ? "本機備份失敗；請按「保存現有版本」寫入伺服器"
-                    : lastLocalSavedAt
-                      ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
-                      : t.autoSaveHint}
-                </p>
-              </div>
-
-              {/* Col 6: 版本審核 — vertically under ENG */}
-              <div className="col-span-1 flex flex-col items-stretch gap-1">
-                <button
-                  type="button"
-                  onClick={handleOpenSubmitReview}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
-                  title="開新版本並提交審核"
-                >
-                  <ShieldCheck className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{t.versionReview}</span>
-                </button>
-              </div>
             </div>
-          </div>
+            </section>
 
-          <div className="space-y-5">
-              {/* 報價內容表格 */}
-              <section className="rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4 min-[900px]:p-5">
-                <div className="mb-4 flex flex-col items-stretch gap-3 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
-                  <h2 className="font-display text-base font-bold text-foreground/80">
-                    {t.quoteContent}
-                  </h2>
+              <section id="quote-sec-content" className="order-3 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+                <div className="mb-4 flex flex-col items-stretch gap-3 min-[900px]:flex-row min-[900px]:items-start min-[900px]:justify-between">
+                  <div>
+                    <h2 className="font-display text-base font-bold text-foreground">
+                      {t.quoteContent}
+                    </h2>
+                    <p className="mt-1 font-body text-sm text-muted-foreground">
+                      新增或編輯產品項目、增值服務等，支援圖片、材料及詳細規格。
+                    </p>
+                  </div>
                   <QuoteAddRowButtonGroup
                     labels={t}
                     showPaste={cutItemId != null}
-                    onPaste={() => pasteCutItemAt(0)}
+                    onPaste={() => {
+                      const cut = items.find((row) => row.id === cutItemId);
+                      if (cut?.isSectionTitle) setContentFilter("title");
+                      else if (cut?.isCustomTerm) setContentFilter("service");
+                      else setContentFilter("product");
+                      pasteCutItemAt(0);
+                    }}
                     onCopyFromOther={() => setShowCopyFromOther(true)}
-                    onAddSectionTitle={() => addSectionTitle(0)}
-                    onAddField={() => addItem(0)}
-                    onAddCustomTerm={() => addCustomTerm(0)}
-                    onAddProduct={() => openProductSelector(0)}
+                    onAddSectionTitle={() => {
+                      setContentFilter("title");
+                      addSectionTitle(0);
+                    }}
+                    onAddField={() => {
+                      setContentFilter("product");
+                      addItem(0);
+                    }}
+                    onAddCustomTerm={() => {
+                      setContentFilter("service");
+                      addCustomTerm(0);
+                    }}
+                    onAddProduct={() => {
+                      setContentFilter("product");
+                      openProductSelector(0);
+                    }}
                   />
+                </div>
+                <div className="mb-4 flex flex-wrap gap-2 border-b border-border/80" role="tablist">
+                  {(
+                    [
+                      ["product", `產品項目 (${productCount})`],
+                      ["service", `增值服務 (${serviceCount})`],
+                      ["title", `備註標題 (${titleCount})`],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={contentFilter === id}
+                      onClick={() => setContentFilter(id)}
+                      className={cn(
+                        "border-b-2 px-3 py-2 font-body text-sm font-medium",
+                        contentFilter === id
+                          ? "border-indigo-600 text-indigo-700"
+                          : "border-transparent text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
 
                 <div
@@ -4180,7 +4576,12 @@ export function QuotationDraftEditor({
                     }
                   }}
                 >
-                  {items.map((item, index) => (
+                  {items.some(rowVisible) ? null : (
+                    <p className="py-8 text-center font-body text-sm text-muted-foreground">
+                      此分類沒有項目
+                    </p>
+                  )}
+                  {items.map((item, index) => rowVisible(item) ? (
                     <div key={item.id} className="space-y-3">
                       {item.isSectionTitle ? (
                         <QuoteSectionTitleCard
@@ -4245,196 +4646,56 @@ export function QuotationDraftEditor({
                           factoriesLoading={factoriesLoading}
                           quoteImageScope={quoteImageScope}
                           labels={t}
+                          onMoveUp={() => nudgeItem(item.id, -1)}
+                          onMoveDown={() => nudgeItem(item.id, 1)}
+                          canMoveUp={canNudge(index, -1)}
+                          canMoveDown={canNudge(index, 1)}
                         />
                       )}
                       <QuoteAddRowButtonGroup
                         labels={t}
                         compact
                         showPaste={cutItemId != null}
-                        onPaste={() => pasteCutItemAt(index + 1)}
+                        onPaste={() => {
+                          const cut = items.find((row) => row.id === cutItemId);
+                          if (cut?.isSectionTitle) setContentFilter("title");
+                          else if (cut?.isCustomTerm) setContentFilter("service");
+                          else setContentFilter("product");
+                          pasteCutItemAt(index + 1);
+                        }}
                         onCopyFromOther={() => setShowCopyFromOther(true)}
-                        onAddSectionTitle={() => addSectionTitle(index + 1)}
-                        onAddField={() => addItem(index + 1)}
-                        onAddCustomTerm={() => addCustomTerm(index + 1)}
-                        onAddProduct={() => openProductSelector(index + 1)}
+                        onAddSectionTitle={() => {
+                          setContentFilter("title");
+                          addSectionTitle(index + 1);
+                        }}
+                        onAddField={() => {
+                          setContentFilter("product");
+                          addItem(index + 1);
+                        }}
+                        onAddCustomTerm={() => {
+                          setContentFilter("service");
+                          addCustomTerm(index + 1);
+                        }}
+                        onAddProduct={() => {
+                          setContentFilter("product");
+                          openProductSelector(index + 1);
+                        }}
                       />
                     </div>
-                  ))}
+                  ) : null)}
                 </div>
 
-                {/* Price Multiplier, GP Summary & Subtotal */}
-                <div className="mt-4 grid grid-cols-1 items-end gap-4 border-t border-border pt-3 lg:grid-cols-3">
-                  {/* 單價規則 - Unit price batch multiplier */}
-                  <div className="flex items-center gap-2">
-                    <span className="font-body text-xs text-primary font-medium">
-                      {t.priceMultiplier}
-                    </span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={priceMultiplier}
-                      onChange={(e) => setPriceMultiplier(e.target.value)}
-                      className="w-16 rounded-md border border-primary/30 bg-background px-2 py-1 font-mono-data text-xs text-foreground text-center focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                    <button
-                      type="button"
-                      onClick={applyPriceMultiplier}
-                      className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 font-body text-xs font-medium text-primary transition-colors hover:bg-primary/10"
-                    >
-                      {t.apply}
-                    </button>
-                  </div>
-                  {/* GP summary — internal margin calc; not exported to PDF preview */}
-                  <div className="flex justify-center">
-                    <div className="w-full max-w-[300px] overflow-hidden rounded-md border border-border text-xs">
-                      <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
-                        <span className="font-body font-medium text-foreground">Contract Sum</span>
-                        <span className="font-mono-data text-foreground">
-                          HKD ${totalAmount.toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
-                        <span className="font-body font-medium text-foreground">Cost</span>
-                        <span className="font-mono-data text-foreground">
-                          HKD ${totalProductCost.toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
-                        <span className="font-body font-medium text-foreground">Ship</span>
-                        <input
-                          type="number"
-                          min={0}
-                          value={gpSummary.ship || ""}
-                          placeholder="0"
-                          onChange={(e) =>
-                            setGpSummary((prev) => ({
-                              ...prev,
-                              ship: e.target.value === "" ? 0 : Math.max(0, parseFloat(e.target.value) || 0),
-                            }))
-                          }
-                          className="w-28 rounded-md border border-border bg-background px-2 py-1 font-mono-data text-xs text-foreground text-right focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
-                        <span className="font-body font-medium text-foreground">Installation</span>
-                        <input
-                          type="number"
-                          min={0}
-                          value={gpSummary.installation || ""}
-                          placeholder="0"
-                          onChange={(e) =>
-                            setGpSummary((prev) => ({
-                              ...prev,
-                              installation: e.target.value === "" ? 0 : Math.max(0, parseFloat(e.target.value) || 0),
-                            }))
-                          }
-                          className="w-28 rounded-md border border-border bg-background px-2 py-1 font-mono-data text-xs text-foreground text-right focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between gap-4 px-3 py-2 bg-muted/20">
-                        <span className="font-body font-medium text-foreground">GP</span>
-                        <span className="font-mono-data font-medium text-foreground">
-                          HKD ${gpValue.toLocaleString()}
-                          <span className="ml-2 text-muted-foreground">
-                            ({Math.round(gpPercent)}%)
-                          </span>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-2 lg:col-start-3">
-                    {/* 傢俱安裝費用 row (editable) */}
-                    <div className="flex w-full items-stretch rounded-md border border-border overflow-hidden text-xs">
-                      <div className="flex flex-col justify-center gap-1 px-3 py-2 bg-muted/30 border-r border-border" style={{ width: '45%' }}>
-                        <input
-                          type="text"
-                          value={installationFee.title}
-                          onChange={(e) =>
-                            setInstallationFee((prev) => ({ ...prev, title: e.target.value }))
-                          }
-                          className="w-full bg-transparent font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
-                        />
-                        <input
-                          type="text"
-                          value={installationFee.subtitle}
-                          onChange={(e) =>
-                            setInstallationFee((prev) => ({ ...prev, subtitle: e.target.value }))
-                          }
-                          className="w-full bg-transparent text-muted-foreground text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
-                        />
-                      </div>
-                      <div className="flex flex-col justify-center px-3 py-2 border-r border-border text-center" style={{ width: '30%' }}>
-                        <textarea
-                          value={installationFee.conditionText}
-                          onChange={(e) =>
-                            setInstallationFee((prev) => ({ ...prev, conditionText: e.target.value }))
-                          }
-                          rows={2}
-                          className="w-full bg-transparent text-muted-foreground text-xs leading-relaxed text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1 resize-none"
-                        />
-                      </div>
-                      <div className="flex items-center justify-center px-2 py-2 border-r border-border font-medium" style={{ width: '12.5%' }}>
-                        {isFreeInstallation ? (
-                          <span className="text-green-600">FREE</span>
-                        ) : (
-                          <span className="text-muted-foreground">{installationFee.freeLabel}</span>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-center px-2 py-2 font-medium" style={{ width: '12.5%' }}>
-                        {isFreeInstallation ? (
-                          <span className="text-green-600">FREE</span>
-                        ) : (
-                          <input
-                            type="number"
-                            min={0}
-                            value={installationFee.amount ?? ""}
-                            placeholder="另議"
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              setInstallationFee((prev) => ({
-                                ...prev,
-                                amount: raw === "" ? null : Math.max(0, parseFloat(raw) || 0),
-                              }));
-                            }}
-                            className="w-full bg-transparent text-right font-mono-data text-foreground placeholder:text-muted-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
-                          />
-                        )}
-                      </div>
-                    </div>
-                    {/* Discount row — split into label + numeric input, sits above 合計 */}
-                    <div className="flex items-stretch overflow-hidden rounded-md border border-border text-sm">
-                      <div className="flex items-center justify-center bg-muted/30 px-3 py-2 border-r border-border" style={{ width: '80px' }}>
-                        <span className="font-medium text-foreground">Discount</span>
-                      </div>
-                      <div className="flex items-center px-2 py-1" style={{ width: '120px' }}>
-                        <input
-                          type="number"
-                          value={discountNote}
-                          onChange={(e) => setDiscountNote(e.target.value)}
-                          placeholder="0"
-                          className="w-full bg-transparent text-right font-mono-data text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
-                        />
-                      </div>
-                    </div>
-                    {/* 合計 (after discount) — same value persisted as bwf_quote.total_amount */}
-                    <div className="flex items-center">
-                      <span className="mr-3 font-body text-xs text-muted-foreground" style={{ width: '80px', textAlign: 'center' }}>
-                        {t.grandTotal}:
-                      </span>
-                      <span className="font-mono-data text-base font-bold text-foreground" style={{ width: '120px', textAlign: 'right' }}>
-                        HKD ${totalAmount.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
               </section>
 
               {/* 訂單確認及交付細節 / Order Confirmation and Delivery Details */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="mb-3 font-display text-sm font-bold text-foreground/80">
+              <section id="quote-sec-fees" className="order-4 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+                <h2 className="font-display text-base font-bold text-foreground">費用與總價</h2>
+                <p className="mb-3 mt-1 font-body text-sm text-muted-foreground">
+                  合約金額、成本、運費、安裝、折扣與合計在「報價摘要」，與這裡同一組數字。
+                </p>
+                <h3 className="mb-2 font-display text-sm font-bold text-foreground/80">
                   {t.deliverySection}
-                </h2>
+                </h3>
                 <textarea
                   value={
                     quoteLocale === 'en' ? deliveryDetailsEn : deliveryDetails
@@ -4452,9 +4713,9 @@ export function QuotationDraftEditor({
               </section>
 
               {/* 條款及付款 / TERMS AND CONDITIONS */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <section id="quote-sec-terms" className="order-5 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="font-display text-sm font-bold text-foreground/80">
+                  <h2 className="font-display text-base font-bold text-foreground">
                     {t.termsSection}
                   </h2>
                   <button
@@ -4636,8 +4897,261 @@ export function QuotationDraftEditor({
                   </div>
                 </div>
               </section>
+
+              <section id="quote-sec-output" className="order-6 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+                <h2 className="font-display text-base font-bold text-foreground">版本與輸出</h2>
+                <p className="mb-3 mt-1 font-body text-sm text-muted-foreground">
+                  預覽 PDF、QR、保存現有版本與版本審核使用頁首同一組操作。
+                </p>
+                <LabelValueRow label={t.quoteNo}>{quoteId || "—"}</LabelValueRow>
+                <LabelValueRow label="目前版本">{shownVersion}</LabelValueRow>
+                <LabelValueRow label="送出新版本審核">{currentVersion}</LabelValueRow>
+                <p
+                  className={cn(
+                    "mt-3 font-body text-xs",
+                    autoSaveFailed ? "text-rose-500" : "text-muted-foreground",
+                  )}
+                >
+                  {autoSaveFailed
+                    ? "本機備份失敗；請按「保存現有版本」寫入伺服器"
+                    : lastLocalSavedAt
+                      ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+                      : t.autoSaveHint}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onOpenPdfPreview?.(buildPDFData())}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium hover:bg-muted/50"
+                  >
+                    <Eye className="h-4 w-4" />
+                    {t.previewPdf}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={shareBusy}
+                    onClick={() => void handleGenerateQuoteShare()}
+                    className="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-body text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                  >
+                    {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />}
+                    {t.generateQrLink}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveExistingVersion()}
+                    disabled={isSavingDraft || !hasQuoteData}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium hover:bg-muted/50 disabled:opacity-50"
+                  >
+                    {isSavingDraft ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {t.saveDraft}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenSubmitReview}
+                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 font-body text-sm font-semibold text-white hover:bg-indigo-700"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    {t.versionReview}
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            <aside className="order-2 lg:sticky lg:top-[var(--quote-chrome)] lg:order-none lg:col-start-2 lg:row-start-1 lg:max-h-[calc(100dvh-var(--quote-chrome))] lg:self-start lg:overflow-y-auto">
+              <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h2 className="font-display text-base font-bold text-foreground">報價摘要</h2>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={summaryEditing}
+                    onClick={() => setSummaryEditing((v) => !v)}
+                    className="inline-flex items-center gap-2 font-body text-xs text-muted-foreground"
+                  >
+                    編輯模式
+                    <span
+                      className={cn(
+                        "relative h-5 w-9 rounded-full transition-colors",
+                        summaryEditing ? "bg-indigo-600" : "bg-slate-300",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
+                          summaryEditing ? "translate-x-4" : "translate-x-0.5",
+                        )}
+                      />
+                    </span>
+                  </button>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                      <Wallet className="h-3.5 w-3.5" /> Contract Sum
+                    </span>
+                    <span className="font-mono-data">HKD ${totalAmount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                      <Wallet className="h-3.5 w-3.5" /> Cost
+                    </span>
+                    <span className="font-mono-data">HKD ${totalProductCost.toLocaleString()}</span>
+                  </div>
+                  <label className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                      <Truck className="h-3.5 w-3.5" /> Ship
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      readOnly={summaryLocked}
+                      value={gpSummary.ship || ""}
+                      placeholder="0"
+                      onChange={(e) =>
+                        setGpSummary((prev) => ({
+                          ...prev,
+                          ship: e.target.value === "" ? 0 : Math.max(0, parseFloat(e.target.value) || 0),
+                        }))
+                      }
+                      className="w-28 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-muted-foreground">Installation</span>
+                    <input
+                      type="number"
+                      min={0}
+                      readOnly={summaryLocked}
+                      value={gpSummary.installation || ""}
+                      placeholder="0"
+                      onChange={(e) =>
+                        setGpSummary((prev) => ({
+                          ...prev,
+                          installation: e.target.value === "" ? 0 : Math.max(0, parseFloat(e.target.value) || 0),
+                        }))
+                      }
+                      className="w-28 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
+                    />
+                  </label>
+                  <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-2 py-2 text-emerald-800">
+                    <span className="font-medium">GP</span>
+                    <span className="font-mono-data font-semibold">
+                      HKD ${gpValue.toLocaleString()}
+                      <span className="ml-2">({Math.round(gpPercent)}%)</span>
+                    </span>
+                  </div>
+                  <div className="rounded-xl border border-border/80 p-3">
+                    <input
+                      type="text"
+                      readOnly={summaryLocked}
+                      value={installationFee.title}
+                      onChange={(e) =>
+                        setInstallationFee((prev) => ({ ...prev, title: e.target.value }))
+                      }
+                      className="w-full bg-transparent text-sm font-medium text-foreground focus:outline-none read-only:text-muted-foreground"
+                    />
+                    <input
+                      type="text"
+                      readOnly={summaryLocked}
+                      value={installationFee.subtitle}
+                      onChange={(e) =>
+                        setInstallationFee((prev) => ({ ...prev, subtitle: e.target.value }))
+                      }
+                      className="mt-1 w-full bg-transparent text-xs text-muted-foreground focus:outline-none"
+                    />
+                    <textarea
+                      readOnly={summaryLocked}
+                      value={installationFee.conditionText}
+                      onChange={(e) =>
+                        setInstallationFee((prev) => ({ ...prev, conditionText: e.target.value }))
+                      }
+                      rows={2}
+                      className="mt-2 w-full resize-none rounded-lg bg-slate-50 px-2 py-1 text-center text-xs text-muted-foreground focus:outline-none read-only:bg-transparent"
+                    />
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                        {installationFee.freeLabel || "—"}
+                      </span>
+                      {isFreeInstallation ? (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                          FREE
+                        </span>
+                      ) : (
+                        <input
+                          type="number"
+                          min={0}
+                          readOnly={summaryLocked}
+                          value={installationFee.amount ?? ""}
+                          placeholder={installationFee.freeLabel || "另議"}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setInstallationFee((prev) => ({
+                              ...prev,
+                              amount: raw === "" ? null : Math.max(0, parseFloat(raw) || 0),
+                            }));
+                          }}
+                          className="w-24 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <label className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                      <Percent className="h-3.5 w-3.5" /> Discount 折扣
+                    </span>
+                    <input
+                      type="number"
+                      readOnly={summaryLocked}
+                      value={discountNote}
+                      onChange={(e) => setDiscountNote(e.target.value)}
+                      placeholder="0"
+                      className="w-28 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
+                    />
+                  </label>
+                  <div className="rounded-xl bg-indigo-600 px-3 py-3 text-white">
+                    <div className="text-xs text-indigo-100">{t.grandTotal} HKD</div>
+                    <div className="font-mono-data text-2xl font-bold">
+                      ${totalAmount.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="border-t border-border/70 pt-3">
+                    <div className="mb-1 flex items-center gap-1 text-xs font-medium text-indigo-700">
+                      {t.priceMultiplier}
+                      <button
+                        type="button"
+                        className="text-muted-foreground"
+                        title="以 HKD 成本（沒有則用 CNY 成本）乘此倍率，四捨五入後寫入單價。標題列與增值服務不會套用。"
+                        aria-label="倍率說明"
+                      >
+                        <CircleHelp className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        readOnly={summaryLocked}
+                        value={priceMultiplier}
+                        onChange={(e) => setPriceMultiplier(e.target.value)}
+                        className="w-20 rounded-lg border border-border bg-background px-2 py-1 text-center font-mono-data text-xs read-only:bg-muted/40"
+                      />
+                      <button
+                        type="button"
+                        disabled={summaryLocked}
+                        onClick={applyPriceMultiplier}
+                        className="rounded-lg bg-indigo-600 px-3 py-1 font-body text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
+                      >
+                        {t.apply}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </aside>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Submit Review Modal */}
