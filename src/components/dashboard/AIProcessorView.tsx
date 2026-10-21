@@ -51,7 +51,7 @@ import { CascadingCategorySelector } from './CascadingCategorySelector';
 import { supabase } from '@/lib/supabase';
 import { resolveRowsImagesToStorage, resolveRowsImagesToStorageWithRetry, productImageFieldsPendingStorage } from '@/lib/imageStorage';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
-import { isPdfFile, uploadSupplierDocument, type UploadSupplierDocumentInput } from '@/lib/supplierDocuments';
+import { isPdfFile, PDF_EDGE_MAX_BYTES, uploadSupplierDocument, type UploadSupplierDocumentInput } from '@/lib/supplierDocuments';
 import { DocumentUploadProgress, type DocumentUploadStatus } from './DocumentUploadProgress';
 import { SupplierDocumentsPanel } from './SupplierDocumentsPanel';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
@@ -2355,7 +2355,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               file, factoryId: selectedFactoryId || null, factoryName: selectedManufacturer,
               docType: documentType, currency: documentCurrency || null,
             });
-            toast.success(result.duplicate ? `${file.name} 已存在，請在文件列表查看或開始解析` : `${file.name} 已上載，解析任務已排隊`);
+            const splitNote = result.splitMode === 'worker'
+              ? `${file.name} 已保存，改由伺服器拆檔後解析`
+              : result.partCount
+                ? `${file.name} 已拆成 ${result.partCount} 段並開始解析`
+                : null;
+            toast.success(splitNote ?? (result.duplicate ? `${file.name} 已存在，請在文件列表查看或開始解析` : `${file.name} 已上載，解析任務已排隊`));
           } catch (error) {
             toast.error(`${file.name} 上載失敗`, { description: error instanceof Error ? error.message : String(error) });
           }
@@ -2376,12 +2381,39 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     
     const validFiles = files.filter(f => f.type.startsWith('image/') || f.type === 'application/pdf' || isExcelFile(f));
     if (validFiles.length === 0) return;
+    const largePdfs = validFiles.filter(f => isPdfFile(f) && f.size > PDF_EDGE_MAX_BYTES);
+    if (largePdfs.length > 0) {
+      documentUploadLock.current = true;
+      setIsUploadingDocuments(true);
+      try {
+        for (const file of largePdfs) {
+          try {
+            const result = await uploadWithProgress({
+              file, factoryId: selectedFactoryId || null, factoryName: selectedManufacturer,
+              docType: documentType, currency: documentCurrency || null,
+            });
+            const splitNote = result.splitMode === 'worker'
+              ? `${file.name} 已保存，改由伺服器拆檔後解析`
+              : `${file.name} 已拆成 ${result.partCount ?? 0} 段並開始解析`;
+            toast.success(splitNote);
+          } catch (error) {
+            toast.error(`${file.name} 上載失敗`, { description: error instanceof Error ? error.message : String(error) });
+          }
+        }
+      } finally {
+        documentUploadLock.current = false;
+        setIsUploadingDocuments(false);
+        setSupplierDocsRefreshKey(key => key + 1);
+      }
+    }
+    const instantFiles = validFiles.filter(f => !largePdfs.includes(f));
+    if (instantFiles.length === 0) return;
 
     // Build upload entries for display (thumbnails)
     // NOTE: PDFs and Excel files are NOT read as base64 here — only at processing time.
     // Reading large PDFs as base64 in addFilesToQueue was freezing the UI.
     const newEntries: UploadedFile[] = await Promise.all(
-      validFiles.map(async (file) => {
+      instantFiles.map(async (file) => {
         if (isExcelFile(file)) {
           return {
             id: Math.random().toString(36).substring(7),
@@ -2422,7 +2454,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
     // Keep the original PDF (FDS 2.1 F-AI-001). Archive only — this flow still
     // parses in the browser, so no worker job is queued to avoid paying twice.
-    const pdfsToArchive = validFiles.filter(f => f.type === 'application/pdf');
+    const pdfsToArchive = instantFiles.filter(f => f.type === 'application/pdf');
     if (pdfsToArchive.length > 0) {
       void Promise.allSettled(pdfsToArchive.map(file => uploadWithProgress({
         file,
@@ -3358,7 +3390,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               file, factoryId: selectedFactoryId || null, factoryName: selectedManufacturer,
               docType: documentType, currency: documentCurrency || null,
             });
-            toast.success(result.duplicate ? `${file.name} 已存在，請在文件列表查看或開始解析` : `${file.name} 已上載，解析任務已排隊`);
+            const splitNote = result.splitMode === 'worker'
+              ? `${file.name} 已保存，改由伺服器拆檔後解析`
+              : result.partCount
+                ? `${file.name} 已拆成 ${result.partCount} 段並開始解析`
+                : null;
+            toast.success(splitNote ?? (result.duplicate ? `${file.name} 已存在，請在文件列表查看或開始解析` : `${file.name} 已上載，解析任務已排隊`));
           } catch (error) {
             toast.error(`${file.name} 上載失敗`, { description: error instanceof Error ? error.message : String(error) });
           }
@@ -5202,7 +5239,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             </fieldset>
             <p id="upload-method-help" className="text-xs leading-relaxed text-muted-foreground">
               {uploadMethod === 'background'
-                ? '上傳後保存原檔並在背景解析，可離開此頁。完成後到「AI 提取審核」確認產品。PDF 上限 200MB；超過 60MB 暫不能自動解析。'
+                ? '上傳後保存原檔並在背景解析，可離開此頁。完成後到「AI 提取審核」確認產品。PDF 上限 200MB；超過 60MB 會在瀏覽器拆成約 40MB 的分段，再逐段解析。'
                 : '先加入所有檔案，再開始提取；請保持此頁開啟。PDF 原件會自動保存，支援 PDF 與 Excel 配對提取。'}
             </p>
             <div className="flex flex-wrap gap-3">

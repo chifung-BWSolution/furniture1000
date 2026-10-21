@@ -11,7 +11,7 @@ export interface DocumentUploadStatus {
 const size = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 const labels: Record<UploadProgress['phase'], string> = {
   preparing: '正在準備文件', uploading: '分片上傳中', retrying: '連線中斷，正在重試',
-  registering: '上傳完成，正在登記文件', complete: '已保存',
+  splitting: '正在拆成較小的 PDF', registering: '上傳完成，正在登記文件', complete: '已保存',
 };
 
 export function DocumentUploadProgress({ uploads }: { uploads: DocumentUploadStatus[] }) {

@@ -484,6 +484,7 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 - 新增通用 **`processing_jobs`**：`id`、`job_type`、`status`(queued/running/succeeded/failed/cancelled)、`payload` jsonb、`progress`、`attempts`、`max_attempts`、`error`、`pages`、`ocr_pages`、`tokens`、`cost_estimate`、`cost_actual`、`started_at`、`finished_at`、`created_by`、`idempotency_key`。
 - 支援：非同步、進度、失敗重試、錯誤日誌、取消/安全中止、**冪等與重複任務控制**、成本記錄、並行與資源限制。
 - Worker 調用（**已決議**）：過渡用 **Supabase Edge（Deno）＋ pg_cron/pg_net**；重型 PDF/OCR/3D 用 **Python Worker（Google Cloud Run Jobs，按需執行）**。兩者共用 `processing_jobs`。
+- **超過 60MB 的供應商 PDF** 不排隊等 Python：瀏覽器或 Windows `pdf-split` worker 拆成約 40MB 的分段，由現有 Edge `parse_pdf` 解析，結果合併成一份目錄。部署 worker 後要重啟行程。
 - **不得**讓大型解析走 Vercel 長時間同步請求。
 - 驗收：任務失敗可追蹤、可重試、不重複寫入。
 
@@ -711,7 +712,7 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 | C-06 | SU/3D 模型語意 | **上載與 AI 生成分來源、統一列表及預覽；生成前提示沿用既有文件**（沿用 `furniture_models`） |
 | C-07 | 專業 PDF vs Canva PPT | **共用內容與品牌資料；Canva 原生設計客戶簡報，PDF 獨立渲染，不強制共用版面**（2026-10-20 修正） |
 | C-08 | A/B 產品分類 | **用 view/computed 標記**，不改既有資料流 |
-| C-09 | 背景處理架構 | **Edge 過渡 → Python Worker（Cloud Run Jobs）**，共用 `processing_jobs` |
+| C-09 | 背景處理架構 | **Edge 過渡 → Python Worker（Cloud Run Jobs）**，共用 `processing_jobs`。超過 60MB 的供應商 PDF 改為拆段後走 Edge，不再等待 Python |
 
 ### 17.2 其餘需求決議
 

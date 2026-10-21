@@ -116,7 +116,8 @@ Deploy-Function `
 Deploy-Function `
   -Slug 'supabase-functions-process-jobs' `
   -FilePath (Join-Path $root 'supabase\functions\process-jobs\index.ts') `
-  -Name 'process-jobs'
+  -Name 'process-jobs' `
+  -ExtraFiles @((Join-Path $root 'supabase\functions\process-jobs\tripo.ts'))
 
 Deploy-Function `
   -Slug 'supabase-functions-source-page' `

@@ -15,7 +15,8 @@ import {
  * FDS 2.1 背景任務 worker（Edge 過渡版，C-09）。
  * 呼叫來源：pg_cron（x-worker-secret）、前端 admin / uploader（使用者 JWT）、
  * 以及自己觸發下一批（service role）。
- * 任務狀態一律經 fds_processing_job_* RPC 流轉，Python Worker 之後共用同一套 RPC。
+ * 任務狀態一律經 fds_processing_job_* RPC 流轉。超過 60MB 的 PDF 不在這裡拆，
+ * 改排 needs_split，由 Windows pdf-split worker 切成約 40MB 的子文件再走 parse_pdf。
  *
  * parse_pdf 分批跑（Edge 每次請求只有很短的 CPU 時間）：
  *   extract  — 逐頁抽文字；文字太少的掃描頁抽出內嵌 JPEG 交 Grok OCR
@@ -170,7 +171,7 @@ async function downloadDocument(admin: SupabaseClient, documentId: string) {
   if (!doc) throw new NonRetryableError("document_not_found");
   if (doc.file_size && doc.file_size > EDGE_MAX_PDF_BYTES) {
     throw new NonRetryableError(
-      `檔案 ${(doc.file_size / 1024 / 1024).toFixed(1)}MB 超過 Edge 處理上限（${EDGE_MAX_PDF_BYTES / 1024 / 1024}MB），待 Python Worker 處理`,
+      `檔案 ${(doc.file_size / 1024 / 1024).toFixed(1)}MB 超過 Edge 處理上限（${EDGE_MAX_PDF_BYTES / 1024 / 1024}MB），需先拆成較小的分段`,
     );
   }
 
@@ -991,6 +992,26 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
   const documentId = job.document_id ?? String(job.payload.document_id ?? "");
   if (!documentId) throw new NonRetryableError("parse_pdf job has no document_id");
 
+  const { data: head, error: headErr } = await admin
+    .from("supplier_documents")
+    .select("file_size, parent_document_id")
+    .eq("id", documentId)
+    .maybeSingle();
+  if (headErr) throw new Error(`document lookup failed: ${headErr.message}`);
+  if (!head) throw new NonRetryableError("document_not_found");
+  if (head.file_size && Number(head.file_size) > EDGE_MAX_PDF_BYTES) {
+    if (head.parent_document_id) {
+      throw new NonRetryableError(
+        `分段 ${(Number(head.file_size) / 1024 / 1024).toFixed(1)}MB 仍超過 Edge 上限（${EDGE_MAX_PDF_BYTES / 1024 / 1024}MB），無法再拆`,
+      );
+    }
+    const { error: redirErr } = await admin.rpc("fds_supplier_document_redirect_to_split", {
+      p_job_id: job.id,
+    });
+    if (redirErr) throw new NonRetryableError(redirErr.message);
+    return true;
+  }
+
   let state = job.payload.state as ParseState | undefined;
   if (!state) {
     const { error: delErr } = await admin.from("supplier_document_pages").delete().eq("document_id", documentId);
@@ -1049,6 +1070,12 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
     p_document_id: documentId,
   });
   if (finErr) throw new Error(`finalize failed: ${finErr.message}`);
+  if (head.parent_document_id) {
+    const { error: mergeErr } = await admin.rpc("fds_supplier_document_merge_part", {
+      p_child_id: documentId,
+    });
+    if (mergeErr) throw new Error(`merge part failed: ${mergeErr.message}`);
+  }
   const currencySuggestion = Object.entries(state.currencies ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
   const { data: pageStats } = await admin

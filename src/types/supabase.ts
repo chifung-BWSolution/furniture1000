@@ -1857,6 +1857,11 @@ export type Database = {
           id: string
           modified_date: string
           page_count: number | null
+          page_offset: number
+          parent_document_id: string | null
+          part_count: number | null
+          part_index: number | null
+          parts_done: number | null
           source: string
           status: string
           storage_path: string
@@ -1877,6 +1882,11 @@ export type Database = {
           id?: string
           modified_date?: string
           page_count?: number | null
+          page_offset?: number
+          parent_document_id?: string | null
+          part_count?: number | null
+          part_index?: number | null
+          parts_done?: number | null
           source?: string
           status?: string
           storage_path: string
@@ -1897,6 +1907,11 @@ export type Database = {
           id?: string
           modified_date?: string
           page_count?: number | null
+          page_offset?: number
+          parent_document_id?: string | null
+          part_count?: number | null
+          part_index?: number | null
+          parts_done?: number | null
           source?: string
           status?: string
           storage_path?: string

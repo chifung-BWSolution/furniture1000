@@ -241,6 +241,7 @@ $$;
 - **過渡期**：沿用 **Supabase Edge（Deno）＋ pg_cron/pg_net** 觸發，處理中小 PDF。
 - **目標**：**Python Worker on Google Cloud Run Jobs**（按需執行、無長期 VPS），處理 OCR／大 PDF／表格／圖片／3D。
 - **共同介面**：兩者都讀寫 `processing_jobs`，狀態一致。
+- **大檔 PDF（2026-10-21）**：不把超過 60MB 的檔留在佇列等 Python。瀏覽器或 Windows `workers/pdf-split`（`needs_split`）把原檔拆成約 40MB 的子文件（`page_offset`），Edge 只解析分段，再合併回父文件。父文件狀態顯示 X/N 段。部署新 worker 程式後要重啟該 Windows 行程。
 
 ### 3.2 任務模型
 - 建立：前端/Edge 建 `processing_jobs`（`idempotency_key` 防重）。

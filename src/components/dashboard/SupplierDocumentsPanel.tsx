@@ -23,9 +23,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   canManageSupplierDocuments,
   cancelProcessingJob,
+  cancelSupplierDocumentParts,
+  documentWorkInProgress,
   enqueueSupplierDocumentParse,
   getSupplierDocumentDownloadUrl,
-  hasActiveJob,
   isPdfFile,
   latestJob,
   listDocumentSegments,
@@ -178,7 +179,7 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
     if (canManage) void reload();
   }, [canManage, reload, refreshKey]);
 
-  const anyActive = docs.some(hasActiveJob);
+  const anyActive = docs.some(documentWorkInProgress);
   useEffect(() => {
     if (!anyActive) return;
     const timer = setInterval(() => void reload(true), POLL_MS);
@@ -206,7 +207,15 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
           docType,
           currency: currency === NO_CURRENCY ? null : currency,
         });
-        if (res.duplicate) {
+        if (res.splitMode === 'worker') {
+          toast.success(`${file.name} 已保存，改由伺服器拆檔後解析`);
+          created += 1;
+        } else if ((res.partCount ?? 0) > 0) {
+          toast.success(res.duplicate
+            ? `${file.name} 已存在，共 ${res.partCount} 段`
+            : `${file.name} 已拆成 ${res.partCount} 段並開始解析`);
+          if (!res.duplicate) created += 1;
+        } else if (res.duplicate) {
           toast.message(`${file.name} 已存在，未重複建立`);
         } else {
           created += 1;
@@ -307,7 +316,8 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
         <ul className="divide-y divide-border">
           {docs.map((doc) => {
             const job = latestJob(doc);
-            const active = hasActiveJob(doc);
+            const active = documentWorkInProgress(doc);
+            const partLabel = (doc.part_count ?? 0) > 0 ? `分段 ${doc.parts_done ?? 0}/${doc.part_count}` : null;
             const status = DOC_STATUS[doc.status];
             const busy = busyId === doc.id;
             return (
@@ -324,18 +334,23 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
                   <span>{doc.doc_type === 'catalog' ? '目錄' : '報價單'}</span>
                   <span>{formatSize(doc.file_size)}</span>
                   <span>{doc.page_count != null ? `${doc.page_count} 頁` : '頁數未知'}</span>
+                  {partLabel && <span>{partLabel}</span>}
                   <span>{doc.currency || '貨幣未標示'}</span>
                   {doc.source === 'ai_processor' && <span>來自 AI 處理</span>}
                   {job && (
                     <span>
-                      任務：{JOB_STATUS[job.status]}
-                      {active && jobProgressText(job) ? ` · ${jobProgressText(job)}` : ''}
+                      {job.job_type === 'needs_split' ? '拆檔' : '任務'}：{JOB_STATUS[job.status]}
+                      {job.job_type === 'needs_split' && active ? ' · 等待拆成較小的 PDF' : ''}
+                      {job.job_type !== 'needs_split' && active && jobProgressText(job) ? ` · ${jobProgressText(job)}` : ''}
                       {job.attempts > 1 ? `（第 ${job.attempts}/${job.max_attempts} 次）` : ''}
                     </span>
                   )}
                   {job && jobResultText(job) && <span>{jobResultText(job)}</span>}
                 </div>
-                {active && job && Number(job.progress) > 0 && (
+                {active && (doc.part_count ?? 0) > 0 && (
+                  <Progress value={Math.round(((doc.parts_done ?? 0) / (doc.part_count ?? 1)) * 100)} className="h-1" />
+                )}
+                {active && (doc.part_count ?? 0) === 0 && job && Number(job.progress) > 0 && (
                   <Progress value={Math.round(Number(job.progress) * 100)} className="h-1" />
                 )}
                 {(doc.error_message || (job?.status === 'queued' && job.error)) && (
@@ -350,13 +365,19 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
                   <Button variant="outline" size="sm" className="h-6 gap-1 px-2 text-[10px]" onClick={() => void handleDownload(doc)}>
                     <Download className="h-3 w-3" />下載原檔
                   </Button>
-                  {active && job ? (
+                  {active ? (
                     <Button
                       variant="outline"
                       size="sm"
                       className="h-6 gap-1 px-2 text-[10px]"
                       disabled={busy}
-                      onClick={() => void runAction(doc.id, () => cancelProcessingJob(job.id), '已取消任務')}
+                      onClick={() => void runAction(
+                        doc.id,
+                        () => (doc.part_count ?? 0) > 0 || !job || job.job_type === 'needs_split'
+                          ? cancelSupplierDocumentParts(doc.id)
+                          : cancelProcessingJob(job.id).then(() => undefined),
+                        '已取消任務',
+                      )}
                     >
                       <Ban className="h-3 w-3" />取消
                     </Button>
