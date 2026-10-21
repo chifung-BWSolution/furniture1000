@@ -41,6 +41,33 @@ const PREVIEW_RUBY = join(here, 'skp_preview.rb');
 /** The first run waits for someone to pick a template in the welcome window. */
 const SKETCHUP_FIRST_RUN_TIMEOUT_MS = 600_000;
 
+/** Permanent SKP input failures: another attempt on the same file will fail the same way. */
+function skpFailureRetryable(message) {
+  const text = String(message).toLowerCase();
+  return !(
+    text.includes('skp_empty') ||
+    text.includes('skp_too_large') ||
+    text.includes('skp_corrupt') ||
+    text.includes('corrupt') ||
+    text.includes('open failed')
+  );
+}
+
+// PRONOM SketchUp Document: modern UTF-16LE "SketchUp Model", and the older ASCII header.
+const SKP_SIGNATURE_UTF16 = Buffer.from([
+  0xff, 0xfe, 0xff, 0x0e,
+  0x53, 0x00, 0x6b, 0x00, 0x65, 0x00, 0x74, 0x00, 0x63, 0x00, 0x68, 0x00,
+  0x55, 0x00, 0x70, 0x00, 0x20, 0x00, 0x4d, 0x00, 0x6f, 0x00, 0x64, 0x00, 0x65, 0x00, 0x6c, 0x00,
+]);
+const SKP_SIGNATURE_ASCII = Buffer.from([
+  0x0e, 0x53, 0x6b, 0x65, 0x74, 0x63, 0x68, 0x55, 0x70, 0x20, 0x4d, 0x6f, 0x64, 0x65, 0x6c,
+]);
+
+function looksLikeSkp(bytes) {
+  return bytes.subarray(0, SKP_SIGNATURE_UTF16.length).equals(SKP_SIGNATURE_UTF16) ||
+    bytes.subarray(0, SKP_SIGNATURE_ASCII.length).equals(SKP_SIGNATURE_ASCII);
+}
+
 function findSketchUp() {
   if (process.env.SKETCHUP_EXE) return process.env.SKETCHUP_EXE;
   const root = 'C:\\Program Files\\SketchUp';
@@ -195,6 +222,7 @@ async function processPreviewJob(job) {
     const skpBytes = Buffer.from(await blob.arrayBuffer());
     if (skpBytes.length === 0) throw new Error('skp_empty');
     if (skpBytes.length > 100 * 1024 * 1024) throw new Error('skp_too_large');
+    if (!looksLikeSkp(skpBytes)) throw new Error('skp_corrupt');
 
     const input = join(dir, 'source.skp');
     const output = join(dir, 'preview.glb');
@@ -313,10 +341,11 @@ async function tick() {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`job ${job.id} failed: ${message}`);
+    const retryable = skpFailureRetryable(message);
     if (job.job_type === 'preview_skp') {
-      await db.rpc('fds_skp_preview_job_fail', { p_job_id: job.id, p_error: message, p_retryable: true });
+      await db.rpc('fds_skp_preview_job_fail', { p_job_id: job.id, p_error: message, p_retryable: retryable });
     } else {
-      await db.rpc('fds_processing_job_fail', { p_job_id: job.id, p_error: message, p_retryable: true });
+      await db.rpc('fds_processing_job_fail', { p_job_id: job.id, p_error: message, p_retryable: retryable });
     }
   }
   return true;

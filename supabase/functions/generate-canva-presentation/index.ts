@@ -521,33 +521,51 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
       if (!parent?.id) return json({ error: "parent_not_found" }, 404);
       rootId = (parent.root_id as string | null) ?? parent.id;
-      const { data: siblings } = await service
-        .from("canva_design_sessions")
-        .select("content_version")
-        .eq("root_id", rootId);
-      const maxV = (siblings ?? []).reduce(
-        (m, r) => Math.max(m, Number((r as { content_version?: number }).content_version ?? 1)),
-        1,
-      );
-      contentVersion = maxV + 1;
     }
 
-    const { data: inserted, error: insErr } = await service
-      .from("canva_design_sessions")
-      .insert({
-        staff_id: userId,
-        parent_id: parentId,
-        root_id: rootId,
-        content_version: contentVersion,
-        version_note: versionNote,
-        status: "draft",
-        brief,
-        product_ids: productIds,
-        updated_at: now,
-      })
-      .select("id")
-      .single();
-    if (insErr) return json({ error: insErr.message }, 500);
+    let inserted: { id: string } | null = null;
+    let insErr: { message: string; code?: string } | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (rootId) {
+        const { data: siblings, error: sibErr } = await service
+          .from("canva_design_sessions")
+          .select("content_version")
+          .eq("root_id", rootId);
+        if (sibErr) return json({ error: sibErr.message }, 500);
+        const maxV = (siblings ?? []).reduce(
+          (m, r) => Math.max(m, Number((r as { content_version?: number }).content_version ?? 1)),
+          1,
+        );
+        contentVersion = maxV + 1;
+      }
+      const result = await service
+        .from("canva_design_sessions")
+        .insert({
+          staff_id: userId,
+          parent_id: parentId,
+          root_id: rootId,
+          content_version: contentVersion,
+          version_note: versionNote,
+          status: "draft",
+          brief,
+          product_ids: productIds,
+          updated_at: now,
+        })
+        .select("id")
+        .single();
+      if (!result.error && result.data?.id) {
+        inserted = { id: String(result.data.id) };
+        insErr = null;
+        break;
+      }
+      insErr = {
+        message: result.error?.message ?? "insert_failed",
+        code: result.error?.code,
+      };
+      const conflict = rootId != null && insErr.code === "23505";
+      if (!conflict || attempt === 4) break;
+    }
+    if (insErr || !inserted) return json({ error: insErr?.message ?? "insert_failed" }, 500);
     const newId = inserted.id as string;
     if (!parentId) {
       await service.from("canva_design_sessions").update({ root_id: newId }).eq("id", newId);
@@ -607,13 +625,37 @@ Deno.serve(async (req: Request) => {
       return null;
     };
 
-    await service
+    const staleBefore = new Date(Date.now() - 120_000).toISOString();
+    const { data: claimed, error: claimErr } = await service
       .from("canva_design_sessions")
       .update({ status: "creating", error: null, updated_at: new Date().toISOString() })
-      .eq("id", sessionId);
+      .eq("id", sessionId)
+      .eq("staff_id", userId)
+      .is("canva_design_id", null)
+      .or(`status.not.in.(creating),updated_at.lte."${staleBefore}"`)
+      .select("*")
+      .maybeSingle();
+    if (claimErr) return json({ error: claimErr.message }, 500);
+    if (!claimed) {
+      const { data: current } = await service
+        .from("canva_design_sessions")
+        .select("canva_design_id,edit_url")
+        .eq("id", sessionId)
+        .eq("staff_id", userId)
+        .maybeSingle();
+      if (current?.canva_design_id) {
+        return json({
+          error: "design_already_exists",
+          message: "此草稿已有 Canva 設計；請用「新版本」建立另一條設計鏈，勿覆蓋 Canva 內修改。",
+          edit_url: current.edit_url,
+          session_id: sessionId,
+        }, 409);
+      }
+      return json({ error: "create_in_progress" }, 409);
+    }
 
-    const brief = (session.brief ?? {}) as Record<string, unknown>;
-    const loaded = await loadProductsForSession(service, (session.product_ids ?? []) as string[]);
+    const brief = (claimed.brief ?? {}) as Record<string, unknown>;
+    const loaded = await loadProductsForSession(service, (claimed.product_ids ?? []) as string[]);
     const request = buildGenerationRequest(brief, loaded.products);
     const report: Record<string, unknown> = { ...request.report };
     if (loaded.error) report.product_load_error = loaded.error;
