@@ -51,7 +51,8 @@ import { CascadingCategorySelector } from './CascadingCategorySelector';
 import { supabase } from '@/lib/supabase';
 import { resolveRowsImagesToStorage, resolveRowsImagesToStorageWithRetry, productImageFieldsPendingStorage } from '@/lib/imageStorage';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
-import { uploadSupplierDocument } from '@/lib/supplierDocuments';
+import { isPdfFile, uploadSupplierDocument, type UploadSupplierDocumentInput } from '@/lib/supplierDocuments';
+import { DocumentUploadProgress, type DocumentUploadStatus } from './DocumentUploadProgress';
 import { SupplierDocumentsPanel } from './SupplierDocumentsPanel';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, resolveMappedRowImages } from '@/lib/excelParser';
@@ -1996,6 +1997,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const [selectedManufacturer, setSelectedManufacturer] = useState<string>('');
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>('');
   const [supplierDocsRefreshKey, setSupplierDocsRefreshKey] = useState(0);
+  const [uploadMethod, setUploadMethod] = useState<'background' | 'instant'>('background');
+  const [documentType, setDocumentType] = useState<'quote' | 'catalog'>('quote');
+  const [documentCurrency, setDocumentCurrency] = useState('');
+  const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
+  const documentUploadLock = useRef(false);
+  const [documentUploads, setDocumentUploads] = useState<DocumentUploadStatus[]>([]);
   const [manufacturerOpen, setManufacturerOpen] = useState(false);
   const [manufacturerSearch, setManufacturerSearch] = useState('');
   const [manufacturerList, setManufacturerList] = useState<string[]>(MANUFACTURERS);
@@ -2313,9 +2320,53 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     });
   }, [manufacturerSearch, manufacturerList, factoryItemsList]);
 
+  const uploadWithProgress = useCallback(async (input: UploadSupplierDocumentInput) => {
+    const id = crypto.randomUUID();
+    setDocumentUploads(previous => [...previous, {
+      id, name: input.file.name,
+      progress: { phase: 'preparing', uploadedBytes: 0, totalBytes: input.file.size },
+    }]);
+    try {
+      return await uploadSupplierDocument({ ...input, onProgress: progress => {
+        setDocumentUploads(previous => previous.map(item => item.id === id ? { ...item, progress } : item));
+      } });
+    } catch (error) {
+      setDocumentUploads(previous => previous.map(item => item.id === id
+        ? { ...item, error: '上載失敗，請重新選擇此文件以續傳' } : item));
+      throw error;
+    }
+  }, []);
+
   // ─── Add files to queue WITHOUT triggering processing ───────────────
   const addFilesToQueue = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);
+    if (documentUploadLock.current || isProcessing) return;
+    if (uploadMethod === 'background') {
+      if (files.some(file => !isPdfFile(file))) {
+        toast.error('背景解析只接受 PDF；Excel 或圖片請選「即時提取」後再上傳');
+        return;
+      }
+      documentUploadLock.current = true;
+      setIsUploadingDocuments(true);
+      try {
+        for (const file of files) {
+          try {
+            const result = await uploadWithProgress({
+              file, factoryId: selectedFactoryId || null, factoryName: selectedManufacturer,
+              docType: documentType, currency: documentCurrency || null,
+            });
+            toast.success(result.duplicate ? `${file.name} 已存在，請在文件列表查看或開始解析` : `${file.name} 已上載，解析任務已排隊`);
+          } catch (error) {
+            toast.error(`${file.name} 上載失敗`, { description: error instanceof Error ? error.message : String(error) });
+          }
+        }
+      } finally {
+        documentUploadLock.current = false;
+        setIsUploadingDocuments(false);
+        setSupplierDocsRefreshKey(key => key + 1);
+      }
+      return;
+    }
     const excelMimeTypes = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel',
@@ -2373,15 +2424,17 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     // parses in the browser, so no worker job is queued to avoid paying twice.
     const pdfsToArchive = validFiles.filter(f => f.type === 'application/pdf');
     if (pdfsToArchive.length > 0) {
-      void Promise.allSettled(pdfsToArchive.map(file => uploadSupplierDocument({
+      void Promise.allSettled(pdfsToArchive.map(file => uploadWithProgress({
         file,
         factoryId: selectedFactoryId || null,
         factoryName: selectedManufacturer,
         source: 'ai_processor',
+        docType: documentType,
+        currency: documentCurrency || null,
         enqueue: false,
       }))).then(results => {
         results.forEach((r, i) => {
-          if (r.status === 'rejected') console.warn(`[AIProcessor] archive ${pdfsToArchive[i].name}:`, r.reason);
+          if (r.status === 'rejected') toast.error(`${pdfsToArchive[i].name} 原檔保存失敗，可重新上傳`, { description: r.reason instanceof Error ? r.reason.message : String(r.reason) });
         });
         if (results.some(r => r.status === 'fulfilled')) setSupplierDocsRefreshKey(k => k + 1);
       });
@@ -2402,7 +2455,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     } else {
       setProcessingMode('single-image');
     }
-  }, [uploadedFiles, selectedFactoryId, selectedManufacturer]);
+  }, [uploadedFiles, selectedFactoryId, selectedManufacturer, uploadMethod, documentType, documentCurrency, isProcessing, uploadWithProgress]);
 
   // ─── Generate / Process Files (triggered by button) ─────────────────
   // NOTE: handleGenerate is defined after processFiles below
@@ -3290,6 +3343,33 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
   const processFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);
+    if (documentUploadLock.current || isProcessing) return;
+    if (uploadMethod === 'background') {
+      if (files.some(file => !isPdfFile(file))) {
+        toast.error('背景解析只接受 PDF；Excel 或圖片請選「即時提取」後再上傳');
+        return;
+      }
+      documentUploadLock.current = true;
+      setIsUploadingDocuments(true);
+      try {
+        for (const file of files) {
+          try {
+            const result = await uploadWithProgress({
+              file, factoryId: selectedFactoryId || null, factoryName: selectedManufacturer,
+              docType: documentType, currency: documentCurrency || null,
+            });
+            toast.success(result.duplicate ? `${file.name} 已存在，請在文件列表查看或開始解析` : `${file.name} 已上載，解析任務已排隊`);
+          } catch (error) {
+            toast.error(`${file.name} 上載失敗`, { description: error instanceof Error ? error.message : String(error) });
+          }
+        }
+      } finally {
+        documentUploadLock.current = false;
+        setIsUploadingDocuments(false);
+        setSupplierDocsRefreshKey(key => key + 1);
+      }
+      return;
+    }
     const excelMimeTypes = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel',
@@ -5108,76 +5188,76 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             </div>
           )}
 
-          {/* Mode Indicator */}
-          {processingMode !== 'idle' && (
-            <div className={cn(
-              "flex items-center gap-2 rounded-lg border px-3 py-2",
-              processingMode === 'pdf-catalog' ? "border-amber-500/30 bg-amber-500/5"
-                : processingMode === 'excel-pdf-crossref' ? "border-cyan-500/30 bg-cyan-500/5"
-                : processingMode === 'excel-catalog' ? "border-emerald-500/30 bg-emerald-500/5"
-                : "border-primary/30 bg-primary/5"
-            )}>
-              {processingMode === 'excel-pdf-crossref' ? (
-                <>
-                  <FileStack className="h-3.5 w-3.5 text-cyan-500" />
-                  <span className="font-mono-data text-xs text-cyan-400">📎 Cross-Reference 模式</span>
-                  <Badge className="ml-auto bg-cyan-500/15 text-cyan-500 border border-cyan-500/30 font-mono-data text-[10px]">
-                    PDF→圖片 (FORCED) | Excel→數據 | XLS圖片=BLOCKED
-                  </Badge>
-                </>
-              ) : processingMode === 'pdf-catalog' ? (
-                <>
-                  <FileStack className="h-3.5 w-3.5 text-amber-500" />
-                  <span className="font-mono-data text-xs text-amber-400">PDF 目錄模式</span>
-                  <Badge className="ml-auto bg-amber-500/15 text-amber-500 border border-amber-500/30 font-mono-data text-[10px]">
-                    多產品提取
-                  </Badge>
-                </>
-              ) : processingMode === 'excel-catalog' ? (
-                <>
-                  <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-500" />
-                  <span className="font-mono-data text-xs text-emerald-400">Excel 目錄模式</span>
-                  <Badge className="ml-auto bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 font-mono-data text-[10px]">
-                    多產品提取
-                  </Badge>
-                </>
-              ) : (
-                <>
-                  <FileImage className="h-3.5 w-3.5 text-primary" />
-                  <span className="font-mono-data text-xs text-primary">單圖模式</span>
-                </>
-              )}
+          <div className="space-y-4">
+            <fieldset disabled={isProcessing || isUploadingDocuments || uploadedFiles.length > 0} className="space-y-2">
+              <legend className="mb-2 text-xs font-medium text-muted-foreground">處理方式</legend>
+              <div className="flex flex-wrap gap-x-6 gap-y-3">
+                {([{ value: 'background', label: 'PDF 背景解析' }, { value: 'instant', label: '即時提取 · PDF / Excel / 圖片' }] as const).map(option => (
+                  <label key={option.value} className="flex cursor-pointer items-center gap-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
+                    <input type="radio" name="product-upload-method" value={option.value} checked={uploadMethod === option.value} onChange={() => setUploadMethod(option.value)} className="h-4 w-4 accent-primary" />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <p id="upload-method-help" className="text-xs leading-relaxed text-muted-foreground">
+              {uploadMethod === 'background'
+                ? '上傳後保存原檔並在背景解析，可離開此頁。完成後到「AI 提取審核」確認產品。PDF 上限 200MB；超過 60MB 暫不能自動解析。'
+                : '先加入所有檔案，再開始提取；請保持此頁開啟。PDF 原件會自動保存，支援 PDF 與 Excel 配對提取。'}
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <label className="space-y-1 text-xs text-muted-foreground">
+                <span className="block">PDF 文件類型</span>
+                <select value={documentType} onChange={event => setDocumentType(event.target.value as 'quote' | 'catalog')} disabled={isUploadingDocuments || isProcessing || uploadedFiles.length > 0} className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground disabled:opacity-60">
+                  <option value="quote">報價單</option><option value="catalog">產品目錄</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-xs text-muted-foreground">
+                <span className="block">PDF 貨幣</span>
+                <select value={documentCurrency} onChange={event => setDocumentCurrency(event.target.value)} disabled={isUploadingDocuments || isProcessing || uploadedFiles.length > 0} className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground disabled:opacity-60">
+                  <option value="">貨幣未標示</option>
+                  {['HKD', 'RMB', 'USD', 'EUR'].map(currency => <option key={currency} value={currency}>{currency}</option>)}
+                </select>
+              </label>
             </div>
-          )}
+          </div>
 
           {/* Upload Zone */}
           <div
-            onDrop={isManufacturerSelected ? handleDrop : undefined}
+            onDrop={isManufacturerSelected && !isUploadingDocuments && !isProcessing ? handleDrop : undefined}
             onDragOver={isManufacturerSelected ? handleDragOver : undefined}
             onDragLeave={isManufacturerSelected ? handleDragLeave : undefined}
-            onClick={() => isManufacturerSelected && fileInputRef.current?.click()}
+            role="button"
+            tabIndex={isManufacturerSelected && !isUploadingDocuments && !isProcessing ? 0 : -1}
+            aria-disabled={!isManufacturerSelected || isUploadingDocuments || isProcessing}
+            aria-describedby="upload-method-help"
+            onKeyDown={event => { if ((event.key === 'Enter' || event.key === ' ') && isManufacturerSelected && !isUploadingDocuments && !isProcessing) { event.preventDefault(); fileInputRef.current?.click(); } }}
+            onClick={() => isManufacturerSelected && !isUploadingDocuments && !isProcessing && fileInputRef.current?.click()}
             className={cn(
-              'group relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 transition-all duration-300',
-              isManufacturerSelected ? 'cursor-pointer' : 'cursor-not-allowed',
-              isDragOver ? 'border-primary bg-primary/5 shadow-lg shadow-primary/10' : 'border-border hover:border-primary/40 hover:bg-card',
-              uploadedFiles.length > 0 ? 'h-48' : 'h-56'
+              'group relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:p-8',
+              isManufacturerSelected && !isUploadingDocuments && !isProcessing ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
+              isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40 hover:bg-card',
+              uploadedFiles.length > 0 ? 'min-h-40' : 'min-h-48'
             )}
           >
-            <input ref={fileInputRef} type="file" className="hidden" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls" onChange={handleFileInputChange} disabled={!isManufacturerSelected} />
+            <input ref={fileInputRef} type="file" className="hidden" multiple accept={uploadMethod === 'background' ? ".pdf" : ".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls"} onChange={handleFileInputChange} disabled={!isManufacturerSelected || isUploadingDocuments || isProcessing} />
             <div className={cn('flex h-14 w-14 items-center justify-center rounded-2xl transition-all duration-300', isDragOver ? 'bg-primary/20 scale-110' : 'bg-muted group-hover:bg-primary/10')}>
               <Upload className={cn('h-6 w-6 transition-colors', isDragOver ? 'text-primary' : 'text-muted-foreground group-hover:text-primary')} />
             </div>
-            <p className="mt-4 font-display text-sm font-bold">{isDragOver ? '放開以上傳檔案' : '上傳產品檔案'}</p>
-            <p className="mt-1 text-center text-xs text-muted-foreground font-body">拖放 <strong>PDF 目錄</strong>、<strong>Excel 表格</strong>或產品圖片</p>
-            <p className="mt-1 font-mono-data text-[10px] text-muted-foreground/60">PDF（多產品目錄）· XLSX · XLS · JPG · PNG · WEBP</p>
+            <p className="mt-4 font-display text-sm font-bold">{isUploadingDocuments ? '正在上載 PDF…' : isDragOver ? '放開以上傳檔案' : '點擊選檔，或拖放檔案至此'}</p>
+            <p className="mt-1 text-center text-xs text-muted-foreground font-body">{uploadMethod === 'background' ? 'PDF 報價單或產品目錄 · 自動保存並開始解析' : 'PDF 目錄、Excel 表格或產品圖片 · 加入待提取檔案'}</p>
+            <p className="mt-1 font-mono-data text-[10px] text-muted-foreground/60">{uploadMethod === 'background' ? 'PDF · 支援多份文件' : 'PDF · XLSX · XLS · JPG · PNG · WEBP'}</p>
           </div>
         </div>
+
+        <DocumentUploadProgress uploads={documentUploads} />
 
         {isManufacturerSelected && (
           <SupplierDocumentsPanel
             factoryId={selectedFactoryId || null}
             factoryName={selectedManufacturer}
             refreshKey={supplierDocsRefreshKey}
+            listOnly
           />
         )}
 
@@ -5416,31 +5496,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           />
         )}
 
-        {/* Empty State */}
-        {!aiFields && !isProcessing && catalogProducts.length === 0 && !excelPreviewData && (
-          <div className="flex min-h-[300px] flex-col items-center justify-center rounded-xl border border-dashed border-border">
-            <Sparkles className="mb-3 h-10 w-10 text-muted-foreground/30" />
-            <p className="font-display text-sm font-bold text-muted-foreground/60">AI 智能產品提取</p>
-            <p className="mt-1 text-xs text-muted-foreground/40 font-body">上傳產品圖片或 PDF 目錄進行 AI 分析</p>
-            <div className="mt-4 flex flex-col items-center gap-2 max-w-md">
-              <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-card/50 px-4 py-2.5 w-full">
-                <FileImage className="h-4 w-4 text-primary/50 flex-shrink-0" />
-                <div>
-                  <p className="font-display text-xs font-bold text-muted-foreground/60">單張圖片</p>
-                  <p className="text-[10px] text-muted-foreground/40 font-body">上傳一張或多張產品圖片 → 1 個產品</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 w-full">
-                <FileStack className="h-4 w-4 text-amber-500/50 flex-shrink-0" />
-                <div>
-                  <p className="font-display text-xs font-bold text-amber-400/60">PDF 目錄</p>
-                  <p className="text-[10px] text-muted-foreground/40 font-body">上傳多頁 PDF → 提取所有產品</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Single Image: Processing skeleton */}
         {isProcessing && processingMode === 'single-image' && (
           <div className="space-y-6 rounded-xl border border-border bg-card p-6">
@@ -5452,37 +5507,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             <Skeleton className="h-24 w-full" />
             <div className="flex gap-2"><Skeleton className="h-6 w-20" /><Skeleton className="h-6 w-24" /><Skeleton className="h-6 w-16" /></div>
             <div className="flex gap-4"><Skeleton className="h-10 w-32" /><Skeleton className="h-10 w-40" /></div>
-          </div>
-        )}
-
-        {/* PDF Catalog: Processing skeleton */}
-        {isProcessing && processingMode === 'pdf-catalog' && (
-          <div className="space-y-4 rounded-xl border border-amber-500/20 bg-card p-6">
-            <div className="flex items-center gap-2">
-              <FileStack className="h-4 w-4 text-amber-500 animate-pulse" />
-              <span className="font-mono-data text-xs text-amber-400">
-                {batchProgress?.isLargeFile
-                  ? `正在掃描 PDF — 第 ${batchProgress.currentBatch} 頁 / 共 ${batchProgress.totalBatches} 頁 (${PARALLEL_CONCURRENCY} 個並行)...`
-                  : '正在掃描 PDF 頁面 — 識別個別產品中...'
-                }
-              </span>
-            </div>
-            {batchProgress?.isLargeFile && batchProgress.productsFoundSoFar > 0 && (
-              <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                <span className="font-mono-data text-xs text-emerald-400">
-                  {batchProgress.productsFoundSoFar} products extracted so far from {batchProgress.successfulBatches} page(s)
-                </span>
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[...Array(6)].map((_, i) => (
-                <div key={i} className="rounded-lg border border-border bg-background p-4 space-y-3">
-                  <Skeleton className="h-5 w-3/4" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-2/3" />
-                  <div className="flex gap-2"><Skeleton className="h-5 w-16" /><Skeleton className="h-5 w-20" /></div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 

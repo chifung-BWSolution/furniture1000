@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Upload,
 } from 'lucide-react';
+import { DocumentUploadProgress, type DocumentUploadStatus } from './DocumentUploadProgress';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -121,13 +122,16 @@ interface SupplierDocumentsPanelProps {
   /** Bump to reload after documents are archived elsewhere (e.g. AI 處理上傳). */
   refreshKey?: number;
   className?: string;
+  /** The unified upload surface owns file selection and metadata. */
+  listOnly?: boolean;
 }
 
-export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0, className }: SupplierDocumentsPanelProps) {
+export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0, className, listOnly = false }: SupplierDocumentsPanelProps) {
   const [canManage, setCanManage] = useState<boolean | null>(null);
   const [docs, setDocs] = useState<SupplierDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState<string[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<DocumentUploadStatus[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [currency, setCurrency] = useState<string>(NO_CURRENCY);
   const [docType, setDocType] = useState<'quote' | 'catalog'>('quote');
@@ -191,9 +195,12 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
     setUploading(files.map((f) => f.name));
     let created = 0;
     for (const file of files) {
+      const id = crypto.randomUUID();
+      setUploadProgress(previous => [...previous, { id, name: file.name, progress: { phase: 'preparing', uploadedBytes: 0, totalBytes: file.size } }]);
       try {
         const res = await uploadSupplierDocument({
           file,
+          onProgress: progress => setUploadProgress(previous => previous.map(item => item.id === id ? { ...item, progress } : item)),
           factoryId,
           factoryName,
           docType,
@@ -205,6 +212,7 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
           created += 1;
         }
       } catch (err) {
+        setUploadProgress(previous => previous.map(item => item.id === id ? { ...item, error: '上載失敗，請重新選擇此文件以續傳' } : item));
         toast.error(`${file.name} 上載失敗`, { description: err instanceof Error ? err.message : String(err) });
       } finally {
         setUploading((prev) => prev.filter((n) => n !== file.name));
@@ -248,11 +256,12 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
     <div className={cn('space-y-3 rounded-xl border border-border bg-card/50 p-3', className)}>
       <div className="flex flex-wrap items-center gap-2">
         <FileText className="h-4 w-4 text-primary" />
-        <h3 className="font-display text-sm font-bold tracking-tight">供應商文件（原始 PDF）</h3>
+        <h3 className="font-display text-sm font-bold tracking-tight">{listOnly ? '文件與解析進度' : '供應商文件（原始 PDF）'}</h3>
         <span className="font-body text-[11px] text-muted-foreground truncate">
           {factoryName || factoryId || '全部廠家'}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
+          {!listOnly && <>
           <Select value={docType} onValueChange={(v) => setDocType(v as 'quote' | 'catalog')}>
             <SelectTrigger className="h-7 w-[84px] text-[11px]"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -267,9 +276,11 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
               {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => void reload()} disabled={loading} title="重新整理">
+          </>}
+          <Button variant="ghost" size="sm" aria-label="重新整理文件" className="h-7 w-7 p-0" onClick={() => void reload()} disabled={loading} title="重新整理">
             <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
           </Button>
+          {!listOnly && <>
           <Button size="sm" className="h-7 gap-1 text-[11px]" onClick={() => inputRef.current?.click()} disabled={canManage === null || uploading.length > 0}>
             {uploading.length > 0 ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
             上載 PDF
@@ -282,23 +293,15 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
             className="hidden"
             onChange={(e) => void handleFiles(e.target.files)}
           />
+          </>}
         </div>
       </div>
 
-      {uploading.length > 0 && (
-        <div className="space-y-1">
-          {uploading.map((name) => (
-            <div key={name} className="flex items-center gap-2 font-body text-[11px] text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              <span className="truncate">上載中：{name}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <DocumentUploadProgress uploads={uploadProgress} />
 
       {docs.length === 0 && !loading ? (
         <p className="py-3 text-center font-body text-[11px] text-muted-foreground">
-          未有文件。上載的 PDF 會原檔保存，同一廠家可並存多份。
+          {listOnly ? '尚未上載 PDF。從上方加入文件後，可在這裡下載原檔及查看解析狀態。' : '尚未上載 PDF。上載後會保存原檔並排隊解析。'}
         </p>
       ) : (
         <ul className="divide-y divide-border">

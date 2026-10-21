@@ -3,6 +3,8 @@
 // 原始 PDF 存私有 bucket supplier-documents；文件與任務只經 fds_* RPC 寫入。
 // 只有 admin / uploader 讀得到（RLS + storage policy），供應商主檔仍在 PMS factories。
 // ============================================================================
+import { uploadDocumentChunks, type DocumentUploadProgress } from '@/lib/resumableDocumentUpload';
+export type { DocumentUploadProgress } from '@/lib/resumableDocumentUpload';
 import { supabase } from '@/lib/supabase';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 
@@ -90,6 +92,7 @@ export interface UploadSupplierDocumentInput {
   source?: 'upload' | 'ai_processor';
   /** false = archive the original only; parsing can be started later from the panel. */
   enqueue?: boolean;
+  onProgress?: (progress: DocumentUploadProgress) => void;
 }
 
 export interface UploadSupplierDocumentResult {
@@ -161,18 +164,34 @@ export async function uploadSupplierDocument(
     throw new Error(`檔案超過 ${SUPPLIER_DOCUMENT_MAX_BYTES / 1024 / 1024}MB 上限`);
   }
 
+  input.onProgress?.({ phase: 'preparing', uploadedBytes: 0, totalBytes: file.size });
+  // Yield so the preparation state paints before hashing a large document.
+  await new Promise(resolve => setTimeout(resolve, 0));
   const hash = await sha256Hex(file);
   const path = `${storageKeySegment(input.factoryId || input.factoryName)}/${hash}.pdf`;
-
-  const { error: uploadError } = await supabase.storage
-    .from(SUPPLIER_DOCUMENTS_BUCKET)
-    .upload(path, file, { contentType: 'application/pdf', upsert: false, cacheControl: '3600' });
-  const alreadyStored = !!uploadError && /exists|duplicate|409/i.test(
-    `${uploadError.message} ${(uploadError as { statusCode?: string }).statusCode ?? ''}`,
-  );
-  if (uploadError && !alreadyStored) {
-    throw new Error(`上傳失敗：${uploadError.message}`);
+  const getSession = async () => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session) throw new Error('登入已失效，請重新登入後上載');
+    return data.session;
+  };
+  const session = await getSession();
+  try {
+    await uploadDocumentChunks({
+      file, path, bucket: SUPPLIER_DOCUMENTS_BUCKET,
+      supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+      userId: session.user.id,
+      getToken: async () => (await getSession()).access_token,
+      onProgress: input.onProgress,
+    });
+  } catch (error) {
+    // A TUS 409 can mean a competing upload, not an existing object. Confirm the
+    // final immutable hash path exists before allowing the document RPC to run.
+    const { data, error: infoError } = await supabase.storage.from(SUPPLIER_DOCUMENTS_BUCKET).info(path);
+    if (infoError || !data || data.size !== file.size) {
+      throw new Error(`上傳失敗：${error instanceof Error ? error.message : String(error)}`);
+    }
   }
+  input.onProgress?.({ phase: 'registering', uploadedBytes: file.size, totalBytes: file.size });
 
   const enqueue = input.enqueue ?? true;
   const { data, error } = await supabase.rpc('fds_supplier_document_create', {
@@ -189,6 +208,7 @@ export async function uploadSupplierDocument(
   if (error) throw new Error(rpcErrorMessage(error.message));
 
   const result = data as UploadSupplierDocumentResult;
+  input.onProgress?.({ phase: 'complete', uploadedBytes: file.size, totalBytes: file.size });
   if (result.jobId) kickProcessingWorker();
   return result;
 }
