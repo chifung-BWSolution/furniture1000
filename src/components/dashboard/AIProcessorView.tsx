@@ -61,10 +61,14 @@ import { useFactoryLearning, CorrectableField } from '@/hooks/use-factory-learni
 import { toast } from 'sonner';
 import { saveSession, loadSession, clearSession, clearMappings } from '@/lib/sessionStore';
 import {
+  categorySelectorValue,
   mapProductCategoryRows,
+  matchExistingProductCategory,
+  productCategoryChoiceLabel,
   resolveProductCategoryId,
   type ProductCategoryPair,
 } from '@/lib/productCategoryOptions';
+import { assignUploadCategories, classifyProductsByExistingCategories } from '@/lib/uploadProductCategory';
 
 // LAZY LOAD: pdfjs-dist is loaded dynamically only when needed to avoid blocking initial render
 let pdfjsLib: typeof import('pdfjs-dist') | null = null;
@@ -182,6 +186,8 @@ interface AIFields {
   tags: string[];
   price: number;
   collection: string;
+  productCategory: string;
+  categoryLevel1?: string | null;
 }
 
 interface CatalogProduct {
@@ -193,6 +199,9 @@ interface CatalogProduct {
   tags: string[];
   price: number;
   collection: string;
+  /** Existing product_category display value (二級, or 一級 when it has no children). */
+  productCategory: string;
+  categoryLevel1?: string | null;
   material: string;
   dimensions: string;
   image_region: string;
@@ -402,6 +411,8 @@ OUTPUT FORMAT — Return ONLY a valid JSON object (no markdown fences):
 async function analyzeImageWithAI(
   imageFiles: UploadedFile[],
   _modelName: string = 'gemini-2.5-flash',
+  categoryPairs: ProductCategoryPair[] = [],
+  fallbackCategory = '',
 ): Promise<AIFields> {
   const imageParts = imageFiles
     .filter(f => f.base64Data && f.mimeType.startsWith('image/'))
@@ -419,9 +430,13 @@ async function analyzeImageWithAI(
   const MAX_RETRIES = 2;
   let responseText: string | undefined;
 
+  const categoryLabels = [...new Set(categoryPairs.map(productCategoryChoiceLabel).filter(Boolean))];
+  const categoryPrompt = categoryLabels.length
+    ? `\n\nPRODUCT_CATEGORY — copy exactly one of these existing labels into "product_category", or null if none fits. Do not invent a label.\n${categoryLabels.map((label) => `- ${label}`).join('\n')}`
+    : '\n\nPRODUCT_CATEGORY — set "product_category" to null. Do not invent a category.';
   const edgeFunctionPayload = {
     model: 'gemini-2.5-flash',
-    contents: [{ parts: [{ text: VISION_ANALYSIS_PROMPT }, ...imageParts] }],
+    contents: [{ parts: [{ text: VISION_ANALYSIS_PROMPT + categoryPrompt }, ...imageParts] }],
   };
 
   // ALWAYS use direct fetch to bypass Supabase relay's ~6MB body limit
@@ -518,6 +533,8 @@ async function analyzeImageWithAI(
   }
 
   const validTags = (parsed.tags || []).filter((t: string) => OFFICIAL_PRODUCT_TAGS.includes(t));
+  const matchedCategory = matchExistingProductCategory(categoryPairs, parsed.product_category)
+    ?? matchExistingProductCategory(categoryPairs, fallbackCategory);
 
   return {
     title: parsed.title || 'Untitled Product',
@@ -525,6 +542,8 @@ async function analyzeImageWithAI(
     tags: validTags,
     price: typeof parsed.price === 'number' ? parsed.price : 0,
     collection: parsed.collection || 'General',
+    productCategory: matchedCategory ? categorySelectorValue(matchedCategory) : '',
+    categoryLevel1: matchedCategory?.level1 ?? null,
   };
 }
 
@@ -591,7 +610,10 @@ async function analyzePDFCatalogBatched(
   onProgress: (p: ProcessingProgress) => void,
   onBatchProgress: (bp: BatchProgress) => void,
   manufacturerName: string = '',
+  categoryPairs: ProductCategoryPair[] = [],
+  fallbackCategory = '',
 ): Promise<CatalogProduct[]> {
+  const categoryLabels = [...new Set(categoryPairs.map(productCategoryChoiceLabel).filter(Boolean))];
   const uploadSessionId = generateUploadSessionId();
   const startTime = Date.now();
 
@@ -1375,6 +1397,13 @@ async function analyzePDFCatalogBatched(
       tags: validTags,
       price: typeof p.price === 'number' ? p.price : 0,
       collection: p.collection || 'General',
+      productCategory: (() => {
+        const matched = matchExistingProductCategory(categoryPairs, p.product_category)
+          ?? matchExistingProductCategory(categoryPairs, fallbackCategory);
+        return matched ? categorySelectorValue(matched) : '';
+      })(),
+      categoryLevel1: (matchExistingProductCategory(categoryPairs, p.product_category)
+        ?? matchExistingProductCategory(categoryPairs, fallbackCategory))?.level1 ?? null,
       material: p.material || '',
       dimensions: p.dimensions || '',
       image_region: p.image_region || '',
@@ -1436,6 +1465,7 @@ async function analyzePDFCatalogBatched(
           body: JSON.stringify({
             files, model: modelName,
             tags_list: OFFICIAL_PRODUCT_TAGS.join(', '),
+            product_categories: categoryLabels,
             upload_session_id: uploadSessionId,
             page_images: pageImages.length > 0 ? pageImages : undefined,
           }),
@@ -1570,6 +1600,7 @@ async function analyzePDFCatalogBatched(
             body: JSON.stringify({
               files, model: modelName,
               tags_list: OFFICIAL_PRODUCT_TAGS.join(', '),
+              product_categories: categoryLabels,
               start_page: pageNum,
               end_page: pageNum,
               upload_session_id: uploadSessionId,
@@ -1972,9 +2003,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const [manufacturerListLoading, setManufacturerListLoading] = useState(true);
   const [manufacturerListSource, setManufacturerListSource] = useState<'dynamic' | 'static' | null>(null);
 
-  // ── Step 1b: Category Selection (syncs with product_category) ──
-  // Default display value = level-2「辦公枱」(under 一級「工作枱」).
-  const [selectedProductCategory, setSelectedProductCategory] = useState<string>('辦公枱');
+  // ── Step 1b: optional default category (syncs with product_category) ──
+  // Empty means no fallback. Parsing assigns each product its own category.
+  const [selectedProductCategory, setSelectedProductCategory] = useState<string>('');
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
   // raw 一級/二級 pairs from product_category — used to resolve level1/level2 on upload
@@ -2013,17 +2044,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             }
           }
           setCategoryList(built);
-
-          // Keep default 工作枱 → 辦公枱 when present in settings.
-          const hasOfficeDesk = pairs.some(
-            (p) => p.level2 === '辦公枱' && (p.level1 === '工作枱' || !p.level1),
-          ) || pairs.some((p) => p.level2 === '辦公枱');
-          if (hasOfficeDesk) {
-            setSelectedProductCategory((prev) => {
-              if (!prev || prev === '__clear__') return '辦公枱';
-              return prev;
-            });
-          }
         }
       } catch (err) {
         console.warn('[AIProcessorView] Category fetch error:', err);
@@ -2033,18 +2053,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     })();
     return () => { cancelled = true; };
   }, []);
-
-  // Resolve a selected category name (could be a 一級 or 二級 name) → { level1, level2 }
-  const resolveCategoryLevels = useCallback((selected: string): { level1: string | null; level2: string | null } => {
-    if (!selected) return { level1: null, level2: null };
-    // match as 二級分類 first
-    const asL2 = categoryPairs.find((p) => p.level2 === selected);
-    if (asL2) return { level1: asL2.level1, level2: asL2.level2 };
-    // else match as 一級分類
-    const asL1 = categoryPairs.find((p) => p.level1 === selected);
-    if (asL1) return { level1: asL1.level1, level2: null };
-    return { level1: null, level2: null };
-  }, [categoryPairs]);
 
   // ─── Session Recovery Guard (IndexedDB) ───────────────────────────────────
   // This runs on mount. Loads the full session (including images) from IndexedDB.
@@ -2291,7 +2299,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
   const isManufacturerSelected = selectedManufacturer.trim().length > 0;
   const isProductCategorySelected = selectedProductCategory.trim().length > 0;
-  const canProceedToStep2 = isManufacturerSelected && isProductCategorySelected;
+  const canProceedToStep2 = isManufacturerSelected;
 
   const filteredManufacturers = useMemo(() => {
     if (!manufacturerSearch.trim()) return manufacturerList;
@@ -2501,8 +2509,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Apply Simplified → Traditional Chinese conversion for description
         const rawDescription = getCellStr('description');
         const description = rawDescription ? simplifiedToTraditional(rawDescription) : '';
-        // Category/factory come from Step 1 (產品分類 / 選擇廠家), not Excel mapping.
-        const collection = selectedProductCategory || '';
+        // Step 1 category is only a fallback. Each row is classified after the sheet is read.
+        const collection = '';
         // customize mapping (訂製天數／生產週期): text bucket → customize, days → production_date
         const customizeRaw = getCellStr('customize') || getCellStr('production_lead_time');
         const productionLeadTime =
@@ -2604,6 +2612,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           tags: collection ? [collection] : [],
           price: salePrice || costPrice || 0,
           collection,
+          productCategory: '',
+          categoryLevel1: null,
           material,
           dimensions,
           image_region: '',
@@ -2637,8 +2647,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       const withImages = catalogProds.filter(p => p.cropped_image_url).length;
       console.log(`[GenerateFromPreview] Generated ${catalogProds.length} catalog products, ${withImages} with images`);
 
-      // Apply factory corrections
-      setCatalogProductsWithRef(applyCorrections(catalogProds));
+      const classified = await classifyProductsByExistingCategories(catalogProds, categoryPairs);
+      const assigned = assignUploadCategories(applyCorrections(catalogProds), categoryPairs, selectedProductCategory, classified);
+      setCatalogProductsWithRef(assigned);
       
       // Clear preview data to transition to the result view
       intentionalClearRef.current = true;
@@ -2672,7 +2683,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       setAiError(classifiedError);
       setProcessingProgress({ phase: 'error', message: classifiedError });
     }
-  }, [excelPreviewData, selectedManufacturer, selectedProductCategory, applyCorrections, getCorrections, setCatalogProductsWithRef]);
+  }, [excelPreviewData, selectedManufacturer, selectedProductCategory, categoryPairs, applyCorrections, getCorrections, setCatalogProductsWithRef]);
 
   // ─── Cancel Preview Table → go back to upload ────────────────────────
   const handleCancelPreview = useCallback(() => {
@@ -2794,8 +2805,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Apply Simplified → Traditional Chinese conversion for description
         const rawDescription = getCellStr('description');
         const description = rawDescription ? simplifiedToTraditional(rawDescription) : '';
-        // Category/factory come from Step 1 (產品分類 / 選擇廠家), not Excel mapping.
-        const collection = selectedProductCategory || '';
+        // Step 1 category is only a fallback. Each row is classified after the sheet is read.
+        const collection = '';
         // customize mapping (訂製天數／生產週期): text bucket → customize, days → production_date
         const customizeRaw = getCellStr('customize') || getCellStr('production_lead_time');
         const productionLeadTime =
@@ -2902,6 +2913,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           tags: collection ? [collection] : [],
           price: salePrice || costPrice || 0,
           collection,
+          productCategory: '',
+          categoryLevel1: null,
           material,
           dimensions,
           image_region: '',
@@ -2935,8 +2948,19 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       const withImages = catalogProds.filter(p => p.cropped_image_url).length;
       console.log(`[PreviewAction:${action}] Generated ${catalogProds.length} catalog products, ${withImages} with images`);
 
-      // Apply factory corrections
-      const correctedProds = applyCorrections(catalogProds);
+      const classified = await classifyProductsByExistingCategories(catalogProds, categoryPairs);
+      const correctedProds = assignUploadCategories(applyCorrections(catalogProds), categoryPairs, selectedProductCategory, classified);
+      const missingCategoryCount = correctedProds.filter((item) => !matchExistingProductCategory(categoryPairs, item.productCategory, item.categoryLevel1)).length;
+      if (missingCategoryCount > 0) {
+        intentionalClearRef.current = true;
+        setCatalogProductsWithRef(correctedProds);
+        setExcelPreviewData(null);
+        setIsGeneratingFromPreview(false);
+        toast.error(`有 ${missingCategoryCount} 件產品未有分類，尚未儲存`, {
+          description: '請在目錄結果為每一件選擇現有分類，再儲存。',
+        });
+        return;
+      }
 
       const successCount = correctedProds.length;
       const failCount = 0;
@@ -2976,13 +3000,19 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           for (let i = 0; i < stagingRows.length; i++) {
             const { item } = stagingRows[i];
             const img = resolvedImgRows[i];
+            const categoryPair = matchExistingProductCategory(categoryPairs, item.productCategory, item.categoryLevel1);
+            const categoryName = categoryPair ? categorySelectorValue(categoryPair) : '';
             onAddProduct({
               title: item.title,
               description: item.description,
               descriptionHtml: item.description,
               tags: item.tags,
               price: item.price,
-              collection: item.collection,
+              collection: categoryName || item.collection,
+              category: categoryName,
+              level1Category: categoryPair?.level1 ?? null,
+              level2Category: categoryPair?.level2 || null,
+              productCategoryId: resolveProductCategoryId(categoryPairs, categoryPair?.level1, categoryPair?.level2),
               imageUrl: (img.image_url as string) || '',
               imageUrl2: (img.image_url_2 as string) || null,
               imageUrl3: (img.image_url_3 as string) || null,
@@ -3052,6 +3082,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             const imageUrl = item.cropped_image_url || '';
             const lifestyleUrl = item.lifestyleImageUrl || '';
             const newId = Math.random().toString(36).substring(2, 15);
+            const categoryPair = matchExistingProductCategory(categoryPairs, item.productCategory, item.categoryLevel1);
+            const categoryName = categoryPair ? categorySelectorValue(categoryPair) : null;
             return {
               id: newId,
               title: item.title,
@@ -3060,7 +3092,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               tags: item.tags,
               price: item.price,
               compare_at_price: null,
-              collection: item.collection,
+              collection: categoryName || item.collection,
               status: 'draft',
               image_url: imageUrl,
               lifestyle_image_url: lifestyleUrl || null,
@@ -3091,14 +3123,10 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               dimension_w_mm: item.dimensionWMm ?? null,
               dimension_h_mm: item.dimensionHMm ?? null,
               material: item.material || '',
-              category: selectedProductCategory || null,
-              level1_category: resolveCategoryLevels(selectedProductCategory).level1,
-              level2_category: resolveCategoryLevels(selectedProductCategory).level2,
-              product_category_id: resolveProductCategoryId(
-                categoryPairs,
-                resolveCategoryLevels(selectedProductCategory).level1,
-                resolveCategoryLevels(selectedProductCategory).level2,
-              ),
+              category: categoryName,
+              level1_category: categoryPair?.level1 ?? null,
+              level2_category: categoryPair?.level2 || null,
+              product_category_id: resolveProductCategoryId(categoryPairs, categoryPair?.level1, categoryPair?.level2),
               delivery_term_id: item.deliveryTermId || null,
               delivery_term_name: item.deliveryTermName || null,
               in_stock: (item as any).inStock ?? null,
@@ -3258,7 +3286,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       setProcessingProgress({ phase: 'error', message: classifiedError });
       toast.error('❌ 儲存失敗', { description: classifiedError });
     }
-  }, [excelPreviewData, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory, resolveCategoryLevels, categoryPairs, applyCorrections, onAddProduct, setCatalogProductsWithRef, removeRowsFromPreview]);
+  }, [excelPreviewData, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory, categoryPairs, applyCorrections, onAddProduct, setCatalogProductsWithRef, removeRowsFromPreview]);
 
   const processFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);
@@ -3895,6 +3923,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             tags: ep.tags,
             price: ep.price,
             collection: ep.collection,
+            productCategory: '',
+            categoryLevel1: null,
             material: ep.material,
             dimensions: ep.dimensions,
             image_region: '',
@@ -3935,7 +3965,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         console.log(`[CrossRef] No image: ${totalNoImage}`);
         console.log(`[CrossRef] Strategy: PDF-First Visual Feature Templates → Global Excel Image Search (column-agnostic) → Gemini similarity scoring.`);
 
-        setCatalogProductsWithRef(applyCorrections(catalogProds));
+        const classified = await classifyProductsByExistingCategories(catalogProds, categoryPairs);
+        setCatalogProductsWithRef(assignUploadCategories(applyCorrections(catalogProds), categoryPairs, selectedProductCategory, classified));
         const correctionCount = getCorrections().length;
         const correctionNote = correctionCount > 0 ? ` (${correctionCount} learnt corrections applied)` : '';
         const matchDetail = totalExcelImages > 0
@@ -4091,6 +4122,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           (p) => setProcessingProgress(p),
           (bp) => setBatchProgress(bp),
           selectedManufacturer,
+          categoryPairs,
+          selectedProductCategory,
         );
         // V18 FIX 3: PREVENT STATE OVERWRITE — only set state ONCE with fully-processed data
         // Verify images survived the entire pipeline before committing to state
@@ -4114,7 +4147,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       setProcessingMode('single-image');
       setProcessingProgress(null);
       try {
-        const result = await analyzeImageWithAI(uploadEntries, selectedModel);
+        const result = await analyzeImageWithAI(uploadEntries, selectedModel, categoryPairs, selectedProductCategory);
         setIsProcessing(false);
         setAiFields(result);
         setTimeout(() => setIsFieldsRevealed(true), 100);
@@ -4123,7 +4156,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         setAiError(error.message || 'AI analysis failed.');
       }
     }
-  }, [selectedModel, selectedManufacturer, selectedFactoryId]);
+  }, [selectedModel, selectedManufacturer, selectedFactoryId, categoryPairs, selectedProductCategory]);
 
   const handleGenerate = useCallback(async () => {
     if (uploadedFiles.length === 0) return;
@@ -4155,21 +4188,30 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
   const handleAddToQueue = useCallback(() => {
     if (!aiFields) return;
+    const categoryPair = matchExistingProductCategory(categoryPairs, aiFields.productCategory, aiFields.categoryLevel1);
+    if (!categoryPair) {
+      toast.error('請先選擇產品分類');
+      return;
+    }
+    const categoryName = categorySelectorValue(categoryPair);
     const imageFile = uploadedFiles.find(f => f.type.startsWith('image/'));
     const product = {
       title: aiFields.title, description: aiFields.description, descriptionHtml: aiFields.description,
-      tags: aiFields.tags, price: aiFields.price, collection: selectedProductCategory || aiFields.collection,
+      tags: aiFields.tags, price: aiFields.price, collection: categoryName,
       imageUrl: imageFile?.thumbnail || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=400&q=80',
       variants: [{ id: Math.random().toString(36).substring(7), size: 'One Size', color: 'Default', sku: `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`, price: aiFields.price, inventory: 100 }],
       factoriesDisplayName: selectedManufacturer || '',
       factoryId: selectedFactoryId || null,
       factoryHighlight: selectedFactoryHighlights,
-      category: selectedProductCategory || aiFields.collection || '',
+      category: categoryName,
+      level1Category: categoryPair.level1,
+      level2Category: categoryPair.level2 || null,
+      productCategoryId: resolveProductCategoryId(categoryPairs, categoryPair.level1, categoryPair.level2),
     };
     console.log('💾 Saving product with Manufacturer:', product.factoriesDisplayName, 'Factory ID:', product.factoryId, 'Highlights:', product.factoryHighlight, 'Category:', product.category);
     onAddProduct(product);
     setIsAdded(true);
-  }, [aiFields, onAddProduct, uploadedFiles, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory]);
+  }, [aiFields, onAddProduct, uploadedFiles, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, categoryPairs]);
 
   const toggleCatalogItem = useCallback((id: string) => {
     setCatalogProductsWithRef(prev => prev.map(p => p.id === id ? { ...p, selected: !p.selected } : p));
@@ -4218,6 +4260,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const handleBatchAddToQueue = useCallback(async () => {
     const selected = catalogProducts.filter(p => p.selected);
     if (selected.length === 0) return;
+    const missingCategoryCount = catalogProducts.filter((item) => !matchExistingProductCategory(categoryPairs, item.productCategory, item.categoryLevel1)).length;
+    if (missingCategoryCount > 0) {
+      toast.error(`尚有 ${missingCategoryCount} 件產品未有分類`, { description: '每一件產品都要選擇現有分類後才能儲存。' });
+      return;
+    }
 
     // Step 1: add all products to the in-memory store + products table, collect their IDs
     const nowIso = new Date().toISOString();
@@ -4225,9 +4272,15 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
     for (const item of selected) {
       const imageUrl = item.cropped_image_url || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=400&q=80';
+      const categoryPair = matchExistingProductCategory(categoryPairs, item.productCategory, item.categoryLevel1);
+      const categoryName = categoryPair ? categorySelectorValue(categoryPair) : '';
       const added = onAddProduct({
         title: item.title, description: item.description, descriptionHtml: item.description,
-        tags: item.tags, price: item.price, collection: selectedProductCategory || item.collection,
+        tags: item.tags, price: item.price, collection: categoryName || item.collection,
+        category: categoryName,
+        level1Category: categoryPair?.level1 ?? null,
+        level2Category: categoryPair?.level2 || null,
+        productCategoryId: resolveProductCategoryId(categoryPairs, categoryPair?.level1, categoryPair?.level2),
         imageUrl,
         variants: [{ id: Math.random().toString(36).substring(7), size: 'One Size', color: 'Default', sku: `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`, price: item.price, inventory: 100 }],
         factoriesDisplayName: selectedManufacturer || '',
@@ -4245,7 +4298,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         dimensionHMm: item.dimensionHMm ?? null,
         titleEn: item.titleEn || undefined,
         titleZh: item.titleZh || undefined,
-        category: selectedProductCategory || item.collection || '',
       }) as Product | void;
       if (added && (added as Product).id) {
         productEntries.push({ id: (added as Product).id, item, imageUrl });
@@ -4260,19 +4312,22 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     // Wait briefly for the products table upserts from addProduct to settle first.
     await new Promise(r => setTimeout(r, 300));
 
-    const rtsRows = productEntries.map(({ id, item, imageUrl }) => ({
+    const rtsRows = productEntries.map(({ id, item, imageUrl }) => {
+      const categoryPair = matchExistingProductCategory(categoryPairs, item.productCategory, item.categoryLevel1);
+      return {
       product_id: id,
       title: item.title || null,
       body_html: item.description || null,
       vendor: selectedManufacturer || null,
-      product_type: selectedProductCategory || item.collection || null,
+      product_type: categoryPair ? categorySelectorValue(categoryPair) : null,
       image_url: imageUrl,
       tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : null,
       price: item.price ?? null,
       cost: item.costPrice ?? null,
       status: 'draft',
       imported_at: nowIso,
-    }));
+    };
+    });
 
     const { error: rtsErr } = await supabase
       .from('ready_to_shopify')
@@ -4289,7 +4344,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         .in('id', ids);
       console.log(`[handleBatchAddToQueue] ✅ ${rtsRows.length} products written to ready_to_shopify`);
     }
-  }, [catalogProducts, onAddProduct, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory]);
+  }, [catalogProducts, onAddProduct, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, categoryPairs]);
 
   const handleReset = useCallback(() => {
     setUploadedFiles([]); setAiFields(null); setIsFieldsRevealed(false); setIsAdded(false);
@@ -4298,6 +4353,20 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   }, []);
 
   const selectedCatalogCount = catalogProducts.filter(p => p.selected).length;
+  const missingCategoryCount = catalogProducts.filter((item) => !matchExistingProductCategory(categoryPairs, item.productCategory, item.categoryLevel1)).length;
+  const applyCategoryToSelected = (level1: string, level2: string) => {
+    const display = level2 || level1;
+    if (!display) return;
+    const selectedIds = new Set(catalogProducts.filter((item) => item.selected).map((item) => item.id));
+    if (selectedIds.size === 0) {
+      toast.error('請先選取產品');
+      return;
+    }
+    setCatalogProductsWithRef((prev) => prev.map((item) => selectedIds.has(item.id)
+      ? { ...item, productCategory: display, categoryLevel1: level1 || null }
+      : item));
+    toast.success(`已把 ${selectedIds.size} 件已選產品設為「${display}」`);
+  };
 
   const leftPanelRef = useRef<HTMLDivElement>(null);
 
@@ -4329,11 +4398,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           <button
             onClick={() => {
               if (!canProceedToStep2) {
-                if (!isManufacturerSelected) {
-                  toast.error('請先選擇廠家');
-                } else if (!isProductCategorySelected) {
-                  toast.error('請先選擇產品分類');
-                }
+                toast.error('請先選擇廠家');
                 return;
               }
               setCurrentStep(2);
@@ -4660,7 +4725,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             </motion.div>
           )}
 
-          {/* ━━━ Step 1b: 選擇產品分類 (必填) ━━━ */}
+          {/* ━━━ Step 1b: 預設產品分類（可選） ━━━ */}
           {isManufacturerSelected && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
@@ -4681,16 +4746,14 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                     <FolderOpen className="h-3.5 w-3.5" />
                   )}
                 </div>
-                <h3 className="font-display text-sm font-bold tracking-tight">產品分類</h3>
-                <span className="font-mono-data text-[10px] text-destructive/80">*</span>
+                <h3 className="font-display text-sm font-bold tracking-tight">預設產品分類</h3>
+                <span className="font-mono-data text-[10px] text-muted-foreground">可選</span>
                 {isProductCategorySelected ? (
                   <Badge className="ml-auto bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 font-mono-data text-[10px] gap-1">
                     <Check className="h-2.5 w-2.5" />
                     {selectedProductCategory}
                   </Badge>
-                ) : (
-                  <span className="ml-auto font-mono-data text-[10px] text-destructive/70">必填</span>
-                )}
+                ) : null}
               </div>
               <div className="pl-8">
                 {categoryListLoading ? (
@@ -4700,17 +4763,15 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                     categories={categoryList}
                     value={selectedProductCategory}
                     onValueChange={(v) => {
-                      // Required field — ignore clear sentinel / empty.
-                      if (!v || v === '__clear__') return;
-                      setSelectedProductCategory(v);
+                      setSelectedProductCategory(!v || v === '__clear__' ? '' : v);
                     }}
-                    placeholder="選擇此批次的產品分類（必填）..."
-                    showClear={false}
-                    triggerClassName="bg-background border-border font-body text-sm"
+                    placeholder="選擇此批次的預設分類（可留空）..."
+                    showClear
+                    triggerClassName="w-full h-9 bg-background border-border font-body text-sm"
                   />
                 )}
                 <p className="font-body text-[10px] text-muted-foreground/50 mt-1.5">
-                  必須選擇分類後才能進入下一步；此批次上傳的所有產品將自動歸入該分類。
+                  可不選。若選擇，只作為此批次的預設分類；解析時會把每件產品歸入現有分類，辨識不到才用這個預設。儲存前仍須為每一件產品指定分類。
                 </p>
               </div>
             </motion.div>
@@ -4999,11 +5060,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         <button
           onClick={() => {
             if (!canProceedToStep2) {
-              if (!isManufacturerSelected) {
-                toast.error('請先選擇廠家');
-              } else if (!isProductCategorySelected) {
-                toast.error('請先選擇產品分類');
-              }
+              toast.error('請先選擇廠家');
               return;
             }
             setCurrentStep(2);
@@ -5463,9 +5520,19 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                 </motion.div>
                 <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 }} className="space-y-2">
                   <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground font-body uppercase tracking-wider">
-                    <FolderOpen className="h-3 w-3 text-primary" /> 系列
+                    <FolderOpen className="h-3 w-3 text-primary" /> 產品分類
                   </label>
-                  <Input value={aiFields.collection} onChange={(e) => setAiFields(prev => prev ? { ...prev, collection: e.target.value } : null)} className="font-body bg-background border-border" />
+                  <CascadingCategorySelector
+                    categories={categoryList}
+                    value={aiFields.productCategory}
+                    onSelectionChange={(sel) => setAiFields((prev) => prev ? { ...prev, productCategory: sel.level2 || sel.level1, categoryLevel1: sel.level1 || null } : null)}
+                    onValueChange={(v) => {
+                      if (!v || v === '__clear__') setAiFields((prev) => prev ? { ...prev, productCategory: '', categoryLevel1: null } : null);
+                    }}
+                    placeholder="選擇現有產品分類"
+                    showClear
+                    triggerClassName={cn('w-full h-10 bg-background font-body text-sm', !aiFields.productCategory && 'border-destructive')}
+                  />
                 </motion.div>
               </div>
 
@@ -5502,6 +5569,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                     <h3 className="font-display text-sm font-bold">目錄提取結果</h3>
                     <p className="text-xs text-muted-foreground font-body">
                       {catalogProducts.length} 個產品已檢測 · 已選 {selectedCatalogCount} 個
+                      {missingCategoryCount > 0 && (
+                        <span className="text-destructive"> · {missingCategoryCount} 件未分類，未能儲存</span>
+                      )}
                       {batchProgress?.isLargeFile && (
                         <span className="text-amber-400/70">
                           {' '}· {batchProgress.successfulBatches}/{batchProgress.totalBatches} pages
@@ -5515,8 +5585,15 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                   <Button variant="outline" size="sm" onClick={() => toggleAllCatalogItems(selectedCatalogCount < catalogProducts.length)} className="font-body text-xs">
                     {selectedCatalogCount === catalogProducts.length ? 'Deselect All' : 'Select All'}
                   </Button>
+                  <CascadingCategorySelector
+                    categories={categoryList}
+                    value=""
+                    onSelectionChange={(sel) => applyCategoryToSelected(sel.level1, sel.level2)}
+                    placeholder="設定已選產品的分類"
+                    triggerClassName="h-8 w-[220px] bg-background font-body text-xs"
+                  />
                   {addedCount === 0 ? (
-                    <Button onClick={handleBatchAddToQueue} disabled={selectedCatalogCount === 0} className="gap-2 bg-amber-500 hover:bg-amber-600 font-display font-bold text-white" size="sm">
+                    <Button onClick={handleBatchAddToQueue} disabled={selectedCatalogCount === 0 || missingCategoryCount > 0} className="gap-2 bg-amber-500 hover:bg-amber-600 font-display font-bold text-white" size="sm">
                       <Check className="h-3.5 w-3.5" /> Add {selectedCatalogCount} to Queue
                     </Button>
                   ) : (
@@ -5608,7 +5685,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                     transition={{ delay: index * 0.04 }}
                     className={cn(
                       'group rounded-lg border bg-card overflow-hidden transition-all duration-200',
-                      item.selected ? 'border-amber-500/40 shadow-sm shadow-amber-500/5' : 'border-border',
+                      !item.productCategory ? 'border-destructive/70' : item.selected ? 'border-amber-500/40 shadow-sm shadow-amber-500/5' : 'border-border',
                       'hover:shadow-md'
                     )}
                   >
@@ -5664,7 +5741,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <Badge variant="outline" className="font-mono-data text-[9px] px-1.5 py-0 flex-shrink-0">P{item.page_number}</Badge>
-                          <Badge className="bg-primary/10 text-primary border-0 font-mono-data text-[9px] px-1.5 py-0 flex-shrink-0">{item.collection}</Badge>
+                          {item.productCategory ? (
+                            <Badge className="bg-primary/10 text-primary border-0 font-mono-data text-[9px] px-1.5 py-0 flex-shrink-0">{item.productCategory}</Badge>
+                          ) : (
+                            <Badge variant="outline" className="border-destructive/50 text-destructive font-mono-data text-[9px] px-1.5 py-0 flex-shrink-0">未分類</Badge>
+                          )}
                           {item.image_type === 'lifestyle_only' && (
                             <Badge variant="outline" className="font-mono-data text-[9px] px-1.5 py-0 flex-shrink-0 border-amber-500/40 text-amber-500 bg-amber-500/5">🖼 Lifestyle Only – No Crop</Badge>
                           )}
@@ -5739,6 +5820,22 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                       <div className="text-right flex-shrink-0">
                         <p className="font-mono-data text-sm font-bold text-primary">HK${item.price.toLocaleString()}</p>
                       </div>
+                    </div>
+
+                    <div className="px-4 pb-2">
+                      <CascadingCategorySelector
+                        categories={categoryList}
+                        value={item.productCategory || ''}
+                        onSelectionChange={(sel) => setCatalogProductsWithRef((prev) => prev.map((row) => row.id === item.id ? { ...row, productCategory: sel.level2 || sel.level1, categoryLevel1: sel.level1 || null } : row))}
+                        onValueChange={(v) => {
+                          if (!v || v === '__clear__') {
+                            setCatalogProductsWithRef((prev) => prev.map((row) => row.id === item.id ? { ...row, productCategory: '', categoryLevel1: null } : row));
+                          }
+                        }}
+                        placeholder="選擇產品分類"
+                        showClear
+                        triggerClassName={cn('h-8 w-full bg-background font-body text-xs', !item.productCategory && 'border-destructive')}
+                      />
                     </div>
 
                     {/* Meta info row */}

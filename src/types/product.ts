@@ -49,6 +49,9 @@ export interface Product {
   factoriesDisplayName?: string;
   // bwf_product_master fields
   category?: string;
+  level1Category?: string | null;
+  level2Category?: string | null;
+  productCategoryId?: string | null;
   factoryName?: string;
   material?: string;
   dimensionLMm?: number | null;

@@ -48,6 +48,69 @@ export function findProductCategoryPairById(
   return pairs.find((p) => p.id === key) ?? null;
 }
 
+/** Label sent to the catalogue model: 「一級 / 二級」, or just 一級 when there is no 二級. */
+export function productCategoryChoiceLabel(pair: ProductCategoryPair): string {
+  const level1 = pair.level1.trim();
+  const level2 = pair.level2.trim();
+  return level2 ? `${level1} / ${level2}` : level1;
+}
+
+/** Value stored on a wizard row and shown by CascadingCategorySelector. */
+export function categorySelectorValue(pair: ProductCategoryPair): string {
+  return pair.level2.trim() || pair.level1.trim();
+}
+
+function foldCategoryText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[／>/]/g, '/')
+    .replace(/[台檯]/g, '枱');
+}
+
+/**
+ * Map free text onto one existing product_category row.
+ * Unknown or invented names return null.
+ */
+export function matchExistingProductCategory(
+  pairs: ProductCategoryPair[],
+  raw?: string | null,
+  level1Hint?: string | null,
+): ProductCategoryPair | null {
+  const text = String(raw ?? '').trim();
+  if (!text || pairs.length === 0) return null;
+  const folded = foldCategoryText(text);
+  const hint = foldCategoryText(String(level1Hint ?? ''));
+  const rows = pairs.map((pair) => ({
+    pair,
+    label: foldCategoryText(productCategoryChoiceLabel(pair)),
+    level1: foldCategoryText(pair.level1),
+    level2: foldCategoryText(pair.level2),
+    display: foldCategoryText(categorySelectorValue(pair)),
+  }));
+
+  const pick = (hits: typeof rows): ProductCategoryPair | null => {
+    if (hits.length === 1) return hits[0].pair;
+    if (hits.length > 1 && hint) {
+      const hinted = hits.filter((row) => row.level1 === hint);
+      if (hinted.length === 1) return hinted[0].pair;
+    }
+    return null;
+  };
+
+  const byLabel = pick(rows.filter((row) => row.label === folded || row.display === folded));
+  if (byLabel) return byLabel;
+
+  const byLevel2 = pick(rows.filter((row) => row.level2 && row.level2 === folded));
+  if (byLevel2) return byLevel2;
+
+  const level1Only = rows.filter((row) => row.level1 === folded && !row.level2);
+  const level1HasChildren = rows.some((row) => row.level1 === folded && row.level2);
+  if (!level1HasChildren) return pick(level1Only);
+  return null;
+}
+
 export function resolveProductCategoryId(
   pairs: ProductCategoryPair[],
   level1?: string | null,
