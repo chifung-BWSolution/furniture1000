@@ -6,8 +6,17 @@
       "permanent": false
     }
   ],
+  "functions": {
+    "api/pdf-split.ts": {
+      "maxDuration": 800,
+      "memory": 3009
+    }
+  },
+  "crons": [
+    { "path": "/api/pdf-split", "schedule": "*/5 * * * *" }
+  ],
   "rewrites": [
-    { "source": "/((?!assets/|fonts/|robots.txt).*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|fonts/|robots.txt|api/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
