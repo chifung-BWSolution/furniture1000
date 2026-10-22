@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { invalidateQuoteListCache } from '@/lib/quoteListData';
 
 /** Soft-delete marker stored on the existing bwf_quote.status column. */
 export const QUOTE_TRASH_STATUS = '回收桶';
@@ -51,7 +52,22 @@ export function subscribeTrashedQuotes(listener: () => void): () => void {
   };
 }
 
+/**
+ * Badge count cache.
+ *
+ * The badge is rendered by the sidebar, which mounts on every section change
+ * (and twice more under React StrictMode). Without a cache each mount fired
+ * its own exact-count query against `bwf_quote`; the in-flight entry also
+ * stops the StrictMode double mount from issuing a second request.
+ */
+const TRASH_COUNT_TTL_MS = 60 * 1000;
+let trashCountCache: { at: number; value: Promise<number> } | null = null;
+
 function notifyTrashedQuotesChanged(): void {
+  // The badge must show the new number, so the cached count is dropped.
+  trashCountCache = null;
+  // The cached quote list still holds the row that just moved in or out.
+  invalidateQuoteListCache();
   trashListeners.forEach((listener) => listener());
 }
 
@@ -108,13 +124,23 @@ export async function restoreQuoteFromTrash(id: string): Promise<void> {
 }
 
 /** Same `status = 回收桶` rows as {@link listTrashedQuotes}, without downloading quote JSON. */
-export async function countTrashedQuotes(): Promise<number> {
-  const { count, error } = await supabase
-    .from('bwf_quote')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', QUOTE_TRASH_STATUS);
-  if (error) throw error;
-  return count ?? 0;
+export async function countTrashedQuotes(force = false): Promise<number> {
+  if (!force && trashCountCache && Date.now() - trashCountCache.at < TRASH_COUNT_TTL_MS) {
+    return trashCountCache.value;
+  }
+  const value = (async () => {
+    const { count, error } = await supabase
+      .from('bwf_quote')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', QUOTE_TRASH_STATUS);
+    if (error) throw error;
+    return count ?? 0;
+  })();
+  trashCountCache = { at: Date.now(), value };
+  value.catch(() => {
+    if (trashCountCache?.value === value) trashCountCache = null;
+  });
+  return value;
 }
 
 export async function listTrashedQuotes(): Promise<TrashedQuoteRow[]> {

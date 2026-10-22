@@ -35,6 +35,7 @@ import {
 import { parseQuotePathname } from '@/lib/quoteRoutes';
 import { fetchPmsPitchingQuoteDefaults } from '@/lib/pmsPitchingQuoteDefaults';
 import { fetchPmsPitchings } from '@/lib/pmsPitchings';
+import { invalidateQuoteListCache } from '@/lib/quoteListData';
 
 export type PersistBwfQuoteMode = 'save-current' | 'new-version';
 
@@ -259,6 +260,7 @@ export async function persistBwfQuote(
         .eq('id', existingRow.id);
       if (updateErr) throw updateErr;
       await replaceQuoteItems(existingRow.id, resolvedItems);
+      invalidateQuoteListCache();
       return {
         quoteId,
         quoteUuid: existingRow.id,
@@ -292,6 +294,7 @@ export async function persistBwfQuote(
       if (dbError) throw dbError;
       if (!inserted?.id) throw new Error('報價單已建立但缺少 id');
       await replaceQuoteItems(inserted.id, resolvedItems);
+      invalidateQuoteListCache();
       return {
         quoteId,
         quoteUuid: inserted.id,
@@ -330,6 +333,7 @@ export async function persistBwfQuote(
       .eq('id', latest.id);
     if (updateErr) throw updateErr;
     await replaceQuoteItems(latest.id, resolvedItems);
+    invalidateQuoteListCache();
     return {
       quoteId,
       quoteUuid: latest.id,
@@ -364,6 +368,7 @@ export async function persistBwfQuote(
   if (dbError) throw dbError;
   if (!inserted?.id) throw new Error('報價單已建立但缺少 id');
   await replaceQuoteItems(inserted.id, resolvedItems);
+  invalidateQuoteListCache();
   return {
     quoteId,
     quoteUuid: inserted.id,

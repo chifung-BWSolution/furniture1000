@@ -40,6 +40,13 @@ function isFresh(at: number): boolean {
   return Date.now() - at < CACHE_TTL_MS;
 }
 
+/** Drop every cached pitching read (manual refresh). */
+export function invalidatePmsPitchingsCache(): void {
+  listCache.clear();
+  itemById.clear();
+  itemByCode.clear();
+}
+
 function rememberPitchings(items: PmsPitchingListItem[]): void {
   const now = Date.now();
   for (const item of items) {
@@ -303,10 +310,15 @@ export function attachPitchingsToQuoteRows<
   });
 }
 
-/** Load + attach live PMS pitchings for quote list rows. */
-export async function loadPitchingsForQuoteRows<
+/**
+ * Resolve the live PMS pitchings for quote rows.
+ * Split out of {@link loadPitchingsForQuoteRows} so a list can fetch the
+ * pitchings once and attach the same result to sibling versions, instead of
+ * paying a second round trip for the enriched rows.
+ */
+export async function fetchPitchingsForQuoteRows<
   T extends { bwf_pitching_id?: string | null; quote_id: string },
->(rows: T[]): Promise<Array<T & { pitching: PmsPitchingListItem | null }>> {
+>(rows: T[]): Promise<PmsPitchingListItem[]> {
   if (rows.length === 0) return [];
   const ids = [
     ...new Set(
@@ -323,14 +335,20 @@ export async function loadPitchingsForQuoteRows<
         .filter(Boolean),
     ),
   ];
-  const pitchings =
-    ids.length === 0 && codes.length === 0
-      ? []
-      : await fetchPmsPitchings({
-          ...(ids.length > 0 ? { ids } : {}),
-          ...(codes.length > 0 ? { codes } : {}),
-          limit: Math.max(ids.length, codes.length, 1),
-        });
+  if (ids.length === 0 && codes.length === 0) return [];
+  return fetchPmsPitchings({
+    ...(ids.length > 0 ? { ids } : {}),
+    ...(codes.length > 0 ? { codes } : {}),
+    limit: Math.max(ids.length, codes.length, 1),
+  });
+}
+
+/** Load + attach live PMS pitchings for quote list rows. */
+export async function loadPitchingsForQuoteRows<
+  T extends { bwf_pitching_id?: string | null; quote_id: string },
+>(rows: T[]): Promise<Array<T & { pitching: PmsPitchingListItem | null }>> {
+  if (rows.length === 0) return [];
+  const pitchings = await fetchPitchingsForQuoteRows(rows);
   return attachPitchingsToQuoteRows(rows, pitchings);
 }
 

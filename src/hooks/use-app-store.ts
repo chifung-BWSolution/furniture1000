@@ -1,4 +1,13 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, ViewType } from '@/types/product';
 import { supabase } from '@/lib/supabase';
 import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
@@ -302,7 +311,7 @@ async function saveProductsToDb(productsToSave: Product[]) {
   }
 }
 
-export function useAppStore() {
+function useAppStoreState() {
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
@@ -1618,4 +1627,29 @@ export function useAppStore() {
   };
 }
 
-export type AppStore = ReturnType<typeof useAppStore>;
+export type AppStore = ReturnType<typeof useAppStoreState>;
+
+const AppStoreContext = createContext<{ store: AppStore } | null>(null);
+
+/** Own one app store for the dashboard tree and expose a stable API object. */
+export function AppStoreProvider({ children }: { children: ReactNode }) {
+  const storeValue = useAppStoreState();
+  const stableStoreRef = useRef(storeValue);
+  Object.assign(stableStoreRef.current, storeValue);
+
+  // The envelope changes to notify consumers; the store API itself stays stable
+  // so effects depending on `store` only rerun when their actual inputs change.
+  return createElement(
+    AppStoreContext.Provider,
+    { value: { store: stableStoreRef.current } },
+    children,
+  );
+}
+
+export function useAppStore() {
+  const context = useContext(AppStoreContext);
+  if (!context) {
+    throw new Error('useAppStore must be used within AppStoreProvider');
+  }
+  return context.store;
+}

@@ -4,7 +4,9 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import {
-  loadPitchingsForQuoteRows,
+  attachPitchingsToQuoteRows,
+  fetchPitchingsForQuoteRows,
+  invalidatePmsPitchingsCache,
   pitchingDisplayTitle,
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
@@ -46,7 +48,7 @@ import { normalizeQuoteDateInput } from '@/lib/quotationLocale';
 import { moveQuoteToTrash, QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
 import { BwfInquiryReplyPanel } from '@/components/dashboard/BwfInquiryReplyPanel';
 
-import { attachQuoteListSiblings, fetchQuoteListPage, fetchQuoteListCount, type QuoteRecord } from '@/lib/quoteListData';
+import { attachQuoteListSiblings, fetchQuoteListPage, invalidateQuoteListCache, type QuoteRecord } from '@/lib/quoteListData';
 
 type QuoteListRow = QuoteRecord & {
   pitching: PmsPitchingListItem | null;
@@ -61,14 +63,6 @@ interface QuotationListViewProps {
 
 const LARGE_AMOUNT_THRESHOLD = 50000;
 const PAGE_SIZE = 40;
-
-function mergeQuoteRecords<T extends { id: string }>(...groups: T[][]): T[] {
-  const map = new Map<string, T>();
-  for (const group of groups) {
-    for (const row of group) map.set(row.id, row);
-  }
-  return [...map.values()];
-}
 
 type SortKey =
   | 'created_date'
@@ -175,14 +169,17 @@ export function QuotationListView({
     () => new Set(),
   );
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  /** First page is on screen; sibling versions + PMS titles are still arriving. */
+  /** Initial rows stay hidden until sibling versions and PMS titles are ready. */
   const [isEnriching, setIsEnriching] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const fetchGenRef = useRef(0);
   const loadedOffsetRef = useRef(0);
+  const loadingMoreRef = useRef(false);
   /** Total row count once the independent count request lands. */
   const totalCountRef = useRef<number | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   /** More pages exist when the count is known, else fall back to a full page. */
   const hasMoreRows = useCallback((loaded: number, lastPageSize: number) => {
@@ -193,7 +190,9 @@ export function QuotationListView({
 
   const fetchQuotePage = useCallback(
     async (from: number) => {
-      return fetchQuoteListPage(from, PAGE_SIZE, false, isLargeAmount);
+      // The exact total rides along with the first page (Content-Range), so the
+      // list costs one request instead of a page request plus a separate count.
+      return fetchQuoteListPage(from, PAGE_SIZE, from === 0, isLargeAmount);
     },
     [isLargeAmount],
   );
@@ -206,14 +205,23 @@ export function QuotationListView({
       if (gen !== fetchGenRef.current) return null;
       if (page.rows.length === 0) {
         loadedOffsetRef.current = from;
+        setQuotes([]);
         setHasMore(false);
         return page;
       }
-      const withSiblings = await attachSiblings(page.rows);
+      // Sibling versions and live PMS titles are independent — fetch together.
+      const [withSiblings, pitchings] = await Promise.all([
+        attachSiblings(page.rows),
+        fetchPitchingsForQuoteRows(page.rows),
+      ]);
       if (gen !== fetchGenRef.current) return null;
-      const withPitch = await loadPitchingsForQuoteRows(withSiblings);
+      const siblingOnly = withSiblings.filter((row) => !page.rows.some((pageRow) => pageRow.id === row.id));
+      const siblingPitchings = siblingOnly.length > 0
+        ? await fetchPitchingsForQuoteRows(siblingOnly)
+        : [];
       if (gen !== fetchGenRef.current) return null;
-      setQuotes((prev) => mergeQuoteRecords(prev, withPitch));
+      const withPitch = attachPitchingsToQuoteRows(withSiblings, [...pitchings, ...siblingPitchings]);
+      setQuotes(withPitch);
       loadedOffsetRef.current = from + page.rows.length;
       setHasMore(hasMoreRows(loadedOffsetRef.current, page.rows.length));
       return page;
@@ -221,35 +229,43 @@ export function QuotationListView({
     [attachSiblings, fetchQuotePage, hasMoreRows],
   );
 
-  const fetchQuotes = useCallback(async () => {
+  const fetchQuotes = useCallback(async (force = false) => {
     const gen = ++fetchGenRef.current;
     loadedOffsetRef.current = 0;
     totalCountRef.current = null;
     setIsLoading(true);
     setIsLoadingMore(false);
+    loadingMoreRef.current = false;
     setIsEnriching(false);
     setHasMore(false);
     setTotalCount(null);
-    void fetchQuoteListCount(isLargeAmount).then((count) => {
-      if (gen !== fetchGenRef.current) return;
-      totalCountRef.current = count;
-      setTotalCount(count);
-      // The count can land after the first page; refine the pager with it.
-      setHasMore((current) => current && count > loadedOffsetRef.current);
-    }).catch(() => { /* Rows remain usable if the independent count fails. */ });
+    if (force) {
+      invalidateQuoteListCache();
+      invalidatePmsPitchingsCache();
+    }
     try {
       const first = await fetchQuotePage(0);
       if (gen !== fetchGenRef.current) return;
-      // Show the lightweight page immediately; PMS titles and sibling versions
-      // enrich it afterwards, without blocking on either network round-trip.
-      setQuotes(first.rows.map((row) => ({ ...row, pitching: null })));
+      totalCountRef.current = first.count;
+      setTotalCount(first.count);
+      // Publish the initial page only after sibling versions and PMS details
+      // are ready, so the table does not render once with placeholder data and
+      // then visibly reshuffle when enrichment completes.
       setIsEnriching(true);
-      setIsLoading(false);
-      const firstWithSiblings = await attachSiblings(first.rows);
+      // Sibling versions and live PMS titles do not depend on each other.
+      const [withSiblings, pitchings] = await Promise.all([
+        attachSiblings(first.rows),
+        fetchPitchingsForQuoteRows(first.rows),
+      ]);
       if (gen !== fetchGenRef.current) return;
-      const enriched = await loadPitchingsForQuoteRows(firstWithSiblings);
+      const siblingOnly = withSiblings.filter((row) => !first.rows.some((pageRow) => pageRow.id === row.id));
+      const siblingPitchings = siblingOnly.length > 0
+        ? await fetchPitchingsForQuoteRows(siblingOnly)
+        : [];
       if (gen !== fetchGenRef.current) return;
+      const enriched = attachPitchingsToQuoteRows(withSiblings, [...pitchings, ...siblingPitchings]);
       setQuotes(enriched);
+      setCurrentPage(1);
       loadedOffsetRef.current = first.rows.length;
       // Pagination is on demand — never scan the remaining pages in the background.
       setHasMore(hasMoreRows(first.rows.length, first.rows.length));
@@ -276,19 +292,31 @@ export function QuotationListView({
     }
   }, [attachSiblings, fetchQuotePage, hasMoreRows, isLargeAmount]);
 
-  const loadMoreQuotes = useCallback(async () => {
-    if (isLoading || isEnriching || isLoadingMore || !hasMore) return;
+  const goToQuotePage = useCallback(async (page: number) => {
+    if (isLoading || isEnriching || loadingMoreRef.current || page < 1) return;
+    const totalPages = totalCount == null ? null : Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    if (totalPages != null && page > totalPages) return;
     const gen = fetchGenRef.current;
+    loadingMoreRef.current = true;
     setIsLoadingMore(true);
+    setIsLoading(true);
     try {
-      await appendQuotePage(loadedOffsetRef.current, gen);
+      await appendQuotePage((page - 1) * PAGE_SIZE, gen);
+      if (gen === fetchGenRef.current) {
+        setCurrentPage(page);
+        scrollContainerRef.current?.scrollTo({ top: 0 });
+      }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '無法載入更多報價';
+      const message = err instanceof Error ? err.message : '無法載入報價頁面';
       toast.error('載入失敗', { description: message });
     } finally {
-      if (gen === fetchGenRef.current) setIsLoadingMore(false);
+      loadingMoreRef.current = false;
+      if (gen === fetchGenRef.current) {
+        setIsLoadingMore(false);
+        setIsLoading(false);
+      }
     }
-  }, [appendQuotePage, hasMore, isEnriching, isLoading, isLoadingMore]);
+  }, [appendQuotePage, isEnriching, isLoading, totalCount]);
 
   useEffect(() => {
     fetchQuotes();
@@ -556,6 +584,7 @@ export function QuotationListView({
         search={searchQuery}
         onSearchChange={setSearchQuery}
         searchPlaceholder="搜尋 pitching code / 客戶名稱 / 提案名稱 / 提交者…"
+        scrollContainerRef={scrollContainerRef}
         searchLeading={
           <>
             <Select
@@ -596,13 +625,13 @@ export function QuotationListView({
           </>
         }
         searchActions={
-          <ListRefreshButton onClick={fetchQuotes} loading={isLoading} />
+          <ListRefreshButton onClick={() => void fetchQuotes(true)} loading={isLoading} />
         }
       >
         <ListTableCard
           minWidthClassName="min-w-[1280px]"
           footer={
-            !isLoading && (displayRows.length > 0 || hasMore) ? (
+            !isLoading && (displayRows.length > 0 || hasMore || (totalCount ?? 0) > PAGE_SIZE) ? (
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span>
                   已顯示最新 {sortedLatestQuotes.length} 張報價
@@ -615,21 +644,16 @@ export function QuotationListView({
                   )}{' '}
                   個版本紀錄
                   {isEnriching ? ' · 正在補上提案標題…' : ''}
-                  {isLoadingMore ? ' · 正在載入較早的報價…' : ''}
+                  {isLoadingMore ? ' · 正在載入報價頁面…' : ''}
                   {hasMore && !isLoadingMore && !isEnriching
-                    ? ' · 搜尋／篩選僅套用已載入列'
+                    ? ' · 搜尋／篩選僅套用目前頁面'
                     : ''}
                 </span>
-                {hasMore ? (
-                  <button
-                    type="button"
-                    onClick={loadMoreQuotes}
-                    disabled={isLoadingMore}
-                    className="rounded-lg border border-border bg-background px-2.5 py-1 font-body text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-                  >
-                    {isLoadingMore ? '載入中…' : '載入更多'}
-                  </button>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  <span>第 {currentPage}{totalCount != null ? ` / ${Math.max(1, Math.ceil(totalCount / PAGE_SIZE))}` : ''} 頁</span>
+                  <button type="button" disabled={currentPage <= 1 || isLoading || isEnriching} onClick={() => void goToQuotePage(currentPage - 1)} className="rounded-lg border border-border bg-background px-2.5 py-1 font-body text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50">上一頁</button>
+                  <button type="button" disabled={!hasMore || isLoading || isEnriching} onClick={() => void goToQuotePage(currentPage + 1)} className="rounded-lg border border-border bg-background px-2.5 py-1 font-body text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50">下一頁</button>
+                </div>
               </div>
             ) : null
           }

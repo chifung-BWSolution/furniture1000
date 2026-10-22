@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { inkEase, ViewEnter } from "@/components/motion/NavInk";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useAppStore } from "@/hooks/use-app-store";
+import { AppStoreProvider, useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import {
   resetQuickQuoteSessionStorage,
@@ -22,7 +22,7 @@ import {
 let resumeQuoteAppliedThisPageLoad = false;
 import { deleteDraft, makeDraftKey } from "@/lib/draftStore";
 import { useAuth } from "@/contexts/AuthProvider";
-import { usePlatformRole } from "@/hooks/use-platform-role";
+import { PlatformRoleProvider, usePlatformRole } from "@/hooks/use-platform-role";
 import {
   buildQuoteEditorPath,
   parseQuotePathname,
@@ -340,6 +340,16 @@ function PlaceholderView({
 }
 
 export function AppShell() {
+  return (
+    <AppStoreProvider>
+      <PlatformRoleProvider>
+        <AppShellContent />
+      </PlatformRoleProvider>
+    </AppStoreProvider>
+  );
+}
+
+function AppShellContent() {
   const store = useAppStore();
   const { user } = useAuth();
   const { role: platformRole, profileRole, loading: roleLoading } = usePlatformRole();

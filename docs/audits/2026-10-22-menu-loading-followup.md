@@ -21,7 +21,7 @@
 | P2-5 | 用戶管理／登入紀錄共用過大的查詢 | **部分** | 前端已按資源分流；**Edge 端本次才改**（見第 2 節） |
 | P2-6 | 已上載產品無伺服器分頁、整合相似全掃 | **未動** | `PublishedProductsView.tsx` / `SimilarProductsView.tsx` 未改 |
 | P2-7 | Shopify 上載產品紀錄長串依賴 | **未動** | `src/lib/uploadLogReport.ts` 未改 |
-| P2-8 | 共用初始化及重複 store | **未動** | `src/hooks/use-app-store.ts` 未改 |
+| P2-8 | 共用初始化及重複 store | **已實作，待瀏覽器量測** | `AppShell` 子樹現在由 `AppStoreProvider` 共用一份 store；hook 回傳穩定 API 物件，避免把 `store` 放入 effect 依賴時每次 render 都重跑。`PlatformRoleProvider` 讓 `AppShell` 與頁面子元件共用同一次角色查詢。 |
 | P2-9 | 客戶報價方案預載所有專案家具 | **未動** | `CustomerQuoteSchemesView.tsx` 未改 |
 
 審計表格中其他仍未處理的項目：`dashboard`（`DashboardView.tsx` 五個 exact count）、`fds2-quote-trash`
