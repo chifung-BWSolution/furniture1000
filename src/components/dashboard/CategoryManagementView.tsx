@@ -7,6 +7,7 @@ import {
   FolderTree, Upload, Save, Plus, Trash2, Loader2, Search, Check, FileText,
 } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { EmptyState } from '@/components/ui/empty-state';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -417,16 +418,10 @@ export function CategoryManagementView() {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-            <FolderTree className="h-8 w-8 text-muted-foreground/40" />
-            <p className="font-display text-sm text-muted-foreground">尚無分類</p>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground"
-            >
-              <Upload className="h-3.5 w-3.5" /> 導入 Excel
-            </button>
-          </div>
+          <EmptyState
+            title="尚無分類"
+            description="用上方的「導入 Excel」匯入 Shopify 分類，或直接新增一級分類。"
+          />
         ) : (
           <div className="mx-auto max-w-none space-y-4">
             {filtered.map((g) => (

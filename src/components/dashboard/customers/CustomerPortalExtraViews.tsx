@@ -10,8 +10,6 @@ import {
   Loader2,
   Mail,
   MessageCircle,
-  PackageCheck,
-  PenLine,
   Percent,
   Phone,
   Ruler,
@@ -26,6 +24,7 @@ import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShel
 import { fetchPortalBrowseProducts } from '@/lib/solutionsApi';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { EmptyState } from '@/components/ui/empty-state';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import type { SearchProduct } from '@/types/solutions';
 import { toast } from 'sonner';
@@ -43,26 +42,6 @@ import {
 } from '@/content/bwCorporate';
 
 const CONTACT_HIGHLIGHT_ICONS = [Factory, Truck, Ruler, Percent] as const;
-
-function NoRecords({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: typeof PenLine;
-  title: string;
-  description: string;
-}) {
-  return (
-    <section className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
-      <Icon className="mx-auto h-10 w-10 text-muted-foreground/40" />
-      <h2 className="mt-3 font-display text-base font-bold">{title}</h2>
-      <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground">
-        {description}
-      </p>
-    </section>
-  );
-}
 
 export function CustomerCustomFurnitureView() {
   const [form, setForm] = useState({
@@ -416,8 +395,7 @@ export function CustomerOrderStatusView() {
       badge="Client Portal"
       subtitle="唯讀顯示現有訂單與送貨紀錄。"
     >
-      <NoRecords
-        icon={PackageCheck}
+      <EmptyState
         title="暫無訂單紀錄"
         description="目前沒有可與此登入客戶配對的訂單資料。"
       />
@@ -773,8 +751,7 @@ export function CustomerOrgAccountView() {
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : !company ? (
-        <NoRecords
-          icon={Landmark}
+        <EmptyState
           title="機構帳戶尚未開通"
           description="暫未有與目前登入電郵配對的機構資料，請聯絡 BW 由公司人員建立及分派權限。"
         />

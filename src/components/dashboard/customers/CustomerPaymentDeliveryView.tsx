@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { CompactEmptyState } from '@/components/ui/empty-state';
 import {
-  CreditCard, Truck, ShoppingBag, Trash2, Loader2, Lock, MapPin,
+  CreditCard, Truck, ShoppingBag, Trash2, Loader2, Lock, MapPin, Package,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchActiveShopifyProducts } from '@/lib/solutionsApi';
@@ -154,9 +155,12 @@ export function CustomerPaymentDeliveryView() {
                     <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   </div>
                 ) : cart.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-muted-foreground">
-                    購物車是空的 — 可從下方產品加入
-                  </p>
+                  <CompactEmptyState
+                    icon={ShoppingBag}
+                    title="購物車是空的"
+                    description="可從下方產品加入。"
+                    className="py-6"
+                  />
                 ) : (
                   <ul className="divide-y divide-border/70">
                     {cart.map((c) => (
@@ -221,9 +225,11 @@ export function CustomerPaymentDeliveryView() {
                   可供選購產品
                 </h2>
                 {!loading && catalog.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                    暫無可供選購產品
-                  </p>
+                  <CompactEmptyState
+                    icon={Package}
+                    title="暫無可供選購產品"
+                    className="py-6"
+                  />
                 ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {catalog.slice(0, 9).map((p) => (

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CompactEmptyState } from '@/components/ui/empty-state';
 import { Label } from '@/components/ui/label';
 import {
   Table,
@@ -570,7 +571,7 @@ function FactoryInfoTab({
 function FactoryOrdersTab({ records }: { records: OrderHistoryRecord[] }) {
   if (records.length === 0) {
     return (
-      <EmptyState
+      <CompactEmptyState
         icon={Package}
         title="查無訂貨記錄"
         description="此廠家暫無相關訂單（bwf_projects 未有關聯記錄）"
@@ -711,7 +712,7 @@ function FactoryCommentsTab({
       <Separator />
 
       {comments.length === 0 ? (
-        <EmptyState icon={MessageSquare} title="暫無客戶意見" description="Be the first to add feedback for this manufacturer." />
+        <CompactEmptyState icon={MessageSquare} title="暫無客戶意見" description="Be the first to add feedback for this manufacturer." />
       ) : (
         <div className="space-y-3">
           {comments.map((c) => (
@@ -741,7 +742,7 @@ function FactoryCommentsTab({
 
 function FactoryProductsTab({ products }: { products: ProductRecord[] }) {
   if (products.length === 0) {
-    return <EmptyState icon={FileText} title="暫無產品PDF" description="No product catalogs found for this manufacturer." />;
+    return <CompactEmptyState icon={FileText} title="暫無產品PDF" description="No product catalogs found for this manufacturer." />;
   }
   return (
     <div className="space-y-2">
@@ -774,20 +775,6 @@ function FactoryProductsTab({ products }: { products: ProductRecord[] }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-// ─── Empty State ──────────────────────────────────────────────────────────────
-
-function EmptyState({ icon: Icon, title, description }: { icon: React.ElementType; title: string; description: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/50 mb-3">
-        <Icon className="h-6 w-6 text-muted-foreground/50" />
-      </div>
-      <p className="font-body text-sm text-muted-foreground">{title}</p>
-      <p className="font-mono-data text-[11px] text-muted-foreground/60 mt-1">{description}</p>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { CompactEmptyState } from '@/components/ui/empty-state';
 import {
   Building2,
   Check,
@@ -7,6 +8,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  FolderOpen,
   Link2,
   Loader2,
   Mail,
@@ -278,9 +280,12 @@ export function InviteClientsView() {
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : !project ? (
-          <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
-            請先在「方案列表」建立專案
-          </div>
+          <CompactEmptyState
+            icon={FolderOpen}
+            title="請先在「方案列表」建立專案"
+            description="建立專案並上傳平面圖後，才能邀請客戶查看方案。"
+            className="py-12"
+          />
         ) : (
           <>
             <section className="grid gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
@@ -396,9 +401,11 @@ export function InviteClientsView() {
                 <span className="text-xs text-muted-foreground">{invitations.length} 個紀錄</span>
               </div>
               {invitations.length === 0 ? (
-                <p className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  尚未建立邀請
-                </p>
+                <CompactEmptyState
+                  icon={Mail}
+                  title="尚未建立邀請"
+                  className="py-8"
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[760px] text-sm">

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { EmptyState } from '@/components/ui/empty-state';
 import { ImageLightbox as ImageLightboxModal } from '@/components/ui/image-lightbox';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
@@ -821,17 +822,12 @@ ${rawDesc}
           {isLoading ? (
             <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
           ) : items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-              <FileText className="h-8 w-8 text-muted-foreground/40" />
-              <p className="font-display text-sm text-muted-foreground">
-                {rejectedOnly ? '尚無標記為「暫不考慮」的產品' : '尚無符合條件的產品'}
-              </p>
-              <p className="font-body text-[12px] text-muted-foreground/70">
-                {rejectedOnly
-                  ? '在「產品文案」列表勾選產品並點「暫不考慮」後，產品會顯示於此'
-                  : '到「產品管理 → 待處理產品」點「A 加入Shopify」即可加入，或調整上方篩選'}
-              </p>
-            </div>
+            <EmptyState
+              title={rejectedOnly ? '尚無標記為「暫不考慮」的產品' : '尚無符合條件的產品'}
+              description={rejectedOnly
+                ? '在「產品文案」列表勾選產品並點「暫不考慮」後，產品會顯示於此。'
+                : '到「產品管理 → 待處理產品」點「A 加入Shopify」即可加入，或調整上方篩選。'}
+            />
           ) : (
             <div className="mx-auto grid max-w-none grid-cols-1 gap-4 lg:grid-cols-2">
               {items.map((p) => {

@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { CompactEmptyState, EmptyState } from '@/components/ui/empty-state';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
   ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare, Layers,
@@ -3042,10 +3043,11 @@ export function DesignProjectsView() {
       );
     }
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-background p-8 text-center">
-        <LayoutGrid className="h-10 w-10 text-muted-foreground/40" />
-        <h2 className="font-display text-lg font-bold">尚無設計專案</h2>
-        <p className="text-sm text-muted-foreground">請先到「方案列表」建立專案並上傳平面圖</p>
+      <div className="flex h-full items-center justify-center bg-background">
+        <EmptyState
+          title="尚無設計專案"
+          description="請先到「方案列表」建立專案並上傳平面圖。"
+        />
       </div>
     );
   }
@@ -3289,9 +3291,11 @@ export function DesignProjectsView() {
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
             </div>
           ) : zones.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-              請到「方案列表」展開此專案並設定間隔／功能房間
-            </div>
+            <CompactEmptyState
+              icon={LayoutGrid}
+              title="請到「方案列表」展開此專案並設定間隔／功能房間"
+              className="py-8"
+            />
           ) : (
             <div className="space-y-7">
             {zoneGroups.map((group) => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Mail, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   EMAIL_TYPE_LABELS,
   loadEmailNotificationLogs,
@@ -131,9 +132,12 @@ export function EmailNotificationsView() {
             </p>
           )}
           {!loading && visible.length === 0 && (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              {rows.length === 0 ? '還沒有發送紀錄' : '沒有符合的紀錄'}
-            </p>
+            <EmptyState
+              title={rows.length === 0 ? '還沒有發送紀錄' : '沒有符合的紀錄'}
+              description={rows.length === 0
+                ? '系統寄出電郵後，這裡會列出每一封的狀態。'
+                : '請調整上方的狀態篩選，再試一次。'}
+            />
           )}
           <ul className="space-y-3">
             {visible.map((row) => {

@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { CompactEmptyState } from '@/components/ui/empty-state';
 
 function normalizeProductColor(raw?: string | null): string | undefined {
   if (!raw?.trim()) return undefined;
@@ -610,10 +611,11 @@ export function ProductSelectorModal({
               <span className="ml-2 font-body text-sm text-muted-foreground">載入中...</span>
             </div>
           ) : products.length === 0 ? (
-            <div className="flex h-48 flex-col items-center justify-center text-muted-foreground/60">
-              <Package className="mb-2 h-10 w-10" />
-              <span className="font-body text-sm">找不到符合條件的產品</span>
-            </div>
+            <CompactEmptyState
+              icon={Package}
+              title="找不到符合條件的產品"
+              className="h-48 py-0"
+            />
           ) : (
             <div className="space-y-3">
               <div className="flex items-center gap-2 border-b border-border pb-2">

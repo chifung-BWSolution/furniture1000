@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Building2 } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   fetchFactoryCatalogCounts,
   fetchQuoteUsageRankings,
@@ -73,9 +74,12 @@ export function FactorySalesView() {
           <section className="rounded-2xl border border-destructive/30 bg-card p-4 text-sm text-destructive shadow-sm">{error}</section>
         )}
         {!loading && !error && visible.length === 0 && (
-          <section className="rounded-2xl border border-border/80 bg-card px-6 py-12 text-center text-sm text-muted-foreground shadow-sm">
-            {rows.length === 0 ? '報價單裡還沒有廠家名稱' : '沒有符合的廠家'}
-          </section>
+          <EmptyState
+            title={rows.length === 0 ? '報價單裡還沒有廠家名稱' : '沒有符合的廠家'}
+            description={rows.length === 0
+              ? '報價單填上廠家後，這裡會按廠家統計銷售表現。'
+              : '請調整上方的搜尋字詞，再試一次。'}
+          />
         )}
 
         <div className="grid gap-3">

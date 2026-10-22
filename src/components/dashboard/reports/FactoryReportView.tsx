@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Building, Loader2 } from 'lucide-react';
+import { Building, Loader2, BarChart3 } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -17,6 +17,7 @@ import {
   type QuoteFactoryUsageRow,
 } from '@/lib/quoteUsageReports';
 import { CHART_COLORS } from '@/constants/analytics-mock';
+import { CompactEmptyState } from '@/components/ui/empty-state';
 
 const TOP_CHART = 10;
 
@@ -115,9 +116,11 @@ export function FactoryReportView() {
                 報價使用次數 Top {TOP_CHART} 廠家
               </h3>
               {chartData.length === 0 ? (
-                <p className="py-10 text-center font-body text-sm text-muted-foreground">
-                  尚無報價廠家使用紀錄
-                </p>
+                <CompactEmptyState
+                  icon={BarChart3}
+                  title="尚無報價廠家使用紀錄"
+                  className="py-6"
+                />
               ) : (
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={chartData} margin={{ left: 8, right: 8 }}>
@@ -167,9 +170,11 @@ export function FactoryReportView() {
                 </h3>
               </div>
               {usage.length === 0 ? (
-                <p className="py-10 text-center font-body text-sm text-muted-foreground">
-                  尚無報價廠家使用紀錄
-                </p>
+                <CompactEmptyState
+                  icon={BarChart3}
+                  title="尚無報價廠家使用紀錄"
+                  className="py-6"
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -250,9 +255,11 @@ export function FactoryReportView() {
                 </p>
               </div>
               {catalog.length === 0 ? (
-                <p className="py-10 text-center font-body text-sm text-muted-foreground">
-                  尚無廠家產品資料
-                </p>
+                <CompactEmptyState
+                  icon={BarChart3}
+                  title="尚無廠家產品資料"
+                  className="py-6"
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">

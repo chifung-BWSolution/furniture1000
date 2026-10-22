@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   CheckCircle2, MessageSquare, ChevronDown, Clock, Loader2,
 } from 'lucide-react';
@@ -78,12 +79,11 @@ export function ConfirmedProjectsView() {
       );
     }
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-background p-8 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-          <CheckCircle2 className="h-8 w-8 text-primary" />
-        </div>
-        <h2 className="font-display text-lg font-bold">尚無已確定方案</h2>
-        <p className="font-body text-sm text-muted-foreground">當客戶確認設計方案後，會在此顯示完整產品清單與總價</p>
+      <div className="flex h-full items-center justify-center bg-background">
+        <EmptyState
+          title="尚無已確定方案"
+          description="當客戶確認設計方案後，會在此顯示完整產品清單與總價。"
+        />
       </div>
     );
   }

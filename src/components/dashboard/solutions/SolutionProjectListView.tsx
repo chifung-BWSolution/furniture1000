@@ -15,6 +15,7 @@ import {
   FolderPlus,
 } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   createProject,
   createZone,
@@ -403,13 +404,10 @@ export function SolutionProjectListView() {
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card/50 px-6 py-16 text-center">
-            <MapIcon className="mx-auto h-10 w-10 text-muted-foreground/50" />
-            <p className="mt-3 font-display text-base font-semibold">尚無傢俬方案</p>
-            <p className="mt-1 font-body text-sm text-muted-foreground">
-              建立新專案並上傳平面圖，即可開始分區與產品配置
-            </p>
-          </div>
+          <EmptyState
+            title="尚無傢俬方案"
+            description="建立新專案並上傳平面圖，即可開始分區與產品配置。"
+          />
         ) : (
           <div className="space-y-3">
             {filtered.map((p) => {

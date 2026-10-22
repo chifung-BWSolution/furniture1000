@@ -10,6 +10,7 @@ import type { SearchProduct } from '@/types/solutions';
 import { toast } from 'sonner';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { EmptyState } from '@/components/ui/empty-state';
 import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
 
 const CART_KEY = 'fds-portal-inquiry-cart';
@@ -730,15 +731,10 @@ export function CustomerProductSearchView() {
               </div>
 
               {results.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <Search className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                  <p className="font-display text-sm text-muted-foreground">
-                    找不到符合條件的產品
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    可放寬價錢上限，或調整長／闊／高（mm）後再試
-                  </p>
-                </div>
+                <EmptyState
+                  title="找不到符合條件的產品"
+                  description="可放寬價錢上限，或調整長／闊／高（mm）後再試。"
+                />
               )}
             </>
           )}

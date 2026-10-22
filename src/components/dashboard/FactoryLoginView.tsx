@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { LogIn } from 'lucide-react';
+import { FileText, LogIn, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
+import { CompactEmptyState } from '@/components/ui/empty-state';
 import { usePlatformRole } from '@/hooks/use-platform-role';
 import {
   inviteSupplier,
@@ -150,7 +151,11 @@ export function FactoryLoginView() {
           <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
             <p className="text-sm font-medium">廠家帳號</p>
             {!loading && logins.length === 0 && (
-              <p className="py-8 text-center text-sm text-muted-foreground">還沒有廠家登入</p>
+              <CompactEmptyState
+                icon={UserCog}
+                title="還沒有廠家登入"
+                className="py-6"
+              />
             )}
             <ul className="mt-3 space-y-2">
               {logins.map((row) => (
@@ -184,7 +189,11 @@ export function FactoryLoginView() {
           <p className="text-sm font-medium">{isSupplier ? '我的上載' : '審核佇列'}</p>
           <p className="mt-1 text-xs text-muted-foreground">狀態停留在待審核、解析中或已上載時，產品尚未公開。</p>
           {!loading && documents.length === 0 && (
-            <p className="py-8 text-center text-sm text-muted-foreground">還沒有上載文件</p>
+            <CompactEmptyState
+              icon={FileText}
+              title="還沒有上載文件"
+              className="py-6"
+            />
           )}
           <ul className="mt-3 space-y-2">
             {documents.map((row) => (

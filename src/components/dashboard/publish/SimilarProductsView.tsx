@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
+import { EmptyState } from '@/components/ui/empty-state';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import {
@@ -353,9 +354,15 @@ export function SimilarProductsView() {
             </div>
           </div>
         ) : criteria.length === 0 ? (
-          <EmptyState text="請至少選擇一項相似準則" />
+          <EmptyState
+            title="請至少選擇一項相似準則"
+            description="揀選廠家、分類或名稱關鍵字，再開始比對相似產品。"
+          />
         ) : visibleGroups.length === 0 ? (
-          <EmptyState text="找不到可合併的相似產品" />
+          <EmptyState
+            title="找不到可合併的相似產品"
+            description="放寬上方準則，或先在「產品管理」加入更多產品再試一次。"
+          />
         ) : (
           <div className="space-y-3">
             {pagedGroups.map((group) => {
@@ -481,14 +488,6 @@ export function SimilarProductsView() {
           void load();
         }}
       />
-    </div>
-  );
-}
-
-function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <p className="font-body text-sm text-muted-foreground">{text}</p>
     </div>
   );
 }

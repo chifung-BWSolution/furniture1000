@@ -5,6 +5,7 @@ import {
   ClipboardList, RefreshCw, Loader2, Clock, ChevronLeft, ChevronRight, ChevronDown, Mail,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import type { PublishLogStage } from '@/lib/uploadLog';
 import {
   fetchUploadLogReport,
@@ -476,9 +477,10 @@ export function UploadProductLogView() {
                   />
                 ))}
                 {displayRows.length === 0 && (
-                  <div className="rounded-xl border border-border bg-card px-6 py-12 text-center text-xs text-muted-foreground">
-                    尚無 Shopify 上載產品紀錄
-                  </div>
+                  <EmptyState
+                    title="尚無 Shopify 上載產品紀錄"
+                    description="上載或同步產品後，這裡會按日期列出每一批的紀錄。"
+                  />
                 )}
               </div>
 

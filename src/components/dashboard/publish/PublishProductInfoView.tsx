@@ -9,6 +9,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { EmptyState } from '@/components/ui/empty-state';
 import { ImageLightbox } from '@/components/ui/image-lightbox';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -499,11 +500,10 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
         {isLoading ? (
           <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-            <Boxes className="h-8 w-8 text-muted-foreground/40" />
-            <p className="font-display text-sm text-muted-foreground">尚無符合條件的產品</p>
-            <p className="font-body text-[12px] text-muted-foreground/70">在「產品文案」提交產品後，於此補充規格資訊；或用上方篩選選一個廠家/分類逐批處理</p>
-          </div>
+          <EmptyState
+            title="尚無符合條件的產品"
+            description="在「產品文案」提交產品後，於此補充規格資訊；或用上方篩選選一個廠家／分類逐批處理。"
+          />
         ) : (
           <div className="mx-auto max-w-none space-y-5">
             {items.map((it) => {

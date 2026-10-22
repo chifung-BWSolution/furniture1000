@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { EmptyState } from '@/components/ui/empty-state';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertTriangle,
@@ -1845,19 +1846,14 @@ export function ListedProductsView({
               </Button>
             </div>
           ) : products.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20">
-              <Database className="mb-3 h-8 w-8 text-muted-foreground/40" />
-              <p className="font-display text-sm text-muted-foreground">
-                {debouncedSearch ? '找不到符合搜尋的產品' : isCatalog ? '產品目錄是空的' : '產品目錄是空的'}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground/70 font-body">
-                {debouncedSearch
-                  ? '請嘗試其他搜尋字詞'
-                  : isCatalog
-                    ? '到「所有產品」勾選產品，按「上傳到產品目錄」即可加入'
-                    : '從「上載PDF」新增產品或從 Shopify 同步現有產品'}
-              </p>
-            </div>
+            <EmptyState
+              title={debouncedSearch ? '找不到符合搜尋的產品' : '產品目錄是空的'}
+              description={debouncedSearch
+                ? '請嘗試其他搜尋字詞'
+                : isCatalog
+                  ? '到「所有產品」勾選產品，按「上傳到產品目錄」即可加入'
+                  : '從「上載PDF」新增產品或從 Shopify 同步現有產品'}
+            />
           ) : viewMode === 'grid' ? (
             /* ── GRID VIEW — 一行 2 款，每款左圖右資訊，底部 A/B/C ── */
             <div className="p-4 grid grid-cols-2 gap-4">

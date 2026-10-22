@@ -9,6 +9,7 @@ import {
   type BwaInquirySummary,
 } from '@/lib/bwaFurnitureInquiry';
 import { formatListDate } from '@/lib/listTableUtils';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export function PmBudgetView() {
   const [rows, setRows] = useState<BwaInquirySummary[]>([]);
@@ -54,9 +55,10 @@ export function PmBudgetView() {
         {loading && <p className="px-2 text-sm text-muted-foreground">載入詢價…</p>}
         {error && <p className="px-2 text-sm text-destructive">{error}</p>}
         {!loading && !error && rows.length === 0 && (
-          <section className="rounded-2xl border border-border/80 bg-card px-6 py-12 text-center text-sm text-muted-foreground shadow-sm">
-            還沒有詢價
-          </section>
+          <EmptyState
+            title="還沒有詢價"
+            description="按上方的「新詢價」建立第一張詢價，這裡會列出預算與進度。"
+          />
         )}
 
         <div className="grid gap-3">

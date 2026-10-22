@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
-import { BarChart2, Loader2, Package } from 'lucide-react';
+import { BarChart2, Loader2, Package, BarChart3 } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -17,6 +17,7 @@ import {
   type QuoteProductUsageRow,
 } from '@/lib/quoteUsageReports';
 import { CHART_COLORS } from '@/constants/analytics-mock';
+import { CompactEmptyState } from '@/components/ui/empty-state';
 
 const TOP_CHART = 10;
 
@@ -52,14 +53,6 @@ function StatCard({
       </div>
       <p className="mt-1 font-display text-xl font-bold text-foreground">{value}</p>
     </div>
-  );
-}
-
-function EmptyHint({ text }: { text: string }) {
-  return (
-    <p className="py-10 text-center font-body text-sm text-muted-foreground">
-      {text}
-    </p>
   );
 }
 
@@ -139,7 +132,11 @@ export function ProductReportView() {
                 {`最受歡迎產品 Top ${TOP_CHART}（報價使用次數）`}
               </h3>
               {productChart.length === 0 ? (
-                <EmptyHint text="尚無報價產品使用紀錄" />
+                <CompactEmptyState
+                  icon={BarChart3}
+                  title="尚無報價產品使用紀錄"
+                  className="py-6"
+                />
               ) : (
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={productChart} margin={{ left: 8, right: 8 }}>
@@ -189,7 +186,11 @@ export function ProductReportView() {
                 </h3>
               </div>
               {products.length === 0 ? (
-                <EmptyHint text="尚無報價產品使用紀錄" />
+                <CompactEmptyState
+                  icon={BarChart3}
+                  title="尚無報價產品使用紀錄"
+                  className="py-6"
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">

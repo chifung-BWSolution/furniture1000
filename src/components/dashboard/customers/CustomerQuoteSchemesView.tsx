@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
-  FileText,
   Layers,
   Loader2,
   PenLine,
@@ -21,6 +20,7 @@ import {
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { EmptyState } from '@/components/ui/empty-state';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
@@ -3327,10 +3327,10 @@ export function CustomerQuoteSchemesView() {
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : availableQuotes.length === 0 ? (
-          <div className="mt-4 rounded-2xl border border-dashed border-border px-6 py-14 text-center">
-            <FileText className="mx-auto h-9 w-9 text-muted-foreground/40" />
-            <p className="mt-3 font-semibold">目前沒有屬於您的報價</p>
-          </div>
+          <EmptyState
+            title="目前沒有屬於您的報價"
+            description="PM 完成報價後，報價方案會顯示在這裡。"
+          />
         ) : (
           <div className="mt-5 grid grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2">
             {availableQuotes.map((quote) => {

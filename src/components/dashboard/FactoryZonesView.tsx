@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Map as MapIcon, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   addFactoryToZone,
   createFactoryZone,
@@ -112,9 +113,10 @@ export function FactoryZonesView() {
         )}
 
         {!loading && zones.length === 0 && !missingTable && (
-          <section className="rounded-2xl border border-border/80 bg-card px-6 py-12 text-center text-sm text-muted-foreground shadow-sm">
-            還沒有廠家分區
-          </section>
+          <EmptyState
+            title="還沒有廠家分區"
+            description="用上方的「新增」建立分區，把廠家分組管理。"
+          />
         )}
 
         <ul className="space-y-3">

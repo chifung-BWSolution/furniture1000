@@ -5,6 +5,7 @@ import { prdDocGroups, prdDocs, type PrdDoc, type PrdDocGroup } from '@/lib/prd-
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { CompactEmptyState } from '@/components/ui/empty-state';
 
 const pageSize = 12;
 
@@ -82,7 +83,11 @@ export function PrdDescriptionsView() {
           </div>
 
           {rows.length === 0 ? (
-            <p className="p-6 text-center font-body text-sm text-muted-foreground">找不到符合條件的文檔</p>
+            <CompactEmptyState
+              icon={FileText}
+              title="找不到符合條件的文檔"
+              className="p-6"
+            />
           ) : (
             <ul className="divide-y divide-border">
               {rows.map((doc) => {
@@ -139,10 +144,11 @@ export function PrdDescriptionsView() {
               />
             </>
           ) : (
-            <div className="flex flex-col items-center gap-2 p-10 text-center text-muted-foreground">
-              <FileText className="h-6 w-6" />
-              <p className="font-body text-sm">尚未有文檔</p>
-            </div>
+            <CompactEmptyState
+              icon={FileText}
+              title="尚未有文檔"
+              className="p-8"
+            />
           )}
         </article>
       </div>

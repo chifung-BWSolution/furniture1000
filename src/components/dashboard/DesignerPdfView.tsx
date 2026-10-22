@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { EmptyState } from '@/components/ui/empty-state';
 import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
 import { FurnitureSearchView } from '@/components/dashboard/FurnitureSearchView';
 import {
@@ -200,7 +201,10 @@ export function DesignerPdfView() {
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
           </div>
         ) : items.length === 0 ? (
-          <div className="py-24 text-center text-sm text-muted-foreground">沒有符合的產品 PDF</div>
+          <EmptyState
+            title="沒有符合的產品 PDF"
+            description="上載產品 PDF 後，這裡會列出文件與解析狀態。"
+          />
         ) : (
           <div className="overflow-hidden rounded-lg border border-border bg-card">
             <div className="hidden grid-cols-[minmax(0,1fr)_8rem_10rem_5rem_6rem] gap-4 border-b border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground lg:grid" aria-hidden="true">

@@ -10,6 +10,7 @@ import {
 } from '@/lib/adminApi';
 import { toast } from 'sonner';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const ROLE_OPTIONS: UserRole[] = ['admin', 'uploader', 'pm', 'designer', 'client'];
 
@@ -127,13 +128,10 @@ export function UserManagementView() {
         <div className="mx-auto max-w-none space-y-6">
           <div className="overflow-hidden rounded-xl border border-border bg-card">
             {users.length === 0 ? (
-              <div className="px-6 py-16 text-center">
-                <UserCog className="mx-auto h-8 w-8 text-muted-foreground/40" />
-                <p className="mt-3 font-display text-sm text-muted-foreground">尚無用戶資料</p>
-                <p className="mt-1 text-[12px] text-muted-foreground/70">
-                  請確認 PMS 用戶已同步，或點擊「同步」重新載入
-                </p>
-              </div>
+              <EmptyState
+                title="尚無用戶資料"
+                description="請確認 PMS 用戶已同步，或按上方的「同步」重新載入。"
+              />
             ) : (
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
