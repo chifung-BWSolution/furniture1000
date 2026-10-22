@@ -10,10 +10,19 @@ export interface CaseOrder {
   product_name: string | null;
   factory_name: string | null;
   quantity: number | null;
+  product_type: string | null;
   status: string | null;
+  production_start_date: string | null;
+  production_finish_date_est: string | null;
+  production_finish_date: string | null;
   est_delivery_date: string | null;
+  actual_delivery_date: string | null;
   est_installation_date: string | null;
   actual_installation_date: string | null;
+  delivery_target: string | null;
+  installation_team_name: string | null;
+  installer_needed: boolean | null;
+  remarks: string | null;
 }
 export interface CasePhotoProject {
   id: string;

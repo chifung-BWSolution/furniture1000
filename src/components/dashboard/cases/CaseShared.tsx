@@ -1,22 +1,22 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  ImageOff,
   Loader2,
   RefreshCw,
-  type LucideIcon,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import {
   fetchCaseShowcase,
   type CaseKind,
@@ -50,57 +50,46 @@ export function useCaseData<T>(kind: CaseKind) {
 }
 
 export function CaseShell({
-  title,
-  description,
-  icon: Icon,
   loading,
   error,
-  reload,
+  toolbar,
+  scrollContainerRef,
+  footer,
   children,
 }: {
-  title: string;
-  description: string;
-  icon: LucideIcon;
   loading: boolean;
   error: string;
-  reload: () => void;
+  toolbar?: ReactNode;
+  scrollContainerRef?: RefObject<HTMLDivElement>;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
-      <div className="fds-page-padding space-y-4">
-        <section className="fds-page-header flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="fds-page-title">
-              <Icon className="h-5 w-5 text-primary" />
-              {title}
-            </h1>
-            <p className="fds-page-description">{description}</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={reload}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            />
-            重新整理
-          </Button>
-        </section>
+    <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
+      <div className="flex h-full min-h-0 flex-col fds-page-padding">
         {loading ? (
           <div
             role="status"
-            className="flex items-center justify-center gap-2 py-20 text-muted-foreground"
+            className="flex min-h-0 flex-1 items-center justify-center gap-2 text-muted-foreground"
           >
             <Loader2 className="h-5 w-5 animate-spin" />
             載入中…
           </div>
         ) : error ? (
-          <ErrorState description={error} />
+          <div className="min-h-0 flex-1">
+            <ErrorState description={error} />
+          </div>
         ) : (
-          children
+          <div className="flex min-h-0 flex-1 flex-col">
+            {toolbar ? <div className="shrink-0 pb-3">{toolbar}</div> : null}
+            <div
+              ref={scrollContainerRef}
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
+              <div className="space-y-4">{children}</div>
+            </div>
+            {footer ? <div className="shrink-0 pt-3">{footer}</div> : null}
+          </div>
         )}
       </div>
     </div>
@@ -112,34 +101,83 @@ export function CaseFilter({
   value,
   onChange,
   options,
+  includeAll = true,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: string[] | { value: string; label: string }[];
+  includeAll?: boolean;
 }) {
   return (
-    <label className="flex min-w-36 flex-1 flex-col gap-1 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <select
-        className="h-10 rounded-md border border-input bg-background px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">全部</option>
+    <Select
+      value={value || "__all__"}
+      onValueChange={(next) => onChange(next === "__all__" ? "" : next)}
+    >
+      <SelectTrigger aria-label={label} className="w-40 max-w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {includeAll && <SelectItem value="__all__">全部{label}</SelectItem>}
         {options.map((option) => {
           const item =
             typeof option === "string"
               ? { value: option, label: option }
               : option;
           return (
-            <option key={item.value} value={item.value}>
+            <SelectItem key={item.value} value={item.value}>
               {item.label}
-            </option>
+            </SelectItem>
           );
         })}
-      </select>
-    </label>
+      </SelectContent>
+    </Select>
+  );
+}
+
+export function CaseSearch({
+  label,
+  value,
+  onChange,
+  placeholder,
+  onReload,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  onReload: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="relative min-w-0 flex-1 basis-full lg:min-w-64 lg:basis-64">
+        <Search
+          aria-hidden="true"
+          className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          aria-label={label}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className="pl-8 text-sm"
+        />
+      </div>
+      {children}
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={onReload}
+        className="h-9 w-9 shrink-0"
+        aria-label="重新整理"
+        title="重新整理"
+      >
+        <RefreshCw className="h-4 w-4" />
+      </Button>
+    </div>
   );
 }
 
@@ -155,131 +193,38 @@ export function CasePagination({
   onChange: (page: number) => void;
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (pages <= 1) return null;
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm text-muted-foreground">
-      <p role="status">
-        共 {total} 筆 · 第 {page} / {pages} 頁
-      </p>
-      <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page <= 1}
-          onClick={() => onChange(page - 1)}
-        >
-          <ChevronLeft className="mr-1 h-4 w-4" />
-          上一頁
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page >= pages}
-          onClick={() => onChange(page + 1)}
-        >
-          下一頁
-          <ChevronRight className="ml-1 h-4 w-4" />
-        </Button>
-      </div>
-    </div>
+    <nav
+      aria-label="案例分頁"
+      className="flex items-center justify-center gap-2 text-sm"
+    >
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8"
+        aria-label="上一頁"
+        disabled={page <= 1}
+        onClick={() => onChange(page - 1)}
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <span role="status" className="tabular-nums">
+        {page} / {pages}
+      </span>
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8"
+        aria-label="下一頁"
+        disabled={page >= pages}
+        onClick={() => onChange(page + 1)}
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+    </nav>
   );
 }
 export function CaseEmpty() {
   return <EmptyState />;
-}
-export function CaseImage({
-  src,
-  alt,
-  className = "",
-}: {
-  src: string | null;
-  alt: string;
-  className?: string;
-}) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-  return src && !failed ? (
-    <img
-      src={src}
-      alt={alt}
-      loading="lazy"
-      className={className}
-      onError={() => setFailed(true)}
-    />
-  ) : (
-    <div
-      className={`flex items-center justify-center gap-2 bg-muted text-sm text-muted-foreground ${className}`}
-    >
-      <ImageOff className="h-5 w-5" />
-      <span>暫無圖片</span>
-    </div>
-  );
-}
-export function CaseLightbox({
-  value,
-  onClose,
-  onIndex,
-}: {
-  value: { title: string; urls: string[]; index: number } | null;
-  onClose: () => void;
-  onIndex: (index: number) => void;
-}) {
-  return (
-    <Dialog
-      open={Boolean(value)}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogContent
-        className="max-w-5xl"
-        onKeyDown={(e) => {
-          if (!value) return;
-          if (e.key === "ArrowLeft")
-            onIndex((value.index + value.urls.length - 1) % value.urls.length);
-          if (e.key === "ArrowRight")
-            onIndex((value.index + 1) % value.urls.length);
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>{value?.title || "完工相片"}</DialogTitle>
-          <DialogDescription>
-            {value ? `${value.index + 1} / ${value.urls.length}` : ""}
-          </DialogDescription>
-        </DialogHeader>
-        {value && (
-          <>
-            <CaseImage
-              src={value.urls[value.index]}
-              alt={`${value.title} 第 ${value.index + 1} 張`}
-              className="max-h-[65vh] w-full object-contain"
-            />
-            <div className="flex justify-between gap-3">
-              <Button
-                variant="outline"
-                disabled={value.index === 0}
-                onClick={() => onIndex(value.index - 1)}
-              >
-                上一張
-              </Button>
-              <a
-                href={value.urls[value.index]}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="self-center text-sm text-primary underline underline-offset-4"
-              >
-                開啟原圖
-              </a>
-              <Button
-                variant="outline"
-                disabled={value.index === value.urls.length - 1}
-                onClick={() => onIndex(value.index + 1)}
-              >
-                下一張
-              </Button>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
 }

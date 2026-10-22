@@ -250,7 +250,7 @@ export async function fetchCaseShowcase(
   }
   const projectMap = new Map(projects.map((p) => [p.id, p]));
   const orderColumns =
-    "id, bwf_project_id, product_id, factory_id, quantity, site_arrival_date_est, complete_installation_date_est, complete_installation_date, o_order_status, created_date";
+    "id, bwf_project_id, product_id, factory_id, quantity, o_order_status, production_start_date, production_finish_date_est, production_finish_date, site_arrival_date_est, site_arrival_date, complete_installation_date_est, complete_installation_date, o_delivery_target, installation_team_id, installer_needed, remarks, created_date";
   const orders: any[] = [];
   const ids = [...projectMap.keys()];
   for (let i = 0; i < ids.length; i += 150) {
@@ -266,7 +266,7 @@ export async function fetchCaseShowcase(
   const products = await byIds(
     db,
     "bwf_products",
-    "id, display",
+    "id, display, product_types_id",
     orders.map((o) => o.product_id),
   );
   const factories = await byIds(
@@ -274,6 +274,23 @@ export async function fetchCaseShowcase(
     "factories",
     "id, factory_name, display_name",
     orders.map((o) => o.factory_id),
+  );
+  const productsById = new Map(products.map((p) => [p.id, p]));
+  const productTypes = await byIds(
+    db,
+    "product_types",
+    "id, display",
+    products.map((p) => p.product_types_id),
+  );
+  const productTypeById = new Map(productTypes.map((t) => [t.id, t.display]));
+  const teams = await byIds(
+    db,
+    "suppliers",
+    "id, display_name, chinese_name, name",
+    orders.map((o) => o.installation_team_id),
+  );
+  const teamById = new Map(
+    teams.map((t) => [t.id, t.display_name || t.chinese_name || t.name]),
   );
   const productNames = new Map(products.map((p) => [p.id, p.display]));
   const factoryNames = new Map(
@@ -290,12 +307,27 @@ export async function fetchCaseShowcase(
           project_name: p?.project_name,
           pm_name: names.get(p?.main_pm_id) || null,
           product_name: productNames.get(o.product_id) || null,
+          product_type:
+            productTypeById.get(productsById.get(o.product_id)?.product_types_id) || null,
           factory_name: factoryNames.get(o.factory_id) || null,
           quantity: o.quantity,
           status: o.o_order_status,
+          production_start_date: o.production_start_date,
+          production_finish_date_est: o.production_finish_date_est,
+          production_finish_date: o.production_finish_date,
           est_delivery_date: o.site_arrival_date_est,
+          actual_delivery_date: o.site_arrival_date,
           est_installation_date: o.complete_installation_date_est,
           actual_installation_date: o.complete_installation_date,
+          delivery_target: o.o_delivery_target,
+          installation_team_name: teamById.get(o.installation_team_id) || null,
+          installer_needed:
+            o.installer_needed === true || o.installer_needed === "true"
+              ? true
+              : o.installer_needed === false || o.installer_needed === "false"
+                ? false
+                : null,
+          remarks: o.remarks,
           created_date: o.created_date,
         };
       })

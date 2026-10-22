@@ -1,17 +1,247 @@
-import { useEffect, useMemo, useState } from "react";
-import { Images } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  LayoutGrid,
+  List,
+  MapPin,
+  UserRound,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { LoadingImage } from "@/components/ui/loading-image";
 import { caseDate, photoUrls, type CasePhotoProject } from "@/lib/caseShowcase";
 import {
   CaseEmpty,
-  CaseFilter,
-  CaseImage,
-  CaseLightbox,
   CasePagination,
   CaseShell,
+  CaseSearch,
+  CaseFilter,
   useCaseData,
 } from "./CaseShared";
+
+const PAGE_SIZE = 20;
+
+type ViewMode = "grid" | "list";
+type SortMode =
+  "handover-desc" | "handover-asc" | "project-asc" | "customer-asc";
+
+interface PhotoProjectCardProps {
+  project: CasePhotoProject;
+  urls: string[];
+  viewMode: ViewMode;
+  onOpenAlbum: (projectId: string) => void;
+  onOpenPhoto: (project: CasePhotoProject, index: number) => void;
+}
+
+function PhotoStrip({
+  urls,
+  title,
+  onOpenPhoto,
+}: {
+  urls: string[];
+  title: string;
+  onOpenPhoto: (index: number) => void;
+}) {
+  const hasOverflow = urls.length > 3;
+
+  return (
+    <div
+      role="group"
+      className="grid grid-cols-4 gap-1.5"
+      aria-label={`${urls.length} 張完工相片`}
+    >
+      {urls.slice(0, 3).map((url, index) => (
+        <button
+          key={`${url}-${index}`}
+          type="button"
+          onClick={() => onOpenPhoto(index)}
+          aria-label={`放大 ${title} 第 ${index + 1} 張相片`}
+          className="group relative h-[60px] min-w-0 overflow-hidden rounded-md bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <LoadingImage
+            src={url}
+            alt={`${title} 第 ${index + 1} 張`}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full"
+            imgClassName="object-cover transition-transform duration-200 group-hover:scale-105 motion-reduce:transition-none"
+          />
+        </button>
+      ))}
+      {hasOverflow && (
+        <button
+          type="button"
+          onClick={() => onOpenPhoto(3)}
+          aria-label={`還有 ${urls.length - 3} 張相片，開啟相片瀏覽`}
+          className="flex h-[60px] min-w-0 items-center justify-center rounded-md bg-foreground/70 text-sm font-semibold text-background transition-colors hover:bg-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          +{urls.length - 3}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PhotoProjectCard({
+  project,
+  urls,
+  viewMode,
+  onOpenAlbum,
+  onOpenPhoto,
+}: PhotoProjectCardProps) {
+  const projectCode =
+    project.project_code || project.project_name || "未命名項目";
+  const customer = project.real_customer_display_name || "未設定客戶";
+  const title = `${projectCode} · ${customer}`;
+
+  const details = (
+    <button
+      type="button"
+      onClick={() => onOpenAlbum(project.id)}
+      aria-label={`開啟 ${title} 完整相簿`}
+      className="flex min-h-0 min-w-0 flex-1 flex-col rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    >
+      <div className="w-full min-w-0">
+        <span
+          title={projectCode}
+          className="block w-full truncate text-sm font-semibold leading-5 text-foreground"
+        >
+          {projectCode}
+        </span>
+      </div>
+      <span
+        title={customer}
+        className="mt-0.5 block w-full truncate text-sm font-medium leading-5"
+      >
+        {customer}
+      </span>
+      <span className="mt-2 grid w-full grid-cols-2 gap-x-2 gap-y-1 text-[11px] leading-4 text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <UserRound className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">PM：{project.pm_name || "未設定"}</span>
+        </span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">
+            交付：{caseDate(project.handover_date)}
+          </span>
+        </span>
+        <span className="col-span-2 flex min-w-0 items-start gap-1.5">
+          <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span
+            title={project.site_address || "未設定地址"}
+            className="whitespace-normal break-words"
+          >
+            {project.site_address || "未設定地址"}
+          </span>
+        </span>
+      </span>
+    </button>
+  );
+
+  if (viewMode === "list") {
+    return (
+      <article className="flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/40 md:flex-row md:items-center">
+        {details}
+        <div className="w-full md:w-[300px] md:shrink-0">
+          <PhotoStrip
+            urls={urls}
+            title={title}
+            onOpenPhoto={(index) => onOpenPhoto(project, index)}
+          />
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <article className="flex min-h-[220px] min-w-0 flex-col gap-1.5 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40">
+      {details}
+      <PhotoStrip
+        urls={urls}
+        title={title}
+        onOpenPhoto={(index) => onOpenPhoto(project, index)}
+      />
+    </article>
+  );
+}
+
+function PhotoAlbum({
+  project,
+  urls,
+  onBack,
+  onOpenPhoto,
+}: {
+  project: CasePhotoProject;
+  urls: string[];
+  onBack: () => void;
+  onOpenPhoto: (project: CasePhotoProject, index: number) => void;
+}) {
+  const projectCode =
+    project.project_code || project.project_name || "未命名項目";
+  const customer = project.real_customer_display_name || "未設定客戶";
+  const title = `${projectCode} · ${customer}`;
+
+  return (
+    <section className="space-y-4">
+      <Button variant="ghost" size="sm" onClick={onBack}>
+        <ArrowLeft className="mr-2 h-4 w-4" />
+        返回專案列表
+      </Button>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
+        <div className="min-w-0">
+          <h2 className="break-words text-lg font-semibold">{projectCode}</h2>
+          <p className="mt-1 whitespace-normal break-words text-sm font-medium">
+            {customer}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
+              PM：{project.pm_name || "未設定"}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="whitespace-normal break-words">
+                {project.site_address || "未設定地址"}
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
+              交付：{caseDate(project.handover_date)}
+            </span>
+          </div>
+        </div>
+        <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+          {project.status || "未設定狀態"}
+        </span>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        完整相簿 · {urls.length} 張相片
+      </p>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
+        {urls.map((url, index) => (
+          <button
+            key={`${url}-${index}`}
+            type="button"
+            onClick={() => onOpenPhoto(project, index)}
+            aria-label={`放大 ${title} 第 ${index + 1} 張相片`}
+            className="group relative overflow-hidden rounded-lg bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <LoadingImage
+              src={url}
+              alt={`${title} 第 ${index + 1} 張`}
+              loading="lazy"
+              decoding="async"
+              className="aspect-[4/3] w-full"
+              imgClassName="object-cover transition-transform duration-200 group-hover:scale-[1.03] motion-reduce:transition-none"
+            />
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 export function CasePhotosPage() {
   const data = useCaseData<CasePhotoProject>("photos");
@@ -19,167 +249,248 @@ export function CasePhotosPage() {
   const [status, setStatus] = useState("");
   const [pm, setPm] = useState("");
   const [year, setYear] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("handover-desc");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [page, setPage] = useState(1);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [activeAlbumId, setActiveAlbumId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{
     title: string;
     urls: string[];
     index: number;
   } | null>(null);
-  const filtered = useMemo(
-    () =>
-      data.items.filter(
-        (p) =>
-          photoUrls(p.completion_photos).length &&
-          (!status || p.status === status) &&
-          (!pm || p.pm_name === pm) &&
-          (!year || p.financial_year === year) &&
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase();
+    return data.items
+      .filter(
+        (project) =>
+          photoUrls(project.completion_photos).length > 0 &&
+          (!status || project.status === status) &&
+          (!pm || project.pm_name === pm) &&
+          (!year || project.financial_year === year) &&
           [
-            p.project_code,
-            p.project_name,
-            p.real_customer_display_name,
-            p.site_address,
+            project.project_code,
+            project.project_name,
+            project.real_customer_display_name,
+            project.site_address,
           ]
             .join(" ")
-            .toLowerCase()
-            .includes(search.trim().toLowerCase()),
-      ),
-    [data.items, search, status, pm, year],
-  );
+            .toLocaleLowerCase()
+            .includes(term),
+      )
+      .sort((a, b) => {
+        if (sortMode === "project-asc")
+          return (a.project_code || a.project_name || "").localeCompare(
+            b.project_code || b.project_name || "",
+            "zh-Hant",
+          );
+        if (sortMode === "customer-asc")
+          return (a.real_customer_display_name || "").localeCompare(
+            b.real_customer_display_name || "",
+            "zh-Hant",
+          );
+
+        const aDate = a.handover_date ? Date.parse(a.handover_date) : NaN;
+        const bDate = b.handover_date ? Date.parse(b.handover_date) : NaN;
+        const normalizedA = Number.isNaN(aDate) ? -Infinity : aDate;
+        const normalizedB = Number.isNaN(bDate) ? -Infinity : bDate;
+        const dateOrder =
+          sortMode === "handover-desc"
+            ? normalizedB - normalizedA
+            : normalizedA - normalizedB;
+        if (dateOrder !== 0 && !Number.isNaN(dateOrder)) return dateOrder;
+        return (a.project_code || "").localeCompare(b.project_code || "");
+      });
+  }, [data.items, search, status, pm, year, sortMode]);
+
   useEffect(() => {
     setPage(1);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
     setLightbox(null);
-  }, [data.items, search, status, pm, year]);
+    setActiveAlbumId(null);
+  }, [data.items, search, status, pm, year, sortMode]);
+
   const options = (key: "status" | "pm_name" | "financial_year") =>
     [
       ...new Set(
-        data.items.map((r) => r[key]).filter((s): s is string => Boolean(s)),
+        data.items
+          .map((project) => project[key])
+          .filter((value): value is string => Boolean(value)),
       ),
-    ].sort();
-  const currentPage = Math.min(
-    page,
-    Math.max(1, Math.ceil(filtered.length / 20)),
+    ].sort((a, b) => a.localeCompare(b, "zh-Hant"));
+  const visibleItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const activeAlbum = data.items.find(
+    (project) => project.id === activeAlbumId,
   );
+  const activeAlbumUrls = activeAlbum
+    ? photoUrls(activeAlbum.completion_photos)
+    : [];
+
+  const openLightbox = (project: CasePhotoProject, index: number) => {
+    const urls = photoUrls(project.completion_photos);
+    setLightbox({
+      title: [project.project_code, project.real_customer_display_name]
+        .filter(Boolean)
+        .join(" · "),
+      urls,
+      index,
+    });
+  };
+
   return (
     <CaseShell
-      title="完工相片"
-      description="按 PMS 項目檢視完工相片，點擊相片可放大瀏覽。"
-      icon={Images}
       {...data}
-    >
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex min-w-52 flex-[2] flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">搜尋項目</span>
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="項目編號、名稱、客戶或地址"
+      scrollContainerRef={scrollContainerRef}
+      footer={
+        !activeAlbum && filtered.length > PAGE_SIZE ? (
+          <CasePagination
+            page={page}
+            total={filtered.length}
+            pageSize={PAGE_SIZE}
+            onChange={(nextPage) => {
+              setPage(nextPage);
+              scrollContainerRef.current?.scrollTo({ top: 0 });
+            }}
           />
-        </label>
-        <CaseFilter
-          label="項目狀態"
-          value={status}
-          onChange={setStatus}
-          options={options("status")}
-        />
-        <CaseFilter
-          label="PM"
-          value={pm}
-          onChange={setPm}
-          options={options("pm_name")}
-        />
-        <CaseFilter
-          label="財政年度"
-          value={year}
-          onChange={setYear}
-          options={options("financial_year")}
-        />
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setSearch("");
-            setStatus("");
-            setPm("");
-            setYear("");
-          }}
-        >
-          清除篩選
-        </Button>
-      </div>
-      <CasePagination
-        page={currentPage}
-        total={filtered.length}
-        onChange={setPage}
-      />
-      {!filtered.length ? (
-        <CaseEmpty />
-      ) : (
-        <div className="space-y-5">
-          {filtered.slice((currentPage - 1) * 20, currentPage * 20).map((p) => {
-            const urls = photoUrls(p.completion_photos);
-            const title =
-              [p.project_code, p.project_name].filter(Boolean).join(" · ") ||
-              "未命名項目";
-            return (
-              <section
-                key={p.id}
-                className="overflow-hidden rounded-lg border border-border"
+        ) : undefined
+      }
+      toolbar={
+        !activeAlbum ? (
+          <>
+            <div className="space-y-3">
+              <CaseSearch
+                label="搜尋專案"
+                value={search}
+                onChange={setSearch}
+                placeholder="項目編號、名稱、客戶或地址"
+                onReload={data.reload}
               >
-                <div className="flex flex-wrap justify-between gap-3 border-b border-border bg-muted/40 px-4 py-3">
-                  <div>
-                    <h2 className="font-medium">{title}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {p.real_customer_display_name || "未設定客戶"} ·{" "}
-                      {p.site_address || "未設定地址"}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      PM：{p.pm_name || "—"} · 設計師：{p.designer_name || "—"}{" "}
-                      · 交付：{caseDate(p.handover_date)}
-                    </p>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    {p.status || "未設定狀態"} · {urls.length} 張
-                  </div>
+                <CaseFilter
+                  label="項目狀態"
+                  value={status}
+                  onChange={setStatus}
+                  options={options("status")}
+                />
+                <CaseFilter
+                  label="PM"
+                  value={pm}
+                  onChange={setPm}
+                  options={options("pm_name")}
+                />
+                <CaseFilter
+                  label="財政年度"
+                  value={year}
+                  onChange={setYear}
+                  options={options("financial_year")}
+                />
+                <CaseFilter
+                  label="排序"
+                  value={sortMode}
+                  onChange={(value) => setSortMode(value as SortMode)}
+                  includeAll={false}
+                  options={[
+                    { value: "handover-desc", label: "交付日期（最新）" },
+                    { value: "handover-asc", label: "交付日期（最早）" },
+                    { value: "project-asc", label: "項目編號" },
+                    { value: "customer-asc", label: "客戶名稱" },
+                  ]}
+                />
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant={viewMode === "grid" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-9 w-9"
+                    aria-label="格狀檢視"
+                    aria-pressed={viewMode === "grid"}
+                    title="格狀檢視"
+                    onClick={() => setViewMode("grid")}
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={viewMode === "list" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-9 w-9"
+                    aria-label="列表檢視"
+                    aria-pressed={viewMode === "list"}
+                    title="列表檢視"
+                    onClick={() => setViewMode("list")}
+                  >
+                    <List className="h-4 w-4" />
+                  </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 xl:grid-cols-5">
-                  {urls.slice(0, 5).map((url, index) => (
-                    <button
-                      key={url}
-                      type="button"
-                      onClick={() => setLightbox({ title, urls, index })}
-                      aria-label={`放大 ${title} 第 ${index + 1} 張相片`}
-                      className="group relative overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <CaseImage
-                        src={url}
-                        alt={`${title} 第 ${index + 1} 張`}
-                        className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-105 motion-reduce:transition-none"
-                      />
-                      {index === 4 && urls.length > 5 && (
-                        <span className="absolute inset-x-0 bottom-0 bg-black/75 py-1 text-sm text-white">
-                          另有 {urls.length - 5} 張
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      )}
-      {filtered.length > 20 && (
-        <CasePagination
-          page={currentPage}
-          total={filtered.length}
-          onChange={setPage}
+                {(search || status || pm || year) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 px-2 text-sm"
+                    onClick={() => {
+                      setSearch("");
+                      setStatus("");
+                      setPm("");
+                      setYear("");
+                    }}
+                  >
+                    清除篩選
+                  </Button>
+                )}
+              </CaseSearch>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <p role="status">共 {filtered.length} 個專案</p>
+                {viewMode === "grid" && (
+                  <p className="hidden text-xs sm:block">
+                    每張卡片顯示最多 3 張相片
+                  </p>
+                )}
+              </div>
+            </div>
+          </>
+        ) : undefined
+      }
+    >
+      {activeAlbum ? (
+        <PhotoAlbum
+          project={activeAlbum}
+          urls={activeAlbumUrls}
+          onBack={() => setActiveAlbumId(null)}
+          onOpenPhoto={openLightbox}
         />
+      ) : (
+        <>
+          {!filtered.length ? (
+            <CaseEmpty />
+          ) : (
+            <div
+              className={
+                viewMode === "grid"
+                  ? "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                  : "space-y-2"
+              }
+            >
+              {visibleItems.map((project) => (
+                <PhotoProjectCard
+                  key={project.id}
+                  project={project}
+                  urls={photoUrls(project.completion_photos)}
+                  viewMode={viewMode}
+                  onOpenAlbum={setActiveAlbumId}
+                  onOpenPhoto={openLightbox}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
-      <CaseLightbox
-        value={lightbox}
+      <ImageLightbox
+        open={Boolean(lightbox)}
         onClose={() => setLightbox(null)}
-        onIndex={(index) =>
-          setLightbox((current) => (current ? { ...current, index } : null))
-        }
+        images={lightbox?.urls ?? []}
+        startIndex={lightbox?.index ?? 0}
+        title={lightbox?.title}
+        thumbWidth={160}
       />
     </CaseShell>
   );

@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import { ClipboardList } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { caseDate, type CaseOrder } from "@/lib/caseShowcase";
 import {
   CaseEmpty,
   CaseFilter,
   CasePagination,
   CaseShell,
+  CaseSearch,
   useCaseData,
 } from "./CaseShared";
+
+const ORDERS_PAGE_SIZE = 20;
 
 export function CaseOrdersPage() {
   const data = useCaseData<CaseOrder>("orders");
@@ -18,6 +20,8 @@ export function CaseOrdersPage() {
   const [pm, setPm] = useState("");
   const [factory, setFactory] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedOrder, setSelectedOrder] = useState<CaseOrder[] | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const filtered = useMemo(
     () =>
       data.items.filter(
@@ -38,81 +42,113 @@ export function CaseOrdersPage() {
       ),
     [data.items, search, status, pm, factory],
   );
-  useEffect(() => setPage(1), [search, status, pm, factory, data.items]);
+  const grouped = useMemo(() => {
+    const matchingKeys = new Set(
+      filtered.map((item) => `${item.project_id}:${item.project_code || ""}`),
+    );
+    const groups = new Map<string, CaseOrder[]>();
+    for (const item of data.items) {
+      // PMS project code is the displayed order number; project ID keeps
+      // same-numbered projects from being merged accidentally.
+      const key = `${item.project_id}:${item.project_code || ""}`;
+      if (!matchingKeys.has(key)) continue;
+      groups.set(key, [...(groups.get(key) || []), item]);
+    }
+    return [...groups.values()];
+  }, [data.items, filtered]);
+  useEffect(() => {
+    setPage(1);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  }, [search, status, pm, factory, data.items]);
   const options = (key: "status" | "pm_name" | "factory_name") =>
     [
       ...new Set(
         data.items.map((r) => r[key]).filter((s): s is string => Boolean(s)),
       ),
     ].sort();
-  const currentPage = Math.min(
-    page,
-    Math.max(1, Math.ceil(filtered.length / 20)),
+  const visibleGroups = grouped.slice(
+    (page - 1) * ORDERS_PAGE_SIZE,
+    page * ORDERS_PAGE_SIZE,
   );
   return (
     <CaseShell
-      title="訂單數據"
-      description="按 PMS 訂單列出產品、工廠及交付進度。"
-      icon={ClipboardList}
       {...data}
-    >
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex min-w-52 flex-[2] flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">搜尋訂單</span>
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="項目編號、名稱、產品、工廠或 PM"
+      scrollContainerRef={scrollContainerRef}
+      footer={
+        grouped.length > ORDERS_PAGE_SIZE ? (
+          <CasePagination
+            page={page}
+            total={grouped.length}
+            pageSize={ORDERS_PAGE_SIZE}
+            onChange={(nextPage) => {
+              setPage(nextPage);
+              scrollContainerRef.current?.scrollTo({ top: 0 });
+            }}
           />
-        </label>
-        <CaseFilter
-          label="訂單狀態"
-          value={status}
-          onChange={setStatus}
-          options={options("status")}
-        />
-        <CaseFilter
-          label="PM"
-          value={pm}
-          onChange={setPm}
-          options={options("pm_name")}
-        />
-        <CaseFilter
-          label="工廠"
-          value={factory}
-          onChange={setFactory}
-          options={options("factory_name")}
-        />
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setSearch("");
-            setStatus("");
-            setPm("");
-            setFactory("");
-          }}
-        >
-          清除篩選
-        </Button>
-      </div>
-      <CasePagination
-        page={currentPage}
-        total={filtered.length}
-        onChange={setPage}
-      />
+        ) : undefined
+      }
+      toolbar={
+        <div className="space-y-3">
+          <CaseSearch
+            label="搜尋訂單"
+            value={search}
+            onChange={setSearch}
+            placeholder="項目編號、名稱、產品、工廠或 PM"
+            onReload={data.reload}
+          >
+            <CaseFilter
+              label="訂單狀態"
+              value={status}
+              onChange={setStatus}
+              options={options("status")}
+            />
+            <CaseFilter
+              label="PM"
+              value={pm}
+              onChange={setPm}
+              options={options("pm_name")}
+            />
+            <CaseFilter
+              label="工廠"
+              value={factory}
+              onChange={setFactory}
+              options={options("factory_name")}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 text-sm"
+              onClick={() => {
+                setSearch("");
+                setStatus("");
+                setPm("");
+                setFactory("");
+              }}
+            >
+              清除篩選
+            </Button>
+          </CaseSearch>
+          <div className="text-xs text-muted-foreground" role="status">
+            共 {grouped.length} 個項目
+          </div>
+        </div>
+      }
+    >
       {!filtered.length ? (
         <CaseEmpty />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[1100px] text-left text-sm">
-            <caption className="sr-only">PMS 訂單及交付進度</caption>
+          <table className="w-full min-w-[950px] text-left text-xs">
+            <caption className="sr-only">
+              PMS 訂單及交付進度，點擊訂單查看產品明細
+            </caption>
             <thead className="bg-muted text-muted-foreground">
               <tr>
                 {[
                   "項目",
                   "PM",
-                  "產品",
-                  "數量",
+                  "產品數",
+                  "總數量",
                   "工廠",
                   "訂單狀態",
                   "預計到場",
@@ -122,7 +158,7 @@ export function CaseOrdersPage() {
                   <th
                     key={h}
                     scope="col"
-                    className="whitespace-nowrap px-4 py-3 font-medium"
+                    className="whitespace-nowrap px-3 py-2.5 text-[11px] font-medium"
                   >
                     {h}
                   </th>
@@ -130,54 +166,193 @@ export function CaseOrdersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered
-                .slice((currentPage - 1) * 20, currentPage * 20)
-                .map((r) => (
-                  <tr key={r.id} className="hover:bg-muted/40">
-                    <td className="max-w-64 px-4 py-3">
+              {visibleGroups.map((items) => {
+                const r = items[0];
+                const factories = [
+                  ...new Set(items.map((x) => x.factory_name).filter(Boolean)),
+                ];
+                const statuses = [
+                  ...new Set(items.map((x) => x.status).filter(Boolean)),
+                ];
+                const quantities = items
+                  .map((x) => x.quantity)
+                  .filter((x): x is number => x !== null);
+                const totalQuantity = quantities.length
+                  ? quantities.reduce((sum, n) => sum + n, 0)
+                  : null;
+                return (
+                  <tr
+                    key={`${r.project_id}:${r.project_code || ""}`}
+                    className="cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    tabIndex={0}
+                    onClick={() => setSelectedOrder(items)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedOrder(items);
+                      }
+                    }}
+                    aria-label={`查看訂單 ${r.project_code || r.project_name || "詳情"}`}
+                  >
+                    <td className="max-w-64 px-3 py-3">
                       <p className="font-medium">{r.project_code || "—"}</p>
                       <p className="mt-1 text-muted-foreground">
                         {r.project_name || "—"}
                       </p>
                     </td>
-                    <td className="px-4 py-3">{r.pm_name || "—"}</td>
-                    <td className="max-w-64 px-4 py-3">
-                      {r.product_name || "—"}
+                    <td className="px-3 py-3">{r.pm_name || "—"}</td>
+                    <td className="px-3 py-3">{items.length}</td>
+                    <td className="px-3 py-3 tabular-nums">
+                      {totalQuantity ?? "—"}
                     </td>
-                    <td className="px-4 py-3 tabular-nums">
-                      {r.quantity ?? "—"}
-                    </td>
-                    <td className="px-4 py-3">{r.factory_name || "—"}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3">{factories.join("、") || "—"}</td>
+                    <td className="px-3 py-3">
                       <span className="whitespace-nowrap rounded bg-muted px-2 py-1 text-xs">
-                        {r.status || "未設定"}
+                        {statuses.length === 1
+                          ? statuses[0]
+                          : statuses.length
+                            ? "多種狀態"
+                            : "未設定"}
                       </span>
                     </td>
                     {[
-                      r.est_delivery_date,
-                      r.est_installation_date,
-                      r.actual_installation_date,
+                      items
+                        .map((x) => x.est_delivery_date)
+                        .filter(Boolean)
+                        .sort()
+                        .at(-1) || null,
+                      items
+                        .map((x) => x.est_installation_date)
+                        .filter(Boolean)
+                        .sort()
+                        .at(-1) || null,
+                      items
+                        .map((x) => x.actual_installation_date)
+                        .filter(Boolean)
+                        .sort()
+                        .at(-1) || null,
                     ].map((date, i) => (
                       <td
                         key={i}
-                        className="whitespace-nowrap px-4 py-3 tabular-nums"
+                        className="whitespace-nowrap px-3 py-3 tabular-nums"
                       >
                         {caseDate(date)}
                       </td>
                     ))}
                   </tr>
-                ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
-      {filtered.length > 20 && (
-        <CasePagination
-          page={currentPage}
-          total={filtered.length}
-          onChange={setPage}
-        />
-      )}
+      <Modal
+        open={selectedOrder !== null}
+        onOpenChange={(open) => !open && setSelectedOrder(null)}
+        size="3xl"
+        title={`訂單詳情 · ${selectedOrder?.[0]?.project_code || selectedOrder?.[0]?.project_name || "—"}`}
+        description={`${selectedOrder?.[0]?.project_name || "—"}　·　PM：${selectedOrder?.[0]?.pm_name || "—"}`}
+      >
+        <div className="max-h-[65vh] space-y-4 overflow-auto pr-1">
+          {selectedOrder?.map((item, index) => (
+            <section key={item.id} className="space-y-4 rounded-lg border p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2 border-b pb-3">
+                <div>
+                  <h3 className="font-semibold">
+                    {item.product_name || "未指定產品"}
+                  </h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {item.product_type || "產品類型未設定"} · 第 {index + 1} 項
+                  </p>
+                </div>
+                <span className="rounded bg-muted px-2 py-1 text-sm">
+                  數量 {item.quantity ?? "—"}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                <OrderDetailField
+                  label="廠商 Factory"
+                  value={item.factory_name}
+                />
+                <OrderDetailField label="狀態 Status" value={item.status} />
+                <OrderDetailField
+                  label="生產開始日期"
+                  value={caseDate(item.production_start_date)}
+                />
+                <OrderDetailField
+                  label="預計生產完結日期"
+                  value={caseDate(item.production_finish_date_est)}
+                />
+                <OrderDetailField
+                  label="實際生產完結日期"
+                  value={caseDate(item.production_finish_date)}
+                />
+                <OrderDetailField
+                  label="送貨目標 Factory Delivery Target"
+                  value={deliveryTargetLabel(item.delivery_target)}
+                />
+                <OrderDetailField
+                  label="預計送貨到場日期"
+                  value={caseDate(item.est_delivery_date)}
+                />
+                <OrderDetailField
+                  label="實際送貨到場日期"
+                  value={caseDate(item.actual_delivery_date)}
+                />
+                <OrderDetailField
+                  label="預計完成安裝日期"
+                  value={caseDate(item.est_installation_date)}
+                />
+                <OrderDetailField
+                  label="實際完成安裝日期"
+                  value={caseDate(item.actual_installation_date)}
+                />
+                <OrderDetailField
+                  label="需要安排安裝"
+                  value={
+                    item.installer_needed === null
+                      ? "—"
+                      : item.installer_needed
+                        ? "是"
+                        : "否"
+                  }
+                />
+                <OrderDetailField
+                  label="安裝團隊"
+                  value={item.installation_team_name}
+                />
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <OrderDetailField label="備註 Remarks" value={item.remarks} />
+                </div>
+              </div>
+            </section>
+          ))}
+        </div>
+      </Modal>
     </CaseShell>
+  );
+}
+
+function deliveryTargetLabel(value: string | null): string {
+  if (value === "Factory") return "廠商 Factory";
+  if (value === "Warehouse") return "倉庫 Warehouse";
+  if (value === "Client") return "客戶 Client";
+  return value || "—";
+}
+
+function OrderDetailField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+        {value || "—"}
+      </p>
+    </div>
   );
 }
