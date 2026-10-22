@@ -80,12 +80,14 @@ function splitCachedCodes(codes: string[]): {
 function listCacheKey(options: {
   search: string;
   limit: number;
+  offset: number;
   ids: string[];
   codes: string[];
 }): string {
   return JSON.stringify({
     search: options.search,
     limit: options.limit,
+    offset: options.offset,
     ids: [...options.ids].sort(),
     codes: [...options.codes].sort(),
   });
@@ -166,6 +168,7 @@ function mapPitchingRows(items: unknown[]): PmsPitchingListItem[] {
 export async function fetchPmsPitchings(options?: {
   search?: string;
   limit?: number;
+  offset?: number;
   ids?: string[];
   /** Exact pitching_code values (e.g. BWF-OB26-113). */
   codes?: string[];
@@ -176,6 +179,7 @@ export async function fetchPmsPitchings(options?: {
       ...new Set((options?.codes || []).map((code) => code.trim()).filter(Boolean)),
     ];
     const search = options?.search?.trim() || '';
+    const offset = Math.max(0, Math.floor(options?.offset ?? 0));
     const limit =
       options?.limit ??
       (ids.length > 0 || codes.length > 0
@@ -202,7 +206,7 @@ export async function fetchPmsPitchings(options?: {
       }
     }
 
-    const key = listCacheKey({ search, limit, ids, codes });
+    const key = listCacheKey({ search, limit, offset, ids, codes });
     const cachedList = listCache.get(key);
     if (cachedList && isFresh(cachedList.at)) return cachedList.items;
 
@@ -238,6 +242,7 @@ export async function fetchPmsPitchings(options?: {
         body: {
           search,
           limit: Math.min(limit, EDGE_MAX),
+          ...(ids.length === 0 && codes.length === 0 && offset > 0 ? { offset } : {}),
           ...(ids.length > 0 ? { ids } : {}),
           ...(codes.length > 0 ? { codes } : {}),
         },
@@ -251,6 +256,19 @@ export async function fetchPmsPitchings(options?: {
     if (data?.error) {
       console.warn('[fetchPmsPitchings]', data.error);
       return [];
+    }
+
+    // Older deployed aliases ignore offset. Fall back to a bounded cumulative
+    // request so the picker can still page while the active Edge slug updates.
+    if (offset > 0 && Number(data?.offset) !== offset) {
+      const cumulative = await fetchPmsPitchings({
+        search,
+        limit: Math.min(offset + limit, EDGE_MAX),
+        offset: 0,
+      });
+      const page = cumulative.slice(offset, offset + limit);
+      listCache.set(key, { at: Date.now(), items: page });
+      return page;
     }
 
     const items = mapPitchingRows(Array.isArray(data?.items) ? data.items : []);

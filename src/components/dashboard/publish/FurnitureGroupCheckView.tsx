@@ -23,6 +23,7 @@ import {
 } from '@/lib/productCategoryOptions';
 import { toast } from 'sonner';
 import { ModalContent, ModalRoot } from '@/components/ui/modal';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/jpg,image/webp,image/avif,image/png';
 
@@ -589,7 +590,7 @@ export function FGProductDetailModal({
         variant="bleed"
         size="full"
         className="bg-background"
-        bodyClassName="flex flex-col overflow-hidden p-0"
+        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0"
         style={{ width: '1200px', height: '800px', maxWidth: '96vw', maxHeight: '96vh' }}
       >
         {/* ── Modal Header ── */}
@@ -1366,25 +1367,21 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       </div>
 
       {/* ── Table ── */}
-      <div className="flex-1 overflow-auto px-4 md:px-6 py-6">
+      <div className="min-h-0 flex-1 overflow-auto px-4 md:px-6 py-6">
         {isLoading ? (
           <div className="flex h-40 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : totalCount === 0 && !debouncedSearch && !level1Filter && !level2Filter && !factoryFilter ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-            <Sofa className="h-8 w-8 text-muted-foreground/40" />
-            <p className="font-display text-sm text-muted-foreground">尚無待確認產品</p>
-            <p className="font-body text-[12px] text-muted-foreground/70">
-              到「產品信息」頁面勾選產品並按「完成」後，產品會送到此處
-            </p>
-          </div>
+          <EmptyState
+            title="尚無待確認產品"
+            description="到「產品信息」頁面勾選產品並按「完成」後，產品會送到此處。"
+          />
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-            <Sofa className="h-8 w-8 text-muted-foreground/40" />
-            <p className="font-display text-sm text-muted-foreground">沒有符合篩選的產品</p>
-            <p className="font-body text-[12px] text-muted-foreground/70">請調整搜尋或篩選條件</p>
-          </div>
+          <EmptyState
+            title="沒有符合篩選的產品"
+            description="請調整搜尋或篩選條件。"
+          />
         ) : (
           <div className="overflow-hidden rounded-2xl border border-border bg-card">
             <table className="w-full text-sm">
@@ -1492,9 +1489,11 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
           </div>
         )}
 
-        {/* Pagination */}
-        {totalCount > pageSize && (
-          <div className="mt-4 flex items-center justify-center gap-2">
+      </div>
+
+      {/* Keep pagination visible while the table scrolls. */}
+      {totalCount > pageSize && (
+          <div className="flex shrink-0 items-center justify-center gap-2 border-t border-border bg-card px-4 py-2.5">
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
@@ -1513,8 +1512,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
               下一頁
             </button>
           </div>
-        )}
-      </div>
+      )}
 
       {/* ── Product Detail Modal ── */}
       {detailRtsId && (

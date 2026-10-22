@@ -224,6 +224,23 @@
   line-height: 1.5;
 }
 
+/* Sidebar is shared shell chrome: keep its type identical across sections. */
+[data-typography-zone='cjk-portal'] .zone-sidebar,
+[data-typography-zone='cjk-portal'] .zone-sidebar button,
+[data-typography-zone='cjk-portal'] .zone-sidebar .font-body {
+  font-family: 'Manrope', sans-serif;
+}
+
+[data-typography-zone='cjk-portal'] .zone-sidebar .text-\[12px\] {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+[data-typography-zone='cjk-portal'] .zone-sidebar .text-\[13\.5px\] {
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
 /*
  * Module header (icon, English role label, Chinese title) is shell chrome.
  * cjk-portal must not enlarge it or swap Syne / IBM Plex Mono, or

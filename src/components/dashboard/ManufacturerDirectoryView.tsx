@@ -34,6 +34,7 @@ type FactoryRecord = DirectoryFactory;
  */
 const ROW_STAGGER_LIMIT = 12;
 const ROW_STAGGER_STEP = 0.02;
+const DIRECTORY_PAGE_SIZE = 30;
 
 function formatJoinDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -49,6 +50,8 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   // 只有第一次載入做漸進淡入；之後的搜尋過濾直接換畫面，
   // 免得每敲一個字都要等動畫跑完才看得到結果。
   const hasShownList = useRef(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const fetchData = useCallback(async (force = false) => {
     setIsLoading(true);
@@ -73,6 +76,11 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
     if (factories.length > 0) hasShownList.current = true;
   }, [factories.length]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  }, [searchQuery]);
+
   const filteredFactories = useMemo(() => {
     if (!searchQuery.trim()) return factories;
     const q = searchQuery.toLowerCase();
@@ -85,6 +93,12 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
         f.location?.toLowerCase().includes(q)
     );
   }, [factories, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredFactories.length / DIRECTORY_PAGE_SIZE));
+  const visibleFactories = filteredFactories.slice(
+    (currentPage - 1) * DIRECTORY_PAGE_SIZE,
+    currentPage * DIRECTORY_PAGE_SIZE,
+  );
 
   const handleViewDetail = (factory: FactoryRecord) => {
     const slug = factory.factory_code || factory.id;
@@ -144,9 +158,9 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
           ))}
         </div>
       ) : (
-        <div className="flex-1 overflow-auto rounded-lg border border-border bg-card">
+        <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-card">
           <Table>
-            <TableHeader>
+            <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow className="hover:bg-transparent">
                 <TableHead className="font-display text-xs font-semibold min-w-[180px]">
                   廠家名稱
@@ -180,7 +194,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                   their staggered exit finished, so a search that matched
                   nothing left a blank table on screen for seconds. Rows that
                   no longer match are now removed straight away. */}
-              {filteredFactories.map((factory, index) => (
+              {visibleFactories.map((factory, index) => (
                 <motion.tr
                   key={factory.id}
                   initial={reduceMotion || hasShownList.current ? false : { opacity: 0 }}
@@ -264,6 +278,15 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
               )}
             </TableBody>
           </Table>
+          {!isLoading && filteredFactories.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 text-xs text-muted-foreground">
+              <span>共 {filteredFactories.length} 家廠家 · 第 {currentPage} / {totalPages} 頁</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => { setCurrentPage((page) => page - 1); scrollContainerRef.current?.scrollTo({ top: 0 }); }}>上一頁</Button>
+                <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => { setCurrentPage((page) => page + 1); scrollContainerRef.current?.scrollTo({ top: 0 }); }}>下一頁</Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

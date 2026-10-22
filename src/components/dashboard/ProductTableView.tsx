@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Tooltip,
   TooltipContent,
@@ -932,7 +933,7 @@ export const ProductTableView = memo(function ProductTableView({
         </div>
 
         {/* Table */}
-        <div className="flex-1 overflow-auto relative">
+        <div className="relative min-h-0 flex-1 overflow-auto">
           {serverMode && serverList!.isLoading && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -1037,32 +1038,29 @@ export const ProductTableView = memo(function ProductTableView({
           </table>
 
           {!serverList?.isLoading && filterMatchCount === 0 && (
-            <div className="flex flex-col items-center justify-center py-20">
-              {activeTab === 'shopify' ? (
-                <>
-                  <Database className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                  <p className="font-display text-sm text-muted-foreground">尚未備份 Shopify 產品</p>
-                  <p className="mt-1 text-xs text-muted-foreground/70 font-body">
-                    點擊「從 Shopify 備份」建立目錄的安全副本
-                  </p>
-                </>
-              ) : activeTab === 'local' ? (
-                <>
-                  <Sparkles className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                  <p className="font-display text-sm text-muted-foreground">暫無本地 AI 草稿</p>
-                  <p className="mt-1 text-xs text-muted-foreground/70 font-body">
-                    透過 AI 處理器處理產品以建立新草稿
-                  </p>
-                </>
-              ) : (
-                <p className="font-display text-sm text-muted-foreground">找不到產品</p>
-              )}
-            </div>
+            <EmptyState
+              title={
+                activeTab === 'shopify'
+                  ? '尚未備份 Shopify 產品'
+                  : activeTab === 'local'
+                    ? '暫無本地 AI 草稿'
+                    : '找不到產品'
+              }
+              description={
+                activeTab === 'shopify'
+                  ? '點擊「從 Shopify 備份」建立目錄的安全副本。'
+                  : activeTab === 'local'
+                    ? '透過 AI 處理器處理產品以建立新草稿。'
+                    : '請調整上方的搜尋或篩選條件。'
+              }
+            />
           )}
 
-          {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-border px-6 py-3 bg-muted/20">
+        </div>
+
+        {/* Keep pagination visible while the product table scrolls. */}
+        {totalPages > 1 && (
+            <div className="flex shrink-0 items-center justify-between border-t border-border bg-card px-6 py-2.5">
               <span className="font-mono-data text-[11px] text-muted-foreground">
                 第 {currentPageIndex + 1} / {totalPages} 頁 · 共 {filterMatchCount} 個產品
               </span>
@@ -1087,8 +1085,7 @@ export const ProductTableView = memo(function ProductTableView({
                 </Button>
               </div>
             </div>
-          )}
-        </div>
+        )}
 
         {/* Variant Modal — 準備上載 uses full merge UI (gallery + variant images) */}
         {readyToPublishMode ? (

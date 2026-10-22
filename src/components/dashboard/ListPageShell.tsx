@@ -13,6 +13,7 @@ interface ListPageShellProps {
   searchLeading?: ReactNode;
   /** Extra controls next to the search field (e.g. refresh). */
   searchActions?: ReactNode;
+  scrollContainerRef?: Ref<HTMLDivElement>;
   children: ReactNode;
   className?: string;
 }
@@ -27,6 +28,7 @@ export function ListPageShell({
   searchInputRef,
   searchLeading,
   searchActions,
+  scrollContainerRef,
   children,
   className,
 }: ListPageShellProps) {
@@ -64,8 +66,10 @@ export function ListPageShell({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-4 md:px-6">
-        <div className="mx-auto w-full max-w-none">{children}</div>
+      <div className="min-h-0 flex-1 overflow-hidden px-4 py-4 md:px-6">
+        <div ref={scrollContainerRef} className="h-full min-h-0 overflow-y-auto">
+          <div className="mx-auto w-full max-w-none">{children}</div>
+        </div>
       </div>
     </div>
   );

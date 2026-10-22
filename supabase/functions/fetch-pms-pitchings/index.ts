@@ -79,6 +79,7 @@ Deno.serve(async (req: Request) => {
   let body: {
     search?: string;
     limit?: number;
+    offset?: number;
     ids?: string[];
     /** Exact pitching_code matches (e.g. BWF-OB26-113). */
     codes?: string[];
@@ -110,6 +111,10 @@ Deno.serve(async (req: Request) => {
     ),
     MAX_LIMIT,
   );
+  const offset = Math.min(
+    Math.max(Math.floor(Number(body.offset) || 0), 0),
+    100_000,
+  );
 
   try {
     const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
@@ -122,12 +127,7 @@ Deno.serve(async (req: Request) => {
         "id, pitching_code, pitching_name, customer_id, real_customer_display_name, real_customer_name, main_pm_id, main_designer_id, pitching_stages, estimated_income, estimated_expense, enquiry_date, n_customer_type_id, n_bwf_service_types_id, asana_link",
       )
       .order("enquiry_date", { ascending: false, nullsFirst: false })
-      .limit(
-        Math.min(
-          Math.max(limit, idList.length || codeList.length || 1),
-          MAX_LIMIT,
-        ),
-      );
+      .order("id", { ascending: true });
 
     if (idList.length > 0) {
       query = query.in("id", idList.slice(0, MAX_LIMIT));
@@ -143,6 +143,16 @@ Deno.serve(async (req: Request) => {
           `real_customer_name.ilike.${pattern}`,
         ].join(","),
       );
+    }
+
+    const queryLimit = Math.min(
+      Math.max(limit, idList.length || codeList.length || 1),
+      MAX_LIMIT,
+    );
+    if (idList.length === 0 && codeList.length === 0 && body.offset != null) {
+      query = query.range(offset, offset + queryLimit - 1);
+    } else {
+      query = query.limit(queryLimit);
     }
 
     const { data: rows, error } = await query;
@@ -335,7 +345,11 @@ Deno.serve(async (req: Request) => {
       };
     });
 
-    return jsonResponse({ items, count: items.length });
+    return jsonResponse({
+      items,
+      count: items.length,
+      offset: idList.length > 0 || codeList.length > 0 ? 0 : offset,
+    });
   } catch (err) {
     console.error("[fetch-pms-pitchings]", err);
     return jsonResponse(

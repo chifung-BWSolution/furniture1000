@@ -8,6 +8,7 @@ import {
 } from '@/lib/pmsPitchings';
 import { AsanaLinkButton } from '@/components/dashboard/AsanaLinkButton';
 import { overlayPitchingFinancialsFromQuotes } from '@/lib/quotePitchingFinancials';
+import { Button } from '@/components/ui/button';
 import {
   ListPageShell,
   ListTableCard,
@@ -43,6 +44,8 @@ type SortKey =
   | 'staff'
   | 'pitching_stages';
 
+const PITCHING_PAGE_SIZE = 40;
+
 function staffLabel(item: PmsPitchingListItem): string {
   const parts = [item.main_pm_name, item.main_designer_name]
     .map((x) => x?.trim())
@@ -58,11 +61,15 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
   const [search, setSearch] = useState('');
   const [items, setItems] = useState<PmsPitchingListItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('enquiry_date');
   const [sortDir, setSortDir] = useState<ListSortDir>('desc');
   const [activeId, setActiveId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const requestGenerationRef = useRef(0);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -70,16 +77,25 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++requestGenerationRef.current;
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+    setLoading(true);
+    setItems([]);
+    setHasMore(true);
+    setLoadError(null);
     const timer = window.setTimeout(async () => {
-      setLoading(true);
-      setLoadError(null);
-      const rows = await fetchPmsPitchings({ search, limit: 40 });
-      if (cancelled) return;
+      const rows = await fetchPmsPitchings({
+        search,
+        limit: PITCHING_PAGE_SIZE,
+        offset: (currentPage - 1) * PITCHING_PAGE_SIZE,
+      });
+      if (cancelled || generation !== requestGenerationRef.current) return;
       // Prefer Contract Sum / GP from the latest Furniture quote when present.
       const withQuoteFinancials = await overlayPitchingFinancialsFromQuotes(rows);
-      if (cancelled) return;
+      if (cancelled || generation !== requestGenerationRef.current) return;
       setItems(withQuoteFinancials);
       setLoading(false);
+      setHasMore(rows.length === PITCHING_PAGE_SIZE);
       if (rows.length === 0 && !search.trim()) {
         setLoadError('未能載入 PMS Pitching 列表');
       }
@@ -89,7 +105,7 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [search]);
+  }, [search, currentPage]);
 
   const sortedItems = useMemo(() => {
     const rows = [...items];
@@ -159,14 +175,18 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
         '從 PMS Pitching 列表選擇一筆，系統會自動帶入報價資料'
       }
       search={search}
-      onSearchChange={setSearch}
+      onSearchChange={(value) => {
+        setSearch(value);
+        setCurrentPage(1);
+      }}
       searchPlaceholder="搜尋 pitching code / 客戶名稱 / 提案名稱…"
       searchInputRef={inputRef}
+      scrollContainerRef={scrollContainerRef}
     >
       <ListTableCard
         footer={
           !loading && sortedItems.length > 0
-            ? `顯示最近 ${sortedItems.length} 筆 · 可用搜尋找更多 · 點擊任一列即可開始報價`
+            ? `第 ${currentPage} 頁 · ${hasMore ? '還有更多結果' : '已到最後一頁'} · 點擊任一列即可開始報價`
             : null
         }
       >
@@ -309,6 +329,15 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
           )}
         </tbody>
       </ListTableCard>
+      {!loading && items.length > 0 ? (
+        <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-3 text-xs text-muted-foreground">
+          <span>第 {currentPage} 頁</span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setCurrentPage((page) => page - 1)}>上一頁</Button>
+            <Button variant="outline" size="sm" disabled={!hasMore} onClick={() => setCurrentPage((page) => page + 1)}>下一頁</Button>
+          </div>
+        </div>
+      ) : null}
     </ListPageShell>
   );
 }

@@ -41,9 +41,9 @@ export function ViewEnter({
   children: ReactNode;
 }) {
   return (
-    <div className="relative h-full min-h-0">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1">
       <span key={`${viewKey}-ink`} aria-hidden className="view-ink-sweep" />
-      <div key={viewKey} className="view-enter h-full min-h-0">
+      <div key={viewKey} className="view-enter h-full min-h-0 min-w-0 w-full">
         {children}
       </div>
     </div>

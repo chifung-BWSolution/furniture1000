@@ -1478,7 +1478,7 @@ export function AppShell() {
 
   return (
     <div
-      className="flex h-screen w-screen flex-col overflow-hidden"
+      className="fixed inset-0 flex flex-col overflow-hidden"
       data-typography-zone={
         activeSection === 'designer' ||
         activeSection === 'cases' ||
@@ -1554,7 +1554,7 @@ export function AppShell() {
           ) : null}
         </AnimatePresence>
 
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* 方案 D: Unhealthy DB banner */}
         {dbUnhealthy && (
           <div className="flex items-center gap-2 bg-destructive/10 border-b border-destructive/20 px-4 py-2 text-sm text-destructive">
@@ -1592,7 +1592,7 @@ export function AppShell() {
           onOpenMobileNav={() => setMobileNavOpen(true)}
         />
 
-        <div className="flex-1 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <ViewEnter
             viewKey={
               store.isLoading &&
