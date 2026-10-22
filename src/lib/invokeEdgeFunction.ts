@@ -16,7 +16,7 @@ export type InvokeEdgeResult<T = Record<string, unknown>> = {
 export async function invokeEdgeFunctionDirect<T = Record<string, unknown>>(
   slug: string,
   body: unknown = {},
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; signal?: AbortSignal },
 ): Promise<InvokeEdgeResult<T>> {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -26,6 +26,13 @@ export async function invokeEdgeFunctionDirect<T = Record<string, unknown>>(
   const accessToken = session.data.session?.access_token ?? anonKey;
 
   const controller = new AbortController();
+  // The caller may cancel on unmount. Forward that abort to our controller so
+  // the request is really cancelled, not just ignored.
+  const externalSignal = opts?.signal;
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort(externalSignal.reason);
+    else externalSignal.addEventListener('abort', () => controller.abort(externalSignal.reason), { once: true });
+  }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -62,6 +69,10 @@ export async function invokeEdgeFunctionDirect<T = Record<string, unknown>>(
     return { data, error: null, status: res.status };
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
+      // A caller-cancelled request is not a failure worth showing to the user.
+      if (externalSignal?.aborted) {
+        return { data: null, error: new Error('已取消'), status: 0 };
+      }
       return {
         data: null,
         error: new Error('Edge Function 逾時，請稍後再試或聯絡管理員'),

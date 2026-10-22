@@ -146,6 +146,22 @@ export default defineConfig(({ command, mode }) => {
       "base64-js", // 強制轉換這個報錯的模組
       "pdfjs-dist", // 加回來，因為它需要 CommonJS 轉 ESM
       "@react-pdf/renderer", // 確保它被 Vite 處理，解決兼容性問題
+      // Lazy views (AppShell 用 lazy() 動態 import) 不在 entries 的掃描範圍內，
+      // 裡面的新依賴會在第一次開啟時才被發現 → Vite 重新最佳化 → 舊頁面拿到
+      // 504 (Outdated Optimize Dep) → dynamic import 失敗 → ErrorBoundary 白畫面。
+      // 這裡把 Radix UI 全部手動列入，讓依賴在啟動時就完成最佳化。
+      "@radix-ui/react-accordion",
+      "@radix-ui/react-aspect-ratio",
+      "@radix-ui/react-avatar",
+      "@radix-ui/react-collapsible",
+      "@radix-ui/react-context-menu",
+      "@radix-ui/react-hover-card",
+      "@radix-ui/react-menubar",
+      "@radix-ui/react-navigation-menu",
+      "@radix-ui/react-radio-group",
+      "@radix-ui/react-slider",
+      "@radix-ui/react-toggle",
+      "@radix-ui/react-toggle-group",
     ],
     exclude: ["framer-motion"],
   },

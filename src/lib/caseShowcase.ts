@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { invokeEdgeFunctionDirect } from "@/lib/invokeEdgeFunction";
 
 export type CaseKind = "orders" | "photos" | "brands";
 export interface CaseOrder {
@@ -57,22 +57,18 @@ export async function fetchCaseShowcase<T>(
   kind: CaseKind,
   signal?: AbortSignal,
 ): Promise<CaseResult<T>> {
-  const { data, error } = await supabase.functions.invoke(
+  // NOTE: do not use supabase.functions.invoke() here — the locked
+  // @supabase/functions-js (2.4.x) has no `signal` option, so passing one
+  // fails the type check on a clean install / CI build.
+  const { data, error } = await invokeEdgeFunctionDirect<
+    CaseResult<T> & { action?: string; error?: string }
+  >(
     "supabase-functions-fetch-bwa-works",
-    {
-      body: { action: `cases-${kind}` },
-      signal,
-    },
+    { action: `cases-${kind}` },
+    { signal },
   );
   if (error) {
-    let message = "資料載入失敗，請稍後重試。";
-    try {
-      const details = await error.context?.json();
-      if (details?.error) message = details.error;
-    } catch {
-      /* Non-JSON gateway error. */
-    }
-    throw new Error(message);
+    throw new Error(error.message || "資料載入失敗，請稍後重試。");
   }
   if (data?.error) throw new Error(String(data.error));
   // An older function returns BWA selector rows. Never display those as cases.

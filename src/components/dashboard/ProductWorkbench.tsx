@@ -209,7 +209,7 @@ export function ProductWorkbench({
       if (!response.ok || !response.body) throw new Error('模型下載失敗');
       const total = Number(response.headers.get('content-length')) || knownBytes || 0;
       const reader = response.body.getReader();
-      const parts: Uint8Array[] = [];
+      const parts: Uint8Array<ArrayBuffer>[] = [];
       let loaded = 0;
       let shownPercent = -1;
       const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
