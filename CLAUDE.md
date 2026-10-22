@@ -290,10 +290,22 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   新上載超過 60MB 仍在瀏覽器拆（`src/lib/pdfSplitCore.mjs`）。已存放的大檔排 `needs_split`，
   由 Vercel Function `api/pdf-split` 領取、拆檔、`fds_supplier_document_register_parts`，再叫醒
   `supabase-functions-process-jobs`。不要再跑 `workers/pdf-split`。
-  Vercel runtime（不要 `VITE_`）：`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`PDF_SPLIT_SECRET`。
-  平台 `CRON_SECRET` 設成與 `PDF_SPLIT_SECRET` 相同（Cron 的 Bearer；程式不讀 `CRON_SECRET`）。
-  Edge secrets：`PDF_SPLIT_URL`（`https://<域名>/api/pdf-split`）、`PDF_SPLIT_SECRET`（同一把）。
-  未設定時 `process-jobs` 略過叫醒。`vercel.json`：`maxDuration` 800、`memory` 3009。
+  拆檔不生效時先看 Vercel，不是拆檔演算法。2026-10-22 實測：
+  develop preview `…-git-develop-bwsystem.vercel.app/api/pdf-split` 回 **302 Vercel SSO**
+  （Deployment Protection 在函式之前回答）；`www.bwteam-furniture.com/api/pdf-split`
+  回 **index.html**（`main` 的 rewrite 吃掉 `/api/*`，而且沒有這支 function、沒有 cron）。
+  Vercel Cron 只打 **production deployment**，develop 的 `*/5` 不會在 preview 跑。
+  必須在 team `bwsystem`、專案 `bwfbwfbranding-work-furniture` 設好下面項目後 **Redeploy develop**：
+  Preview runtime `SUPABASE_URL`＝`https://omxizeukbcqzsnjsuwod.supabase.co`（建置要讀得到，不要標 Sensitive、不要只給 Production）、
+  Preview runtime `SUPABASE_SERVICE_ROLE_KEY`＝FDS 2.0 service role（Sensitive）、
+  Preview runtime `PDF_SPLIT_SECRET`、以及同一個字串的 `CRON_SECRET`（Cron 的 Bearer；程式只拿 Bearer 跟 `PDF_SPLIT_SECRET` 比）。
+  Deployment Protection → Protection Bypass for Automation 要產生密鑰。
+  FDS 2.0（`omxizeukbcqzsnjsuwod`）Edge secrets：`PDF_SPLIT_SECRET` 同一把；
+  `PDF_SPLIT_URL`＝preview 的 `/api/pdf-split?x-vercel-protection-bypass=<該密鑰>`
+  （`process-jobs` 不會自己加這個 header）。不要把這組 secrets 寫進 BWF 正式庫，
+  也不要把 URL 指到 `www.bwteam-furniture.com`。改完 Edge secret 要重新部署
+  `supabase-functions-process-jobs`。細節見 `docs/prd/FDS-2.1-技術架構.md`。
+  `vercel.json`：`maxDuration` 800、`memory` 3009。
 - Edge 每次請求 CPU 很短：`parse_pdf` 每次只做一批（8 頁抽字／20 頁分類），用
   `fds_processing_job_checkpoint` 存斷點後自己觸發下一批。加新的重型步驟也要照這個分批模式，不要一次跑完整份 PDF。
 - 掃描頁 OCR 用 Grok（edge secret `XAI_API_KEY`，模型 `XAI_OCR_MODEL`）；頁面分類與分段用現有 `GEMINI_API_KEY`。

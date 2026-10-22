@@ -34,7 +34,7 @@
 
 ## 2. 建議走一遍的流程
 
-1. 上載：上載報價PDF → 供應商文件，選 PDF。儲存上限 200MB。超過 60MB 會在瀏覽器拆成約 40MB 的分段再逐段解析；已存放的大檔由 Vercel Function `api/pdf-split` 拆。審核頁仍是一份目錄。
+1. 上載：上載報價PDF → 供應商文件，選 PDF。儲存上限 200MB。超過 60MB 會在瀏覽器拆成約 40MB 的分段再逐段解析；已存放的大檔要等 Vercel 拆（`api/pdf-split`）。審核頁仍是一份目錄。develop preview 目前對 `/api/pdf-split` 回 Vercel SSO 302，正式網域則回網站首頁，所以在 team `bwsystem` 設好 Preview env、`CRON_SECRET`、Protection Bypass，並把 FDS 2.0 的 `PDF_SPLIT_URL` 指到帶 bypass 的 preview URL、Redeploy 之前，已存放的大檔不會被拆。清單見 `FDS-2.1-技術架構.md`。
 2. 解析：狀態由排隊轉到解析中、審核中。大檔分批跑。上載後畫面會立刻叫醒 worker。若某批在最後一次執行時被中斷，每分鐘的 cron 仍會叫醒 worker：排隊中的任務仍看剩餘次數；心跳超過 10 分鐘的 running 任務不看次數，由 claim 標成 `worker_timeout` 或續跑。
 3. 審核：先處理「需注意」（缺型號、價格不在原文、缺幣種、尺寸可疑）。欄位可改，改完才批量通過。
 4. 價格：`price_not_in_source`、`missing_price` 要人工補價才能通過。未確認項在批量通過時會被跳過。
