@@ -34,6 +34,10 @@ for (const part of grouped) {
 }
 assert.equal(covered, 5);
 
+const capped = await splitPdfUnderTarget(bytes, bytes.byteLength + 1024, 2);
+assert.deepEqual(capped.map((p) => p.pageCount), [2, 2, 1]);
+assert.deepEqual(capped.map((p) => p.pageOffset), [0, 2, 4]);
+
 assert.equal(
   partStoragePath('acme/abc123.pdf', 2, 'deadbeef'),
   'acme/abc123/part-002-deadbeef.pdf',

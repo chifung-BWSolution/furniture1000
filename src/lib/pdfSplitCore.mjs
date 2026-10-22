@@ -2,8 +2,14 @@ import { PDFDocument } from 'pdf-lib';
 
 /** Edge refuses anything larger than this. Parts must land strictly under it. */
 export const PDF_EDGE_MAX_BYTES = 60 * 1024 * 1024;
-/** Rewrite headroom: pdf-lib output is what Edge will download, so the target is below the cap. */
-export const PDF_SPLIT_TARGET_BYTES = 40 * 1024 * 1024;
+/**
+ * Per-part size target. Edge parse_pdf holds the part several times over (download buffer,
+ * pdf.js copy, pdf-lib object graph, base64 of embedded images) inside a ~256MB isolate,
+ * so a 37MB part ran out of memory. Keep parts around 10MB.
+ */
+export const PDF_SPLIT_TARGET_BYTES = 10 * 1024 * 1024;
+/** Per-part page cap, applied together with the byte target (whichever yields more parts). */
+export const PDF_SPLIT_MAX_PAGES = 15;
 
 /**
  * @param {string} parentPath storage path of the original PDF
@@ -28,15 +34,17 @@ async function slicePdf(src, start, end) {
 }
 
 /**
- * Split a PDF into page ranges whose rewritten bytes stay near 40MB and always under 60MB.
+ * Split a PDF into page ranges of at most maxPages pages whose rewritten bytes stay near
+ * targetBytes and always under the Edge cap.
  * A single page that is itself between the target and the Edge cap is kept as its own part.
  * pageOffset is the number of original pages before this part (original page = local page + pageOffset).
  *
  * @param {Uint8Array} input
  * @param {number} [targetBytes]
+ * @param {number} [maxPages]
  * @returns {Promise<{ partIndex: number, pageOffset: number, pageCount: number, bytes: Uint8Array }[]>}
  */
-export async function splitPdfUnderTarget(input, targetBytes = PDF_SPLIT_TARGET_BYTES) {
+export async function splitPdfUnderTarget(input, targetBytes = PDF_SPLIT_TARGET_BYTES, maxPages = PDF_SPLIT_MAX_PAGES) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   let src;
   try {
@@ -49,12 +57,13 @@ export async function splitPdfUnderTarget(input, targetBytes = PDF_SPLIT_TARGET_
   if (total < 1) throw new Error('PDF 沒有頁面');
 
   const target = Math.max(1, targetBytes);
+  const pageCap = Math.max(1, Math.floor(maxPages) || 1);
   /** @type {{ partIndex: number, pageOffset: number, pageCount: number, bytes: Uint8Array }[]} */
   const parts = [];
   let start = 0;
   while (start < total) {
     let lo = start + 1;
-    let hi = total;
+    let hi = Math.min(total, start + pageCap);
     let bestEnd = 0;
     /** @type {Uint8Array | null} */
     let bestBytes = null;
