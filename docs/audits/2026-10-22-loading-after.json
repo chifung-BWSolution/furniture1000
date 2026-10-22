@@ -1,0 +1,62 @@
+{
+  "target": "omxizeukbcqzsnjsuwod.supabase.co",
+  "results": [
+    {
+      "name": "rankings",
+      "ms": 3074,
+      "requests": 10,
+      "bytes": 2995674,
+      "statuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "customer-products",
+      "ms": 2420,
+      "requests": 7,
+      "bytes": 1364018,
+      "statuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "custom-catalog",
+      "ms": 1377,
+      "requests": 7,
+      "bytes": 1024062,
+      "statuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "review-documents",
+      "ms": 563,
+      "requests": 1,
+      "bytes": 382,
+      "statuses": [
+        200
+      ]
+    }
+  ]
+}

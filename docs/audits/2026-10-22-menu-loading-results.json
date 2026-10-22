@@ -1,0 +1,971 @@
+{
+  "date": "2026-10-22",
+  "target": "omxizeukbcqzsnjsuwod.supabase.co",
+  "role": "uploader",
+  "branch": "develop",
+  "head": "a7d1effebc952df7dd91965d849f4dfa26e21997",
+  "menuCount": 59,
+  "results": [
+    {
+      "name": "designer-facets",
+      "ms": 429,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/fds_product_search_facets",
+          "ms": 374,
+          "status": 200,
+          "bytes": 3821
+        }
+      ],
+      "resultBytes": 3470,
+      "returnedError": false
+    },
+    {
+      "name": "designer-pdf",
+      "ms": 355,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/fds_designer_catalogs",
+          "ms": 351,
+          "status": 200,
+          "bytes": 4125
+        }
+      ],
+      "resultBytes": 3787,
+      "returnedError": false
+    },
+    {
+      "name": "pm-budget",
+      "ms": 350,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/bwa_list_furniture_inquiries",
+          "ms": 345,
+          "status": 200,
+          "bytes": 2
+        }
+      ],
+      "resultBytes": 24,
+      "returnedError": false
+    },
+    {
+      "name": "quote-trash",
+      "ms": 331,
+      "requests": [
+        {
+          "path": "/rest/v1/bwf_quote",
+          "ms": 326,
+          "status": 200,
+          "bytes": 2
+        }
+      ],
+      "resultBytes": 2,
+      "returnedError": false
+    },
+    {
+      "name": "factory-report-counts",
+      "ms": 824,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/factory_counts",
+          "ms": 318,
+          "status": 200,
+          "bytes": 1598
+        },
+        {
+          "path": "/rest/v1/rpc/factory_counts",
+          "ms": 735,
+          "status": 200,
+          "bytes": 1504
+        },
+        {
+          "path": "/rest/v1/rpc/factory_counts",
+          "ms": 812,
+          "status": 200,
+          "bytes": 1219
+        }
+      ],
+      "resultBytes": 2944,
+      "returnedError": false
+    },
+    {
+      "name": "product-report-usage",
+      "ms": 18733,
+      "requests": [
+        {
+          "path": "/rest/v1/products",
+          "ms": 844,
+          "status": 200,
+          "bytes": 455113
+        },
+        {
+          "path": "/rest/v1/bwf_quote_item",
+          "ms": 1573,
+          "status": 200,
+          "bytes": 332380
+        },
+        {
+          "path": "/rest/v1/bwf_quote",
+          "ms": 1588,
+          "status": 200,
+          "bytes": 123071
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 966,
+          "status": 200,
+          "bytes": 263250
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 715,
+          "status": 200,
+          "bytes": 575234
+        },
+        {
+          "path": "/rest/v1/bwf_quote",
+          "ms": 1316,
+          "status": 200,
+          "bytes": 13419
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 467,
+          "status": 200,
+          "bytes": 434664
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 439,
+          "status": 200,
+          "bytes": 484155
+        },
+        {
+          "path": "/rest/v1/bwf_quote_item",
+          "ms": 1933,
+          "status": 200,
+          "bytes": 332835
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 365,
+          "status": 200,
+          "bytes": 234413
+        },
+        {
+          "path": "/rest/v1/bwf_quote_item",
+          "ms": 1928,
+          "status": 200,
+          "bytes": 325045
+        },
+        {
+          "path": "/rest/v1/bwf_quote_item",
+          "ms": 2173,
+          "status": 200,
+          "bytes": 328778
+        },
+        {
+          "path": "/rest/v1/bwf_quote_item",
+          "ms": 2723,
+          "status": 200,
+          "bytes": 327271
+        },
+        {
+          "path": "/rest/v1/bwf_quote_item",
+          "ms": 5175,
+          "status": 200,
+          "bytes": 344784
+        },
+        {
+          "path": "/rest/v1/bwf_quote_item",
+          "ms": 3215,
+          "status": 200,
+          "bytes": 107427
+        }
+      ],
+      "resultBytes": 11214,
+      "returnedError": false
+    },
+    {
+      "name": "factory-zones",
+      "ms": 966,
+      "requests": [
+        {
+          "path": "/rest/v1/factory_zones",
+          "ms": 303,
+          "status": 200,
+          "bytes": 2
+        },
+        {
+          "path": "/rest/v1/factory_zone_members",
+          "ms": 655,
+          "status": 200,
+          "bytes": 2
+        }
+      ],
+      "resultBytes": 59,
+      "returnedError": false
+    },
+    {
+      "name": "supplier-logins",
+      "ms": 343,
+      "requests": [
+        {
+          "path": "/rest/v1/supplier_logins",
+          "ms": 338,
+          "status": 200,
+          "bytes": 2
+        }
+      ],
+      "resultBytes": 45,
+      "returnedError": false
+    },
+    {
+      "name": "supplier-review",
+      "ms": 365,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/fds_supplier_review_documents",
+          "ms": 364,
+          "status": 200,
+          "bytes": 2520
+        }
+      ],
+      "resultBytes": 2370,
+      "returnedError": false
+    },
+    {
+      "name": "email-logs",
+      "ms": 352,
+      "requests": [
+        {
+          "path": "/rest/v1/email_notification_logs",
+          "ms": 340,
+          "status": 200,
+          "bytes": 2
+        }
+      ],
+      "resultBytes": 45,
+      "returnedError": false
+    },
+    {
+      "name": "quote-format",
+      "ms": 337,
+      "requests": [
+        {
+          "path": "/rest/v1/quote_format_settings",
+          "ms": 327,
+          "status": 200,
+          "bytes": 153
+        }
+      ],
+      "resultBytes": 190,
+      "returnedError": false
+    },
+    {
+      "name": "ai-review-documents",
+      "ms": 1237,
+      "error": "Could not embed because more than one relationship was found for 'supplier_documents' and 'extraction_items'",
+      "requests": [
+        {
+          "path": "/rest/v1/supplier_documents",
+          "ms": 363,
+          "status": 300,
+          "bytes": 785
+        }
+      ]
+    },
+    {
+      "name": "supplier-documents",
+      "ms": 329,
+      "requests": [
+        {
+          "path": "/rest/v1/supplier_documents",
+          "ms": 329,
+          "status": 200,
+          "bytes": 1595
+        }
+      ],
+      "resultBytes": 1503,
+      "returnedError": false
+    },
+    {
+      "name": "development-cost",
+      "ms": 331,
+      "error": "permission_denied",
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/bwf_development_cost_overview",
+          "ms": 322,
+          "status": 403,
+          "bytes": 73
+        }
+      ]
+    },
+    {
+      "name": "platform-admin",
+      "ms": 5539,
+      "requests": [
+        {
+          "path": "/functions/v1/supabase-functions-fetch-platform-admin",
+          "ms": 4828,
+          "status": 200,
+          "bytes": 41185
+        },
+        {
+          "path": "/rest/v1/upload_log",
+          "ms": 336,
+          "status": 200,
+          "bytes": 55976
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 341,
+          "status": 200,
+          "bytes": 5685
+        }
+      ],
+      "resultBytes": 40265,
+      "returnedError": false
+    },
+    {
+      "name": "manufacturer-directory",
+      "ms": 990,
+      "requests": [
+        {
+          "path": "/functions/v1/supabase-functions-fetch-manufacturer-directory",
+          "ms": 988,
+          "status": 200,
+          "bytes": 365240
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "search-browse",
+      "ms": 3041,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/fds_search_products",
+          "ms": 3039,
+          "status": 200,
+          "bytes": 32095
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "search-favorites",
+      "ms": 680,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/fds_search_products",
+          "ms": 680,
+          "status": 200,
+          "bytes": 1342
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "search-latest",
+      "ms": 410,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/fds_search_products",
+          "ms": 410,
+          "status": 200,
+          "bytes": 74
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "shell-products",
+      "ms": 603,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/get_products_list_page",
+          "ms": 602,
+          "status": 200,
+          "bytes": 149766
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "publish-copywriting",
+      "ms": 427,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/get_publish_rts_rows",
+          "ms": 426,
+          "status": 200,
+          "bytes": 41100
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "publish-product-info",
+      "ms": 420,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/get_publish_rts_rows",
+          "ms": 419,
+          "status": 200,
+          "bytes": 62699
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "quote-first-visible-1",
+      "ms": 7621,
+      "requests": [
+        {
+          "path": "/rest/v1/bwf_quote",
+          "ms": 6000,
+          "status": 206,
+          "bytes": 860647
+        },
+        {
+          "path": "/rest/v1/bwf_quote",
+          "ms": 744,
+          "status": 200,
+          "bytes": 1053339
+        },
+        {
+          "path": "/functions/v1/supabase-functions-fetch-pms-pitchings",
+          "ms": 869,
+          "status": 200,
+          "bytes": 740
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "quote-first-visible-2",
+      "ms": 6693,
+      "requests": [
+        {
+          "path": "/rest/v1/bwf_quote",
+          "ms": 4837,
+          "status": 206,
+          "bytes": 860647
+        },
+        {
+          "path": "/rest/v1/bwf_quote",
+          "ms": 1145,
+          "status": 200,
+          "bytes": 1053339
+        },
+        {
+          "path": "/functions/v1/supabase-functions-fetch-pms-pitchings",
+          "ms": 704,
+          "status": 200,
+          "bytes": 22
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "command-logs",
+      "error": "permission_denied",
+      "ms": 374,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/bwf_dev_command_logs_list",
+          "ms": 374,
+          "status": 403,
+          "bytes": 73
+        }
+      ]
+    },
+    {
+      "name": "command-analytics",
+      "error": "permission_denied",
+      "ms": 340,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/bwf_dev_command_logs_analytics",
+          "ms": 340,
+          "status": 403,
+          "bytes": 73
+        }
+      ]
+    },
+    {
+      "name": "customer-custom-catalog",
+      "ms": 3617,
+      "requests": [
+        {
+          "path": "/rest/v1/products",
+          "ms": 414,
+          "status": 200,
+          "bytes": 516229
+        },
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 341,
+          "status": 200,
+          "bytes": 10503
+        },
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 375,
+          "status": 200,
+          "bytes": 7545
+        },
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 735,
+          "status": 200,
+          "bytes": 2
+        },
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 857,
+          "status": 200,
+          "bytes": 421825
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 462,
+          "status": 200,
+          "bytes": 242803
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 422,
+          "status": 200,
+          "bytes": 245080
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "published-list",
+      "ms": 1105,
+      "requests": [
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 1100,
+          "status": 200,
+          "bytes": 2101735
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "fg-check",
+      "ms": 620,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/get_fg_check_rows",
+          "ms": 620,
+          "status": 200,
+          "bytes": 2
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "ready-list-default",
+      "ms": 388,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/get_ready_to_publish_rows",
+          "ms": 387,
+          "status": 200,
+          "bytes": 2
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "home-metrics",
+      "ms": 2227,
+      "requests": [
+        {
+          "path": "/rest/v1/product_category",
+          "ms": 616,
+          "status": 200,
+          "bytes": 0
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 671,
+          "status": 206,
+          "bytes": 0
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 678,
+          "status": 206,
+          "bytes": 0
+        },
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 691,
+          "status": 200,
+          "bytes": 0
+        },
+        {
+          "path": "/functions/v1/supabase-functions-fetch-manufacturer-directory",
+          "ms": 711,
+          "status": 200,
+          "bytes": 24
+        },
+        {
+          "path": "/rest/v1/bwf_quote",
+          "ms": 2222,
+          "status": 206,
+          "bytes": 0
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "presentation-clients",
+      "ms": 354,
+      "requests": [
+        {
+          "path": "/rest/v1/design_projects",
+          "ms": 335,
+          "status": 200,
+          "bytes": 1026
+        },
+        {
+          "path": "/rest/v1/client_companies",
+          "ms": 337,
+          "status": 200,
+          "bytes": 2
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "canva-status",
+      "ms": 2249,
+      "requests": [
+        {
+          "path": "/functions/v1/supabase-functions-generate-canva-presentation",
+          "ms": 2245,
+          "status": 200,
+          "bytes": 235
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "canva-sessions",
+      "ms": 350,
+      "requests": [
+        {
+          "path": "/rest/v1/rpc/fds_list_canva_design_sessions",
+          "ms": 343,
+          "status": 200,
+          "bytes": 5948
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "upload-log-report",
+      "ms": 4624,
+      "requests": [
+        {
+          "path": "/rest/v1/upload_log",
+          "ms": 351,
+          "status": 200,
+          "bytes": 229
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 326,
+          "status": 200,
+          "bytes": 2
+        },
+        {
+          "path": "/rest/v1/ready_to_shopify",
+          "ms": 333,
+          "status": 200,
+          "bytes": 2
+        },
+        {
+          "path": "/rest/v1/ready_to_shopify",
+          "ms": 1177,
+          "status": 200,
+          "bytes": 2
+        },
+        {
+          "path": "/rest/v1/ready_to_shopify",
+          "ms": 1187,
+          "status": 200,
+          "bytes": 2
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 1236,
+          "status": 200,
+          "bytes": 2
+        },
+        {
+          "path": "/rest/v1/ready_to_shopify",
+          "ms": 1240,
+          "status": 200,
+          "bytes": 2
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 330,
+          "status": 200,
+          "bytes": 103
+        },
+        {
+          "path": "/functions/v1/supabase-functions-resolve-pms-staff-by-ids",
+          "ms": 1994,
+          "status": 200,
+          "bytes": 156
+        },
+        {
+          "path": "/rest/v1/rpc/get_ready_to_publish_count",
+          "ms": 330,
+          "status": 200,
+          "bytes": 1
+        },
+        {
+          "path": "/rest/v1/rpc/get_publish_rts_count",
+          "ms": 339,
+          "status": 200,
+          "bytes": 3
+        },
+        {
+          "path": "/rest/v1/product_category",
+          "ms": 339,
+          "status": 200,
+          "bytes": 2754
+        },
+        {
+          "path": "/rest/v1/rpc/get_fg_check_count",
+          "ms": 340,
+          "status": 200,
+          "bytes": 1
+        },
+        {
+          "path": "/rest/v1/rpc/get_publish_rts_count",
+          "ms": 382,
+          "status": 200,
+          "bytes": 3
+        },
+        {
+          "path": "/rest/v1/rpc/shopify_published_category_counts",
+          "ms": 320,
+          "status": 200,
+          "bytes": 2536
+        }
+      ],
+      "returnedError": false
+    },
+    {
+      "name": "customer-search-1000",
+      "ms": 6098,
+      "requests": [
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 1221,
+          "status": 200,
+          "bytes": 1135551
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 395,
+          "status": 200,
+          "bytes": 242803
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 406,
+          "status": 200,
+          "bytes": 245080
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 1015,
+          "status": 200,
+          "bytes": 241757
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 630,
+          "status": 200,
+          "bytes": 245294
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 887,
+          "status": 200,
+          "bytes": 255084
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 1526,
+          "status": 200,
+          "bytes": 114135
+        }
+      ],
+      "rows": null,
+      "returnedError": false
+    },
+    {
+      "name": "customer-payment-24",
+      "ms": 882,
+      "requests": [
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 418,
+          "status": 200,
+          "bytes": 33537
+        },
+        {
+          "path": "/rest/v1/products",
+          "ms": 464,
+          "status": 200,
+          "bytes": 38527
+        }
+      ],
+      "rows": null,
+      "returnedError": false
+    },
+    {
+      "name": "products-pending",
+      "ms": 363,
+      "requests": [
+        {
+          "path": "/rest/v1/products",
+          "ms": 363,
+          "status": 200,
+          "bytes": 24212
+        }
+      ],
+      "rows": 20,
+      "count": null,
+      "returnedError": false
+    },
+    {
+      "name": "products-catalog",
+      "ms": 360,
+      "requests": [
+        {
+          "path": "/rest/v1/products",
+          "ms": 360,
+          "status": 200,
+          "bytes": 33487
+        }
+      ],
+      "rows": 20,
+      "count": null,
+      "returnedError": false
+    },
+    {
+      "name": "quick-pitching-gate",
+      "ms": 836,
+      "requests": [
+        {
+          "path": "/functions/v1/supabase-functions-fetch-pms-pitchings",
+          "ms": 835,
+          "status": 200,
+          "bytes": 28693
+        }
+      ],
+      "rows": null,
+      "returnedError": false
+    },
+    {
+      "name": "similar-scan",
+      "ms": 3116,
+      "requests": [
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 317,
+          "status": 200,
+          "bytes": 0
+        },
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 1566,
+          "status": 200,
+          "bytes": 715698
+        },
+        {
+          "path": "/rest/v1/shopify_products",
+          "ms": 1227,
+          "status": 200,
+          "bytes": 465500
+        }
+      ],
+      "rows": 828,
+      "count": 828,
+      "returnedError": false
+    }
+  ],
+  "sourceHashes": {
+    "src/components/dashboard/ProPdfView.tsx": "b7fcc9cd1fe9f761016f38749ec49b54c85657e895eea9af180dad42696b0abd",
+    "src/components/dashboard/admin/DailyCommandLogsView.tsx": "7fc503ea96368fbbe88c10f4e466c261eacef134969bb664346b72fcb3a7d6af",
+    "src/components/dashboard/customers/CustomerQuoteSchemesView.tsx": "aca442c8f036e7d4cde5d226d0760b39bb065c4b2f15fa309c2beff76a3d02ff",
+    "src/components/dashboard/publish/ReadyToPublishView.tsx": "ee2ed6a01351c711ec50ec9a45d3a43643b29b2887b9edca903a061894199f01",
+    "src/components/dashboard/PrimaryTopNav.tsx": "e9c33791baba6f092a1c1ecfbbe2672c63c0a9d46c74f9ca6ad4876d06fcb490",
+    "src/components/dashboard/ManufacturerDirectoryView.tsx": "4810f9050148ea466b60770ecb46a46546b76d313fe38abf48336e44dd64690d",
+    "src/components/dashboard/SidebarNav.tsx": "e4126e2cd94479807789bf2a41563ec6bf3aedc765adfa242c39090ac1f432b7",
+    "src/components/dashboard/solutions/ConfirmedProjectsView.tsx": "c53d88bf395560cdcf941724523e70575f31208f8ad3eab9e95a2b984940f37f",
+    "src/components/dashboard/customers/CustomerPaymentDeliveryView.tsx": "d1fc08c60afd4758e079bffb64b7f4c660256680bf01663b750ec7244d122be1",
+    "src/components/dashboard/CasePhotosView.tsx": "2d10c34d711f72994382820b181b5afe62e7eea7dc5ebdee71de41fa7eacde07",
+    "src/components/dashboard/admin/DevelopmentCostView.tsx": "0f373498037e2f6a94e2d338f2b40cd9109b6052c87bfb122d83f45b346dc893",
+    "src/components/dashboard/PlannedPage.tsx": "c3e1bd31cfa8bec8a3910700dfdaf432c217a70407d7b2fefaf769c5a9fb7c49",
+    "src/components/dashboard/publish/SimilarProductsView.tsx": "8922dcf620c2ef3dbd19f7c7ffc090c335e03df840aa33da4fb8a946141a1292",
+    "src/components/dashboard/solutions/InviteClientsView.tsx": "aa71d8e3a6cb737a230ea38275725950792ee2c1379a7440965bff7010ef7046",
+    "src/components/dashboard/CaseClientsView.tsx": "6bc50ed9eeadc16027a141940342863aa595d6331cd57436f74d590a6a4f0ef2",
+    "src/components/dashboard/FactoryDetailPage.tsx": "c74f3e8fcc6f155328cff15f7239f70fc082c8abe2bf0faeff3fc7e7dee95a3d",
+    "src/components/dashboard/admin/LoginHistoryView.tsx": "71d669d4f08e4562db8bf4aa3cf87a0f71691d9e4d2578ff7aaf65f9d0e70536",
+    "src/components/dashboard/FactoryZonesView.tsx": "a0a4fe0ae2fe7e71d764f68265b42996f0732d7122aee33ef04d6c6bbecb0c0e",
+    "src/components/dashboard/QuickQuoteView.tsx": "47bc71201f08a4f1e6088e92aea0a44e5d915b03bfc338ed41587ba4cf050191",
+    "src/components/dashboard/ProductCategoryView.tsx": "57de8ea57a16717d8156c8c80d5f7f0e65f7b106f5befa72c374dfdaea5cbd25",
+    "src/components/dashboard/reports/FactoryReportView.tsx": "72bafc4b6f90107fa9e55f351176f145c0670f88e065d5912f968eb51902bef3",
+    "src/components/dashboard/reports/ProductReportView.tsx": "cbacd40764f354e33827fab952f44a39e5d606e381874a34bff566e0042f2856",
+    "src/components/dashboard/CaseOrdersView.tsx": "ef7f15b29c593f634e2cfc580e6a87ac84315946205e050a967258d771952fc3",
+    "src/components/dashboard/CategoryManagementView.tsx": "4b31f1ee0c8121d1d639fb810ec2ff9b20a8b0480ff02567c1b09356a3eb5ed0",
+    "src/components/dashboard/customers/CustomerPortalExtraViews.tsx": "e6220f28b65bda72e484757c53479bae9ad6f82986085e00aefe53608b4a55d1",
+    "src/components/dashboard/ProductTableView.tsx": "882042ec112bffd96c7d96b1364dadc68f555c0492e5f1d2eb5c9a93cbfc0886",
+    "src/components/dashboard/solutions/DesignProjectsView.tsx": "553ce031d697a3620558b057512091eee0b7ff45d72204fa59338fee0292f2fb",
+    "src/components/dashboard/EmailNotificationsView.tsx": "ee2e78e5c1216c74e7e7a89c82fa8e91c33f5f02f40d240951db3e21b5f877a7",
+    "src/components/dashboard/admin/PrdDescriptionsView.tsx": "4120afa046a4c4eb5dc252942b99ab5890a9f3c98b584d1fafe7b16151f2613c",
+    "src/components/dashboard/admin/UploadProductLogView.tsx": "908df56da44d23c9a22b9e954aeeb57650326329e4f09fa126b3141c6961558b",
+    "src/components/dashboard/AIProcessorView.tsx": "8a6ac045c307db3b44a10f49b723b3be7e3208d440c2cfa1f4bcda9780e36afd",
+    "src/components/dashboard/ListedProductsView.tsx": "e5d0dd772931ce725260715f55754d2e1523ecacf917b0690076914167ffab01",
+    "src/components/dashboard/publish/PublishCopywritingView.tsx": "4ef5a969d3617a595bb0a1d9750e889d54aaae53b7c0d16e752d205a9019fa84",
+    "src/components/dashboard/PresentationView.tsx": "dde19b2d5dc56670abadeed3cf6e0230a2f3482aa3462823123f4fbcf58b8646",
+    "src/components/dashboard/customers/CustomerCompanyInfoView.tsx": "8cbfbdd5509c19325bc515dfe1b66be8e78b988e1c9b03dbad9e7c8c82dd2696",
+    "src/components/dashboard/QuoteFormatView.tsx": "38eee9d1162d19b1d64b8b4068f493d7d5432ff861fafffd8500de39a0f8e510",
+    "src/components/dashboard/FurnitureSearchView.tsx": "3a0fb2bcb829327544ab7b0234884ef4fd2f0c63d887ddd797177dde91de510a",
+    "src/components/dashboard/PublishModal.tsx": "e4a58c81ea90c3d35a1b7a2d1b95bd9f26fb7b02c039d516cf40313203b1e610",
+    "src/components/dashboard/SettingsView.tsx": "f8d1c2370bf3116468b055beb481d4d69e3d9a893b4f6b2a045cb0e85111548d",
+    "src/components/dashboard/publish/PublishProductInfoView.tsx": "edd561d99ec0eb673b3832a63cc1f556173d51ac1b43924749e32e838617e7ba",
+    "src/components/dashboard/ExtractionReviewView.tsx": "916a8597f48d5068efebbba4a7a8b71e777025dd93f1182f23f756df22241eb0",
+    "src/components/dashboard/publish/PublishPrecheckView.tsx": "8012efc7ae06e5a031322b6ad7161b71f2da7bed77ca9d35641aa10bb1f7021d",
+    "src/components/dashboard/admin/UserManagementView.tsx": "24b5cc7d68c92896d2b5728c8719130b157aa3ca1753e465924d10c4557abc89",
+    "src/components/dashboard/TopBar.tsx": "da5381423d7ae2425c4a4a8887e0d0f525ed2e2f6f471d4e4cd7ad90d54b585a",
+    "src/components/dashboard/DashboardView.tsx": "29735b8f0f23a8d7d2da9b00260dce2254c75d597662e81f75ee4572f0fde61d",
+    "src/components/dashboard/customers/CustomerProductSearchView.tsx": "9d61908907472d4091606bd7b15312768d614d68ecc1d4de598acac4d13ac552",
+    "src/components/dashboard/QuotationListView.tsx": "46ad784b1e2bdcbbcb516a0f53dcbfbbd5f2d89ec0afd011a11e2d3e664d2b47",
+    "src/components/dashboard/QuoteTrashView.tsx": "a4853653ab7c84a2d090e7d3b036102c5a38c2a2207107fafdd5fe7c4f040a60",
+    "src/components/dashboard/FactoryLoginView.tsx": "608842762d3067c72d53a31976839006c017ee77f76fb7b77111d0ed410a22cc",
+    "src/components/dashboard/PmBudgetView.tsx": "2f8756f5eb77e5623dd2a090de4d982d80783b5da92f9174a5450c0aad3907a8",
+    "src/components/dashboard/solutions/SolutionProjectListView.tsx": "89fed22e3225b76a4e8917251a19330d2c9e7acc397bb28f569ed9addfa109dd",
+    "src/components/dashboard/publish/PublishedProductsView.tsx": "33b73ffeed8e2ae2b70441ee6e77136662f936fa0e87867003a24dbf827876bc",
+    "src/components/dashboard/FactorySalesView.tsx": "637b83fe301c6aee25fade6b4fbb12131f8e5332633995eb03b03f8e175b4394",
+    "src/components/dashboard/DesignerPdfView.tsx": "8cefd065bbd3bf5752b38ee72750ba27c680179c203b0b3bbed7cb2b056568df",
+    "src/components/dashboard/PmQuickView.tsx": "4106832fd80efbef29a13123c3d75de25d1d437eebc1e9feaf3cfc32a24ab512",
+    "src/components/dashboard/publish/FurnitureGroupCheckView.tsx": "a3ecf73fc07a551ad89339e75895431a169c270c3c74dec6ab35328bd2e0ceae"
+  }
+}

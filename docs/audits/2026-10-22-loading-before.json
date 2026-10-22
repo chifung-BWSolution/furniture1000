@@ -1,0 +1,68 @@
+{
+  "target": "omxizeukbcqzsnjsuwod.supabase.co",
+  "results": [
+    {
+      "name": "rankings",
+      "ms": 21692,
+      "requests": 15,
+      "bytes": 4681839,
+      "statuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "customer-products",
+      "ms": 4457,
+      "requests": 7,
+      "bytes": 2479704,
+      "statuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "custom-catalog",
+      "ms": 3854,
+      "requests": 7,
+      "bytes": 1443987,
+      "statuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "review-documents",
+      "ms": 329,
+      "requests": 1,
+      "bytes": 785,
+      "statuses": [
+        300
+      ],
+      "error": "Could not embed because more than one relationship was found for 'supplier_documents' and 'extraction_items'"
+    }
+  ]
+}

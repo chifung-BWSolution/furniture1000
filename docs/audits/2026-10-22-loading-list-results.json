@@ -1,0 +1,88 @@
+{
+  "target": "omxizeukbcqzsnjsuwod.supabase.co",
+  "results": [
+    {
+      "name": "quote-legacy-page",
+      "ms": 2429,
+      "requests": 1,
+      "bytes": 860647,
+      "statuses": [
+        206
+      ]
+    },
+    {
+      "name": "quote-light-page",
+      "ms": 2058,
+      "requests": 1,
+      "bytes": 25929,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "name": "quote-independent-count",
+      "ms": 1591,
+      "requests": 1,
+      "bytes": 0,
+      "statuses": [
+        206
+      ]
+    },
+    {
+      "name": "quote-legacy-siblings",
+      "ms": 1213,
+      "requests": 1,
+      "bytes": 1053339,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "name": "quote-light-siblings",
+      "ms": 651,
+      "requests": 1,
+      "bytes": 5716,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "name": "quote-large-page",
+      "ms": 1874,
+      "requests": 1,
+      "bytes": 25908,
+      "statuses": [
+        206
+      ]
+    },
+    {
+      "name": "admin-cold",
+      "ms": 4146,
+      "requests": 3,
+      "bytes": 103259,
+      "statuses": [
+        200,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "admin-warm",
+      "ms": 0,
+      "requests": 0,
+      "bytes": 0,
+      "statuses": []
+    },
+    {
+      "name": "admin-refresh",
+      "ms": 3581,
+      "requests": 3,
+      "bytes": 103259,
+      "statuses": [
+        200,
+        200,
+        200
+      ]
+    }
+  ]
+}
