@@ -87,20 +87,32 @@ async function listPmsUsers(pmsAdmin: ReturnType<typeof createClient>) {
   return byEmail;
 }
 
+/**
+ * Last sign-in / banned state for the given auth accounts.
+ * One listUsers page instead of one getUserById per account — the old loop cost
+ * N serial round trips and dominated the whole admin page.
+ */
 async function fetchAuthMeta(
   furnitureAdmin: ReturnType<typeof createClient>,
   authUserIds: string[],
 ): Promise<Map<string, { last_login_at: string | null; active: boolean }>> {
   const map = new Map<string, { last_login_at: string | null; active: boolean }>();
-  const unique = [...new Set(authUserIds.filter(Boolean))];
+  const wanted = new Set(authUserIds.filter(Boolean));
+  if (wanted.size === 0) return map;
 
-  for (const authUserId of unique) {
-    const { data, error } = await furnitureAdmin.auth.admin.getUserById(authUserId);
-    if (error || !data.user) continue;
-    map.set(authUserId, {
-      last_login_at: data.user.last_sign_in_at ?? null,
-      active: !data.user.banned_until,
-    });
+  const perPage = 1000;
+  for (let page = 1; ; page++) {
+    const { data, error } = await furnitureAdmin.auth.admin.listUsers({ page, perPage });
+    if (error) break;
+    const users = data?.users ?? [];
+    for (const user of users) {
+      if (!wanted.has(user.id)) continue;
+      map.set(user.id, {
+        last_login_at: user.last_sign_in_at ?? null,
+        active: !user.banned_until,
+      });
+    }
+    if (users.length < perPage) break;
   }
   return map;
 }
@@ -286,10 +298,20 @@ function pushGroupedActivityLogs(
   }
 }
 
+/** Display-name source for log rows. ProfileRow satisfies it; the read-only
+ *  path only needs these three fields. */
+type ProfileNameRef = {
+  email: string;
+  display_name: string | null;
+  auth_user_id: string | null;
+};
+
 async function fetchLoginLogs(
   furnitureAdmin: ReturnType<typeof createClient>,
-  profiles: ProfileRow[],
+  profiles: ProfileNameRef[],
+  options: { includeUploadActivity?: boolean } = {},
 ): Promise<{ logs: LoginLog[]; trend: { day: string; 成功: number; 失敗: number }[] }> {
+  const includeUploadActivity = options.includeUploadActivity !== false;
   const nameByEmail = new Map<string, string>();
   const nameByAuthId = new Map<string, string>();
   for (const p of profiles) {
@@ -382,59 +404,63 @@ async function fetchLoginLogs(
     });
   }
 
-  const { data: uploadRows } = await furnitureAdmin
-    .from("upload_log")
-    .select("id, user_name, user_email, user_id, stage, action, logged_at, product_id, page_label, product_sku")
-    .order("logged_at", { ascending: false })
-    .limit(200);
-
-  const productIds = [
-    ...new Set(
-      (uploadRows ?? [])
-        .map((r) => String(r.product_id ?? "").trim())
-        .filter(Boolean),
-    ),
-  ];
-  const skuByProductId = new Map<string, string>();
-  if (productIds.length > 0) {
-    const { data: productRows } = await furnitureAdmin
-      .from("products")
-      .select("id, sku, product_sku")
-      .in("id", productIds);
-    for (const p of productRows ?? []) {
-      const sku = String(p.sku ?? p.product_sku ?? "").trim();
-      if (sku) skuByProductId.set(String(p.id), sku);
-    }
-  }
-
   const pendingUpload: PendingUploadLog[] = [];
 
-  for (const row of uploadRows ?? []) {
-    const email = normalizeEmail(row.user_email);
-    const user = formatUser(
-      String(row.user_name ?? "").trim() ||
-        (email ? nameByEmail.get(email) : null) ||
-        (row.user_id ? nameByAuthId.get(String(row.user_id)) : null),
-      email,
-    );
-    if (user === "歷史紀錄") continue;
-    const logType = mapUploadAction(String(row.action), String(row.stage));
-    const sku = resolveSku(
-      row.product_sku as string | null | undefined,
-      row.product_id as string | null | undefined,
-      skuByProductId,
-    );
-    pendingUpload.push({
-      id: String(row.id),
-      user,
-      email: email ?? undefined,
-      logType,
-      stage: String(row.stage),
-      pageLabel: row.page_label as string | null | undefined,
-      productId: row.product_id as string | null | undefined,
-      sku,
-      at: String(row.logged_at),
-    });
+  // Upload activity rows are rebuilt in the browser (mergeUploadActivityLogs) and
+  // always replace the ones returned here, so the read-only logs action skips them.
+  if (includeUploadActivity) {
+    const { data: uploadRows } = await furnitureAdmin
+      .from("upload_log")
+      .select("id, user_name, user_email, user_id, stage, action, logged_at, product_id, page_label, product_sku")
+      .order("logged_at", { ascending: false })
+      .limit(200);
+
+    const productIds = [
+      ...new Set(
+        (uploadRows ?? [])
+          .map((r) => String(r.product_id ?? "").trim())
+          .filter(Boolean),
+      ),
+    ];
+    const skuByProductId = new Map<string, string>();
+    if (productIds.length > 0) {
+      const { data: productRows } = await furnitureAdmin
+        .from("products")
+        .select("id, sku, product_sku")
+        .in("id", productIds);
+      for (const p of productRows ?? []) {
+        const sku = String(p.sku ?? p.product_sku ?? "").trim();
+        if (sku) skuByProductId.set(String(p.id), sku);
+      }
+    }
+
+    for (const row of uploadRows ?? []) {
+      const email = normalizeEmail(row.user_email);
+      const user = formatUser(
+        String(row.user_name ?? "").trim() ||
+          (email ? nameByEmail.get(email) : null) ||
+          (row.user_id ? nameByAuthId.get(String(row.user_id)) : null),
+        email,
+      );
+      if (user === "歷史紀錄") continue;
+      const logType = mapUploadAction(String(row.action), String(row.stage));
+      const sku = resolveSku(
+        row.product_sku as string | null | undefined,
+        row.product_id as string | null | undefined,
+        skuByProductId,
+      );
+      pendingUpload.push({
+        id: String(row.id),
+        user,
+        email: email ?? undefined,
+        logType,
+        stage: String(row.stage),
+        pageLabel: row.page_label as string | null | undefined,
+        productId: row.product_id as string | null | undefined,
+        sku,
+        at: String(row.logged_at),
+      });
+    }
   }
 
   const editGroups = new Map<string, PendingUploadLog[]>();
@@ -479,6 +505,83 @@ async function fetchLoginLogs(
   const trend = [...trendMap.entries()].map(([day, v]) => ({ day, ...v }));
 
   return { logs: logs.slice(0, 250), trend };
+}
+
+/**
+ * Sync + load platform users. This is the expensive path: it reads PMS staff,
+ * client_companies and project_invitations, then reconciles platform_user_profiles.
+ * The login-history action never needs it.
+ */
+async function loadPlatformUsers(
+  furnitureAdmin: ReturnType<typeof createClient>,
+  pmsServiceKey: string,
+): Promise<ProfileRow[]> {
+  let pmsUsers = new Map<string, ReturnType<typeof extractPmsUser>>();
+  if (pmsServiceKey) {
+    const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    pmsUsers = await listPmsUsers(pmsAdmin);
+  }
+
+  const { data: companies } = await furnitureAdmin
+    .from("client_companies")
+    .select("contact_email, contact_person, name");
+
+  const { data: invitations } = await furnitureAdmin
+    .from("project_invitations")
+    .select("email")
+    .not("email", "is", null);
+
+  const clientEmails: { email: string; display_name: string | null }[] = [];
+  const seenClient = new Set<string>();
+  for (const c of companies ?? []) {
+    const email = normalizeEmail(c.contact_email);
+    if (!email || seenClient.has(email)) continue;
+    seenClient.add(email);
+    clientEmails.push({
+      email,
+      display_name: c.contact_person?.trim() || c.name?.trim() || null,
+    });
+  }
+  for (const inv of invitations ?? []) {
+    const email = normalizeEmail(inv.email);
+    if (!email || seenClient.has(email)) continue;
+    seenClient.add(email);
+    clientEmails.push({ email, display_name: null });
+  }
+
+  const authIds = [...pmsUsers.values()]
+    .map((u) => u.auth_user_id)
+    .filter((id): id is string => !!id);
+  const authMeta = await fetchAuthMeta(furnitureAdmin, authIds);
+  return syncProfiles(furnitureAdmin, pmsUsers, clientEmails, authMeta);
+}
+
+/** Display names only, without touching PMS or reconciling profiles. */
+async function readProfileNames(
+  furnitureAdmin: ReturnType<typeof createClient>,
+): Promise<ProfileNameRef[]> {
+  const { data } = await furnitureAdmin
+    .from("platform_user_profiles")
+    .select("email, display_name, auth_user_id");
+  return (data ?? []).map((row) => ({
+    email: String(row.email ?? ""),
+    display_name: row.display_name ?? null,
+    auth_user_id: row.auth_user_id ?? null,
+  }));
+}
+
+function toPlatformUsers(profiles: ProfileRow[]) {
+  return profiles.map((p) => ({
+    id: p.id,
+    name: p.display_name?.trim() || p.email.split("@")[0],
+    email: p.email,
+    role: p.role,
+    active: p.active,
+    lastLogin: p.last_login_at ?? new Date(0).toISOString(),
+    source: p.source,
+  }));
 }
 
 Deno.serve(async (req: Request) => {
@@ -528,59 +631,27 @@ Deno.serve(async (req: Request) => {
   });
 
   try {
+    if (action === "users") {
+      const profiles = await loadPlatformUsers(furnitureAdmin, pmsServiceKey);
+      return jsonResponse({ users: toPlatformUsers(profiles) });
+    }
+
+    if (action === "logs") {
+      // No PMS round trip and no profile reconciliation — the login history page
+      // only needs display names plus the login/SSO log rows.
+      const profiles = await readProfileNames(furnitureAdmin);
+      const { logs, trend } = await fetchLoginLogs(furnitureAdmin, profiles, {
+        includeUploadActivity: false,
+      });
+      return jsonResponse({ logs, securityTrend: trend });
+    }
+
     if (action === "fetch") {
-      let pmsUsers = new Map<string, ReturnType<typeof extractPmsUser>>();
-      if (pmsServiceKey) {
-        const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
-          auth: { persistSession: false, autoRefreshToken: false },
-        });
-        pmsUsers = await listPmsUsers(pmsAdmin);
-      }
-
-      const { data: companies } = await furnitureAdmin
-        .from("client_companies")
-        .select("contact_email, contact_person, name");
-
-      const { data: invitations } = await furnitureAdmin
-        .from("project_invitations")
-        .select("email")
-        .not("email", "is", null);
-
-      const clientEmails: { email: string; display_name: string | null }[] = [];
-      const seenClient = new Set<string>();
-      for (const c of companies ?? []) {
-        const email = normalizeEmail(c.contact_email);
-        if (!email || seenClient.has(email)) continue;
-        seenClient.add(email);
-        clientEmails.push({
-          email,
-          display_name: c.contact_person?.trim() || c.name?.trim() || null,
-        });
-      }
-      for (const inv of invitations ?? []) {
-        const email = normalizeEmail(inv.email);
-        if (!email || seenClient.has(email)) continue;
-        seenClient.add(email);
-        clientEmails.push({ email, display_name: null });
-      }
-
-      const authIds = [...pmsUsers.values()]
-        .map((u) => u.auth_user_id)
-        .filter((id): id is string => !!id);
-      const authMeta = await fetchAuthMeta(furnitureAdmin, authIds);
-      const profiles = await syncProfiles(furnitureAdmin, pmsUsers, clientEmails, authMeta);
+      const profiles = await loadPlatformUsers(furnitureAdmin, pmsServiceKey);
       const { logs, trend } = await fetchLoginLogs(furnitureAdmin, profiles);
 
       return jsonResponse({
-        users: profiles.map((p) => ({
-          id: p.id,
-          name: p.display_name?.trim() || p.email.split("@")[0],
-          email: p.email,
-          role: p.role,
-          active: p.active,
-          lastLogin: p.last_login_at ?? new Date(0).toISOString(),
-          source: p.source,
-        })),
+        users: toPlatformUsers(profiles),
         logs,
         securityTrend: trend,
       });

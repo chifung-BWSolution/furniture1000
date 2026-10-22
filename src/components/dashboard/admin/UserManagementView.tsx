@@ -6,7 +6,7 @@ import {
   type PlatformUser, type UserRole,
 } from '@/constants/analytics-mock';
 import {
-  fetchPlatformAdminData, updatePlatformUserProfile, invitePlatformUser,
+  fetchPlatformUsers, updatePlatformUserProfile, invitePlatformUser,
 } from '@/lib/adminApi';
 import { toast } from 'sonner';
 import { Modal, ModalButton } from '@/components/ui/modal';
@@ -31,8 +31,8 @@ export function UserManagementView() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
-    const data = await fetchPlatformAdminData();
-    setUsers(data.users);
+    const data = await fetchPlatformUsers(silent);
+    setUsers(data);
     if (!silent) setLoading(false);
     else setRefreshing(false);
   }, []);
@@ -96,10 +96,10 @@ export function UserManagementView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3">
         <div className="flex items-center gap-2">
           <UserCog className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">用戶管理</h2>
+          <h2 className="fds-page-title">用戶管理</h2>
           <span className="font-mono-data text-[11px] text-muted-foreground">
             {users.length} 位用戶 · {users.filter((u) => u.active).length} 啟用中
           </span>
@@ -123,8 +123,8 @@ export function UserManagementView() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="mx-auto max-w-5xl space-y-6">
+      <div className="flex-1 overflow-auto px-4 py-5 md:px-6">
+        <div className="mx-auto max-w-none space-y-6">
           <div className="overflow-hidden rounded-xl border border-border bg-card">
             {users.length === 0 ? (
               <div className="px-6 py-16 text-center">

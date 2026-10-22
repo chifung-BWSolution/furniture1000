@@ -10,7 +10,7 @@ import {
   LOG_TYPE_META, CHART_COLORS,
   type LogType,
 } from '@/constants/analytics-mock';
-import { fetchPlatformAdminData } from '@/lib/adminApi';
+import { fetchPlatformLoginLogs } from '@/lib/adminApi';
 import type { LoginLog, SecurityTrendPoint } from '@/lib/adminApi';
 import { toast } from 'sonner';
 
@@ -87,7 +87,7 @@ export function LoginHistoryView() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
-    const data = await fetchPlatformAdminData();
+    const data = await fetchPlatformLoginLogs(silent);
     setLogs(data.logs);
     setSecurityTrend(data.securityTrend);
     if (!silent) setLoading(false);
@@ -131,10 +131,10 @@ export function LoginHistoryView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3">
         <div className="flex items-center gap-2">
           <History className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">登入紀錄</h2>
+          <h2 className="fds-page-title">登入紀錄</h2>
           <span className="font-mono-data text-[11px] text-muted-foreground">
             {logs.length} 筆日誌 · {suspicious.length} 異常
           </span>
@@ -171,7 +171,7 @@ export function LoginHistoryView() {
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto px-4 py-5 md:px-6">
           <div className="mb-4 flex flex-wrap items-center gap-1.5">
             {TYPE_FILTERS.map((f) => (
               <button
