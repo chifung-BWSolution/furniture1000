@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { loadManufacturerDirectory } from '@/lib/manufacturerDirectory';
 
 export type SupplierLogin = {
   id: string;
@@ -62,14 +63,15 @@ export function isMissingSupplierLoginTable(error: PostgrestError): boolean {
 }
 
 export async function loadDirectoryFactories(): Promise<{ factories: DirectoryFactory[]; error: string | null }> {
-  const { data, error } = await supabase.functions.invoke('supabase-functions-fetch-manufacturer-directory');
-  if (error) return { factories: [], error: error.message };
-  const payload = data as { error?: string; factories?: Array<Record<string, unknown>> } | null;
-  if (payload?.error) return { factories: [], error: payload.error };
-  const factories = (payload?.factories ?? [])
-    .map((row) => ({ id: String(row.id ?? ''), name: String(row.display_name ?? '').trim() }))
-    .filter((row) => row.id && row.name);
-  return { factories, error: null };
+  try {
+    const rows = await loadManufacturerDirectory();
+    const factories = rows
+      .map((row) => ({ id: String(row.id ?? ''), name: String(row.display_name ?? '').trim() }))
+      .filter((row) => row.id && row.name);
+    return { factories, error: null };
+  } catch (err) {
+    return { factories: [], error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function loadSupplierLogins(): Promise<{

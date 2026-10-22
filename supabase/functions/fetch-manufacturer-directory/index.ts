@@ -11,6 +11,13 @@ const corsHeaders = {
 const FACTORY_ID_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Roles allowed to read the manufacturer directory. */
+const DIRECTORY_ROLES = ["admin", "uploader", "designer"];
+
+/** Columns the manufacturer directory renders. */
+const FACTORY_COLUMNS =
+  "id, display_name, factory_code, created_at, contact_person, phone, location, project_number, working_folder, join_date";
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -31,28 +38,56 @@ function toStaffCommentShape(row: Record<string, unknown>) {
   };
 }
 
-async function requireDirectoryUser(req: Request): Promise<{ email: string } | Response> {
+/**
+ * Furniture client that carries the caller's JWT.
+ *
+ * `bwf_has_role` reads `auth.uid()` / `auth.jwt()` inside PostgREST, so the
+ * caller must be the end user — the PMS service role cannot stand in here.
+ */
+function createFurnitureClient(req: Request) {
   const furnitureUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const furnitureAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader || !furnitureUrl || !furnitureAnonKey) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-  const furnitureClient = createClient(furnitureUrl, furnitureAnonKey, {
+  if (!authHeader || !furnitureUrl || !furnitureAnonKey) return null;
+  return createClient(furnitureUrl, furnitureAnonKey, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data: userData, error: userError } = await furnitureClient.auth.getUser();
-  if (userError || !userData.user?.id) {
+}
+
+/** Role gate only — one round trip. */
+async function hasDirectoryRole(
+  client: ReturnType<typeof createFurnitureClient>,
+): Promise<boolean> {
+  if (!client) return false;
+  const { data, error } = await client.rpc("bwf_has_role", { p_roles: DIRECTORY_ROLES });
+  return !error && data === true;
+}
+
+/** Role gate for read-only calls that do not need the caller's e-mail. */
+async function requireDirectoryRole(req: Request): Promise<Response | null> {
+  const client = createFurnitureClient(req);
+  if (!client) return jsonResponse({ error: "Unauthorized" }, 401);
+  if (!(await hasDirectoryRole(client))) return jsonResponse({ error: "Forbidden" }, 403);
+  return null;
+}
+
+async function requireDirectoryUser(req: Request): Promise<{ email: string } | Response> {
+  const client = createFurnitureClient(req);
+  if (!client) return jsonResponse({ error: "Unauthorized" }, 401);
+  // Both calls only need the caller's JWT, so they no longer run one after the
+  // other — that halves the round trips before the PMS queries start.
+  const [roleResult, userResult] = await Promise.all([
+    client.rpc("bwf_has_role", { p_roles: DIRECTORY_ROLES }),
+    client.auth.getUser(),
+  ]);
+  if (userResult.error || !userResult.data.user?.id) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
-  const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", {
-    p_roles: ["admin", "uploader", "designer"],
-  });
-  if (roleError || allowed !== true) {
+  if (roleResult.error || roleResult.data !== true) {
     return jsonResponse({ error: "Forbidden" }, 403);
   }
-  return { email: (userData.user.email ?? "").trim().slice(0, 120) };
+  return { email: (userResult.data.user.email ?? "").trim().slice(0, 120) };
 }
 
 Deno.serve(async (req: Request) => {
@@ -88,11 +123,45 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const caller = await requireDirectoryUser(req);
-    if (caller instanceof Response) return caller;
+    // Directory list: factory rows only.
+    //
+    // The directory table renders the factory rows alone, so skip the
+    // bwf_projects and staff_supplier_comments queries — they were the bulk
+    // of the payload (365KB, of which 320KB was comments + linked projects)
+    // and of the response time. Full payload stays available for the detail
+    // page, which still calls this function without an action.
+    if (body.action === "list") {
+      let listQuery = masterSupabase
+        .from("factories")
+        .select(FACTORY_COLUMNS)
+        .ilike("status", "active")
+        .order("display_name", { ascending: true });
+
+      if (body.factory_id) {
+        listQuery = listQuery.eq("id", body.factory_id);
+      }
+
+      // The role gate and the PMS read do not depend on each other, so they
+      // travel together instead of stacking two round trips.
+      const [denied, listResult] = await Promise.all([
+        requireDirectoryRole(req),
+        listQuery,
+      ]);
+      if (denied) return denied;
+
+      if (listResult.error) {
+        throw new Error(`Failed to fetch factories: ${listResult.error.message}`);
+      }
+
+      console.log(`[fetch-manufacturer-directory] list: ${listResult.data?.length || 0} factories`);
+      return jsonResponse({ factories: listResult.data || [] });
+    }
 
     // Handle save feedback action. PMS factory_id is factories.id (uuid).
     if (body.action === "save_feedback" && body.feedback) {
+      const caller = await requireDirectoryUser(req);
+      if (caller instanceof Response) return caller;
+
       const { factory_id: fId, factory_name, comment, staff_name } = body.feedback;
       if (!FACTORY_ID_UUID.test(fId ?? "")) {
         return new Response(
@@ -140,9 +209,7 @@ Deno.serve(async (req: Request) => {
     // Master DB stores title-case status values (e.g. "Active"); ilike matches user-facing "active".
     let factoriesQuery = masterSupabase
       .from("factories")
-      .select(
-        "id, display_name, factory_code, created_at, contact_person, phone, location, project_number, working_folder, join_date"
-      )
+      .select(FACTORY_COLUMNS)
       .ilike("status", "active")
       .order("display_name", { ascending: true });
 
@@ -150,7 +217,16 @@ Deno.serve(async (req: Request) => {
       factoriesQuery = factoriesQuery.eq("id", factoryId);
     }
 
-    const { data: factories, error: factoriesError } = await factoriesQuery;
+    // The role gate and the PMS read do not depend on each other, so they
+    // travel together instead of stacking two round trips.
+    const [caller, factoriesResult] = await Promise.all([
+      requireDirectoryUser(req),
+      factoriesQuery,
+    ]);
+    if (caller instanceof Response) return caller;
+
+    const factories = factoriesResult.data;
+    const factoriesError = factoriesResult.error;
 
     if (factoriesError) {
       throw new Error(`Failed to fetch factories: ${factoriesError.message}`);

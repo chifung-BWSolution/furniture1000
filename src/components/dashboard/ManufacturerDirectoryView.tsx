@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,17 +22,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
+import { loadManufacturerDirectory, type DirectoryFactory } from '@/lib/manufacturerDirectory';
 
-interface FactoryRecord {
-  id: string;
-  display_name: string;
-  factory_code: string | null;
-  contact_person: string | null;
-  phone: string | null;
-  location: string | null;
-  project_number: number | null;
-  join_date: string | null;
-}
+type FactoryRecord = DirectoryFactory;
 
 function formatJoinDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -46,41 +37,23 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (force = false) => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke(
-        'supabase-functions-fetch-manufacturer-directory'
-      );
-
-      if (error) {
-        console.error('[ManufacturerDirectory] Edge function error:', error);
-        const errMsg = typeof error === 'object' && error.message
-          ? error.message
-          : 'Edge function invocation failed';
-        toast.error(`Failed to fetch manufacturer data: ${errMsg}`);
-        return;
-      }
-
-      if (data?.error) {
-        console.error('[ManufacturerDirectory] Server error:', data.error);
-        toast.error(`Server error: ${data.error}`);
-        return;
-      }
-
-      if (data) {
-        setFactories(data.factories || []);
-      }
+      // All manufacturers are loaded once, so the search below filters in the
+      // browser — typing never hits the API.
+      const rows = await loadManufacturerDirectory({ force });
+      setFactories(rows);
     } catch (err) {
-      console.error('[ManufacturerDirectory] Network error:', err);
-      toast.error('Network error fetching manufacturer data');
+      console.error('[ManufacturerDirectory] Failed to load manufacturers:', err);
+      toast.error('廠家目錄載入失敗，請重試');
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
   const filteredFactories = useMemo(() => {
@@ -115,7 +88,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
         <Button
           variant="outline"
           size="sm"
-          onClick={fetchData}
+          onClick={() => void fetchData(true)}
           disabled={isLoading}
           className="gap-2"
         >
