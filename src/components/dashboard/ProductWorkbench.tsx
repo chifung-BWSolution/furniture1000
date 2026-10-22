@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import {
-  Cable, ChevronLeft, GitCompare, Heart, Image as ImageIcon, Leaf, Loader2, Maximize2, Move, Package, RotateCcw, Ruler, Search, Share2, Smartphone, Sparkles, Users, ZoomIn,
+  Cable, ChevronLeft, GitCompare, Image as ImageIcon, Leaf, Loader2, Maximize2, Move, Package, RotateCcw, Ruler, Search, Share2, Smartphone, Sparkles, Users, ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -98,9 +98,7 @@ const COMPARE_FIELDS: { key: string; label: string; value: (card: Card, flags: M
 
 export function ProductWorkbench({
   detail,
-  loved,
   onClose,
-  onToggleFavorite,
   onOpenProduct,
   actions,
   quotes,
@@ -108,9 +106,7 @@ export function ProductWorkbench({
   modelFiles,
 }: {
   detail: ProductDetail;
-  loved: boolean;
   onClose: () => void;
-  onToggleFavorite: (next: boolean) => Promise<boolean>;
   onOpenProduct: (productId: string) => void;
   actions: (openAr: () => void) => ReactNode;
   quotes: ReactNode | null;
@@ -326,6 +322,14 @@ export function ProductWorkbench({
   };
 
   const sizeText = sizeLabel(detail);
+  const usage = detail.usage;
+  const usageText = usage && usage.quote_count > 0
+    ? `${usage.quote_count} 張報價單 · ${usage.quantity_sum} 件`
+    : MISSING;
+  const demand = detail.category_demand;
+  const demandText = demand && demand.qty > 0
+    ? `${demand.level1} · PMS 落單 ${demand.qty.toLocaleString()} 件`
+    : MISSING;
   const specRows: [string, string][] = [
     ['型號', shown(detail.model)],
     ['SKU', shown(detail.sku)],
@@ -335,6 +339,8 @@ export function ProductWorkbench({
     ['材質', shown(detail.material)],
     ['顏色', shown(detail.color ? multiColorToChineseDisplay(detail.color) : null)],
     ['現貨', detail.in_stock == null ? MISSING : detail.in_stock ? '是' : '否'],
+    ['報價用量', usageText],
+    ['類別熱度', demandText],
   ];
 
   const arLink = typeof window === 'undefined' ? '' : `${window.location.origin}${window.location.pathname}?ar=1`;
@@ -390,14 +396,6 @@ export function ProductWorkbench({
                 {names.secondary && <p className="mt-1 text-sm text-slate-400">{names.secondary}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-4">
-                <button
-                  type="button"
-                  className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
-                  onClick={() => onToggleFavorite(!loved).catch(() => undefined)}
-                >
-                  <Heart className={cn('mr-1 h-3.5 w-3.5', loved && 'fill-rose-500 text-rose-500')} />
-                  {loved ? '已收藏' : '加入收藏'}
-                </button>
                 <button
                   type="button"
                   className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"

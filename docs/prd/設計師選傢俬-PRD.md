@@ -43,7 +43,7 @@
 |---|---|---|---|
 | 產品類型 | `fds2-designer-types` | 待開發 | D-1 主搜尋頁 |
 | 產品PDF | `fds2-designer-pdf` | 待開發 | D-2 PDF 目錄 |
-| 常用傢俬 | `fds2-designer-common` | 待開發 | D-3 愛心收藏 |
+| 常用傢俬 | `fds2-designer-common` | 待開發 | D-3 用量排行 |
 | 最新產品 | `fds2-designer-latest` | 待開發 | D-4 最新上架 |
 | SU模型 | `fds2-designer-su` | 待開發 | D-5 SU 模型 |
 | 3D模型 | `fds2-designer-3d` | 待開發 | D-6 3D 模型 |
@@ -113,12 +113,25 @@
 
 ---
 
-### D-3 常用傢俬（愛心收藏）— P1
+### D-3 常用傢俬（依實際用量排行）— P1
 
-- 設計師可對產品**加入／取消愛心**，收藏為個人清單（per-user）。
-- 「常用傢俬」頁與 D-1 快速篩選共用同一資料。
-- **驗收**：加入愛心後即時出現在「常用傢俬」；不同使用者清單互不影響；可由清單直接選產品下單（D-8.4）。
-- 資料：`designer_favorites (user_id, product_id, created_at)`。
+- 「常用傢俬」是**全公司共用**的排行頁，**不是**個人愛心清單（個人收藏已移除）。
+- 排序分兩層，兩層都要有數據支撐：
+  1. **類別熱度（賣得多）**＝PMS 真實落單量。PMS 記的是項目用的通用產品類型（同事椅 1,890 件、Staff Workstation 同事枱 1,482…，
+     共 105 個 `bwf_products` / 30 個 `product_types`），Furniture 目錄是型號級貨品（5,289 件）；
+     兩邊**在產品層級對不上**（PMS `bwf_products` 只有 `display`，`bubble_id`／`slug` 全 NULL、沒有 SKU；
+     名稱比對正規化／前綴／中文包含三種規則都 0 命中），所以只能落到**類別層級**：
+     PMS `product_types` ↔ FDS `products.level1_category`（人工對照表，28 條）。
+     資料流：edge function `pms-category-demand`（cron `fds-pms-category-demand`，每日 03:17）每日把 PMS 各類型的
+     落單聚合寫進 `fds_pms_category_demand`，對照表在 `fds_pms_category_map`（可經 admin RPC `fds_pms_category_map_set` 改）。
+     **FDS 不存 PMS 明細。**
+  2. **類內用量（設計師用得多）**＝`bwf_quote_item`，口徑與「報價單產品報告」一致：只計每個 `quote_id` 版本鏈的
+     最新版本、撇除回收桶、排除 `is_section_title`／`is_custom_term` 行、只計已連到目錄的行。
+- **驗收**：新同事不用先加愛心也能看到最常被選用的傢俬；「PMS 熱度」排序下最熱的類別排在最前
+  （2026-10-22 實測：辦公枱 2,995 件、辦公椅 2,910 件、儲物櫃 1,430 件，映射覆蓋 9,257／9,543 件＝97%）；
+  篩選列（廠家／類型／顏色／材質／尺寸／價錢／現貨）與 D-1 共用。
+- 資料：`bwf_quote_item`（用量）＋ `products`（目錄）＋ `fds_pms_category_demand` / `fds_pms_category_map`（類別熱度），
+  由 `fds_search_products(p_common => true, p_sort => 'popular_demand')` 在伺服器端彙總（前端不做全表掃描）。
 
 ---
 
@@ -198,7 +211,8 @@
 | `factory_catalogs` | 廠家目錄 PDF | **新增** |
 | `factory_catalog_segments` | PDF 分頁／分類區段 | **新增** |
 | `products.catalog_id / catalog_page` | 回指目錄頁 | **新增** |
-| `designer_favorites` | 常用傢俬（per-user） | **新增** |
+| `bwf_quote_item.product_id` | 常用傢俬類內用量（報價單數／件數／金額） | 現有 |
+| `fds_pms_category_demand` / `fds_pms_category_map` | 常用傢俬類別熱度（PMS 落單聚合＋對照表） | **新增** |
 | `internal_orders` / `internal_order_items` | 內部訂單 | **新增** |
 
 > 圖片一律先上傳 Storage 再存 URL（見 `CLAUDE.md` 第 2 點）；列表查詢不可 `.select('*')`（見第 1 點）。
@@ -212,7 +226,7 @@
 | 搜尋 A／B 類產品 | ✅ | ✅ | ✅ | ✅ | A 類（客戶端） |
 | 查看成本價 `cost_price` | ✅ | ❌ | ❌ | ✅ | ❌ |
 | 查看中間價 | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 常用傢俬（個人） | ✅ | ✅ | ✅ | ✅ | — |
+| 常用傢俬（全公司用量排行） | ✅ | ✅ | ✅ | ✅ | — |
 | SU／3D 模型 | ✅ | ✅ | ✅ | ✅ | 受限 |
 | 上載產品 PDF | ✅ | ❌ | ❌ | ✅ | ❌ |
 | 產生內部訂單 | ✅ | ✅ | ✅ | ✅ | ❌ |
@@ -227,7 +241,7 @@
 |---|---|---|
 | D-1 搜尋篩選 | 只有來源／關鍵字／廠家／分類／現貨 | 加顏色多選、材質、尺寸、常用／最新 |
 | D-2 產品 PDF | PDF 不保存、無關聯 | 新增目錄表、AI 分段、PDF 檢視器 |
-| D-3 常用傢俬 | 無 | 收藏表＋UI |
+| D-3 常用傢俬 | 只有個人愛心收藏 | 改成依 PMS 類別熱度＋報價用量的全公司排行 |
 | D-4 最新產品 | 無（列表有 `created_date`） | 排序頁＋徽章 |
 | D-5／D-6 SU／3D | 完全不存在 | 新增產品模型表＋綁定 UI |
 | D-7 愛心小工具 | 無 | 選中產品拉模型 |

@@ -4,11 +4,12 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ChevronDown, ChevronLeft, ChevronRight, Box, Check, ExternalLink, FileText, Heart, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search, Sparkles,
+  ChevronDown, ChevronLeft, ChevronRight, Box, Check, ExternalLink, FileText, ImagePlus, Loader2, Package, PackageSearch, RotateCcw, Ruler, Search, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { CompactEmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -76,9 +77,7 @@ import {
   fetchSupplierCompare,
   mergeDuplicateProduct,
   moneyLabel,
-  isDesignerFavorite,
   searchProducts,
-  setDesignerFavorite,
   sizeLabel,
   type PriceValidity,
   type ProductDetail,
@@ -116,6 +115,14 @@ const SORTS: { id: SearchSort; label: string }[] = [
   { id: 'price_asc', label: '價錢 低→高' },
   { id: 'price_desc', label: '價錢 高→低' },
   { id: 'size', label: '尺寸（長）' },
+];
+
+/** 常用傢俬的排序＝報價用量口徑，不是相關度。 */
+const COMMON_SORTS: { id: SearchSort; label: string }[] = [
+  { id: 'popular_demand', label: 'PMS 熱度' },
+  { id: 'popular_quotes', label: '用得多' },
+  { id: 'popular_quantity', label: '件數多' },
+  { id: 'popular_amount', label: '金額高' },
 ];
 
 const VALIDITY_CLASS: Record<PriceValidity, string> = {
@@ -176,7 +183,7 @@ function activeFilterCount(f: SearchFilters): number {
 const NEW_PRODUCT_MS = 14 * 24 * 60 * 60 * 1000;
 const DAY_WINDOWS = [7, 30, 90] as const;
 
-export type DesignerBrowseMode = 'browse' | 'latest' | 'favorites';
+export type DesignerBrowseMode = 'browse' | 'latest' | 'common';
 
 function isNewProduct(createdAt: string | undefined): boolean {
   if (!createdAt) return false;
@@ -194,7 +201,10 @@ export function FurnitureSearchView({
 }) {
   const [filters, setFilters] = useState<SearchFilters>(() => ({
     ...EMPTY_SEARCH_FILTERS,
-    sort: mode === 'latest' ? 'newest' : EMPTY_SEARCH_FILTERS.sort,
+    sort:
+      mode === 'latest' ? 'newest'
+      : mode === 'common' ? 'popular_demand'
+      : EMPTY_SEARCH_FILTERS.sort,
   }));
   const [sinceDays, setSinceDays] = useState<number | null>(null);
   const [page, setPage] = useState(0);
@@ -230,29 +240,6 @@ export function FurnitureSearchView({
     if (routeDetail) navigate(buildDesignerProductPath(productId));
     else setLocalDetailId(productId);
   }, [navigate, routeDetail]);
-  const toggleFavorite = useCallback((productId: string, next: boolean) => {
-    return setDesignerFavorite(productId, next)
-      .then((on) => {
-        const paint = (item: SearchProduct) => (item.id === productId ? { ...item, favorited: on } : item);
-        setImageHits((cur) => cur?.map(paint) ?? cur);
-        setResult((cur) => {
-          if (!cur) return cur;
-          if (mode === 'favorites' && !on) {
-            return {
-              ...cur,
-              total: Math.max(0, cur.total - 1),
-              items: cur.items.filter((item) => item.id !== productId),
-            };
-          }
-          return { ...cur, items: cur.items.map(paint) };
-        });
-        return on;
-      })
-      .catch((err) => {
-        toast.error('更新常用傢俬失敗', { description: errorText(err) });
-        throw err;
-      });
-  }, [mode]);
   const debounced = useDebounced(filters, 300);
   const patch = useCallback((next: Partial<SearchFilters>) => {
     setFilters((cur) => ({ ...cur, ...next }));
@@ -274,7 +261,7 @@ export function FurnitureSearchView({
     const started = performance.now();
     searchProducts(debounced, page, pageSize, {
       sinceDays: mode === 'latest' ? sinceDays : null,
-      onlyFavorites: mode === 'favorites',
+      commonOnly: mode === 'common',
       documentId,
     })
       .then((res) => {
@@ -380,15 +367,12 @@ export function FurnitureSearchView({
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const filterCount = activeFilterCount(filters);
   const allowImageSearch = mode === 'browse' && !documentId;
-  const openFavorite = (imageHits ?? result?.items ?? []).find((item) => item.id === detailId)?.favorited === true;
 
   if (detailId) {
     return (
       <>
         <ProductDetailPage
           productId={detailId}
-          favorited={openFavorite}
-          onToggleFavorite={(next) => toggleFavorite(detailId, next)}
           onClose={closeDetail}
           onOpenProduct={openDetail}
           onOpenSource={setSourcePage}
@@ -466,7 +450,7 @@ export function FurnitureSearchView({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {SORTS.map((s) => (
+            {(mode === 'common' ? COMMON_SORTS : SORTS).map((s) => (
               <SelectItem key={s.id} value={s.id}>
                 {s.label}
               </SelectItem>
@@ -500,8 +484,10 @@ export function FurnitureSearchView({
           <span className="text-xs text-muted-foreground">14 天內上架會標「新」</span>
         </div>
       )}
-      {mode === 'favorites' && (
-        <p className="text-xs text-muted-foreground">這是你的愛心清單，其他同事看不到。</p>
+      {mode === 'common' && (
+        <p className="text-xs text-muted-foreground">
+          先按 PMS 真實落單的類別熱度排，同類內再按傢俬報價單的實際用量排（只計最新版本，撇除回收桶）。全公司共用。
+        </p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -703,7 +689,6 @@ export function FurnitureSearchView({
                   models={modelFlags[p.id]}
                   showNew={mode === 'latest'}
                   onOpen={() => openDetail(p.id)}
-                  onToggleFavorite={() => toggleFavorite(p.id, p.favorited !== true)}
                   onOpenSource={setSourcePage}
                   canOpenSource={false}
                 />
@@ -715,11 +700,15 @@ export function FurnitureSearchView({
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
           </div>
         ) : (result?.items.length ?? 0) === 0 ? (
-          <div className="py-24 text-center text-sm text-muted-foreground">
-            {mode === 'favorites' && !filters.query && filterCount === 0
-              ? '還沒有常用傢俬。在產品上按愛心即可加入。'
-              : '沒有符合條件的產品'}
-          </div>
+          <CompactEmptyState
+            icon={PackageSearch}
+            title={
+              mode === 'common' && filters.sort !== 'popular_demand' && !filters.query && filterCount === 0
+                ? '未有報價用量記錄。'
+                : '沒有符合條件的產品'
+            }
+            className="py-16"
+          />
         ) : (
           <div
             className={cn(
@@ -734,7 +723,6 @@ export function FurnitureSearchView({
                 models={modelFlags[p.id]}
                 showNew={mode === 'latest'}
                 onOpen={() => openDetail(p.id)}
-                onToggleFavorite={() => toggleFavorite(p.id, p.favorited !== true)}
                 onOpenSource={setSourcePage}
                 canOpenSource={result?.can_open_source === true}
               />
@@ -847,7 +835,6 @@ function ProductCard({
   models,
   showNew,
   onOpen,
-  onToggleFavorite,
   onOpenSource,
   canOpenSource,
 }: {
@@ -855,7 +842,6 @@ function ProductCard({
   models?: { su: boolean; '3d': boolean };
   showNew?: boolean;
   onOpen: () => void;
-  onToggleFavorite: () => void;
   onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
   /** Private supplier PDF: only admin / uploader may open it. */
   canOpenSource: boolean;
@@ -870,15 +856,6 @@ function ProductCard({
   const quoteState = p.quote && p.quote.validity !== 'valid' ? p.quote.validity : null;
   return (
     <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-shadow hover:shadow-md">
-      <button
-        type="button"
-        aria-label={p.favorited ? '取消常用' : '加入常用傢俬'}
-        title={p.favorited ? '取消常用' : '加入常用傢俬'}
-        className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-1.5 text-muted-foreground shadow-sm hover:text-rose-500"
-        onClick={onToggleFavorite}
-      >
-        <Heart className={cn('h-4 w-4', p.favorited && 'fill-rose-500 text-rose-500')} />
-      </button>
       <button type="button" onClick={onOpen} className="flex flex-1 flex-col text-left">
         <div className="relative h-36 w-full shrink-0 overflow-hidden bg-muted">
           {photos[0] ? (
@@ -934,6 +911,16 @@ function ProductCard({
             </div>
           )}
           {feature && <div className="line-clamp-1 text-xs text-muted-foreground">{feature}</div>}
+          {(p.usage_quote_count ?? 0) > 0 && (
+            <div className="truncate text-xs text-muted-foreground">
+              用於 {p.usage_quote_count} 張報價單 · 共 {p.usage_quantity ?? 0} 件
+            </div>
+          )}
+          {(p.category_demand_qty ?? 0) > 0 && (
+            <div className="truncate text-xs text-muted-foreground">
+              {p.level1_category ?? '未分類'} · PMS 落單 {p.category_demand_qty?.toLocaleString()} 件
+            </div>
+          )}
           {thumbs.length > 0 && (
             <div className="flex gap-1.5">
               {thumbs.map((url, index) => {
@@ -2346,23 +2333,18 @@ function ProductModelsSection({
 
 function ProductDetailPage({
   productId,
-  favorited,
-  onToggleFavorite,
   onClose,
   onOpenProduct,
   onOpenSource,
   onModelsChanged,
 }: {
   productId: string;
-  favorited: boolean;
-  onToggleFavorite: (next: boolean) => Promise<boolean>;
   onClose: () => void;
   onOpenProduct: (productId: string) => void;
   onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
   onModelsChanged: () => void;
 }) {
   const [detail, setDetail] = useState<ProductDetail | null>(null);
-  const [loved, setLoved] = useState(favorited);
   const [compare, setCompare] = useState<SupplierCompare | null>(null);
   const [modelFiles, setModelFiles] = useState<ProductModelFile[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
@@ -2389,22 +2371,6 @@ function ProductDetailPage({
       cancelled = true;
     };
   }, [productId, onClose, reloadKey]);
-
-  useEffect(() => {
-    setLoved(favorited);
-  }, [favorited, productId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    isDesignerFavorite(productId)
-      .then((on) => {
-        if (!cancelled) setLoved(on);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [productId]);
 
   if (!detail) {
     return (
@@ -2501,17 +2467,7 @@ function ProductDetailPage({
   return (
     <ProductWorkbench
       detail={detail}
-      loved={loved}
       onClose={onClose}
-      onToggleFavorite={async (next) => {
-        setLoved(next);
-        try {
-          return await onToggleFavorite(next);
-        } catch (err) {
-          setLoved(!next);
-          throw err;
-        }
-      }}
       onOpenProduct={onOpenProduct}
       actions={() => (
         <div

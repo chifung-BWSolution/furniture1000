@@ -9,7 +9,20 @@ import { MATERIAL_TAG_RULES, materialTermsForTags } from '@/constants/material-t
 
 export type PriceValidity = 'valid' | 'expired' | 'future' | 'unmarked';
 export type SearchScope = 'all' | 'catalog' | 'shopify' | 'quoted';
-export type SearchSort = 'relevance' | 'newest' | 'price_asc' | 'price_desc' | 'size';
+export type SearchSort =
+  | 'relevance'
+  | 'newest'
+  | 'price_asc'
+  | 'price_desc'
+  | 'size'
+  /** 常用傢俬：PMS 落單類別熱度 → 類內報價用量。 */
+  | 'popular_demand'
+  /** 常用傢俬：出現於幾多張報價單。 */
+  | 'popular_quotes'
+  /** 常用傢俬：總件數。 */
+  | 'popular_quantity'
+  /** 常用傢俬：報價金額。 */
+  | 'popular_amount';
 
 export interface SearchQuote {
   cost?: number;
@@ -54,8 +67,18 @@ export interface SearchProduct {
   created_at: string;
   on_shopify: boolean;
   in_catalog: boolean;
-  /** Current user's 常用傢俬 heart. */
-  favorited?: boolean;
+  /** 常用傢俬：出現在幾張報價單（只計最新版本）。 */
+  usage_quote_count?: number;
+  /** 常用傢俬：報價單內的行數。 */
+  usage_line_count?: number;
+  /** 常用傢俬：總件數。 */
+  usage_quantity?: number;
+  /** 常用傢俬：報價金額合計。 */
+  usage_amount?: number;
+  /** 常用傢俬：所屬類別在 PMS 的落單件數（類別層級）。 */
+  category_demand_qty?: number;
+  /** 常用傢俬：所屬類別在 PMS 的落單行數（類別層級）。 */
+  category_demand_lines?: number;
   middle_price?: number;
   sale_price?: number;
   legacy_cost?: number;
@@ -196,6 +219,17 @@ export interface SupplierCompare {
   suppliers: SupplierCompareRow[];
 }
 
+export interface ProductUsage {
+  /** 出現於幾張報價單（只計最新版本，排除回收桶）。 */
+  quote_count: number;
+  /** 報價單內的行數。 */
+  line_count: number;
+  /** 總件數。 */
+  quantity_sum: number;
+  /** 報價金額合計。 */
+  amount_sum: number;
+}
+
 export interface ProductDetail extends Omit<SearchProduct, 'exact' | 'quote' | 'source'> {
   description?: string;
   specifications?: string;
@@ -205,6 +239,14 @@ export interface ProductDetail extends Omit<SearchProduct, 'exact' | 'quote' | '
   images: string[];
   prices: ProductPriceRow[];
   sources: ProductSourceRow[];
+  /** 報價用量（常用傢俬的數據來源）。 */
+  usage?: ProductUsage;
+  /** 類別熱度：PMS 落單聚合（常用傢俬的第二層）。 */
+  category_demand?: {
+    level1: string;
+    qty: number;
+    lines: number;
+  };
 }
 
 export interface ImportResult {
@@ -297,8 +339,8 @@ export function expandColorFilters(colors: string[]): string[] {
 export interface SearchExtra {
   /** Only products created within this many days. */
   sinceDays?: number | null;
-  /** Current user's 常用傢俬 only. */
-  onlyFavorites?: boolean;
+  /** 常用傢俬：只顯示有報價用量的產品（全公司共用，非個人清單）。 */
+  commonOnly?: boolean;
   /** Products linked to one supplier PDF. */
   documentId?: string | null;
 }
@@ -334,7 +376,7 @@ export async function searchProducts(
     p_limit: pageSize,
     p_offset: page * pageSize,
     p_since_days: extra?.sinceDays && extra.sinceDays > 0 ? extra.sinceDays : null,
-    p_only_favorites: extra?.onlyFavorites ? true : null,
+    p_common: extra?.commonOnly ? true : null,
     p_document_id: extra?.documentId || null,
   });
   if (error) throw new Error(rpcErrorMessage(error.message));
@@ -380,23 +422,6 @@ export function sizeLabel(p: Pick<SearchProduct, 'dimension_l_mm' | 'dimension_w
   const dims = [p.dimension_l_mm, p.dimension_w_mm, p.dimension_h_mm];
   if (dims.every((d) => d == null || d <= 0)) return null;
   return dims.map((d) => (d == null || d <= 0 ? '?' : Math.round(d))).join(' × ');
-}
-
-export async function setDesignerFavorite(productId: string, on: boolean): Promise<boolean> {
-  const { data, error } = await supabase.rpc('fds_designer_favorite_set', {
-    p_product_id: productId,
-    p_on: on,
-  });
-  if (error) throw new Error(rpcErrorMessage(error.message));
-  return data === true;
-}
-
-export async function isDesignerFavorite(productId: string): Promise<boolean> {
-  const { data, error } = await supabase.rpc('fds_designer_favorite_has', {
-    p_product_id: productId,
-  });
-  if (error) throw new Error(rpcErrorMessage(error.message));
-  return data === true;
 }
 
 export function moneyLabel(value: number | null | undefined, currency?: string | null): string | null {

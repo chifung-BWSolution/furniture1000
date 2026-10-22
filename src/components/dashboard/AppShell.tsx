@@ -1045,7 +1045,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-designer-types') return <FurnitureSearchView key="browse" />;
     if (store.currentView === 'fds2-designer-pdf') return <DesignerPdfView />;
     if (store.currentView === 'fds2-designer-common' || store.currentView === 'fds2-quote-common') {
-      return <FurnitureSearchView key="favorites" mode="favorites" />;
+      return <FurnitureSearchView key="common" mode="common" />;
     }
     if (store.currentView === 'fds2-designer-latest') return <FurnitureSearchView key="latest" mode="latest" />;
     if (store.currentView === 'fds2-pm-presentation') return <PresentationView />;
