@@ -31,19 +31,19 @@ export function ListPageShell({
   className,
 }: ListPageShellProps) {
   return (
-    <div className={cn('flex h-full flex-col bg-background', className)}>
-      <div className="border-b border-border bg-page-tint px-5 py-5 md:px-8">
-        <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+    <div className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}>
+      <div className="bg-background fds-page-padding pb-0">
+        <div className="mx-auto flex w-full max-w-none flex-col gap-4">
+          <div className="fds-page-header">
+            <h1 className="fds-page-title">
               {title}
             </h1>
-            <p className="mt-1 font-body text-sm text-muted-foreground">{subtitle}</p>
+            <p className="fds-page-description">{subtitle}</p>
           </div>
           <div
             className={cn(
               'flex w-full items-center gap-2',
-              searchLeading ? 'md:max-w-3xl' : 'md:max-w-lg',
+              searchLeading ? 'max-w-none' : 'max-w-lg',
             )}
           >
             {searchLeading}
@@ -64,8 +64,8 @@ export function ListPageShell({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-5 py-4 md:px-8">
-        <div className="mx-auto w-full max-w-[1400px]">{children}</div>
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-4 md:px-6">
+        <div className="mx-auto w-full max-w-none">{children}</div>
       </div>
     </div>
   );

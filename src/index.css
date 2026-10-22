@@ -588,3 +588,55 @@ u {
   height: 100%;
   max-height: 100%;
 }
+
+
+/* Shared dashboard page contract: full-width canvas, consistent gutters and headings.
+   Explicit classes keep dialogs, print layouts and editor panels independent. */
+@layer components {
+  .fds-page-padding {
+    @apply px-4 py-5 md:px-6;
+  }
+
+  .fds-page-title {
+    @apply flex min-w-0 flex-wrap items-center gap-2 font-display text-xl font-bold tracking-tight text-foreground;
+    overflow-wrap: anywhere;
+  }
+
+  .fds-page-description {
+    @apply mt-1 font-body text-sm leading-relaxed text-muted-foreground;
+  }
+
+  .fds-page-header {
+    @apply border-b border-border pb-4;
+  }
+}
+
+/* Page chrome has one scale across standard and CJK content zones. */
+.fds-page-title,
+[data-typography-zone='cjk-portal'] .fds-page-title {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.fds-page-description,
+[data-typography-zone='cjk-portal'] .fds-page-description {
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.fds-breadcrumb-title,
+[data-typography-zone='cjk-portal'] .fds-breadcrumb-title {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 700;
+}
+
+@media (min-width: 640px) {
+  .fds-breadcrumb-title,
+  [data-typography-zone='cjk-portal'] .fds-breadcrumb-title {
+    font-size: 18px;
+    line-height: 28px;
+  }
+}
