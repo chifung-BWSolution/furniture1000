@@ -582,6 +582,20 @@ Deno.serve(async (req: Request) => {
       .select("*").eq("id", String(body.session_id ?? "")).eq("staff_id", userId).maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!session) return json({ error: "session_not_found" }, 404);
+    if (session.canva_design_id && session.status !== "creating") {
+      const tokenRow = await loadAndRefreshToken(service, userId, credentials);
+      if ("error" in tokenRow) return json({ ...session, thumbnail_url: null });
+      const path = `/designs/${encodeURIComponent(session.canva_design_id)}`;
+      let response = await canvaAuthedFetch(tokenRow.access_token, path);
+      if (response.status === 401 && tokenRow.refresh_token) {
+        const next = await refreshToken(service, userId, credentials, tokenRow.refresh_token);
+        if (next) response = await canvaAuthedFetch(next.access_token, path);
+      }
+      const metadata = response.ok ? await response.json() : null;
+      // Signed URLs are ephemeral: return a fresh URL without persisting it or
+      // changing the session's updated_at / recent-design ordering.
+      return json({ ...session, thumbnail_url: metadata?.design?.thumbnail?.url ?? null });
+    }
     if (session.status !== "creating" || !session.populate_report?.generation_job_id) return json(session);
     const tokenRow = await loadAndRefreshToken(service, userId, credentials);
     if ("error" in tokenRow) return json({ error: tokenRow.error }, 401);

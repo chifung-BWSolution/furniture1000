@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Loader2, Package, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,9 @@ import {
 } from '@/lib/productSearch';
 import { cn } from '@/lib/utils';
 
-const PAGE_SIZE = 12;
+const ROWS_PER_PAGE = 3;
+const CARD_MIN_WIDTH = 168;
+const GRID_GAP = 12;
 const TITLE_SPLIT = /^(.*[\u3400-\u9fff])\s+([A-Za-z0-9][\w .,&/'’\-]*[A-Za-z])\s*$/;
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -114,12 +116,29 @@ export function PresentationProductPicker({
   const [level2, setLevel2] = useState('');
   const [onlySelected, setOnlySelected] = useState(false);
   const [page, setPage] = useState(0);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(4);
+  const pageSize = columns * ROWS_PER_PAGE;
+
+  useEffect(() => {
+    const element = pickerRef.current;
+    if (!element) return;
+    const measure = () => {
+      const width = element.getBoundingClientRect().width;
+      if (width <= 0) return;
+      setColumns(Math.max(1, Math.floor((width + GRID_GAP) / (CARD_MIN_WIDTH + GRID_GAP))));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const [facets, setFacets] = useState<SearchFacets | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [searching, setSearching] = useState(true);
   const debouncedQuery = useDebounced(query, 300);
 
-  const filterKey = `${debouncedQuery}\0${level1}\0${level2}\0${onlySelected ? '1' : '0'}`;
+  const filterKey = `${debouncedQuery}\0${level1}\0${level2}\0${onlySelected ? '1' : '0'}\0${pageSize}`;
   const [pageFor, setPageFor] = useState(filterKey);
   if (pageFor !== filterKey) {
     setPageFor(filterKey);
@@ -155,7 +174,7 @@ export function PresentationProductPicker({
     searchProducts(
       { ...EMPTY_SEARCH_FILTERS, query: debouncedQuery, level1, level2, scope: 'all', sort: 'relevance' },
       activePage,
-      PAGE_SIZE,
+      pageSize,
     )
       .then((next) => {
         if (!cancelled) setResult(next);
@@ -174,7 +193,7 @@ export function PresentationProductPicker({
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, level1, level2, activePage, onlySelected]);
+  }, [debouncedQuery, level1, level2, activePage, onlySelected, pageSize]);
 
   const level1Options = useMemo(() => {
     const map = new Map<string, number>();
@@ -199,13 +218,13 @@ export function PresentationProductPicker({
   );
 
   const total = onlySelected ? filteredSelected.length : (result?.total ?? 0);
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   if (pageFor === filterKey && page > pageCount - 1) {
     setPage(pageCount - 1);
   }
   const safePage = Math.min(activePage, pageCount - 1);
   const pageItems = onlySelected
-    ? filteredSelected.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
+    ? filteredSelected.slice(safePage * pageSize, safePage * pageSize + pageSize)
     : (result?.items ?? []);
 
   const toggle = (product: SearchProduct) => {
@@ -229,7 +248,7 @@ export function PresentationProductPicker({
   };
 
   return (
-    <div className="space-y-4">
+    <div ref={pickerRef} className="space-y-4">
       <div className="rounded-xl border border-border bg-muted/40 p-3 dark:bg-muted/20">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-medium text-foreground" aria-live="polite">
@@ -368,8 +387,9 @@ export function PresentationProductPicker({
         </div>
       ) : (
         <ul
+          style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
           className={cn(
-            'grid grid-cols-[repeat(auto-fill,minmax(min(100%,168px),1fr))] gap-3',
+            'grid gap-3',
             searching && !onlySelected && 'opacity-60',
           )}
         >

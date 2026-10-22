@@ -5,13 +5,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight, CheckCircle2, ExternalLink, FileText, Info, Link2, Loader2,
+  ArrowRight, CheckCircle2, ExternalLink, FileText, Link2, Loader2,
   Presentation as PresentationIcon, RefreshCcw, Save, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -84,20 +85,22 @@ function optionsWithCurrent(options: string[], current?: string): string[] {
   return options;
 }
 
-function CanvaMark({ className }: { className?: string }) {
+function ConnectionHint({ children, content }: { children: ReactNode; content: ReactNode }) {
+  const [open, setOpen] = useState(false);
   return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden>
-      <circle cx="16" cy="16" r="16" fill="#7D2AE8" />
-      <circle cx="16" cy="16" r="10.5" fill="none" stroke="#00C4CC" strokeWidth="2.4" />
-      <path
-        d="M21.2 11.4a6.4 6.4 0 1 0 .2 9.3"
-        fill="none"
-        stroke="#fff"
-        strokeWidth="2.3"
-        strokeLinecap="round"
-      />
-    </svg>
+    <HoverCard open={open} onOpenChange={setOpen} openDelay={150}>
+      <HoverCardTrigger asChild onFocus={() => setOpen(true)} onClick={() => setOpen((value) => !value)}>
+        {children}
+      </HoverCardTrigger>
+      <HoverCardContent side="top" className="w-80 max-w-[calc(100vw-2rem)] text-xs leading-relaxed">
+        {content}
+      </HoverCardContent>
+    </HoverCard>
   );
+}
+
+function CanvaMark({ className }: { className?: string }) {
+  return <img src="/canva-logo.svg" alt="Canva" className={className} />;
 }
 
 function sessionTitle(session: CanvaDesignSession): string {
@@ -111,6 +114,9 @@ function sessionClient(session: CanvaDesignSession): string {
 
 /** Canva thumbnail URLs expire about 15 minutes after they are issued. */
 function sessionThumbnail(session: CanvaDesignSession): string | null {
+  // An explicit null means the live metadata lookup failed. Never fall back
+  // to an older signed URL embedded in the saved brief/report.
+  if (session.thumbnail_url === null) return null;
   const extra = session as CanvaDesignSession & {
     thumbnail_url?: unknown;
     thumbnail?: unknown;
@@ -136,6 +142,18 @@ function sessionThumbnail(session: CanvaDesignSession): string | null {
 
 function isCanvaDesign(session: CanvaDesignSession): boolean {
   return Boolean(session.canva_design_id || session.edit_url);
+}
+
+function DesignThumbnail({ url }: { url: string | null }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  if (url && url !== failedUrl) {
+    return <img src={url} alt="" className="h-12 w-16 shrink-0 rounded-md object-cover" onError={() => setFailedUrl(url)} />;
+  }
+  return (
+    <span className="flex h-12 w-16 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+      <PresentationIcon className="h-4 w-4" />
+    </span>
+  );
 }
 
 function designStatusLine(session: CanvaDesignSession): string {
@@ -330,6 +348,20 @@ export function PresentationView() {
       setSessions([]);
     }
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshSessions();
+    }, 10 * 60 * 1000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshSessions();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshSessions]);
 
   const generating = generationPending || activeSession?.status === 'creating';
   useEffect(() => {
@@ -718,10 +750,11 @@ export function PresentationView() {
   const showGenerationWarning = Boolean(canImport && generationProbe && !generationProbe.ok);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground [container-type:size] dark:bg-background">
-      <div className="mx-auto grid w-full max-w-7xl items-start gap-5 px-4 py-5 md:px-6 lg:grid-cols-3">
-        <div className="flex min-h-[100cqh] min-w-0 flex-col lg:col-span-2">
-          <section className="rounded-2xl border border-border/80 bg-card px-4 pb-44 pt-4 shadow-sm sm:px-6 sm:pb-28 sm:pt-6">
+    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-none">
+      <div className="mx-auto grid w-full max-w-none items-start gap-5 fds-page-padding lg:grid-cols-3">
+        <div className="flex min-w-0 flex-col lg:col-span-2">
+          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
             <StepIndicator step={wizardStep} onSelect={goToStep} />
             <div className="mb-5">
               <h3 className="text-base font-bold text-foreground">{WIZARD_STEPS[wizardStep - 1].title}</h3>
@@ -990,59 +1023,7 @@ export function PresentationView() {
             </div>
             )}
           </section>
-          <div className="sticky bottom-0 z-20 mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-12px_rgba(15,23,42,0.35)] sm:px-6">
-            <Button
-              type="button"
-              variant="outline"
-              className="bg-background"
-              disabled={wizardStep === 1 || disabled}
-              onClick={() => goToStep(wizardStep - 1)}
-            >
-              上一步
-            </Button>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="bg-background"
-                disabled={disabled}
-                onClick={clearForm}
-              >
-                <Trash2 className="h-4 w-4" />
-                清空表單
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="bg-background"
-                disabled={disabled || !canImport}
-                onClick={saveDraft}
-              >
-                {status === 'creating' && !generationPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                儲存草稿
-              </Button>
-              {wizardStep < WIZARD_STEPS.length ? (
-                <Button
-                  type="button"
-                  className="bg-indigo-600 text-white hover:bg-indigo-500"
-                  disabled={disabled}
-                  onClick={() => goToStep(wizardStep + 1)}
-                >
-                  下一步
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  className="bg-indigo-600 text-white hover:bg-indigo-500"
-                  disabled={!canCreateNative || disabled || Boolean(activeSession?.canva_design_id)}
-                  onClick={createNative}
-                >
-                  {generating ? 'Canva 任務進行中' : activeSession?.canva_design_id ? '已有 Canva 設計' : 'AI 生成簡報'}
-                </Button>
-              )}
-            </div>
-          </div>
+
         </div>
 
 
@@ -1050,7 +1031,7 @@ export function PresentationView() {
           <section id="canva-connection" className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
             <div className="flex flex-col items-center text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white shadow-md ring-4 ring-indigo-50 dark:bg-indigo-950 dark:ring-indigo-500/20">
-                <CanvaMark className="h-11 w-11" />
+                <CanvaMark className="h-auto w-14" />
               </div>
               <h3 className="mt-3 text-base font-bold text-foreground">Canva 連接</h3>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -1067,14 +1048,12 @@ export function PresentationView() {
                   偵測中…
                 </p>
               )}
-              {canva && !canva.configured && (
-                <p className="text-xs text-muted-foreground">
-                  請在 Edge secrets 設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，redirect URI：
-                  <code className="ml-1 rounded bg-muted px-1">{`<域名>${PRESENTATION_PATH}`}</code>
-                </p>
-              )}
-              {canva?.configured && !canImport && (
-                <p className="text-sm text-muted-foreground">僅 admin／傢俬組可使用 Canva 簡報功能。</p>
+              {canva && (!canva.configured || !canImport) && (
+                <ConnectionHint content={!canva.configured ? (
+                  <p>請設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，並在 Canva 設定 redirect URI：{`${window.location.origin}${PRESENTATION_PATH}`}。 <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看設定文件</a></p>
+                ) : '僅 admin／傢俬組可使用 Canva 簡報功能。'}>
+                  <Button type="button" variant="outline" className="w-full">{!canva.configured ? '尚未配置' : '權限不足'}</Button>
+                </ConnectionHint>
               )}
               {canva?.configured && canImport && !connected && (
                 <Button type="button" className="w-full bg-indigo-600 text-white hover:bg-indigo-500" onClick={connect} disabled={disabled}>
@@ -1083,10 +1062,14 @@ export function PresentationView() {
               )}
               {connected && (
                 <div className="grid grid-cols-3 gap-2">
-                  <span className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-emerald-500 bg-emerald-50 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    已連接
-                  </span>
+                  <ConnectionHint content={showGenerationWarning ? (
+                    <p>{generationProbe?.message ?? '無法確認 Canva AI 生成權限。'}{generationProbe?.missing_scopes?.length ? ` 缺少 scope：${generationProbe.missing_scopes.join(', ')}。` : ''} <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a></p>
+                  ) : generationProbe?.ok ? '已連接 Canva，可以 AI 生成簡報。' : '已連接 Canva，正在確認 AI 生成權限。'}>
+                    <button type="button" className={`inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border text-xs font-medium ${showGenerationWarning ? 'border-orange-400 bg-orange-50 text-orange-800 dark:bg-orange-950/40 dark:text-orange-200' : 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'}`}>
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {showGenerationWarning ? '需要設定' : '已連接'}
+                    </button>
+                  </ConnectionHint>
                   <Button type="button" variant="outline" className="h-9 bg-background px-1 text-xs" onClick={refreshStatus}>
                     <RefreshCcw className="h-3.5 w-3.5" />
                     重新檢查
@@ -1097,22 +1080,7 @@ export function PresentationView() {
                   </Button>
                 </div>
               )}
-              {canImport && generationProbe?.ok && (
-                <p className="text-center text-xs text-emerald-700 dark:text-emerald-300">可以 AI 生成簡報。</p>
-              )}
-              {showGenerationWarning && (
-                <div className="rounded-lg bg-orange-50 px-3 py-2 text-xs text-orange-900 dark:bg-orange-950/40 dark:text-orange-100">
-                  <p className="flex gap-1.5">
-                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500" />
-                    <span>
-                      {generationProbe?.message ?? '無法確認 Canva AI 生成權限。'}
-                      {generationProbe?.missing_scopes?.length ? ` 缺少 scope：${generationProbe.missing_scopes.join(', ')}。` : ''}
-                      {' '}
-                      <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a>
-                    </span>
-                  </p>
-                </div>
-              )}
+
             </div>
           </section>
 
@@ -1180,13 +1148,7 @@ export function PresentationView() {
                         onClick={() => openDesignRow(s)}
                         className="flex w-full items-start gap-3 rounded-xl border border-transparent px-1 py-2 text-left hover:bg-muted/60"
                       >
-                        {thumb ? (
-                          <img src={thumb} alt="" className="h-12 w-16 shrink-0 rounded-md object-cover" />
-                        ) : (
-                          <span className="flex h-12 w-16 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                            <PresentationIcon className="h-4 w-4" />
-                          </span>
-                        )}
+                        <DesignThumbnail url={thumb} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
                           <span className="mt-0.5 block truncate text-xs text-muted-foreground">{designStatusLine(s)}</span>
@@ -1201,6 +1163,60 @@ export function PresentationView() {
           </section>
         </aside>
       </div>
+      </div>
+          <div className="z-20 shrink-0 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-12px_rgba(15,23,42,0.35)] sm:px-6">
+            <Button
+              type="button"
+              variant="outline"
+              className="bg-background"
+              disabled={wizardStep === 1 || disabled}
+              onClick={() => goToStep(wizardStep - 1)}
+            >
+              上一步
+            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-background"
+                disabled={disabled}
+                onClick={clearForm}
+              >
+                <Trash2 className="h-4 w-4" />
+                清空表單
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-background"
+                disabled={disabled || !canImport}
+                onClick={saveDraft}
+              >
+                {status === 'creating' && !generationPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                儲存草稿
+              </Button>
+              {wizardStep < WIZARD_STEPS.length ? (
+                <Button
+                  type="button"
+                  className="bg-indigo-600 text-white hover:bg-indigo-500"
+                  disabled={disabled}
+                  onClick={() => goToStep(wizardStep + 1)}
+                >
+                  下一步
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className="bg-indigo-600 text-white hover:bg-indigo-500"
+                  disabled={!canCreateNative || disabled || Boolean(activeSession?.canva_design_id)}
+                  onClick={createNative}
+                >
+                  {generating ? 'Canva 任務進行中' : activeSession?.canva_design_id ? '已有 Canva 設計' : 'AI 生成簡報'}
+                </Button>
+              )}
+            </div>
+          </div>
     </div>
   );
 }

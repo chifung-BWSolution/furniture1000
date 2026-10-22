@@ -71,7 +71,16 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
 export async function listCanvaDesignSessions(limit = 12): Promise<CanvaDesignSession[]> {
   const { data, error } = await supabase.rpc('fds_list_canva_design_sessions', { p_limit: limit });
   if (error) throw new Error(error.message);
-  return (data as CanvaDesignSession[] | null) ?? [];
+  const rows = (data as CanvaDesignSession[] | null) ?? [];
+  return Promise.all(rows.map(async (session) => {
+    if (!session.canva_design_id || session.status === 'creating') return session;
+    try {
+      const fresh = await fetchCanvaGenerationStatus(session.id);
+      return { ...session, thumbnail_url: fresh.thumbnail_url ?? null };
+    } catch {
+      return { ...session, thumbnail_url: null };
+    }
+  }));
 }
 
 export async function saveCanvaDraft(
