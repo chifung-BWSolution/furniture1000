@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { ExternalLink, Play } from 'lucide-react';
+import { LoadingImage } from '@/components/ui/loading-image';
 import {
   BW_CLIENT_LOGO_WALL_IMAGE,
   BW_TRUST_STATS,
@@ -56,11 +57,12 @@ export function CorporateTrustStats() {
 export function CorporateLogoWall() {
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-6">
-      <img
+      <LoadingImage
         src={BW_CLIENT_LOGO_WALL_IMAGE}
         alt="BW Furniture 客戶 Logo 牆：教育、金融及專業服務、香港政府及法定機構、酒店、科技、醫療及社福機構"
         loading="lazy"
-        className="mx-auto h-auto w-full max-w-4xl object-contain"
+        className="mx-auto h-auto w-full max-w-4xl"
+        imgClassName="object-contain"
       />
     </div>
   );
@@ -78,11 +80,12 @@ export function CorporateYouTubeGrid() {
           className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
         >
           <div className="relative aspect-video overflow-hidden bg-muted">
-            <img
+            <LoadingImage
               src={`https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`}
               alt={video.title}
               loading="lazy"
-              className="h-full w-full object-cover transition-transform group-hover:scale-105"
+              className="h-full w-full"
+              imgClassName="object-cover transition-transform group-hover:scale-105"
             />
             <span className="absolute inset-0 flex items-center justify-center bg-black/20">
               <span className="flex h-12 w-12 items-center justify-center rounded-full bg-card/95 text-primary shadow-lg">

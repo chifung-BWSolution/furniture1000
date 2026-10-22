@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { LoadingImage } from '@/components/ui/loading-image';
 import {
   Plus,
   Upload,
@@ -611,7 +612,7 @@ export function SolutionProjectListView() {
                 >
                   {floorPreview ? (
                     <>
-                      <img src={floorPreview} alt="平面圖預覽" className="max-h-40 rounded-lg object-contain" />
+                      <LoadingImage src={floorPreview} alt="平面圖預覽" className="max-h-40 rounded-lg" imgClassName="object-contain" />
                       {floorFile ? (
                         <span className="font-body text-xs text-muted-foreground">
                           {floorFile.name}

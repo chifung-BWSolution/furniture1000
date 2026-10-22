@@ -235,8 +235,10 @@ export type ModalContentProps = Omit<
    * `card` is the standard chrome (icon + title + body + footer).
    * `bleed` drops the padding so the body can host a full-bleed surface
    * (image viewer, PDF preview) while keeping the same card + backdrop.
+   * `fullscreen` drops the card entirely: the panel fills the viewport, so
+   * corner actions and bottom bars can be pinned to the window edges.
    */
-  variant?: "card" | "bleed"
+  variant?: "card" | "bleed" | "fullscreen"
   headerClassName?: string
   bodyClassName?: string
   footerClassName?: string
@@ -269,6 +271,7 @@ const ModalContent = React.forwardRef<
     ref
   ) => {
     const bleed = variant === "bleed"
+    const fullscreen = variant === "fullscreen"
     const hasHeader = Boolean(title || description || icon)
     const hasBody =
       children !== undefined && children !== null && children !== false
@@ -285,10 +288,14 @@ const ModalContent = React.forwardRef<
         <DialogPrimitive.Content
           ref={ref}
           className={cn(
-            "fixed left-[50%] top-[50%] z-50 flex max-h-[92vh] w-full -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden border border-border bg-card text-card-foreground shadow-2xl duration-200",
-            MODAL_SIZE_CLASS[size],
-            "rounded-2xl",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
+            fullscreen
+              ? "fixed inset-0 z-50 flex flex-col bg-transparent text-white outline-none"
+              : cn(
+                  "fixed left-[50%] top-[50%] z-50 flex max-h-[92vh] w-full -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden border border-border bg-card text-card-foreground shadow-2xl duration-200",
+                  MODAL_SIZE_CLASS[size],
+                  "rounded-2xl",
+                  "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
+                ),
             className
           )}
           {...props}
@@ -312,12 +319,14 @@ const ModalContent = React.forwardRef<
           {hasBody ? (
             <ModalBody
               className={cn(
-                bleed
-                  ? "flex items-center justify-center"
-                  : cn(
-                      "px-5 pb-5 sm:px-6 sm:pb-6",
-                      !hasHeader && "pt-5 sm:pt-6"
-                    ),
+                fullscreen
+                  ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+                  : bleed
+                    ? "flex items-center justify-center"
+                    : cn(
+                        "px-5 pb-5 sm:px-6 sm:pb-6",
+                        !hasHeader && "pt-5 sm:pt-6"
+                      ),
                 bodyClassName
               )}
             >

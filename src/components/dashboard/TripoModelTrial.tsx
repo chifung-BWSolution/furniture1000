@@ -226,7 +226,7 @@ export function TripoModelTrial({ productId, title, images, onComplete, disabled
                   </>
                 ) : preview ? (
                   <>
-                    <img src={preview} alt="即將送到 Tripo 的單件參考圖" className="max-h-44 w-auto max-w-full rounded-lg object-contain shadow-sm" />
+                    <LoadingImage src={preview} alt="即將送到 Tripo 的單件參考圖" className="max-h-44 w-auto max-w-full rounded-lg" imgClassName="object-contain shadow-sm" />
                     <span className="text-[13px] font-medium text-primary">點擊更換參考圖</span>
                   </>
                 ) : (

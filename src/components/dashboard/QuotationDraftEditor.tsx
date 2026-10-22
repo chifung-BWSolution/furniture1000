@@ -52,6 +52,7 @@ import { fetchFactoriesWithIds } from "@/lib/factorySupabase";
 import { CopyQuoteItemsModal } from "@/components/dashboard/CopyQuoteItemsModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Modal, ModalButton } from "@/components/ui/modal";
+import { LoadingImage } from "@/components/ui/loading-image";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Command,
@@ -1073,7 +1074,7 @@ function QuoteProductItemCard({
         />
         <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border/70 bg-muted/30">
           {item.image ? (
-            <img src={item.image} alt="" className="h-full w-full object-contain" />
+            <LoadingImage src={item.image} alt="" className="h-full w-full" imgClassName="object-contain" />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-muted-foreground/40">
               <ImagePlus className="h-5 w-5" />

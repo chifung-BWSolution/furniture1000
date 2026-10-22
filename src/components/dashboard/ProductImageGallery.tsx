@@ -104,11 +104,14 @@ export function ProductImageGalleryLightbox({
   title,
   startIndex = 0,
   onClose,
+  thumbWidth = 160,
 }: {
   urls: string[];
   title?: string;
   startIndex?: number;
   onClose: () => void;
+  /** Width of the compressed strip thumbnails. */
+  thumbWidth?: number;
 }) {
   const safeUrls = urls.filter(Boolean);
   if (safeUrls.length === 0) return null;
@@ -120,6 +123,7 @@ export function ProductImageGalleryLightbox({
       images={safeUrls}
       startIndex={startIndex}
       title={title}
+      thumbWidth={thumbWidth}
     />
   );
 }

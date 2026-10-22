@@ -437,11 +437,13 @@ export function CustomerCaseStudiesView() {
               className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
             >
               <div className="aspect-[3/2] overflow-hidden bg-muted">
-                <img
+                <LoadingImage
                   src={item.image}
                   alt={`${item.title} ${item.location}`}
                   loading="lazy"
-                  className="h-full w-full object-cover transition-transform hover:scale-105"
+                  decoding="async"
+                  className="h-full w-full"
+                  imgClassName="object-cover transition-transform hover:scale-105"
                 />
               </div>
               <div className="p-4">

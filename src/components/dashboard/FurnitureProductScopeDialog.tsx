@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { Input } from '@/components/ui/input';
 
 export interface ProductCountDetection {
@@ -39,7 +40,7 @@ export function FurnitureProductScopeDialog({ detection, images, onChoose, onCan
     <div className="space-y-4 text-sm">
       <p>{detection?.reason}</p>
       <p className="text-muted-foreground">AI 估計同一場景最多有 {detection?.product_count} 件；不同角度及拼圖中的重複視圖不應重複計算。請以原圖自行判斷。</p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{previews.map((url,i) => <img key={i} src={url} alt={`建模參考圖 ${i+1}`} className="h-32 w-full rounded-md border object-contain" />)}</div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{previews.map((url,i) => <LoadingImage key={i} src={url} alt={`建模參考圖 ${i+1}`} className="h-32 w-full rounded-md border" imgClassName="object-contain" />)}</div>
       <label className="flex flex-wrap items-center gap-2">整組包含的同款產品數量
         <Input className="w-24" type="number" min={2} max={20} value={count} onChange={event => setCount(event.target.value)} />
       </label>

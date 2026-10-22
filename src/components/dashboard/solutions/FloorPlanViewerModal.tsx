@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { renderPdfPagesToObjectUrls } from '@/lib/floorPlanPdf';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { toast } from 'sonner';
 import { ModalContent, ModalRoot } from '@/components/ui/modal';
 import type { DesignProject } from '@/types/solutions';
@@ -61,7 +62,7 @@ export function FloorPlanThumb({
   if (previewUrl) {
     return (
       <div className="relative h-full w-full">
-        <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+        <LoadingImage src={previewUrl} alt="" className="h-full w-full" imgClassName="object-cover" />
         {url && isPdfSource(url, type) ? (
           <span className="absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-0.5 text-[9px] font-semibold text-white">
             PDF
@@ -84,7 +85,7 @@ export function FloorPlanThumb({
     );
   }
   if (url && isDisplayableFloorImage(url, type)) {
-    return <img src={url} alt="" className="h-full w-full object-cover" />;
+    return <LoadingImage src={url} alt="" className="h-full w-full" imgClassName="object-cover" />;
   }
   return <MapIcon className="h-6 w-6 text-muted-foreground/50" />;
 }
@@ -276,7 +277,7 @@ export function FloorPlanViewerModal({
         variant="bleed"
         size="full"
         style={{ width: '84vw', height: '84vh', maxWidth: '84vw', maxHeight: '84vh' }}
-        bodyClassName="flex flex-col overflow-hidden p-0"
+        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0"
         aria-label={`${title} 平面圖預覽`}
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">

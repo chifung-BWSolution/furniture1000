@@ -625,7 +625,7 @@ export function PublishedProductDetailModal({
         variant="bleed"
         size="full"
         className="bg-background"
-        bodyClassName="flex flex-col overflow-hidden p-0"
+        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0"
         style={{ width: '1200px', height: '800px', maxWidth: '96vw', maxHeight: '96vh' }}
       >
         {/* Header */}
@@ -1259,7 +1259,7 @@ function VariantImagePickerModal({
                   isSelected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50',
                 )}
               >
-                <img src={productThumbUrl(src)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                <LoadingImage src={src} alt="" loading="lazy" decoding="async" className="h-full w-full" imgClassName="object-cover" />
                 {isSelected && (
                   <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
                     <Check className="h-3 w-3" />

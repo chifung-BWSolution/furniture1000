@@ -1,4 +1,5 @@
 import { MapPin } from 'lucide-react';
+import { LoadingImage } from '@/components/ui/loading-image';
 import type { DesignProject, ProjectZone } from '@/types/solutions';
 
 interface ClientZoneFloorPlanProps {
@@ -19,11 +20,14 @@ export function ClientZoneFloorPlan({
   return (
     <div className="relative aspect-[16/7] w-full overflow-hidden rounded-xl border border-border bg-muted/20">
       {hasImage ? (
-        <img
-          src={project.floorPlanUrl!}
-          alt={`${project.name} 平面圖`}
-          className="absolute inset-0 h-full w-full object-fill"
-        />
+        <div className="absolute inset-0">
+          <LoadingImage
+            src={project.floorPlanUrl!}
+            alt={`${project.name} 平面圖`}
+            className="h-full w-full"
+            imgClassName="object-fill"
+          />
+        </div>
       ) : (
         <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_100%)]" />
       )}

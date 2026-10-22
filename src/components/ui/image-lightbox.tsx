@@ -4,6 +4,7 @@ import * as React from "react"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { toThumbUrl } from "@/lib/imageThumb"
 import { Modal } from "@/components/ui/modal"
 
 export interface ImageLightboxProps {
@@ -17,6 +18,12 @@ export interface ImageLightboxProps {
   title?: string
   /** Hide the thumbnail strip and arrows even when there are several images. */
   simple?: boolean
+  /**
+   * Width of the compressed strip thumbnails. Off by default so existing
+   * galleries keep loading the original files; set it when the strip would
+   * otherwise pull multi-megabyte originals.
+   */
+  thumbWidth?: number
 }
 
 /**
@@ -33,6 +40,7 @@ export function ImageLightbox({
   startIndex = 0,
   title,
   simple = false,
+  thumbWidth,
 }: ImageLightboxProps) {
   const urls = React.useMemo(
     () => images.filter((url): url is string => Boolean(url)),
@@ -70,29 +78,40 @@ export function ImageLightbox({
     <Modal
       open={open}
       onOpenChange={(next) => { if (!next) onClose() }}
-      variant="bleed"
+      variant="fullscreen"
       size="full"
       hideClose
       overlayClassName="bg-black/85 backdrop-blur-md"
       className="border-0 bg-transparent shadow-none"
-      bodyClassName="flex-col"
       aria-label={title ? `${title} 圖片預覽` : "圖片預覽"}
     >
       <button
         type="button"
         onClick={onClose}
-        className="absolute right-4 top-4 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
+        className="absolute right-4 top-4 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
         aria-label="關閉"
       >
         <X className="h-5 w-5" />
       </button>
 
       {current ? (
-        <img
-          src={current}
-          alt={title ?? ""}
-          className="max-h-[82vh] max-w-[92vw] rounded-xl object-contain shadow-2xl"
-        />
+        <div
+          onClick={(event) => {
+            // The panel fills the viewport, so the dark space around the
+            // photo is the "outside" click that closes the viewer.
+            if (event.target === event.currentTarget) onClose()
+          }}
+          className={cn(
+            "flex min-h-0 flex-1 cursor-zoom-out items-center justify-center p-4 sm:p-8",
+            showNav && "pb-32 sm:pb-36",
+          )}
+        >
+          <img
+            src={current}
+            alt={title ?? ""}
+            className="max-h-full max-w-[92vw] rounded-xl object-contain shadow-2xl"
+          />
+        </div>
       ) : null}
 
       {showNav ? (
@@ -100,7 +119,7 @@ export function ImageLightbox({
           <button
             type="button"
             onClick={() => go(-1)}
-            className="absolute left-4 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+            className="absolute left-4 top-1/2 z-20 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
             aria-label="上一張"
           >
             <ChevronLeft className="h-6 w-6" />
@@ -108,34 +127,42 @@ export function ImageLightbox({
           <button
             type="button"
             onClick={() => go(1)}
-            className="absolute right-4 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+            className="absolute right-4 top-1/2 z-20 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
             aria-label="下一張"
           >
             <ChevronRight className="h-6 w-6" />
           </button>
 
-          <div className="mt-4 flex max-w-[92vw] items-center justify-center gap-2 overflow-x-auto pb-1">
-            {urls.map((url, i) => (
-              <button
-                key={`${url}-${i}`}
-                type="button"
-                onClick={() => setIndex(i)}
-                className={cn(
-                  "h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 transition-opacity",
-                  i === index
-                    ? "border-white opacity-100"
-                    : "border-transparent opacity-50 hover:opacity-80"
-                )}
-                aria-label={`第 ${i + 1} 張`}
-              >
-                <img src={url} alt="" className="h-full w-full object-cover" />
-              </button>
-            ))}
-          </div>
+          <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-2 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-4 pt-10">
+            <div className="flex max-w-[92vw] items-center justify-center gap-2 overflow-x-auto pb-1">
+              {urls.map((url, i) => (
+                <button
+                  key={`${url}-${i}`}
+                  type="button"
+                  onClick={() => setIndex(i)}
+                  className={cn(
+                    "h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 transition-opacity",
+                    i === index
+                      ? "border-white opacity-100"
+                      : "border-transparent opacity-50 hover:opacity-80"
+                  )}
+                  aria-label={`第 ${i + 1} 張`}
+                >
+                  <img
+                    src={thumbWidth ? toThumbUrl(url, { width: thumbWidth }) : url}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-cover"
+                  />
+                </button>
+              ))}
+            </div>
 
-          <p className="mt-2 font-mono-data text-xs text-white/70">
-            {index + 1} / {count}
-          </p>
+            <p className="font-mono-data text-xs text-white/70">
+              {index + 1} / {count}
+            </p>
+          </div>
         </>
       ) : null}
     </Modal>

@@ -11,6 +11,7 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { Badge } from '@/components/ui/badge';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Input } from '@/components/ui/input';
@@ -145,9 +146,15 @@ function isCanvaDesign(session: CanvaDesignSession): boolean {
 }
 
 function DesignThumbnail({ url }: { url: string | null }) {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  if (url && url !== failedUrl) {
-    return <img src={url} alt="" className="h-12 w-16 shrink-0 rounded-md object-cover" onError={() => setFailedUrl(url)} />;
+  if (url) {
+    return (
+      <LoadingImage
+        src={url}
+        alt=""
+        className="h-12 w-16 shrink-0 rounded-md"
+        imgClassName="object-cover"
+      />
+    );
   }
   return (
     <span className="flex h-12 w-16 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
