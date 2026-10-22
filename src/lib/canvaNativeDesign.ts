@@ -62,7 +62,7 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   if (error) throw new Error(await parseInvokeError(error, data as { error?: string; message?: string } | null));
   if (!data) throw new Error('canva_edge_no_response');
   const row = data as T & { error?: string; message?: string; description?: string };
-  if (row && typeof row === 'object' && 'error' in row && row.error) {
+  if (row && typeof row === 'object' && 'error' in row && row.error && !('id' in row && 'status' in row)) {
     throw new Error(String(row.message || row.error));
   }
   return data as T;
@@ -209,4 +209,9 @@ export function defaultBrief(): CanvaDesignBrief {
     style: '專業、簡潔',
     pageCount: 12,
   };
+}
+
+/** Reads persisted backend/Canva progress; does not create another Canva job. */
+export async function fetchCanvaGenerationStatus(sessionId: string): Promise<CanvaDesignSession> {
+  return invoke({ action: 'generation_status', session_id: sessionId });
 }

@@ -37,7 +37,7 @@ import {
   type PresentationProjectOption,
 } from '@/lib/presentationClients';
 import {
-  buildOutlineFromBrief, createNativeCanvaDesign, defaultBrief, exportCanvaSessionPdf,
+  buildOutlineFromBrief, createNativeCanvaDesign, fetchCanvaGenerationStatus, defaultBrief, exportCanvaSessionPdf,
   exportCanvaSessionPptx, listCanvaDesignExports, listCanvaDesignSessions,
   listCanvaSessionVersions, probeCanvaNative, proPdfHandoffPath, saveCanvaDraft,
   type CanvaDesignBrief, type CanvaDesignExportRow, type CanvaDesignSession,
@@ -51,11 +51,6 @@ const PURPOSE_MAX = 200;
 const CONTENT_MAX = 1000;
 const SIDEBAR_PREVIEW = 3;
 const AI_DOC_HREF = 'https://github.com/chifung-BWSolution/furniture1000/blob/develop/docs/prd/FDS-2.1-Canva-AI生成.md';
-const GENERATION_STEPS = [
-  '正在確認 Canva AI 權限',
-  '正在整理大綱與產品',
-  '正在等待 Canva 生成簡報',
-];
 const LANGUAGE_OPTIONS = ['繁體中文', '簡體中文', 'English', '中英對照'];
 const STYLE_OPTIONS = ['專業、簡潔', '簡約現代', '高端精品', '活潑清晰'];
 const WIZARD_STEPS = [
@@ -288,7 +283,9 @@ export function PresentationView() {
   const [versionRows, setVersionRows] = useState<CanvaSessionVersionRow[]>([]);
   const [exportRows, setExportRows] = useState<CanvaDesignExportRow[]>([]);
   const [generationProbe, setGenerationProbe] = useState<Awaited<ReturnType<typeof probeCanvaNative>> | null>(null);
-  const [generationStep, setGenerationStep] = useState<number | null>(null);
+  const [generationPending, setGenerationPending] = useState(false);
+  const [generationError, setGenerationError] = useState('');
+  const [statusReadError, setStatusReadError] = useState('');
   const [showAllDrafts, setShowAllDrafts] = useState(false);
   const [showAllDesigns, setShowAllDesigns] = useState(false);
 
@@ -334,14 +331,37 @@ export function PresentationView() {
     }
   }, []);
 
-  const generating = generationStep != null;
+  const generating = generationPending || activeSession?.status === 'creating';
   useEffect(() => {
-    if (!generating) return;
-    const timer = window.setInterval(() => {
-      setGenerationStep((step) => (step == null ? step : Math.min(step + 1, GENERATION_STEPS.length - 1)));
-    }, 4000);
-    return () => window.clearInterval(timer);
-  }, [generating]);
+    if (!sessionId || !generating) return;
+    let cancelled = false;
+    let timer: number;
+    const check = async () => {
+      try {
+        const current = await fetchCanvaGenerationStatus(sessionId);
+        if (cancelled) return;
+        setActiveSession(current);
+        setStatusReadError(current.status === 'creating' && Date.now() - Date.parse(current.updated_at) > 150_000
+          ? '暫時未收到任務更新；請稍後重新查詢狀態，毋須再次生成。' : '');
+        if (current.canva_design_id && current.edit_url) {
+          setCanvaLink({ edit_url: current.edit_url, title: current.brief.title });
+          setGenerationError('');
+        }
+        if ((!generationPending && current.status === 'failed') || current.canva_design_id) {
+          setGenerationPending(false);
+          setStatus('idle');
+          void refreshSessions();
+          return;
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setStatusReadError(`無法更新任務狀態：${errorText(err)}。正在重新查詢，毋須再次生成。`);
+      }
+      if (!cancelled) timer = window.setTimeout(check, 3000);
+    };
+    void check();
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [sessionId, generating, generationPending, refreshSessions]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -383,7 +403,7 @@ export function PresentationView() {
     refreshSessions();
   }, [refreshStatus, refreshSessions]);
 
-  const disabled = status !== 'idle';
+  const disabled = status !== 'idle' || generating;
   const connected = canva?.connected ?? false;
   const canvaPathReady = Boolean(canva?.configured && canImport && connected);
 
@@ -424,9 +444,14 @@ export function PresentationView() {
 
   const createNative = useCallback(async () => {
     if (!canCreateNative || disabled) return;
+    if (activeSession?.canva_design_id) return;
     setStatus('creating');
-    setGenerationStep(0);
+    setGenerationPending(true);
+    setGenerationError('');
+    setStatusReadError('');
+    setCanvaLink(null);
     setActiveSession(null);
+    let taskSessionId: string | null = null;
     try {
       const confirmed = outline.trim() || buildOutlineFromBrief(brief);
       const payload: CanvaDesignBrief = {
@@ -441,6 +466,7 @@ export function PresentationView() {
         sessionId ?? undefined,
       );
       setSessionId(session_id);
+      taskSessionId = session_id;
       const session = await createNativeCanvaDesign(session_id);
       setActiveSession(session);
       if (session.edit_url) {
@@ -452,17 +478,30 @@ export function PresentationView() {
       await refreshSessions();
       await refreshStatus();
     } catch (err) {
-      const msg = errorText(err);
+      // A browser timeout is not evidence that Canva failed. Reconcile with the task.
+      const current = taskSessionId ? await fetchCanvaGenerationStatus(taskSessionId).catch(() => null) : null;
+      if (current) setActiveSession(current);
+      if (current?.canva_design_id && current.edit_url) {
+        setCanvaLink({ edit_url: current.edit_url, title: current.brief.title });
+        setGenerationError('');
+        return;
+      }
+      if (current?.status === 'creating') {
+        setStatusReadError('生成請求連線已中斷，正在查詢 Canva 任務狀態，毋須再次生成。');
+        return;
+      }
+      const msg = current?.error || errorText(err);
+      setGenerationError(msg);
       if (msg.includes('design_already_exists') || msg.includes('design_exists') || msg.includes('已有 Canva 設計')) {
         toast.message('此草稿已有 Canva 設計', { description: '請用「新版本」另建設計，勿覆蓋 Canva 內修改。' });
       } else {
         toast.error('AI 生成失敗', { description: msg });
       }
     } finally {
-      setGenerationStep(null);
+      setGenerationPending(false);
       setStatus('idle');
     }
-  }, [canCreateNative, disabled, brief, outline, selected, sessionId, refreshSessions, refreshStatus]);
+  }, [canCreateNative, disabled, activeSession, brief, outline, selected, sessionId, refreshSessions, refreshStatus]);
 
   const refreshSessionDetail = useCallback(async (sid: string) => {
     try {
@@ -512,6 +551,10 @@ export function PresentationView() {
   }, [refreshSessionDetail]);
 
   const loadSession = (s: CanvaDesignSession) => {
+    if (disabled) return;
+    setGenerationError('');
+    setStatusReadError('');
+    setCanvaLink(null);
     autoPurpose.current = null;
     autoContent.current = null;
     setSessionId(s.id);
@@ -519,12 +562,16 @@ export function PresentationView() {
     setOutline(String((s.brief as CanvaDesignBrief).outline ?? ''));
     setVersionNote(s.version_note ?? '');
     setActiveSession(s);
-    setWizardStep(isCanvaDesign(s) ? 4 : 1);
+    setWizardStep(isCanvaDesign(s) || s.status === 'creating' || s.status === 'failed' ? 4 : 1);
     if (s.edit_url) setCanvaLink({ edit_url: s.edit_url, title: (s.brief as CanvaDesignBrief).title });
     refreshSessionDetail(s.id);
   };
 
   const newVersion = async (parent: CanvaDesignSession) => {
+    if (disabled) return;
+    setGenerationError('');
+    setStatusReadError('');
+    setCanvaLink(null);
     autoPurpose.current = null;
     autoContent.current = null;
     setSessionId(null);
@@ -570,6 +617,9 @@ export function PresentationView() {
   };
 
   const clearForm = () => {
+    if (disabled) return;
+    setGenerationError('');
+    setStatusReadError('');
     autoPurpose.current = null;
     autoContent.current = null;
     setBrief(defaultBrief());
@@ -844,17 +894,29 @@ export function PresentationView() {
                   </Button>
                 </div>
               )}
-              {generationStep != null && (
-                <ol className="space-y-1 text-xs text-muted-foreground">
-                  {GENERATION_STEPS.map((label, index) => (
-                    <li
-                      key={label}
-                      className={index === generationStep ? 'font-medium text-foreground' : index < generationStep ? 'text-emerald-700 dark:text-emerald-300' : ''}
-                    >
-                      {index < generationStep ? '完成' : index === generationStep ? '進行中' : '等待'} · {label}
-                    </li>
-                  ))}
-                </ol>
+              {(generating || activeSession?.canva_design_id || activeSession?.status === 'failed' || generationError) && (
+                <div role="status" aria-live="polite" className="space-y-1 text-sm">
+                  <p className="font-medium">
+                    {activeSession?.status === 'failed' ? 'Canva 生成失敗'
+                      : activeSession?.canva_design_id ? 'Canva 簡報已完成'
+                      : activeSession?.populate_report?.generation_job_id
+                        ? activeSession.populate_report.generation_status === 'queued' ? 'Canva 任務排隊中' : 'Canva 已接收任務，正在生成簡報'
+                        : generating ? '正在提交 Canva 生成任務' : '無法確認生成結果'}
+                  </p>
+                  {activeSession?.status === 'creating' && !activeSession.populate_report?.generation_job_id && (
+                    <p className="text-muted-foreground">後端正在處理請求，尚未收到 Canva 任務編號。</p>
+                  )}
+                  {activeSession?.populate_report?.generation_job_id && (
+                    <p className="break-all text-xs text-muted-foreground">
+                      Canva 任務：{String(activeSession.populate_report.generation_job_id)} · 狀態：{({ accepted: '已接收', queued: '排隊中', in_progress: '生成中', success: '已完成', failed: '失敗' } as Record<string, string>)[String(activeSession.populate_report.generation_status)] ?? String(activeSession.populate_report.generation_status ?? '已接收')}
+                    </p>
+                  )}
+                  {generating && <p className="text-xs text-muted-foreground">每 3 秒查詢任務狀態，毋須再次按「AI 生成」。</p>}
+                  {(activeSession?.error || generationError) && !activeSession?.canva_design_id && (
+                    <p className="break-words text-destructive">{activeSession?.error || generationError}</p>
+                  )}
+                  {statusReadError && <p className="break-words text-amber-700 dark:text-amber-300">{statusReadError}</p>}
+                </div>
               )}
               {!canvaPathReady && canImport && (
                 <p className="text-xs text-amber-700 dark:text-amber-300">請先連接 Canva 後再建立設計。</p>
@@ -956,7 +1018,7 @@ export function PresentationView() {
                 disabled={disabled || !canImport}
                 onClick={saveDraft}
               >
-                {status === 'creating' && generationStep == null ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {status === 'creating' && !generationPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 儲存草稿
               </Button>
               {wizardStep < WIZARD_STEPS.length ? (
@@ -973,11 +1035,10 @@ export function PresentationView() {
                 <Button
                   type="button"
                   className="bg-indigo-600 text-white hover:bg-indigo-500"
-                  disabled={!canCreateNative || disabled}
+                  disabled={!canCreateNative || disabled || Boolean(activeSession?.canva_design_id)}
                   onClick={createNative}
                 >
-                  {status === 'creating' && generationStep != null && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {status === 'creating' && generationStep != null ? 'AI 生成中…' : 'AI 生成簡報'}
+                  {generating ? 'Canva 任務進行中' : activeSession?.canva_design_id ? '已有 Canva 設計' : 'AI 生成簡報'}
                 </Button>
               )}
             </div>
@@ -1083,7 +1144,7 @@ export function PresentationView() {
                       <span className="min-w-0 flex-1">
                         <span className="flex items-start justify-between gap-2">
                           <span className="truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
-                          <Badge className="shrink-0 border-transparent bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200">草稿</Badge>
+                          <Badge className="shrink-0 border-transparent bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200">{s.status === 'creating' ? 'Canva 任務進行中' : s.status === 'failed' ? '生成失敗' : '草稿'}</Badge>
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">客戶：{sessionClient(s)}</span>
                         <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
