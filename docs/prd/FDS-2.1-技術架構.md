@@ -241,20 +241,37 @@ $$;
 - **過渡期**：沿用 **Supabase Edge（Deno）＋ pg_cron/pg_net** 觸發，處理中小 PDF。
 - **目標**：**Python Worker on Google Cloud Run Jobs**（按需執行、無長期 VPS），處理 OCR／大 PDF／表格／圖片／3D。
 - **共同介面**：兩者都讀寫 `processing_jobs`，狀態一致。
-- **大檔 PDF（2026-10-21）**：不把超過 60MB 的檔留在佇列等 Python。新上載在瀏覽器拆檔。已存放的大檔由 Vercel Function `api/pdf-split` 領 `needs_split`，把原檔拆成約 40MB 的子文件（`page_offset`），Edge 只解析分段，再合併回父文件。父文件狀態顯示 X/N 段。`process-jobs`（含 pg_cron）發現可領的 `needs_split` 時 POST 該 Function；Vercel Cron 每 5 分鐘為後備。Function 設定見 `vercel.json`（`maxDuration` 800 秒、`memory` 3009MB，Node runtime）。
+- **大檔 PDF（2026-10-21）**：不把超過 60MB 的檔留在佇列等 Python。新上載在瀏覽器拆檔。已存放的大檔由 Vercel Function `api/pdf-split` 領 `needs_split`，把原檔拆成約 40MB 的子文件（`page_offset`），Edge 只解析分段，再合併回父文件。父文件狀態顯示 X/N 段。`process-jobs`（含 pg_cron `fds-process-jobs`）發現可領的 `needs_split` 時 POST 該 Function；Vercel Cron 每 5 分鐘為後備，而且**只會打 production deployment**。Function 設定見 `vercel.json`（`maxDuration` 800 秒、`memory` 3009MB，Node runtime）。
 
-**拆檔環境變數**（不要加 `VITE_` 前綴，不要打進前端 bundle）：
+**為什麼現在拆檔不生效（2026-10-22 對線上 URL 的實測，不是拆檔程式）：**
 
-| 位置 | 名稱 | 用途 |
+| 請求 | 結果 | 意思 |
 |---|---|---|
-| Vercel Runtime（伺服器） | `SUPABASE_URL` | Function 連 Furniture。此名也供 Vite build 寫入公開網址，值是公開的 project URL |
-| Vercel Runtime（伺服器） | `SUPABASE_SERVICE_ROLE_KEY` | Function 以 service role 呼叫既有 RPC 與 Storage。標成 Sensitive，只在 runtime 讀 |
-| Vercel Runtime（伺服器） | `PDF_SPLIT_SECRET` | Function 核對 `x-pdf-split-secret` 或 `Authorization: Bearer` |
-| Vercel（平台 Cron） | `CRON_SECRET` | 設成與 `PDF_SPLIT_SECRET` **同一個字串**。Cron 會帶 `Authorization: Bearer <CRON_SECRET>`。程式只讀 `PDF_SPLIT_SECRET` |
-| Supabase Edge secrets | `PDF_SPLIT_URL` | 正式站的 `https://<域名>/api/pdf-split`。`process-jobs` 用來 POST |
-| Supabase Edge secrets | `PDF_SPLIT_SECRET` | 與 Vercel 的 `PDF_SPLIT_SECRET` 同一個字串。`process-jobs` 放進 `x-pdf-split-secret` |
+| `GET https://bwfbwfbranding-work-furniture-git-develop-bwsystem.vercel.app/api/pdf-split` | `302` → `https://vercel.com/sso-api?...` | team `bwsystem` 的 develop preview 開了 Vercel Authentication。保護層在 `api/pdf-split` 之前就回答。`process-jobs` 只送 `x-pdf-split-secret`，過不了這層，`needs_split` 一直 queued。 |
+| `GET https://www.bwteam-furniture.com/api/pdf-split` | `200` `index.html` | 正式網域仍是 `main`。`main` 的 `vercel.json` 把除了 `assets/`、`fonts/`、`robots.txt` 以外的路徑都 rewrite 成 SPA，沒有 `functions`、沒有 `crons`、沒有 `api/pdf-split`。把 `PDF_SPLIT_URL` 指到這裡，叫醒會拿到網頁，不會拆檔。 |
 
-未設定 `PDF_SPLIT_URL` 或 `PDF_SPLIT_SECRET` 時，Edge 略過叫醒，不影響 `parse_pdf`。改完 Edge secret 後要重新部署 slug `supabase-functions-process-jobs`（含 `tripo.ts`）。
+Vercel 文件：Cron 只在 production deployment 上執行（要先 `vercel deploy --prod`）。develop 的 `*/5 * * * *` **不會**打到上面那個 preview。Beta 的拆檔只靠 Edge POST。pg_cron 的 stale wake 只叫醒 `supabase-functions-process-jobs`，不會自己拆 PDF。
+
+**要在 Vercel 設的項目**（專案 `bwfbwfbranding-work-furniture`，team `bwsystem`）。值改完必須 **Redeploy** 該環境；已存在的 deployment 不會吃到新的 env。
+
+| 位置 | 名稱 | 要設成 |
+|---|---|---|
+| Vercel → Preview（含 git branch `develop`）runtime，建置也要讀得到 | `SUPABASE_URL` | `https://omxizeukbcqzsnjsuwod.supabase.co`。不要標 Sensitive，不要只勾 Production。Production-only 或 Sensitive 在 Preview build 讀不到（`vite.config.ts` 會直接失敗）。 |
+| Vercel → Preview runtime，Sensitive | `SUPABASE_SERVICE_ROLE_KEY` | **FDS 2.0** `omxizeukbcqzsnjsuwod` 的 service role。不要填 BWF 正式庫 `riaubhtruisbwdlwjzur`。只勾 Production 時，preview 函式會回 `Supabase not configured`。 |
+| Vercel → Preview runtime，Sensitive（production 日後上這支 function 時也要） | `PDF_SPLIT_SECRET` | 一把隨機字串。函式拿 `x-pdf-split-secret` 或 `Authorization: Bearer` 跟這把比。 |
+| Vercel → 同一個環境 | `CRON_SECRET` | **與 `PDF_SPLIT_SECRET` 同一個字串**。Cron 送 `Authorization: Bearer <CRON_SECRET>`。程式不讀 `CRON_SECRET`；兩把不一樣時 Cron 永遠 401。 |
+| Vercel → Deployment Protection → Protection Bypass for Automation | 產生的 bypass secret | 給下面的 `PDF_SPLIT_URL` 用。只在專案裡產生、不放進請求，preview 仍是 302。Vercel Cron 自己會跳過 Deployment Protection，但 Cron 打不到這個 preview。 |
+
+**FDS 2.0 Edge secrets**（Supabase `omxizeukbcqzsnjsuwod`，不要寫進 BWF 正式庫 `riaubhtruisbwdlwjzur`，本變更也不部署）：
+
+| 名稱 | 值 |
+|---|---|
+| `PDF_SPLIT_SECRET` | 與 Vercel 的 `PDF_SPLIT_SECRET` 同一把 |
+| `PDF_SPLIT_URL` | `https://bwfbwfbranding-work-furniture-git-develop-bwsystem.vercel.app/api/pdf-split?x-vercel-protection-bypass=<Protection Bypass secret>` |
+
+`kickPdfSplit` 原樣 `fetch(PDF_SPLIT_URL)`，不會加 `x-vercel-protection-bypass` header，所以 bypass 必須在 URL query（Vercel 對不能加 header 的呼叫端提供這個參數）。任一個 Edge secret 空白時，叫醒直接 return，`parse_pdf` 不受影響，大檔也不會拆。改完 secret 後要重新部署 slug `supabase-functions-process-jobs`（含 `tripo.ts`），否則執行中的函式仍是舊環境。
+
+正式網域要能拆檔，得等含 `api/pdf-split` 與排除 `api/` 的 rewrite 的 deployment 成為 **production**，再把該環境的三個 runtime 變數指到對應的 Supabase，並把 `CRON_SECRET` 設成同一把 `PDF_SPLIT_SECRET`，然後 Redeploy production。在那之前不要把 `PDF_SPLIT_URL` 指到 `www.bwteam-furniture.com`。
 
 ### 3.2 任務模型
 - 建立：前端/Edge 建 `processing_jobs`（`idempotency_key` 防重）。

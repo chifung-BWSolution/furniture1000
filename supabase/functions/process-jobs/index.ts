@@ -18,6 +18,11 @@ import {
  * 任務狀態一律經 fds_processing_job_* RPC 流轉。超過 60MB 的 PDF 不在這裡拆，
  * 改排 needs_split。有待拆任務時 POST 到 Vercel Function（PDF_SPLIT_URL），
  * header x-pdf-split-secret = PDF_SPLIT_SECRET。未設定時略過，不影響 parse_pdf。
+ * 這個 POST 不會帶 x-vercel-protection-bypass。develop preview 有 Vercel
+ * Authentication 時，PDF_SPLIT_URL 必須自己帶上
+ * ?x-vercel-protection-bypass=<Protection Bypass for Automation>，
+ * 否則 Vercel 回 302 SSO，拆檔函式不會執行。不要指到正式網域，
+ * 那邊在 main 部署上會回 index.html。
  *
  * parse_pdf 分批跑（Edge 每次請求只有很短的 CPU 時間）：
  *   extract  — 逐頁抽文字；文字太少的掃描頁抽出內嵌 JPEG 交 Grok OCR
@@ -1213,7 +1218,11 @@ Deno.serve(async (req: Request) => {
 
 const PDF_SPLIT_STALE_MS = 10 * 60 * 1000;
 
-/** Notify the Vercel splitter when a needs_split job can be claimed. Does not claim it here. */
+/**
+ * Notify the Vercel splitter when a needs_split job can be claimed. Does not claim it here.
+ * Fetches PDF_SPLIT_URL as given. A 302 from Vercel Authentication or an HTML 200
+ * from the production SPA rewrite is ignored here; the needs_split row stays queued.
+ */
 function kickPdfSplit(admin: SupabaseClient) {
   const splitUrl = (Deno.env.get("PDF_SPLIT_URL") ?? "").trim();
   const splitSecret = (Deno.env.get("PDF_SPLIT_SECRET") ?? "").trim();

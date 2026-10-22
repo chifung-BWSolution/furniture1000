@@ -10,6 +10,19 @@
  * Auth: header x-pdf-split-secret, or Authorization: Bearer <PDF_SPLIT_SECRET>.
  * Vercel Cron sends the Bearer token from CRON_SECRET, so that platform value
  * must be the same string as PDF_SPLIT_SECRET. This file does not read CRON_SECRET.
+ *
+ * This route is not reached when either of these is true:
+ * - The host is the develop preview behind Vercel Authentication. That layer
+ *   answers 302 to vercel.com/sso-api before this handler. Callers must send
+ *   the Protection Bypass for Automation secret (header x-vercel-protection-bypass,
+ *   or the same name as a query param on PDF_SPLIT_URL). This handler does not
+ *   add that header.
+ * - The host is the production domain while production is still the main
+ *   deployment. That vercel.json rewrites /api/pdf-split to index.html.
+ * Vercel Cron invokes only the production deployment, so the */5 schedule does
+ * not run on the develop preview. Preview runtime still needs SUPABASE_URL,
+ * SUPABASE_SERVICE_ROLE_KEY, and PDF_SPLIT_SECRET on the Preview target, then
+ * a redeploy. See docs/prd/FDS-2.1-技術架構.md.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
