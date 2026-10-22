@@ -25,9 +25,18 @@ export function isGemini3Model(model: string): boolean {
  * generationConfig fields that keep thinking low on Gemini 3.x, spread into
  * generationConfig. Default thinking on gemini-3.8-flash is "medium", which made
  * large extraction calls outlive the ~150s Edge gateway limit. gemini-3.8-flash
- * accepts low | medium | high ("minimal" is rejected), so "low" is used.
+ * accepts low | medium | high ("minimal" is rejected). "low" by default;
+ * set Edge secret GEMINI_THINKING_LEVEL=medium|high to override without a redeploy.
  * Other models get nothing, so their request bodies are unchanged.
  */
-export function geminiThinkingConfig(model: string): { thinkingConfig?: { thinkingLevel: "low" } } {
-  return isGemini3Model(model) ? { thinkingConfig: { thinkingLevel: "low" } } : {};
+export type GeminiThinkingLevel = "low" | "medium" | "high";
+
+/** Edge secret GEMINI_THINKING_LEVEL (low | medium | high), default "low". Anything else falls back to "low". */
+export function geminiThinkingLevel(): GeminiThinkingLevel {
+  const v = (Deno.env.get("GEMINI_THINKING_LEVEL") ?? "").trim().toLowerCase();
+  return v === "medium" || v === "high" ? v : "low";
+}
+
+export function geminiThinkingConfig(model: string): { thinkingConfig?: { thinkingLevel: GeminiThinkingLevel } } {
+  return isGemini3Model(model) ? { thinkingConfig: { thinkingLevel: geminiThinkingLevel() } } : {};
 }

@@ -2,6 +2,8 @@
  * Plan structure-phase units from segments and page stats (pure, testable without Deno).
  *
  * A segment with enough text becomes text units of up to maxPages pages.
+ * A segment where most pages are image-only is planned as vision even if a few
+ * pages carry short OCR text.
  * A segment without text but with embedded images (scanned / photo-only catalogue
  * pages where OCR returned NO_TEXT) becomes vision units of up to visionMaxPages pages,
  * so the page images themselves go to the vision model. Small vision units keep
@@ -19,11 +21,19 @@ export function planStructureUnits(segments, pages, opts) {
     if (!opts.kinds.includes(s.kind)) continue;
     let chars = 0;
     let images = 0;
+    let imageOnlyPages = 0;
+    const pageCount = s.end_page - s.start_page + 1;
     for (let p = s.start_page; p <= s.end_page; p++) {
-      chars += Number(stats.get(p)?.char_count ?? 0);
-      images += Number(stats.get(p)?.image_count ?? 0);
+      const pc = Number(stats.get(p)?.char_count ?? 0);
+      const pi = Number(stats.get(p)?.image_count ?? 0);
+      chars += pc;
+      images += pi;
+      if (pc < opts.minTextChars && pi > 0) imageOnlyPages++;
     }
-    const vision = chars < opts.minTextChars;
+    // Vision when the segment as a whole has little text, OR when most of its pages
+    // are image-only: a few OCR'd headings ("THE LIGHTS") spread over 8 photo/spec
+    // pages must not turn the segment into a text unit that sends no images.
+    const vision = chars < opts.minTextChars || imageOnlyPages * 2 > pageCount;
     if (vision && images === 0) continue;
     const step = Math.max(1, vision ? opts.visionMaxPages : opts.maxPages);
     for (let start = s.start_page; start <= s.end_page; start += step) {
