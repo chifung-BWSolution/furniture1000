@@ -119,6 +119,43 @@ admin 路徑另外驗證過（暫時在 dev 本機把 `use-platform-role.ts` 的
   `action === "logs"` / `listUsers`。
 - **Production `riaubhtruisbwdlwjzur` 尚未部署**，本次沒有動正式庫。
 
+### 2.6 廠家目錄：列表只載入廠家欄位，不再載入整包 payload
+
+`supabase/functions/fetch-manufacturer-directory/index.ts`、`src/lib/manufacturerDirectory.ts`、
+`src/components/dashboard/ManufacturerDirectoryView.tsx`、`src/lib/factoryZones.ts`、
+`src/lib/supplierLogins.ts`
+
+| 改動 | 說明 |
+|---|---|
+| Edge 新增 `action: 'list'` | 只回 `factories`（139 列，42,978 B），**不跑** `bwf_projects` 與 `staff_supplier_comments` 查詢 |
+| Edge 權限檢查並行 | `bwf_has_role` 與 PMS 讀取同時送出，不再疊成兩段 round trip；`requireDirectoryUser` 的 `getUser()` 與角色檢查也改成並行（401／403 順序維持原樣） |
+| 新增 `src/lib/manufacturerDirectory.ts` | 共用 loader：60 秒快取 + 進行中請求去重。`廠家目錄` 三個 menu（傢俬報價／廠家資訊／產品管理）與廠家分區、廠家登入頁共用同一份結果 |
+| 相容性 | 已部署的舊版 edge function 不理會 `action`，仍回完整 payload、`factories` 欄位一樣在；新版 loader 在 400／404／405／501 時自動退回完整 payload |
+
+**量測**（FDS2.0 `omxizeukbcqzsnjsuwod`，同一帳號、同一資料條件）：
+
+| Probe | 修改前 | 修改後 |
+|---|---:|---:|
+| 廠家目錄 payload | 365,240 B | **42,978 B**（8.5× 小） |
+| 廠家目錄 latency（warm） | 812–1,420 ms | **538–572 ms** |
+| 完整 payload（詳情頁） | 365,240 B / 812–1,083 ms | 365,240 B / 991 ms（契約不變） |
+
+payload 組成（修改前 365,240 B）：`factories` 42,964 B ＋ `comments` 235,603 B（PostgREST 預設只回
+第一頁 1,000 筆）＋ `factory_linked_projects` 76,154 B ＋ `factory_stats` 10,435 B。目錄表只用到
+`factories`，其餘三段是詳情頁才需要的。
+
+**搜尋本來就沒有打接口**：一次載入全部廠家後，`filteredFactories` 在瀏覽器端過濾（廠家名稱／代號／
+聯絡人／電話／地點）。實測輸入 `323` 時網路請求數不變，badge 由 139/139 變 1/139。
+
+**瀏覽器實測**（quick-login、dev server）：三個「廠家目錄」menu 之間切換（`/fds/quote/factories`
+↔ `/fds/factories/info`）現在**只發 1 次** `{"action":"list"}`，從前每個 menu 各打一次完整 payload；
+按 Refresh 仍會強制重取。
+
+**Edge 已部署**：FDS2.0 分支 `omxizeukbcqzsnjsuwod` 的 `supabase-functions-fetch-manufacturer-directory`
+與 `fetch-manufacturer-directory` 兩個 slug 都更新（v10）。**Production `riaubhtruisbwdlwjzur` 尚未部署**
+——線上正式版目前**沒有** `bwf_has_role` 角色閘門，而分支版有；正式庫有 19 個 `pm`、1 個 `client`
+帳號會被擋在目錄頁外面。這是存取規則變更，不應跟著效能修正一起上，正式版要上時需另外決定。
+
 ---
 
 ## 3. 量測結果（同一次 FDS2.0 目標，修改後）
