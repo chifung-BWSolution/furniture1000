@@ -1,3 +1,4 @@
+import { mapConcurrent } from '@/lib/mapConcurrent';
 /**
  * Analytics for 分析報表 — aggregate real usage from 傢俬報價 line items
  * (`bwf_quote_item`) and catalog product counts (`products`).
@@ -79,23 +80,24 @@ function productLabel(row: QuoteItemScanRow): string {
   );
 }
 
-async function fetchAllQuoteItemRows(): Promise<QuoteItemScanRow[]> {
-  const rows: QuoteItemScanRow[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await supabase
-      .from('bwf_quote_item')
-      .select(
-        'name, factory_name, quantity, image, category, quote_uuid, is_section_title, is_custom_term',
-      )
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    const chunk = (data || []) as QuoteItemScanRow[];
-    rows.push(...chunk);
-    if (chunk.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  return rows;
+async function fetchAllQuoteItemRows(latestQuoteUuids: Set<string>): Promise<QuoteItemScanRow[]> {
+  const ids = [...latestQuoteUuids];
+  const chunks = Array.from({ length: Math.ceil(ids.length / 150) }, (_, i) => ids.slice(i * 150, (i + 1) * 150));
+  const pages = await mapConcurrent(chunks, async (quoteIds) => {
+    const rows: QuoteItemScanRow[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await supabase.from('bwf_quote_item')
+        .select('name,factory_name,quantity,image,category,quote_uuid,is_section_title,is_custom_term')
+        .in('quote_uuid', quoteIds)
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const chunk = (data || []) as QuoteItemScanRow[];
+      rows.push(...chunk);
+      if (chunk.length < PAGE_SIZE) break;
+    }
+    return rows;
+  });
+  return pages.flat();
 }
 
 /**
@@ -138,15 +140,18 @@ async function fetchLatestQuoteUuidSet(): Promise<Set<string>> {
 /** Load products.title → catalog metadata for matching quote line names. */
 async function fetchCatalogProductIndex(): Promise<Map<string, CatalogProductRef>> {
   const index = new Map<string, CatalogProductRef>();
-  let from = 0;
-  for (;;) {
-    const { data, error } = await supabase
-      .from('products')
-      .select('title, factories_display_name, image_url')
-      .not('title', 'is', null)
-      .neq('title', '')
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
+  for (let from = 0; ; from += PAGE_SIZE * 3) {
+    const pages = await mapConcurrent([from, from + PAGE_SIZE, from + PAGE_SIZE * 2], async (offset) => {
+      const { data, error } = await supabase
+        .from('products')
+        .select('title, factories_display_name, image_url')
+        .not('title', 'is', null)
+        .neq('title', '')
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (error) throw error;
+      return data || [];
+    });
+    const data = pages.flat();
     const chunk = (data || []) as Array<{
       title?: string | null;
       factories_display_name?: string | null;
@@ -163,8 +168,7 @@ async function fetchCatalogProductIndex(): Promise<Map<string, CatalogProductRef
         image: row.image_url?.trim() || null,
       });
     }
-    if (chunk.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
+    if (pages.some((page) => page.length < PAGE_SIZE)) break;
   }
   return index;
 }
@@ -192,16 +196,12 @@ export async function fetchQuoteUsageRankings(): Promise<{
   products: QuoteProductUsageRow[];
   factories: QuoteFactoryUsageRow[];
 }> {
-  const [quoteRows, catalog, latestQuoteUuids] = await Promise.all([
-    fetchAllQuoteItemRows(),
+  const [quoteRows, catalog] = await Promise.all([
+    fetchLatestQuoteUuidSet().then(fetchAllQuoteItemRows),
     fetchCatalogProductIndex(),
-    fetchLatestQuoteUuidSet(),
   ]);
 
-  const rows = quoteRows.filter(
-    (row) =>
-      isProductLine(row) && latestQuoteUuids.has(String(row.quote_uuid || '')),
-  );
+  const rows = quoteRows.filter(isProductLine);
 
   type ProductAgg = {
     name: string;

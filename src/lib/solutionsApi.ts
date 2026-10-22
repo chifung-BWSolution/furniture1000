@@ -1,3 +1,4 @@
+import { mapConcurrent } from '@/lib/mapConcurrent';
 // ============================================================================
 // Data access layer for 傢俬方案 / 客戶專區 pages.
 // Wraps Supabase queries and maps snake_case rows → camelCase domain types.
@@ -849,10 +850,10 @@ export async function fetchPortalBrowseProducts(limit = 600): Promise<SearchProd
       .order('created_at', { ascending: false })
       .limit(limit);
     if (!error && data && data.length > 0) {
-      const catalog = await prioritizeActiveShopifyProducts(
-        data.map((r) => mapSearchProduct(r)),
-      );
-      const active = await fetchActiveShopifyProducts(limit);
+      const [catalog, active] = await Promise.all([
+        prioritizeActiveShopifyProducts(data.map((r) => mapSearchProduct(r))),
+        fetchActiveShopifyProducts(limit),
+      ]);
       const knownShopifyIds = new Set(
         catalog.map((product) => product.shopifyProductId).filter(Boolean),
       );
@@ -901,14 +902,15 @@ export async function fetchActiveShopifyProducts(
       ),
     ];
     const sourceById = new Map<string, SearchProduct>();
-    for (let i = 0; i < sourceIds.length; i += 150) {
-      const { data: sourceRows } = await supabase
-        .from('products')
-        .select(PORTAL_PRODUCT_SELECT)
-        .in('id', sourceIds.slice(i, i + 150));
-      for (const row of sourceRows ?? []) {
-        sourceById.set(String(row.id), mapSearchProduct(row));
-      }
+    const chunks = Array.from({ length: Math.ceil(sourceIds.length / 150) }, (_, i) => sourceIds.slice(i * 150, (i + 1) * 150));
+    const sourcePages = await mapConcurrent(chunks, async (ids) => {
+      const { data: rows } = await supabase.from('products')
+        .select('id,material,color,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name')
+        .in('id', ids);
+      return rows ?? [];
+    });
+    for (const rows of sourcePages) {
+      for (const row of rows) sourceById.set(String(row.id), mapSearchProduct(row));
     }
     return data
       .map((row) => {

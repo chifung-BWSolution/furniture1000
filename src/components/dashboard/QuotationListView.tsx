@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Clock, Copy, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import {
@@ -47,35 +46,7 @@ import { normalizeQuoteDateInput } from '@/lib/quotationLocale';
 import { moveQuoteToTrash, QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
 import { BwfInquiryReplyPanel } from '@/components/dashboard/BwfInquiryReplyPanel';
 
-interface QuoteRecord {
-  id: string;
-  quote_id: string;
-  version: string;
-  status: string;
-  total_amount: number;
-  cost_price: number | null;
-  submitter: string;
-  bwf_pitching_id: string | null;
-  project_data: {
-    formData?: {
-      clientName?: string;
-      clientContactName?: string;
-      company?: string;
-      projectManager?: string;
-      clientIndustry?: string[];
-      clientIndustryOther?: string;
-    };
-    clientInfo?: {
-      name?: string;
-      contactName?: string;
-      phone?: string;
-      email?: string;
-    };
-    [key: string]: unknown;
-  };
-  created_at: string;
-  modified_date?: string | null;
-}
+import { attachQuoteListSiblings, fetchQuoteListPage, fetchQuoteListCount, type QuoteRecord } from '@/lib/quoteListData';
 
 type QuoteListRow = QuoteRecord & {
   pitching: PmsPitchingListItem | null;
@@ -87,9 +58,6 @@ interface QuotationListViewProps {
   /** `large-amount` = 大金額投標 (>$50000)，其餘與報價單一覽相同。 */
   mode?: 'all' | 'large-amount';
 }
-
-const LIST_SELECT =
-  'id, quote_id, version, status, total_amount, cost_price, submitter, bwf_pitching_id, created_at, modified_date, project_data';
 
 const LARGE_AMOUNT_THRESHOLD = 50000;
 const PAGE_SIZE = 40;
@@ -207,50 +175,34 @@ export function QuotationListView({
     () => new Set(),
   );
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  /** First page is on screen; sibling versions + PMS titles are still arriving. */
+  const [isEnriching, setIsEnriching] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const fetchGenRef = useRef(0);
   const loadedOffsetRef = useRef(0);
+  /** Total row count once the independent count request lands. */
+  const totalCountRef = useRef<number | null>(null);
+
+  /** More pages exist when the count is known, else fall back to a full page. */
+  const hasMoreRows = useCallback((loaded: number, lastPageSize: number) => {
+    const known = totalCountRef.current;
+    if (known != null) return loaded < known;
+    return lastPageSize === PAGE_SIZE;
+  }, []);
 
   const fetchQuotePage = useCallback(
-    async (from: number, withCount: boolean) => {
-      let query = supabase
-        .from('bwf_quote')
-        .select(LIST_SELECT, withCount ? { count: 'exact' } : undefined)
-        .neq('status', QUOTE_TRASH_STATUS)
-        .order('created_at', { ascending: false })
-        .range(from, from + PAGE_SIZE - 1);
-      if (isLargeAmount) {
-        query = query.gt('total_amount', LARGE_AMOUNT_THRESHOLD);
-      }
-      const { data, error, count } = await query;
-      if (error) throw error;
-      return { rows: (data as QuoteRecord[]) || [], count: count ?? null };
+    async (from: number) => {
+      return fetchQuoteListPage(from, PAGE_SIZE, false, isLargeAmount);
     },
     [isLargeAmount],
   );
 
-  const attachSiblings = useCallback(async (rows: QuoteRecord[]) => {
-    const quoteIds = [
-      ...new Set(
-        rows
-          .map((row) => row.quote_id?.trim())
-          .filter((id): id is string => Boolean(id)),
-      ),
-    ];
-    if (quoteIds.length === 0) return rows;
-    const { data, error } = await supabase
-      .from('bwf_quote')
-      .select(LIST_SELECT)
-      .in('quote_id', quoteIds)
-      .neq('status', QUOTE_TRASH_STATUS);
-    if (error || !data) return rows;
-    return mergeQuoteRecords(rows, data as QuoteRecord[]);
-  }, []);
+  const attachSiblings = useCallback(attachQuoteListSiblings, []);
 
   const appendQuotePage = useCallback(
     async (from: number, gen: number) => {
-      const page = await fetchQuotePage(from, false);
+      const page = await fetchQuotePage(from);
       if (gen !== fetchGenRef.current) return null;
       if (page.rows.length === 0) {
         loadedOffsetRef.current = from;
@@ -263,41 +215,46 @@ export function QuotationListView({
       if (gen !== fetchGenRef.current) return null;
       setQuotes((prev) => mergeQuoteRecords(prev, withPitch));
       loadedOffsetRef.current = from + page.rows.length;
-      setHasMore(page.rows.length === PAGE_SIZE);
+      setHasMore(hasMoreRows(loadedOffsetRef.current, page.rows.length));
       return page;
     },
-    [attachSiblings, fetchQuotePage],
+    [attachSiblings, fetchQuotePage, hasMoreRows],
   );
 
   const fetchQuotes = useCallback(async () => {
     const gen = ++fetchGenRef.current;
     loadedOffsetRef.current = 0;
+    totalCountRef.current = null;
     setIsLoading(true);
     setIsLoadingMore(false);
+    setIsEnriching(false);
     setHasMore(false);
-    try {
-      const first = await fetchQuotePage(0, true);
+    setTotalCount(null);
+    void fetchQuoteListCount(isLargeAmount).then((count) => {
       if (gen !== fetchGenRef.current) return;
+      totalCountRef.current = count;
+      setTotalCount(count);
+      // The count can land after the first page; refine the pager with it.
+      setHasMore((current) => current && count > loadedOffsetRef.current);
+    }).catch(() => { /* Rows remain usable if the independent count fails. */ });
+    try {
+      const first = await fetchQuotePage(0);
+      if (gen !== fetchGenRef.current) return;
+      // Show the lightweight page immediately; PMS titles and sibling versions
+      // enrich it afterwards, without blocking on either network round-trip.
+      setQuotes(first.rows.map((row) => ({ ...row, pitching: null })));
+      setIsEnriching(true);
+      setIsLoading(false);
       const firstWithSiblings = await attachSiblings(first.rows);
       if (gen !== fetchGenRef.current) return;
-      setQuotes(await loadPitchingsForQuoteRows(firstWithSiblings));
-      setTotalCount(first.count);
+      const enriched = await loadPitchingsForQuoteRows(firstWithSiblings);
+      if (gen !== fetchGenRef.current) return;
+      setQuotes(enriched);
       loadedOffsetRef.current = first.rows.length;
-      let keepGoing =
-        first.rows.length === PAGE_SIZE &&
-        (first.count == null || first.count > first.rows.length);
-      setHasMore(keepGoing);
+      // Pagination is on demand — never scan the remaining pages in the background.
+      setHasMore(hasMoreRows(first.rows.length, first.rows.length));
+      setIsEnriching(false);
       setIsLoading(false);
-
-      while (gen === fetchGenRef.current && keepGoing) {
-        setIsLoadingMore(true);
-        const page = await appendQuotePage(loadedOffsetRef.current, gen);
-        if (gen !== fetchGenRef.current || !page) return;
-        keepGoing =
-          page.rows.length === PAGE_SIZE &&
-          (first.count == null || loadedOffsetRef.current < first.count);
-        setHasMore(keepGoing);
-      }
     } catch (err: unknown) {
       if (gen !== fetchGenRef.current) return;
       const message = err instanceof Error
@@ -314,12 +271,13 @@ export function QuotationListView({
       if (gen === fetchGenRef.current) {
         setIsLoading(false);
         setIsLoadingMore(false);
+        setIsEnriching(false);
       }
     }
-  }, [appendQuotePage, attachSiblings, fetchQuotePage]);
+  }, [attachSiblings, fetchQuotePage, hasMoreRows, isLargeAmount]);
 
   const loadMoreQuotes = useCallback(async () => {
-    if (isLoading || isLoadingMore || !hasMore) return;
+    if (isLoading || isEnriching || isLoadingMore || !hasMore) return;
     const gen = fetchGenRef.current;
     setIsLoadingMore(true);
     try {
@@ -330,7 +288,7 @@ export function QuotationListView({
     } finally {
       if (gen === fetchGenRef.current) setIsLoadingMore(false);
     }
-  }, [appendQuotePage, hasMore, isLoading, isLoadingMore]);
+  }, [appendQuotePage, hasMore, isEnriching, isLoading, isLoadingMore]);
 
   useEffect(() => {
     fetchQuotes();
@@ -656,8 +614,9 @@ export function QuotationListView({
                     0,
                   )}{' '}
                   個版本紀錄
+                  {isEnriching ? ' · 正在補上提案標題…' : ''}
                   {isLoadingMore ? ' · 正在載入較早的報價…' : ''}
-                  {hasMore && !isLoadingMore
+                  {hasMore && !isLoadingMore && !isEnriching
                     ? ' · 搜尋／篩選僅套用已載入列'
                     : ''}
                 </span>

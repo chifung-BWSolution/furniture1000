@@ -142,7 +142,7 @@ export function isCorrected(item: ExtractionItem, key: keyof ExtractedProduct): 
 export async function listReviewDocuments(): Promise<ReviewDocument[]> {
   const { data, error } = await supabase
     .from('supplier_documents')
-    .select('id, factory_name, title, doc_type, currency, status, storage_path, page_count, created_at, pending:extraction_items(count), total:extraction_items(count)')
+    .select('id, factory_name, title, doc_type, currency, status, storage_path, page_count, created_at, pending:extraction_items!extraction_items_document_id_fkey(count), total:extraction_items!extraction_items_document_id_fkey(count)')
     .eq('pending.status', 'pending')
     .is('parent_document_id', null)
     .in('status', ['review', 'ready', 'parsing'])
