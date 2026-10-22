@@ -291,6 +291,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "published-products",
   "abnormal-price-products",
   "fds2-publish-similar",
+  "fds2-products-ai-review",
   "fds2-pm-presentation",
   "fds2-quote-trash",
   "fds2-pm-budget",
@@ -1051,7 +1052,13 @@ function AppShellContent() {
     if (store.currentView === 'fds2-admin-prd') return <PrdDescriptionsView />;
     if (store.currentView === 'fds2-admin-command-logs') return <DailyCommandLogsView />;
     if (store.currentView === 'fds2-admin-dev-cost') return <DevelopmentCostView />;
-    if (store.currentView === 'fds2-products-ai-review') return <ExtractionReviewView />;
+    if (store.currentView === 'fds2-products-ai-review') {
+      return (
+        <ExtractionReviewView
+          onOpenUpload={() => store.setCurrentView('fds2-products-quote-pdf')}
+        />
+      );
+    }
     if (store.currentView === 'fds2-designer-types') return <FurnitureSearchView key="browse" />;
     if (store.currentView === 'fds2-designer-pdf') return <DesignerPdfView />;
     if (store.currentView === 'fds2-designer-common' || store.currentView === 'fds2-quote-common') {

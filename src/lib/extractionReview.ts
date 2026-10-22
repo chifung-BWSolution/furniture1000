@@ -63,6 +63,22 @@ export interface ExtractionImage {
   image_type: ImageType;
 }
 
+/**
+ * Per-document review counts. `pending` and `attention` are disjoint so the
+ * stat cards and filter tabs can add up without double counting.
+ */
+export interface ReviewDocumentCounts {
+  total: number;
+  /** Pending items the AI is confident about. */
+  pending: number;
+  /** Pending items that are missing data or below the confidence floor. */
+  attention: number;
+  /** Approved items, including ones already imported into products. */
+  approved: number;
+  imported: number;
+  rejected: number;
+}
+
 export interface ReviewDocument {
   id: string;
   factory_name: string;
@@ -72,9 +88,29 @@ export interface ReviewDocument {
   status: SupplierDocumentStatus;
   storage_path: string;
   page_count: number | null;
+  file_size: number | null;
   created_at: string;
-  pending: { count: number }[];
-  total: { count: number }[];
+  counts: ReviewDocumentCounts;
+}
+
+export function emptyReviewCounts(): ReviewDocumentCounts {
+  return { total: 0, pending: 0, attention: 0, approved: 0, imported: 0, rejected: 0 };
+}
+
+export function addToReviewCounts(
+  counts: ReviewDocumentCounts,
+  row: { status: ExtractionStatus; needs_attention: boolean; imported_product_id: string | null },
+): void {
+  counts.total += 1;
+  if (row.imported_product_id) counts.imported += 1;
+  if (row.status === 'pending') {
+    if (row.needs_attention) counts.attention += 1;
+    else counts.pending += 1;
+  } else if (row.status === 'approved') {
+    counts.approved += 1;
+  } else if (row.status === 'rejected') {
+    counts.rejected += 1;
+  }
 }
 
 /** Fields a reviewer can correct, in display order. */
@@ -139,17 +175,54 @@ export function isCorrected(item: ExtractionItem, key: keyof ExtractedProduct): 
   return !!item.corrected_json && Object.prototype.hasOwnProperty.call(item.corrected_json, key);
 }
 
+/** One lightweight read (paged) gives every document card its four counts. */
+export async function countExtractionItems(
+  documentIds: string[],
+): Promise<Record<string, ReviewDocumentCounts>> {
+  const result: Record<string, ReviewDocumentCounts> = {};
+  for (const id of documentIds) result[id] = emptyReviewCounts();
+  if (documentIds.length === 0) return result;
+
+  const PAGE = 1000;
+  const MAX_ROWS = 40_000;
+  for (let from = 0; from < MAX_ROWS; from += PAGE) {
+    const { data, error } = await supabase
+      .from('extraction_items')
+      .select('document_id, status, needs_attention, imported_product_id')
+      .in('document_id', documentIds)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as unknown as {
+      document_id: string;
+      status: ExtractionStatus;
+      needs_attention: boolean;
+      imported_product_id: string | null;
+    }[];
+    for (const row of rows) {
+      const counts = result[row.document_id];
+      if (counts) addToReviewCounts(counts, row);
+    }
+    if (rows.length < PAGE) break;
+  }
+  return result;
+}
+
 export async function listReviewDocuments(): Promise<ReviewDocument[]> {
   const { data, error } = await supabase
     .from('supplier_documents')
-    .select('id, factory_name, title, doc_type, currency, status, storage_path, page_count, created_at, pending:extraction_items!extraction_items_document_id_fkey(count), total:extraction_items!extraction_items_document_id_fkey(count)')
-    .eq('pending.status', 'pending')
+    .select('id, factory_name, title, doc_type, currency, status, storage_path, page_count, file_size, created_at')
     .is('parent_document_id', null)
     .in('status', ['review', 'ready', 'parsing'])
     .order('created_at', { ascending: false })
     .limit(100);
   if (error) throw new Error(error.message);
-  return ((data ?? []) as unknown as ReviewDocument[]).filter((d) => (d.total[0]?.count ?? 0) > 0);
+
+  const rows = (data ?? []) as unknown as Omit<ReviewDocument, 'counts'>[];
+  const counts = await countExtractionItems(rows.map((row) => row.id));
+  return rows
+    .map((row) => ({ ...row, counts: counts[row.id] ?? emptyReviewCounts() }))
+    .filter((row) => row.counts.total > 0);
 }
 
 export async function listExtractionItems(documentId: string): Promise<ExtractionItem[]> {
