@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
+import { fetchCaseShowcase, CaseAccessError } from "../_shared/caseShowcase.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,19 +65,17 @@ Deno.serve(async (req: Request) => {
   if (userError || !userData.user?.id) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
-  const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", {
-    p_roles: ["pm", "admin", "uploader"],
-  });
-  if (roleError || allowed !== true) {
-    return jsonResponse({ error: "Forbidden" }, 403);
-  }
-
-  let body: { search?: string; limit?: number } = {};
+  let body: { search?: string; limit?: number; action?: string } = {};
   try {
     body = await req.json();
   } catch {
     body = {};
   }
+  const isCaseQuery = typeof body.action === "string" && body.action.startsWith("cases-");
+  const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", {
+    p_roles: isCaseQuery ? ["pm", "admin", "uploader", "designer"] : ["pm", "admin", "uploader"],
+  });
+  if (roleError || allowed !== true) return jsonResponse({ error: "Forbidden" }, 403);
   const search = text(body.search).replace(/[,()]/g, " ").slice(0, 80);
   const limit = Math.min(Math.max(Number(body.limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
@@ -84,6 +83,9 @@ Deno.serve(async (req: Request) => {
     const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    if (isCaseQuery) {
+      return jsonResponse({ ...await fetchCaseShowcase(pmsAdmin, userData.user, body.action!), action: body.action });
+    }
 
     // BWA identity only. Do not select estimated_income, estimated_expense,
     // estimated_profit, cost_centre, supplier, or any BWF quote column.
@@ -144,6 +146,6 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ items });
   } catch (error) {
     const message = error instanceof Error ? error.message : "BWA lookup failed";
-    return jsonResponse({ error: message }, 500);
+    return jsonResponse({ error: message }, error instanceof CaseAccessError ? 403 : 500);
   }
 });
