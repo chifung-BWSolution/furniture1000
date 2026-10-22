@@ -19,7 +19,7 @@
  *   add that header.
  * - The host is the production domain while production is still the main
  *   deployment. That vercel.json rewrites /api/pdf-split to index.html.
- * Vercel Cron invokes only the production deployment, so the */5 schedule does
+ * Vercel Cron invokes only the production deployment, so the every-five-minute schedule does
  * not run on the develop preview. Preview runtime still needs SUPABASE_URL,
  * SUPABASE_SERVICE_ROLE_KEY, and PDF_SPLIT_SECRET on the Preview target, then
  * a redeploy. See docs/prd/FDS-2.1-技術架構.md.
