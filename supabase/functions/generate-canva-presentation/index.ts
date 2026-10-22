@@ -30,6 +30,7 @@ import {
  * - import      → （舊版）Design Imports PPTX
  * - probe       → PoC：檢查 scope／連線
  * - save_draft  → { brief, product_ids?, session_id?, parent_id? }
+ * - generation_status → { session_id } read Canva job and persist current status
  * - create_native → { session_id } Canva AI design generation（POST /generations）
  * - export_pptx / export_pdf / export_design → { session_id, format? } Canva export + 審計列（T-903）
  *
@@ -499,13 +500,15 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
       if (!existing?.id) return json({ error: "session_not_found" }, 404);
       const patch: Record<string, unknown> = {
-        status: "draft",
         brief,
         product_ids: productIds,
         updated_at: now,
       };
       if (versionNote != null) patch.version_note = versionNote;
-      const { error: updErr } = await service.from("canva_design_sessions").update(patch).eq("id", sessionId);
+      const { data: saved, error: updErr } = await service.from("canva_design_sessions")
+        .update(patch).eq("id", sessionId).eq("staff_id", userId)
+        .neq("status", "creating").select("id").maybeSingle();
+      if (!updErr && !saved) return json({ error: "create_in_progress", message: "Canva 任務進行中，請等待完成後再儲存。" }, 409);
       if (updErr) return json({ error: updErr.message }, 500);
       return json({ session_id: sessionId });
     }
@@ -573,6 +576,65 @@ Deno.serve(async (req: Request) => {
     return json({ session_id: newId, content_version: contentVersion, root_id: rootId ?? newId });
   }
 
+  // Observe the existing task: never start or retry a paid Canva generation here.
+  if (action === "generation_status") {
+    const { data: session, error } = await service.from("canva_design_sessions")
+      .select("*").eq("id", String(body.session_id ?? "")).eq("staff_id", userId).maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!session) return json({ error: "session_not_found" }, 404);
+    if (session.status !== "creating" || !session.populate_report?.generation_job_id) return json(session);
+    const tokenRow = await loadAndRefreshToken(service, userId, credentials);
+    if ("error" in tokenRow) return json({ error: tokenRow.error }, 401);
+    const jobId = String(session.populate_report.generation_job_id);
+    const path = `/generations/${encodeURIComponent(jobId)}`;
+    let response = await canvaAuthedFetch(tokenRow.access_token, path);
+    if (response.status === 401 && tokenRow.refresh_token) {
+      const next = await refreshToken(service, userId, credentials, tokenRow.refresh_token);
+      if (next) response = await canvaAuthedFetch(next.access_token, path);
+    }
+    if (!response.ok) {
+      const detail = clipCanvaError(await response.text(), `canva_status_${response.status}`);
+      return json({ error: "canva_status_unavailable", message: detail }, 502);
+    }
+    const jobBody = await response.json();
+    const job = jobBody?.job ?? jobBody;
+    const report = {
+      ...session.populate_report,
+      generation_status: job.status ?? "unknown",
+      generation_checked_at: new Date().toISOString(),
+    };
+    const patch: Record<string, unknown> = { populate_report: report, updated_at: new Date().toISOString() };
+    if (job.status === "failed") {
+      patch.status = "failed";
+      patch.error = clipCanvaError(job.error?.message || job.error?.code || "Canva 生成失敗", "canva_generation_failed");
+    } else if (job.status === "success") {
+      const design = job.result?.design;
+      if (!design?.id) {
+        patch.status = "failed";
+        patch.error = "Canva 生成完成但沒有設計。";
+      } else {
+        Object.assign(patch, {
+          status: "ready", generation_mode: "ai", brand_template_id: null,
+          canva_design_id: design.id,
+          edit_url: design.urls?.edit_url ?? design.url ?? null,
+          view_url: design.urls?.view_url ?? null,
+          thumbnail_url: design.thumbnail?.url ?? null,
+          error: null,
+        });
+      }
+    }
+    // Concurrent status reads cannot overwrite a terminal result with an older response.
+    const { data: updated, error: updateError } = await service.from("canva_design_sessions")
+      .update(patch).eq("id", session.id).eq("staff_id", userId).eq("status", "creating")
+      .select("*").maybeSingle();
+    if (updateError) return json({ error: updateError.message }, 500);
+    if (updated) return json(updated);
+    const { data: current, error: readError } = await service.from("canva_design_sessions")
+      .select("*").eq("id", session.id).eq("staff_id", userId).maybeSingle();
+    if (readError) return json({ error: readError.message }, 500);
+    return current ? json(current) : json({ error: "session_not_found" }, 404);
+  }
+
   // ── create_native：Canva AI design generation（POST /generations）──
   if (action === "create_native") {
     const sessionId = String(body.session_id ?? "");
@@ -587,8 +649,8 @@ Deno.serve(async (req: Request) => {
     if (!session) return json({ error: "session_not_found" }, 404);
 
     if (session.status === "creating") {
-      const ageMs = Date.now() - new Date(String(session.updated_at)).getTime();
-      if (ageMs < 120_000) return json({ error: "create_in_progress" }, 409);
+      // A repeated click must observe the existing task, never create a second paid job.
+      return json(session);
     }
     if (session.canva_design_id) {
       return json({
@@ -625,14 +687,13 @@ Deno.serve(async (req: Request) => {
       return null;
     };
 
-    const staleBefore = new Date(Date.now() - 120_000).toISOString();
     const { data: claimed, error: claimErr } = await service
       .from("canva_design_sessions")
-      .update({ status: "creating", error: null, updated_at: new Date().toISOString() })
+      .update({ status: "creating", error: null, populate_report: null, updated_at: new Date().toISOString() })
       .eq("id", sessionId)
       .eq("staff_id", userId)
       .is("canva_design_id", null)
-      .or(`status.not.in.(creating),updated_at.lte."${staleBefore}"`)
+      .neq("status", "creating")
       .select("*")
       .maybeSingle();
     if (claimErr) return json({ error: claimErr.message }, 500);
@@ -746,66 +807,13 @@ Deno.serve(async (req: Request) => {
       );
     }
     report.generation_job_id = jobId;
+    report.generation_status = "accepted";
+    const { error: progressError } = await service.from("canva_design_sessions")
+      .update({ generation_mode: "ai", populate_report: report, updated_at: new Date().toISOString() })
+      .eq("id", sessionId).eq("status", "creating");
+    if (progressError) return json({ error: progressError.message }, 500);
 
-    const job = await pollCanvaJob<{
-      status?: string;
-      error?: { message?: string; code?: string };
-      result?: {
-        design?: {
-          id?: string;
-          url?: string;
-          urls?: { edit_url?: string; view_url?: string };
-          thumbnail?: { url?: string };
-        };
-      };
-    }>(
-      tokenRow.access_token,
-      `/generations/${jobId}`,
-      (item) => item?.status === "success" || item?.status === "failed",
-      on401,
-    );
-    if (!job || job.status !== "success") {
-      const errMsg = job?.error?.message || job?.error?.code || (job ? "generation_failed" : "generation_timeout");
-      const raw = JSON.stringify(job ?? { error: "generation_timeout", job_id: jobId });
-      logCanvaFailure("canva generation job", undefined, raw);
-      return await failGeneration(
-        `${errMsg}\n${raw}`,
-        { error: "canva_generation_failed", message: errMsg, job_id: jobId },
-        502,
-      );
-    }
-
-    const design = job.result?.design;
-    const designId = design?.id;
-    if (!designId) {
-      const raw = JSON.stringify(job);
-      logCanvaFailure("canva generation no design", undefined, raw);
-      return await failGeneration(
-        raw,
-        { error: "canva_generation_no_design", message: "Canva 生成完成但沒有設計。", job_id: jobId },
-        502,
-      );
-    }
-
-    const { data: updated, error: updErr } = await service
-      .from("canva_design_sessions")
-      .update({
-        status: "ready",
-        generation_mode: "ai",
-        brand_template_id: null,
-        populate_report: report,
-        canva_design_id: designId,
-        edit_url: design?.urls?.edit_url ?? design?.url ?? null,
-        view_url: design?.urls?.view_url ?? null,
-        thumbnail_url: design?.thumbnail?.url ?? null,
-        error: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", sessionId)
-      .select("*")
-      .single();
-    if (updErr) return json({ error: updErr.message }, 500);
-    return json(updated);
+    return json({ ...claimed, populate_report: report });
   }
 
   // ── export_design / export_pptx / export_pdf（T-903）────────────────
