@@ -1,6 +1,6 @@
 import { runTripoJob, TripoStop } from "./tripo.ts";
 import { wakePdfSplitter } from "./pdfSplitWake.mjs";
-import { planStructureUnits, unitImagePages } from "./structureUnits.mjs";
+import { extractPagesPdf, planStructureUnits, unitImagePages } from "./structureUnits.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { getDocumentProxy } from "npm:unpdf@1.9.0";
@@ -51,6 +51,9 @@ const CLASSIFY_TEXT_CHARS = 1500;
 const STRUCTURE_MAX_PAGES = 5;
 // Image-only pages (OCR found no text) go to the vision model a couple of pages at a time.
 const VISION_MAX_PAGES = 2;
+// The unit's pages are also sent as a small PDF so the model sees the whole rendered page
+// (captions are often vector outlines, invisible to text extraction and absent from embedded photos).
+const MAX_PAGE_PDF_BYTES = 8 * 1024 * 1024;
 const STRUCTURE_MAX_IMAGES = 10;
 const MIN_IMAGE_PX = 200;
 const MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -618,7 +621,11 @@ Rules:
 - confidence 0-1 for the whole item; list field names you are unsure about in uncertain_fields.
 - Pages marked "image_only" have no extractable text: read the products directly from the pictures of those pages
   (the IMAGE labelled with that page is usually the whole scanned page). Copy model numbers, sizes and prices only
-  when they are legible in the picture; otherwise leave them null and list them in uncertain_fields.`;
+  when they are legible in the picture; otherwise leave them null and list them in uncertain_fields.
+- When a "PAGES PDF" is attached, it shows the target pages exactly as printed. Catalogue grids print a caption under
+  each product photo such as "YC-P1514-D  1500*1400*1100": that is the model followed by W*D*H in mm. Read every
+  caption from the PAGES PDF and return one item per caption (model, dimensions_text, width_mm, depth_mm, height_mm),
+  even when the page has no text layer. Page numbers in the PDF follow the order of "pages".`;
 
 type StructuredItem = {
   page: number;
@@ -768,16 +775,10 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 async function collectUnitImages(
   admin: SupabaseClient,
   documentId: string,
-  bytes: Uint8Array,
+  doc: PDFDocument | null,
   textPages: number[],
 ): Promise<UnitImage[]> {
-  if (textPages.length === 0) return [];
-  let doc: PDFDocument;
-  try {
-    doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-  } catch {
-    return [];
-  }
+  if (textPages.length === 0 || !doc) return [];
 
   const found = new Map<string, { page_no: number; pages: Set<number>; img: EmbeddedImage }>();
   for (const pageNo of textPages) {
@@ -848,8 +849,13 @@ async function geminiStructure(
   apiKey: string,
   input: unknown,
   images: UnitImage[],
+  pagesPdf: Uint8Array | null = null,
 ): Promise<{ items: StructuredItem[]; currency: string | null; tokens: number }> {
   const parts: Record<string, unknown>[] = [{ text: JSON.stringify(input) }];
+  if (pagesPdf) {
+    parts.push({ text: "PAGES PDF: the target pages rendered exactly as printed" });
+    parts.push({ inline_data: { mime_type: "application/pdf", data: toBase64(pagesPdf) } });
+  }
   images.forEach((img, i) => {
     parts.push({ text: `IMAGE ${i} (page ${img.page_no})` });
     parts.push({ inline_data: { mime_type: "image/jpeg", data: toBase64(img.bytes) } });
@@ -939,7 +945,20 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
   const docCurrency = (doc?.currency as string | null) ?? null;
 
   const imagePages = unitImagePages(unit, target) as number[];
-  const images = await collectUnitImages(admin, documentId, await downloadDocument(admin, documentId), imagePages);
+  let pdfDoc: PDFDocument | null = null;
+  try {
+    pdfDoc = await PDFDocument.load(await downloadDocument(admin, documentId), {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+  } catch {
+    pdfDoc = null;
+  }
+  const images = await collectUnitImages(admin, documentId, pdfDoc, imagePages);
+  const pagesPdf = unit.vision && pdfDoc
+    ? await extractPagesPdf(PDFDocument, pdfDoc, target.map((p) => p.page_no as number), MAX_PAGE_PDF_BYTES)
+    : null;
+  pdfDoc = null;
   await heartbeat(admin, job.id, progressOf(state));
 
   const { items, currency, tokens } = await geminiStructure(apiKey, {
@@ -949,7 +968,7 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
     pages: target.map((p) => (unit.vision && realCharCount(String(p.content ?? "")) < MIN_TEXT_CHARS
       ? { page: p.page_no, image_only: true }
       : { page: p.page_no, text: String(p.content).slice(0, 6000) })),
-  }, images);
+  }, images, pagesPdf);
   state.tokens += tokens;
 
   const reviewedModels = new Set((reviewed ?? []).map((r) => modelKey((r as Record<string, unknown>).model)).filter(Boolean));

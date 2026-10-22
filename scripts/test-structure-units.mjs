@@ -33,3 +33,16 @@ assert.deepEqual(unitImagePages(units[2], pages), [9, 10]);
 assert.deepEqual(unitImagePages({ start: 8, end: 9 }, pages), [8]);
 
 console.log('structure units ok', { units: units.length });
+
+// extractPagesPdf: copies only the requested pages, ignores out-of-range, respects the size cap.
+const { PDFDocument } = await import('pdf-lib');
+const { extractPagesPdf } = await import('../supabase/functions/process-jobs/structureUnits.mjs');
+const src = await PDFDocument.create();
+for (let i = 0; i < 6; i += 1) src.addPage([200 + i, 200]);
+const sub = await extractPagesPdf(PDFDocument, src, [3, 4, 99], 10 * 1024 * 1024);
+const loaded = await PDFDocument.load(sub);
+assert.equal(loaded.getPageCount(), 2);
+assert.equal(loaded.getPage(0).getWidth(), 202);
+assert.equal(await extractPagesPdf(PDFDocument, src, [1], 10), null);
+assert.equal(await extractPagesPdf(PDFDocument, src, [], 10 * 1024 * 1024), null);
+console.log('extract pages pdf ok');

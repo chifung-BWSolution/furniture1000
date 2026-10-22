@@ -41,3 +41,24 @@ export function unitImagePages(unit, pages) {
     .filter((p) => unit.vision || p.text_source === 'text')
     .map((p) => p.page_no);
 }
+
+/**
+ * Copy the given 1-based pages of a loaded pdf-lib document into a new small PDF.
+ * The vision model renders it itself, so captions drawn as vector outlines (no text
+ * layer, no fonts) are read along with the photos. Returns null when it would exceed maxBytes.
+ *
+ * @param {{ create: () => Promise<any> }} PDFDocumentCls pdf-lib PDFDocument class (injected for Deno/Node)
+ * @param {any} src loaded pdf-lib PDFDocument
+ * @param {number[]} pageNos 1-based page numbers
+ * @param {number} maxBytes
+ * @returns {Promise<Uint8Array | null>}
+ */
+export async function extractPagesPdf(PDFDocumentCls, src, pageNos, maxBytes) {
+  const total = src.getPageCount();
+  const indexes = [...new Set(pageNos)].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b).map((p) => p - 1);
+  if (indexes.length === 0) return null;
+  const out = await PDFDocumentCls.create();
+  for (const page of await out.copyPages(src, indexes)) out.addPage(page);
+  const bytes = await out.save();
+  return bytes.byteLength <= maxBytes ? bytes : null;
+}
