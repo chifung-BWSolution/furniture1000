@@ -343,3 +343,74 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   比較頁任何角色都看得到中間價與原價，成本只給 admin／uploader。
 - 以圖搜款（`search-by-image` → `fds_match_product_images`）與文字搜索共用同一套篩選（含 `p_text`）；
   前端改篩選時要用同一張圖重跑圖片搜索，不要只重跑文字搜索。
+- 「常用傢俬」（`/fds/designer/common`、`/fds/quote/common`）＝**全公司共用**的排行頁，**不是**個人愛心清單
+  （`designer_favorites` 已移除）。排序由 `fds_search_products(p_common => true, p_sort => ...)` 在伺服器端做，兩層：
+  1. **類別熱度（賣得多）**：PMS 真實落單量。edge function `pms-category-demand`（slug `pms-category-demand`，
+     cron `fds-pms-category-demand`，每日 03:17，授權用 vault `fds_worker_secret`）讀 PMS `bwf_orders`
+     → `bwf_products` → `product_types`，只把**聚合**寫進 `fds_pms_category_demand`（30 列）；對照表
+     `fds_pms_category_map`（PMS type → FDS `products.level1_category` ＋ 權重）可用 admin RPC
+     `fds_pms_category_map_set` 改。**FDS 不存 PMS 明細。**
+  2. **類內用量（設計師用得多）**：`bwf_quote_item`，口徑與「報價單產品報告」一致 —— 只計每個 `quote_id`
+     版本鏈的最新版本、撇除回收桶、排除 `is_section_title`／`is_custom_term` 行、只計已連到目錄的行。
+  `p_sort`：`popular_demand`（類別熱度 → 類內用量）、`popular_quotes`、`popular_quantity`、`popular_amount`。
+  **不要**在前端掃 `bwf_quote_item` 做排名（`quoteUsageReports` 那套全掃描已量到 18.7 秒）。
+  **PMS 與目錄在產品層級對不上**（PMS 只有通用類型名、沒有 SKU，名稱比對 0 命中），只能做到類別層級。
+
+## 9. 成功案例三頁（訂單數據／完工相片／知名客戶）＝即時讀 PMS，沒有同步 job
+
+路徑：前端 `src/lib/caseShowcase.ts` → edge `supabase-functions-fetch-bwa-works`
+（`action=cases-orders|cases-photos|cases-brands`）→ `supabase/functions/_shared/caseShowcase.ts`
+→ PMS PostgREST（PMS service role + PMS 權限 `check_permission`）。FDS 這邊**不存副本**，
+所以「PMS 更新了但 FDS 沒更新」不存在；FDS 出錯只有兩種原因：PMS 環境缺欄位／權限，或 FDS 的 edge 沒部署。
+
+**環境路由**（`supabase/functions/_shared/pmsProject.ts`）：
+Furniture 正式庫 `riaubhtruisbwdlwjzur` → PMS 正式庫 `kqwktnplkqucsbasyfjl`；
+FDS2.0 分支 `omxizeukbcqzsnjsuwod` 與本機 develop → 分支的 `MASTER_SUPABASE_URL` 覆寫 → PMS 分支
+**QMS_dev** `alrbbyqkeobmvvvscpma`。
+
+**QMS_dev 是 PMS 正式庫的 persistent preview branch**（2026-09-07 建立、`with_data: true`），
+分支建立後**不會**再吃到正式庫後續的 migration → schema 凍結。正式庫之後新增的欄位必須手動補到分支：
+
+1. 用 Management API `POST /v1/projects/<branchRef>/database/query` 套 PMS3.0 repo 的 migration
+   （SQL 從磁碟讀 UTF-8 送，避免 PowerShell 把中文變 `%??%`）。
+2. 跑 `notify pgrst, 'reload schema'`，否則 PostgREST 看不到新欄位。
+3. 資料要另外回填（branch 是快照，不是同步）：欄位值用 `values (...)` 批次 update，
+   `timestamptz` 欄位要 `v.col::timestamptz`。
+4. 驗證：`node scripts/case-showcase-live.mjs`（會跑 PMS 正式庫 + QMS_dev 兩個 ref），
+   再直接打已部署 function 確認前端真的拿到資料。
+
+2026-10-22 已補：`20260907153000_customers_status_drop_legacy_visibility.sql`（`customers.status`）
+與 `20260916032232_bwf_completion_photos.sql`（`bwf_projects.completion_photos` + storage bucket
+`completion-photos` + 權限模組 `completion-photos`），並回填 254 筆 `completion_photos`。
+分支比正式庫少 16 筆（2026-09-07 之後才建立的專案），**不要**為了補數而憑空 insert 專案。
+相片 URL 是 PMS 正式庫的絕對路徑（`.../storage/v1/object/public/completion-photos/...`），
+分支不需要搬 storage 物件就能顯示；bucket 只在分支要上傳新相片時才需要。
+
+**圖片一律走共用元件，不要自己寫 `<img>`**：
+清單／格狀縮圖用 `src/components/ui/loading-image.tsx` 的 `LoadingImage`（自動把
+`/storage/v1/object/public/` 轉成 `/storage/v1/render/image/public/` 的 320px webp；
+PMS 正式庫一張完工相片原圖約 1.6MB，轉完約 10KB），點擊放大用
+`src/components/ui/image-lightbox.tsx` 的 `ImageLightbox`（唯一共用 modal，fullscreen 版面：
+關閉鈕釘視窗右上、縮圖列釘視窗底部、左右箭頭、計數；`thumbWidth` 讓縮圖列也用壓縮圖）。
+不要在案例頁自訂 `Dialog` 版本，也不要直接 `<img src=原圖>`（會一次載入整頁原圖）。
+
+**提交前跑 `npm run audit:ui`**（`scripts/audit-image-components.mjs`，違規 exit 1）：
+擋裸 `<img src={...}>`（除已登記例外）、擋自訂 `<Dialog>`（要用 `<Modal>`）、
+提醒 `<ImageLightbox>` 沒傳 `thumbWidth`。真的不能用共用元件時，在腳本的
+`RAW_IMG_EXCEPTIONS` 加一條 `[檔案, 匹配字串, 原因]`——**必須寫原因**。
+細節見 `docs/audits/2026-10-22-image-modal-contract.md`。
+
+**版面陷阱（共用元件的 className 有語意）**：
+`h-* w-*`／`aspect-*` → 填滿盒子（320px 圖）；`max-h-*`／`max-w-*` → 預覽盒（1600px 圖）；
+`absolute` 與 `relative` 不可同時在同一元素（多包一層 `<div className="absolute inset-0">`）；
+`object-contain` 放 `imgClassName` 不要放 `className`。
+另外 `Modal` 卡片用 translate 置中 → `absolute` 子元素會變成相對卡片定位，
+要釘視窗邊緣請用 `variant="fullscreen"`。`npm run lint` 目前不可用（沒有 eslint 設定檔）。
+
+**兩個常見坑**：
+- 正式 Furniture 庫（`riaubhtruisbwdlwjzur`）**還沒部署** `fetch-bwa-works` → 正式站會顯示
+  「案例資料服務尚未更新」。部署要用 slug `supabase-functions-fetch-bwa-works`（前端呼叫名），
+  且它 import `../_shared/*.ts`，`scripts/deploy-edge-functions.ps1` 的單檔上傳**不會**打包 shared module，
+  要用 `npx supabase functions deploy fetch-bwa-works --project-ref <ref>`。
+- 分支的 PMS 權限模組少：`check_permission` 對沒有權限模組的 module 會回 false →
+  訊息是「沒有此 PMS 頁面的查看權限」，不是欄位錯誤。
