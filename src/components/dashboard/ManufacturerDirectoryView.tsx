@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -21,10 +21,19 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { loadManufacturerDirectory, type DirectoryFactory } from '@/lib/manufacturerDirectory';
 
 type FactoryRecord = DirectoryFactory;
+
+/**
+ * 漸進動畫只 stagger 前幾列。
+ *
+ * 原本用 `index * 0.03` 沒有上限：139 列的最後一列要等 4.1 秒才開始淡入，
+ * 搜尋時整張表會停在半透明的空白狀態好幾秒。
+ */
+const ROW_STAGGER_LIMIT = 12;
+const ROW_STAGGER_STEP = 0.02;
 
 function formatJoinDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -36,6 +45,10 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   const [factories, setFactories] = useState<FactoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const reduceMotion = useReducedMotion();
+  // 只有第一次載入做漸進淡入；之後的搜尋過濾直接換畫面，
+  // 免得每敲一個字都要等動畫跑完才看得到結果。
+  const hasShownList = useRef(false);
 
   const fetchData = useCallback(async (force = false) => {
     setIsLoading(true);
@@ -55,6 +68,10 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (factories.length > 0) hasShownList.current = true;
+  }, [factories.length]);
 
   const filteredFactories = useMemo(() => {
     if (!searchQuery.trim()) return factories;
@@ -158,70 +175,79 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
               </TableRow>
             </TableHeader>
             <TableBody>
-              <AnimatePresence>
-                {filteredFactories.map((factory, index) => (
-                  <motion.tr
-                    key={factory.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ delay: index * 0.03 }}
-                    className="group cursor-pointer border-b border-border/50 hover:bg-muted/30 transition-colors"
-                    onClick={() => handleViewDetail(factory)}
-                  >
+              {/* No AnimatePresence here on purpose: it kept the filtered-out
+                  rows mounted (invisible but still occupying the table) until
+                  their staggered exit finished, so a search that matched
+                  nothing left a blank table on screen for seconds. Rows that
+                  no longer match are now removed straight away. */}
+              {filteredFactories.map((factory, index) => (
+                <motion.tr
+                  key={factory.id}
+                  initial={reduceMotion || hasShownList.current ? false : { opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={
+                    reduceMotion
+                      ? { duration: 0 }
+                      : {
+                          duration: 0.15,
+                          delay: Math.min(index, ROW_STAGGER_LIMIT) * ROW_STAGGER_STEP,
+                        }
+                  }
+                  className="group cursor-pointer border-b border-border/50 hover:bg-muted/30 transition-colors"
+                  onClick={() => handleViewDetail(factory)}
+                >
                     <TableCell className="font-body text-sm font-medium">
-                      <div className="flex items-center gap-2">
-                        <Factory className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        {factory.display_name}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="font-mono-data text-[10px]">
-                        {factory.factory_code || '—'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-body text-xs text-muted-foreground">
-                        {factory.contact_person || '—'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-mono-data text-xs text-muted-foreground">
-                        {factory.phone || '—'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-body text-xs text-muted-foreground">
-                        {factory.location || '—'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-mono-data text-xs text-muted-foreground">
-                        {factory.project_number ?? '—'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-mono-data text-[11px] text-muted-foreground">
-                        {formatJoinDate(factory.join_date)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewDetail(factory);
-                        }}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                        <span className="ml-1 text-xs">查看</span>
-                      </Button>
-                    </TableCell>
-                  </motion.tr>
-                ))}
-              </AnimatePresence>
+                    <div className="flex items-center gap-2">
+                      <Factory className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      {factory.display_name}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="font-mono-data text-[10px]">
+                      {factory.factory_code || '—'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-body text-xs text-muted-foreground">
+                      {factory.contact_person || '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono-data text-xs text-muted-foreground">
+                      {factory.phone || '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-body text-xs text-muted-foreground">
+                      {factory.location || '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono-data text-xs text-muted-foreground">
+                      {factory.project_number ?? '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono-data text-[11px] text-muted-foreground">
+                      {formatJoinDate(factory.join_date)}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleViewDetail(factory);
+                      }}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                      <span className="ml-1 text-xs">查看</span>
+                    </Button>
+                  </TableCell>
+                </motion.tr>
+              ))}
 
               {filteredFactories.length === 0 && !isLoading && (
                 <TableRow>
