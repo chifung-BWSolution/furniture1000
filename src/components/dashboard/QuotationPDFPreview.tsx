@@ -10,6 +10,7 @@ import { quoteCnyTotalFromHkd, quoteItemLineSubtotal } from '@/lib/quoteItemTota
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
 import { formatQuoteNumberWithVersion } from '@/lib/quoteVersions';
 import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
+import { renderQuotePdfPages, type QuotePdfPreviewPage } from '@/lib/quotationPdfCanvas';
 import { quoteZoneTotals } from '@/lib/quoteFormatSettings';
 import {
   formatSectionTitleLabel,
@@ -115,6 +116,12 @@ function fontErrorMessage(err: unknown): string {
     return 'PDF 字體尚未註冊完成，請按「重試」重新載入字體。';
   }
   return raw || 'PDF 字體載入失敗';
+}
+
+/** Preview rendering (canvas) failures are not font problems — keep them verbatim. */
+function renderFailureMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  return raw || 'PDF 預覽頁面繪製失敗';
 }
 
 async function fetchFontBlobUrl(url: string): Promise<string> {
@@ -1832,14 +1839,25 @@ interface QuotationPDFPreviewProps {
 export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPreviewProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [showCnyTotal, setShowCnyTotal] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
+  const [previewPages, setPreviewPages] = useState<QuotePdfPreviewPage[]>([]);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
+  const [pageProgress, setPageProgress] = useState<{ done: number; total: number } | null>(null);
   const [renderAttempt, setRenderAttempt] = useState(0);
   const [fontReloadToken, setFontReloadToken] = useState(0);
-  const previewUrlRef = useRef<string | null>(null);
+  /**
+   * Latest quote data. The preview effect must not depend on `data` identity:
+   * the parent re-creates the object on every render (autosave ticks), and a
+   * new identity rebuilt the whole PDF on every tick.
+   */
+  const dataRef = useRef(data);
   const { mod: pdfMod, loading, error: moduleError } = useReactPdf(fontReloadToken);
   const labels = quotePdf(data?.locale === 'en' ? 'en' : 'zh');
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   useEffect(() => {
     if (open) setShowCnyTotal(false);
@@ -1855,39 +1873,60 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   }, []);
 
   const buildPreviewBlob = useCallback(async () => {
-    if (!pdfMod || !data) return null;
-    return Promise.race([
-      pdfMod.pdf(<QuotationDocument data={data} pdfMod={pdfMod} showCnyTotal={showCnyTotal} />).toBlob(),
-      new Promise<never>((_, reject) => {
-        window.setTimeout(
-          () => reject(new Error('PDF 生成逾時，請檢查網絡後重試。')),
-          PDF_RENDER_TIMEOUT_MS,
-        );
-      }),
-    ]);
-  }, [pdfMod, data, showCnyTotal]);
+    const pdfData = dataRef.current;
+    if (!pdfMod || !pdfData) return null;
+    let timer: number | undefined;
+    try {
+      return await Promise.race([
+        pdfMod.pdf(<QuotationDocument data={pdfData} pdfMod={pdfMod} showCnyTotal={showCnyTotal} />).toBlob(),
+        new Promise<never>((_, reject) => {
+          timer = window.setTimeout(
+            () => reject(new Error('PDF 生成逾時，請檢查網絡後重試。')),
+            PDF_RENDER_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) window.clearTimeout(timer);
+    }
+  }, [pdfMod, showCnyTotal]);
 
   useEffect(() => {
-    if (!open || !pdfMod || !data) return;
+    if (!open || !pdfMod || !dataKey) return;
 
     let cancelled = false;
     setRendering(true);
     setRenderError(null);
-    setPreviewUrl(null);
+    setPreviewPages([]);
+    setPreviewBlob(null);
+    setPageProgress(null);
 
     (async () => {
       try {
         const blob = await buildPreviewBlob();
         if (cancelled || !blob) return;
-        if (previewUrlRef.current) {
-          URL.revokeObjectURL(previewUrlRef.current);
-        }
-        const objectUrl = URL.createObjectURL(blob);
-        previewUrlRef.current = objectUrl;
-        setPreviewUrl(objectUrl);
+        setPreviewBlob(blob);
+        // Paint the pages ourselves — the browser PDF plugin shows an empty
+        // dark panel when the document is embedded in the modal.
+        let timer: number | undefined;
+        const pages = await Promise.race([
+          renderQuotePdfPages(await blob.arrayBuffer(), (done, total) => {
+            if (!cancelled) setPageProgress({ done, total });
+          }),
+          new Promise<never>((_, reject) => {
+            timer = window.setTimeout(
+              () => reject(new Error('PDF 預覽頁面繪製逾時，請按「重試」重新產生。')),
+              PDF_RENDER_TIMEOUT_MS,
+            );
+          }),
+        ]).finally(() => {
+          if (timer !== undefined) window.clearTimeout(timer);
+        });
+        if (cancelled) return;
+        setPreviewPages(pages);
       } catch (err) {
         if (!cancelled) {
-          setRenderError(fontErrorMessage(err));
+          setRenderError(renderFailureMessage(err));
         }
       } finally {
         if (!cancelled) setRendering(false);
@@ -1902,11 +1941,9 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   useEffect(() => {
     if (!open) return;
     return () => {
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current);
-        previewUrlRef.current = null;
-      }
-      setPreviewUrl(null);
+      setPreviewPages([]);
+      setPreviewBlob(null);
+      setPageProgress(null);
       setRenderError(null);
       setRendering(false);
     };
@@ -1916,9 +1953,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
     if (!pdfMod) return;
     setIsDownloading(true);
     try {
-      const blob = previewUrl
-        ? await fetch(previewUrl).then((r) => r.blob())
-        : await buildPreviewBlob();
+      const blob = previewBlob ?? (await buildPreviewBlob());
       if (!blob) return;
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -1939,7 +1974,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   };
 
   const combinedError = moduleError || renderError;
-  const downloadDisabled = isDownloading || loading || !!combinedError || !previewUrl;
+  const downloadDisabled = isDownloading || loading || !previewBlob;
 
   if (!open) return null;
 
@@ -1950,7 +1985,10 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
         variant="bleed"
         size="full"
         className="max-w-[1100px]"
-        bodyClassName="flex flex-col overflow-hidden p-0"
+        /* `bleed` centres its body; the PDF surface has to fill the whole
+           modal, otherwise the viewer collapses to the 300px intrinsic width
+           of a canvas/iframe and the A4 page cannot be read. */
+        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0"
         style={{ height: '92vh', width: '90vw' }}
       >
         {/* Modal Header */}
@@ -1993,8 +2031,10 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
           </div>
         </div>
 
-        {/* PDF Viewer — blob iframe (more reliable than react-pdf PDFViewer) */}
-        <div className="relative flex-1 overflow-hidden rounded-b-2xl bg-neutral-800 p-4" style={{ minHeight: '800px' }}>
+        {/* PDF Viewer — pages painted with pdf.js into <img> elements.
+            The browser PDF plugin cannot be used here: embedded in this modal
+            it renders an empty dark panel instead of the document. */}
+        <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-b-2xl bg-neutral-800 p-4">
           {loading && (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-white">
               <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
@@ -2022,17 +2062,29 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
             <div className="absolute inset-4 z-10 flex flex-col items-center justify-center rounded-lg bg-neutral-800/95 text-white gap-3">
               <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
               <p className="text-sm font-medium">正在生成 PDF 預覽...</p>
-              <p className="text-xs text-neutral-400">字體已就緒，正在排版文件</p>
+              <p className="text-xs text-neutral-400">
+                {pageProgress
+                  ? `正在繪製預覽頁面 ${pageProgress.done} / ${pageProgress.total}`
+                  : '字體已就緒，正在排版文件'}
+              </p>
             </div>
           )}
-          {previewUrl && !combinedError && (
-            <iframe
-              title={labels.modalTitle}
-              src={`${previewUrl}#toolbar=0&navpanes=0`}
-              className="h-full w-full rounded-lg border-0 bg-white"
-            />
+          {previewPages.length > 0 && !combinedError && (
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+              <div className="mx-auto flex w-full max-w-[980px] flex-col items-center gap-4 pb-24">
+                {previewPages.map((page) => (
+                  <img
+                    key={page.pageNumber}
+                    src={page.dataUrl}
+                    alt={`${labels.modalTitle} — ${page.pageNumber}`}
+                    className="h-auto w-full rounded-lg bg-white shadow-xl"
+                    style={{ aspectRatio: `${page.width} / ${page.height}` }}
+                  />
+                ))}
+              </div>
+            </div>
           )}
-          {previewUrl && !combinedError && (
+          {previewPages.length > 0 && !combinedError && (
             <div className="absolute inset-x-4 bottom-4 z-20 flex justify-center gap-3">
               <button
                 type="button"
