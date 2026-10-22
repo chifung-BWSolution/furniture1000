@@ -1,4 +1,5 @@
 import { runTripoJob, TripoStop } from "./tripo.ts";
+import { wakePdfSplitter } from "./pdfSplitWake.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { getDocumentProxy } from "npm:unpdf@1.9.0";
@@ -17,7 +18,7 @@ import {
  * 以及自己觸發下一批（service role）。
  * 任務狀態一律經 fds_processing_job_* RPC 流轉。超過 60MB 的 PDF 不在這裡拆，
  * 改排 needs_split。有待拆任務時 POST 到 Vercel Function（PDF_SPLIT_URL），
- * header x-pdf-split-secret = PDF_SPLIT_SECRET。未設定時略過，不影響 parse_pdf。
+ * header x-pdf-split-secret = PDF_SPLIT_SECRET。未設定時記錄警告，不影響 parse_pdf。
  * 這個 POST 不會帶 x-vercel-protection-bypass。develop preview 有 Vercel
  * Authentication 時，PDF_SPLIT_URL 必須自己帶上
  * ?x-vercel-protection-bypass=<Protection Bypass for Automation>，
@@ -1220,13 +1221,11 @@ const PDF_SPLIT_STALE_MS = 10 * 60 * 1000;
 
 /**
  * Notify the Vercel splitter when a needs_split job can be claimed. Does not claim it here.
- * Fetches PDF_SPLIT_URL as given. A 302 from Vercel Authentication or an HTML 200
- * from the production SPA rewrite is ignored here; the needs_split row stays queued.
+ * Rejects redirects and non-JSON responses. Leaves claiming and retry state to the splitter.
  */
 function kickPdfSplit(admin: SupabaseClient) {
   const splitUrl = (Deno.env.get("PDF_SPLIT_URL") ?? "").trim();
   const splitSecret = (Deno.env.get("PDF_SPLIT_SECRET") ?? "").trim();
-  if (!splitUrl || !splitSecret) return;
   EdgeRuntime.waitUntil((async () => {
     const now = new Date().toISOString();
     const stale = new Date(Date.now() - PDF_SPLIT_STALE_MS).toISOString();
@@ -1257,14 +1256,12 @@ function kickPdfSplit(admin: SupabaseClient) {
       ready = (running.data?.length ?? 0) > 0;
     }
     if (!ready) return;
-    const res = await fetch(splitUrl, {
-      method: "POST",
-      headers: {
-        "x-pdf-split-secret": splitSecret,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ source: "process-jobs" }),
-    });
-    await res.body?.cancel();
-  })().catch((err) => console.warn("[process-jobs] pdf-split kick failed", err)));
+    if (!splitUrl || !splitSecret) {
+      console.warn("[process-jobs] pdf-split not configured", {
+        missing_url: !splitUrl, missing_secret: !splitSecret,
+      });
+      return;
+    }
+    await wakePdfSplitter(splitUrl, splitSecret);
+  })().catch((err) => console.warn("[process-jobs] pdf-split kick failed", err.message)));
 }
