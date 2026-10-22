@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { resolveGeminiModel } from "../_shared/geminiModel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -105,9 +106,10 @@ Deno.serve(async (req: Request) => {
     const {
       pdf_products,
       excel_images,
-      model = "gemini-2.5-flash",
+      model: requestedModel,
       batch_size = 3,
     } = body;
+    const model = resolveGeminiModel(requestedModel);
 
     if (!pdf_products || !Array.isArray(pdf_products) || pdf_products.length === 0) {
       return new Response(

@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { resolveGeminiModel } from "../_shared/geminiModel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1038,7 +1039,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const modelName = model || "gemini-2.5-flash";
+    const modelName = resolveGeminiModel(model);
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
     const tagsList = tags_list || "";
 

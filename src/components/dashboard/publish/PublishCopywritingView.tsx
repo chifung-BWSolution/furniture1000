@@ -21,6 +21,7 @@ import { writeUploadLog } from '@/lib/uploadLog';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
 import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
 import { usePublishRtsList } from './usePublishRtsList';
+import { DEFAULT_GEMINI_MODEL } from '@/lib/geminiModel';
 
 interface RevertReason {
   labels: string[];
@@ -676,7 +677,7 @@ ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
           'apikey': supabaseAnonKey,
         },
         body: JSON.stringify({
-          model: 'gemini-2.5-flash',
+          model: DEFAULT_GEMINI_MODEL,
           contents: [{ parts: [{ text: prompt }] }],
         }),
       });
@@ -744,7 +745,7 @@ ${rawDesc}
           'apikey': supabaseAnonKey,
         },
         body: JSON.stringify({
-          model: 'gemini-2.5-flash',
+          model: DEFAULT_GEMINI_MODEL,
           contents: [{ parts: [{ text: prompt }] }],
         }),
       });

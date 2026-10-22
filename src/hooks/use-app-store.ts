@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { withInsertAuditFields, withUpdateAuditFields, withUpsertAuditFields } from '@/lib/pmsAudit';
 import { customerViewFromPath } from '@/lib/customerPortalRoutes';
 import { appViewFromPath } from '@/lib/appSectionRoutes';
+import { DEFAULT_GEMINI_MODEL } from '@/lib/geminiModel';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -122,7 +123,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   shopifyApiKey: '',
   shopifyStoreUrl: '',
   defaultCollection: 'Home & Kitchen',
-  aiModel: 'gemini-2.5-flash',
+  aiModel: DEFAULT_GEMINI_MODEL,
   isConnected: false,
   geminiProxyUrl: '',
 };

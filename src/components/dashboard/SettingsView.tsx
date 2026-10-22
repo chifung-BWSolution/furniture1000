@@ -27,6 +27,7 @@ import {
   ImageIcon,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { DEFAULT_GEMINI_MODEL } from '@/lib/geminiModel';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -500,7 +501,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
           </SelectTrigger>
           <SelectContent>
             {[
-              { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash — Latest stable production (recommended)' },
+              { value: DEFAULT_GEMINI_MODEL, label: 'Gemini 3.8 Flash — default (recommended)' },
             ].map(m => (
               <SelectItem key={m.value} value={m.value} className="font-body text-sm">{m.label}</SelectItem>
             ))}

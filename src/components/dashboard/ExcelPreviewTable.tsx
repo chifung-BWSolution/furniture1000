@@ -58,6 +58,7 @@ import {
 } from 'lucide-react';
 import { ExcelImage, SheetTableData, parseSmartDimensions, cleanPrice } from '@/lib/excelParser';
 import { simplifiedToTraditional, containsSimplifiedChinese } from '@/lib/chineseConverter';
+import { DEFAULT_GEMINI_MODEL } from '@/lib/geminiModel';
 // supabase relay import removed — using direct fetch to bypass relay size limits
 
 // ─── Standard Headers (bwf_product_master schema fields) ──────────
@@ -717,7 +718,7 @@ Do not add quotes, brackets, or extra formatting. Example: ABC-123 人體工學�
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   const fnUrl = `${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`;
   
-  const payload = JSON.stringify({ model: 'gemini-2.5-flash', contents });
+  const payload = JSON.stringify({ model: DEFAULT_GEMINI_MODEL, contents });
   const payloadSizeKB = Math.round(payload.length / 1024);
   console.log(`[AI Name] Sending request: ${payloadSizeKB}KB payload to gemini-proxy (direct fetch, bypass relay)`);
 

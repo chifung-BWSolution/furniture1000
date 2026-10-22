@@ -4,6 +4,7 @@ import {
   productCategoryChoiceLabel,
   type ProductCategoryPair,
 } from '@/lib/productCategoryOptions';
+import { DEFAULT_GEMINI_MODEL } from '@/lib/geminiModel';
 
 export type CategoryClassifiable = {
   id: string;
@@ -52,7 +53,7 @@ export async function classifyProductsByExistingCategories(
           apikey: supabaseAnonKey,
         },
         body: JSON.stringify({
-          model: 'gemini-2.5-flash',
+          model: DEFAULT_GEMINI_MODEL,
           contents: [{ parts: [{ text: prompt }] }],
         }),
       });

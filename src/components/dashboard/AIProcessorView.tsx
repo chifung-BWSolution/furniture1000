@@ -70,6 +70,7 @@ import {
   type ProductCategoryPair,
 } from '@/lib/productCategoryOptions';
 import { assignUploadCategories, classifyProductsByExistingCategories } from '@/lib/uploadProductCategory';
+import { DEFAULT_GEMINI_MODEL } from '@/lib/geminiModel';
 
 // LAZY LOAD: pdfjs-dist is loaded dynamically only when needed to avoid blocking initial render
 let pdfjsLib: typeof import('pdfjs-dist') | null = null;
@@ -411,7 +412,7 @@ OUTPUT FORMAT — Return ONLY a valid JSON object (no markdown fences):
 
 async function analyzeImageWithAI(
   imageFiles: UploadedFile[],
-  _modelName: string = 'gemini-2.5-flash',
+  _modelName: string = DEFAULT_GEMINI_MODEL,
   categoryPairs: ProductCategoryPair[] = [],
   fallbackCategory = '',
 ): Promise<AIFields> {
@@ -436,7 +437,7 @@ async function analyzeImageWithAI(
     ? `\n\nPRODUCT_CATEGORY — copy exactly one of these existing labels into "product_category", or null if none fits. Do not invent a label.\n${categoryLabels.map((label) => `- ${label}`).join('\n')}`
     : '\n\nPRODUCT_CATEGORY — set "product_category" to null. Do not invent a category.';
   const edgeFunctionPayload = {
-    model: 'gemini-2.5-flash',
+    model: DEFAULT_GEMINI_MODEL,
     contents: [{ parts: [{ text: VISION_ANALYSIS_PROMPT + categoryPrompt }, ...imageParts] }],
   };
 
@@ -607,7 +608,7 @@ function mapInStock(raw: unknown, columnMapped: boolean): boolean {
 async function analyzePDFCatalogBatched(
   pdfFiles: UploadedFile[],
   imageFiles: UploadedFile[],
-  modelName: string = 'gemini-2.5-flash',
+  modelName: string = DEFAULT_GEMINI_MODEL,
   onProgress: (p: ProcessingProgress) => void,
   onBatchProgress: (bp: BatchProgress) => void,
   manufacturerName: string = '',
@@ -3767,7 +3768,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               const vmPayload = JSON.stringify({
                 pdf_products: batch,
                 excel_images: imagesToSend,
-                model: selectedModel || 'gemini-2.5-flash',
+                model: selectedModel || DEFAULT_GEMINI_MODEL,
                 batch_size: batch.length,
               });
               const vmPayloadSizeKB = Math.round(vmPayload.length / 1024);

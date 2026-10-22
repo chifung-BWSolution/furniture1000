@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { resolveGeminiModel } from "../_shared/geminiModel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,7 +90,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const hasImages = images.length > 0;
-    const modelName = model || "gemini-2.5-flash";
+    const modelName = resolveGeminiModel(model);
     const isPJSMode = factory_code === 'PJS' || (factory_name && (factory_name.includes('爵尚') || factory_name.includes('PJS')));
     const isTextOnly = text_only_naming === true || !hasImages;
 

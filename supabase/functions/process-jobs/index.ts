@@ -12,6 +12,7 @@ import {
   PDFNumber,
   PDFRawStream,
 } from "npm:pdf-lib@1.17.1";
+import { resolveGeminiModel } from "../_shared/geminiModel.ts";
 
 /**
  * FDS 2.1 背景任務 worker（Edge 過渡版，C-09）。
@@ -66,7 +67,7 @@ const IMAGE_TYPES = ["main", "detail", "dimension", "fabric", "logo", "other"] a
 const ATTENTION_CONFIDENCE = 0.7;
 
 const PDFJS_ASSETS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299";
-const GEMINI_MODEL = "gemini-2.5-flash";
+
 const XAI_URL = "https://api.x.ai/v1/chat/completions";
 const PAGE_TYPES = ["cover", "toc", "product", "price_table", "terms", "other"] as const;
 
@@ -362,7 +363,7 @@ async function geminiClassify(
       : { page: p.page, text: p.text.slice(0, CLASSIFY_TEXT_CHARS) })),
   };
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${resolveGeminiModel()}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -862,7 +863,7 @@ async function geminiStructure(
   });
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${resolveGeminiModel()}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -876,7 +877,7 @@ async function geminiStructure(
           maxOutputTokens: 65536,
         },
       }),
-      signal: AbortSignal.timeout(140_000),
+      signal: AbortSignal.timeout(240_000),
     },
   );
   const body = await res.json().catch(() => null);
