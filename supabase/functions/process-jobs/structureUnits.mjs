@@ -1,0 +1,43 @@
+/**
+ * Plan structure-phase units from segments and page stats (pure, testable without Deno).
+ *
+ * A segment with enough text becomes text units of up to maxPages pages.
+ * A segment without text but with embedded images (scanned / photo-only catalogue
+ * pages where OCR returned NO_TEXT) becomes vision units of up to visionMaxPages pages,
+ * so the page images themselves go to the vision model. Small vision units keep
+ * Edge memory and the inline image payload bounded.
+ *
+ * @param {{ id: string, start_page: number, end_page: number, kind: string }[]} segments
+ * @param {{ page_no: number, char_count: number, image_count: number }[]} pages
+ * @param {{ kinds: string[], minTextChars: number, maxPages: number, visionMaxPages: number }} opts
+ * @returns {{ segment_id: string, start: number, end: number, vision?: boolean }[]}
+ */
+export function planStructureUnits(segments, pages, opts) {
+  const stats = new Map(pages.map((p) => [Number(p.page_no), p]));
+  const units = [];
+  for (const s of segments) {
+    if (!opts.kinds.includes(s.kind)) continue;
+    let chars = 0;
+    let images = 0;
+    for (let p = s.start_page; p <= s.end_page; p++) {
+      chars += Number(stats.get(p)?.char_count ?? 0);
+      images += Number(stats.get(p)?.image_count ?? 0);
+    }
+    const vision = chars < opts.minTextChars;
+    if (vision && images === 0) continue;
+    const step = Math.max(1, vision ? opts.visionMaxPages : opts.maxPages);
+    for (let start = s.start_page; start <= s.end_page; start += step) {
+      const unit = { segment_id: s.id, start, end: Math.min(s.end_page, start + step - 1) };
+      units.push(vision ? { ...unit, vision: true } : unit);
+    }
+  }
+  return units;
+}
+
+/** Pages whose embedded images should be sent with a unit. */
+export function unitImagePages(unit, pages) {
+  return pages
+    .filter((p) => p.page_no >= unit.start && p.page_no <= unit.end)
+    .filter((p) => unit.vision || p.text_source === 'text')
+    .map((p) => p.page_no);
+}

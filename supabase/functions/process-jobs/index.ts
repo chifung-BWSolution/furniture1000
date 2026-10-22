@@ -1,5 +1,6 @@
 import { runTripoJob, TripoStop } from "./tripo.ts";
 import { wakePdfSplitter } from "./pdfSplitWake.mjs";
+import { planStructureUnits, unitImagePages } from "./structureUnits.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { getDocumentProxy } from "npm:unpdf@1.9.0";
@@ -48,6 +49,8 @@ const OCR_CONCURRENCY = 4;
 const MIN_TEXT_CHARS = 40;
 const CLASSIFY_TEXT_CHARS = 1500;
 const STRUCTURE_MAX_PAGES = 5;
+// Image-only pages (OCR found no text) go to the vision model a couple of pages at a time.
+const VISION_MAX_PAGES = 2;
 const STRUCTURE_MAX_IMAGES = 10;
 const MIN_IMAGE_PX = 200;
 const MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -76,7 +79,7 @@ type Job = {
   max_attempts: number;
 };
 
-type StructureUnit = { segment_id: string; start: number; end: number };
+type StructureUnit = { segment_id: string; start: number; end: number; vision?: boolean };
 
 type ParseState = {
   phase: "extract" | "classify" | "structure";
@@ -612,7 +615,10 @@ Rules:
 - valid_from / valid_to as YYYY-MM-DD when printed here or in the document context.
 - images: for each picture "IMAGE n" that shows this product give its index and type (main = clean product photo,
   detail, dimension = drawing with measurements, fabric = swatch, logo, other). A picture belongs to at most one product.
-- confidence 0-1 for the whole item; list field names you are unsure about in uncertain_fields.`;
+- confidence 0-1 for the whole item; list field names you are unsure about in uncertain_fields.
+- Pages marked "image_only" have no extractable text: read the products directly from the pictures of those pages
+  (the IMAGE labelled with that page is usually the whole scanned page). Copy model numbers, sizes and prices only
+  when they are legible in the picture; otherwise leave them null and list them in uncertain_fields.`;
 
 type StructuredItem = {
   page: number;
@@ -705,8 +711,15 @@ function priceAppearsInText(price: number, normalizedText: string): boolean {
 }
 
 /** T-302: rule checks on top of the model's own confidence. */
-function assessItem(item: StructuredItem, pageText: string, docCurrency: string | null, isCatalog: boolean) {
+function assessItem(
+  item: StructuredItem,
+  pageText: string,
+  docCurrency: string | null,
+  isCatalog: boolean,
+  vision = false,
+) {
   const flags: string[] = [];
+  if (vision) flags.push("vision_extracted");
   let confidence = item.confidence;
   const normalized = pageText.replace(/[,\s，]/g, "");
 
@@ -723,7 +736,11 @@ function assessItem(item: StructuredItem, pageText: string, docCurrency: string 
       confidence = Math.min(confidence, 0.5);
     }
   } else {
-    if (!priceAppearsInText(item.price, normalized)) {
+    // Vision items have no source text to check the price against; the flag below asks for review.
+    if (vision) {
+      flags.push("price_from_image");
+      confidence = Math.min(confidence, 0.6);
+    } else if (!priceAppearsInText(item.price, normalized)) {
       flags.push("price_not_in_source");
       confidence = Math.min(confidence, 0.4);
     }
@@ -883,22 +900,15 @@ function modelKey(model: unknown): string {
 async function buildStructureUnits(admin: SupabaseClient, documentId: string): Promise<StructureUnit[]> {
   const [{ data: segments, error: segErr }, { data: pages, error: pageErr }] = await Promise.all([
     admin.from("supplier_document_segments").select("id, start_page, end_page, kind").eq("document_id", documentId).order("seq"),
-    admin.from("supplier_document_pages").select("page_no, char_count").eq("document_id", documentId),
+    admin.from("supplier_document_pages").select("page_no, char_count, image_count").eq("document_id", documentId),
   ]);
   if (segErr || pageErr) throw new Error(`unit lookup failed: ${(segErr ?? pageErr)!.message}`);
-  const chars = new Map((pages ?? []).map((p) => [p.page_no as number, Number(p.char_count)]));
-
-  const units: StructureUnit[] = [];
-  for (const s of segments ?? []) {
-    if (!STRUCTURE_KINDS.includes(s.kind)) continue;
-    let total = 0;
-    for (let p = s.start_page; p <= s.end_page; p++) total += chars.get(p) ?? 0;
-    if (total < MIN_TEXT_CHARS) continue;
-    for (let start = s.start_page; start <= s.end_page; start += STRUCTURE_MAX_PAGES) {
-      units.push({ segment_id: s.id, start, end: Math.min(s.end_page, start + STRUCTURE_MAX_PAGES - 1) });
-    }
-  }
-  return units;
+  return planStructureUnits(segments ?? [], pages ?? [], {
+    kinds: STRUCTURE_KINDS,
+    minTextChars: MIN_TEXT_CHARS,
+    maxPages: STRUCTURE_MAX_PAGES,
+    visionMaxPages: VISION_MAX_PAGES,
+  }) as StructureUnit[];
 }
 
 async function structureBatch(admin: SupabaseClient, job: Job, documentId: string, state: ParseState) {
@@ -928,15 +938,17 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
   const prev = (pages ?? []).find((p) => p.page_no === unit.start - 1);
   const docCurrency = (doc?.currency as string | null) ?? null;
 
-  const textPages = target.filter((p) => p.text_source === "text").map((p) => p.page_no as number);
-  const images = await collectUnitImages(admin, documentId, await downloadDocument(admin, documentId), textPages);
+  const imagePages = unitImagePages(unit, target) as number[];
+  const images = await collectUnitImages(admin, documentId, await downloadDocument(admin, documentId), imagePages);
   await heartbeat(admin, job.id, progressOf(state));
 
   const { items, currency, tokens } = await geminiStructure(apiKey, {
     document: { factory: doc?.factory_name ?? "", doc_type: doc?.doc_type ?? "quote", currency: docCurrency },
     document_context: (contextPages ?? []).map((p) => String(p.content)).join("\n---\n").slice(0, 2500),
     previous_page: prev ? { page: prev.page_no, text: String(prev.content).slice(-800) } : null,
-    pages: target.map((p) => ({ page: p.page_no, text: String(p.content).slice(0, 6000) })),
+    pages: target.map((p) => (unit.vision && realCharCount(String(p.content ?? "")) < MIN_TEXT_CHARS
+      ? { page: p.page_no, image_only: true }
+      : { page: p.page_no, text: String(p.content).slice(0, 6000) })),
   }, images);
   state.tokens += tokens;
 
@@ -954,6 +966,7 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
         textByPage.get(page) ?? allText,
         docCurrency,
         doc?.doc_type === "catalog",
+        unit.vision === true,
       );
       const imageIds = item.images.map((ref) => images[ref.index]?.id).filter((id): id is string => !!id);
       const mainRef = item.images.find((ref) => ref.type === "main" && images[ref.index]);
