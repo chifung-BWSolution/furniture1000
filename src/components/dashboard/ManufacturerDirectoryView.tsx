@@ -22,7 +22,6 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useAppStore } from '@/hooks/use-app-store';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface FactoryRecord {
@@ -42,8 +41,7 @@ function formatJoinDate(value: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('zh-HK');
 }
 
-export function ManufacturerDirectoryView() {
-  const store = useAppStore();
+export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (code: string) => void }) {
   const [factories, setFactories] = useState<FactoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -100,20 +98,16 @@ export function ManufacturerDirectoryView() {
 
   const handleViewDetail = (factory: FactoryRecord) => {
     const slug = factory.factory_code || factory.id;
-    store.setFactoryDetailCode(slug);
-    store.setCurrentView('factory-detail');
+    onOpenFactory(slug);
   };
 
   return (
-    <div className="flex h-full flex-col p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <BookOpen className="h-5 w-5 text-primary" />
-          </div>
+    <div className="flex h-full min-h-0 flex-col fds-page-padding">
+      <div className="fds-page-header mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <div>
-            <h1 className="font-display text-xl font-bold tracking-tight">廠家目錄</h1>
-            <p className="font-body text-xs text-muted-foreground">
+            <h1 className="fds-page-title"><BookOpen className="h-5 w-5 text-primary" />廠家目錄</h1>
+            <p className="fds-page-description">
               Manufacturer Directory · {factories.length} records
             </p>
           </div>

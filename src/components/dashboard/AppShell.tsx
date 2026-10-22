@@ -795,10 +795,15 @@ export function AppShell() {
       if (store.currentView !== 'fds2-pm-budget') store.setCurrentView('fds2-pm-budget');
       return;
     }
+    // The role guard further down decides which pages this account may open.
+    // When the URL names a page it may not open, leave that decision to the
+    // guard — otherwise both effects overwrite each other on every render and
+    // React aborts with「Maximum update depth exceeded」.
+    if (!roleLoading && !isAdmin && isAdminOnlyView(view)) return;
     if (view !== store.currentView) {
       store.setCurrentView(view);
     }
-  }, [location.pathname, store, roleLoading, profileRole]);
+  }, [location.pathname, store, roleLoading, profileRole, isAdmin]);
 
   // Leaving /customer without ?quote_share= ends the guest preview. A stored
   // token must not be glued back on when the user opens the staff site.
@@ -1193,7 +1198,10 @@ export function AppShell() {
           />
         );
       case "manufacturer-catalog":
-        return <ManufacturerDirectoryView />;
+        return <ManufacturerDirectoryView onOpenFactory={(code) => {
+          store.setFactoryDetailCode(code);
+          store.setCurrentView('factory-detail');
+        }} />;
       case "factory-detail":
         return store.factoryDetailCode ? (
           <FactoryDetailView
