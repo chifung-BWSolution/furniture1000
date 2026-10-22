@@ -28,13 +28,13 @@ export function PortalPageShell({
   return (
     <div
       ref={scrollRef}
-      className={cn('h-full overflow-y-auto bg-background p-3 sm:p-4 md:p-6', className)}
+      className={cn('h-full overflow-y-auto bg-background fds-page-padding', className)}
     >
       <div className={cn('mx-auto w-full space-y-5 md:space-y-7', maxWidthClass)}>
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
+              <h1 className="fds-page-title">
                 {title}
               </h1>
               {badge ? (

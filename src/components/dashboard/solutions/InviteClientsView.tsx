@@ -247,12 +247,12 @@ export function InviteClientsView() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <div className="h-full overflow-y-auto bg-background fds-page-padding">
+      <div className="mx-auto max-w-none space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="font-display text-2xl font-bold tracking-tight">邀請客戶</h1>
-            <p className="mt-1 max-w-3xl font-body text-sm text-muted-foreground">
+            <h1 className="fds-page-title">邀請客戶</h1>
+            <p className="fds-page-description">
               「設計專案」完成傢俬配置並儲存後，可在此為該專案建立免登入連結。客戶開啟後直接查看報價方案，亦可瀏覽客戶專區其他頁面；成本資料一律隱藏。
             </p>
           </div>

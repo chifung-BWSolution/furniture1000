@@ -217,13 +217,13 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
 
   return (
     <div className="h-full overflow-y-auto">
-    <div className="mx-auto max-w-2xl space-y-8 p-6">
+    <div className="mx-auto w-full max-w-none space-y-5 fds-page-padding">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <h2 className="font-display text-xl font-bold">Settings</h2>
+        <h2 className="fds-page-title">Settings</h2>
         <p className="mt-1 text-sm text-muted-foreground font-body">
           Configure your Shopify connection and AI preferences
         </p>
@@ -234,7 +234,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.4 }}
-        className="space-y-5 rounded-xl border border-border bg-card p-6"
+        className="space-y-5 rounded-xl border border-border bg-card px-4 py-5 md:px-6"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -384,7 +384,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.15, duration: 0.4 }}
-        className="space-y-5 rounded-xl border border-border bg-card p-6"
+        className="space-y-5 rounded-xl border border-border bg-card px-4 py-5 md:px-6"
       >
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
@@ -443,7 +443,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2, duration: 0.4 }}
-        className="space-y-5 rounded-xl border border-border bg-card p-6"
+        className="space-y-5 rounded-xl border border-border bg-card px-4 py-5 md:px-6"
       >
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -477,7 +477,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3, duration: 0.4 }}
-        className="space-y-5 rounded-xl border border-border bg-card p-6"
+        className="space-y-5 rounded-xl border border-border bg-card px-4 py-5 md:px-6"
       >
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -513,7 +513,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.35, duration: 0.4 }}
-        className="space-y-5 rounded-xl border border-border bg-card p-6"
+        className="space-y-5 rounded-xl border border-border bg-card px-4 py-5 md:px-6"
       >
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">

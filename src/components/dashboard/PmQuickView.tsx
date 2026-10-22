@@ -221,17 +221,14 @@ export function PmQuickView() {
   };
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
-      <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5 md:px-6">
-        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            PM報價 · BWA
-          </p>
-          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold">
+    <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
+      <div className="mx-auto w-full max-w-none space-y-4 fds-page-padding">
+        <section className="fds-page-header">
+          <h1 className="fds-page-title">
             <Calculator className="h-5 w-5 text-primary" />
             傢俬詢價
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="fds-page-description">
             從 BWA 工程或提案選一筆，或直接手填編號和名稱，再填傢俬項目送給 BWF。賣價由 BWF 回覆，這一頁只讀。PMS 沒有傢俬明細可以帶入。
           </p>
           <p className="mt-2 text-sm font-semibold">{inquiryStatusLabel(status)}</p>

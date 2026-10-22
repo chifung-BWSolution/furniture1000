@@ -45,17 +45,16 @@ export function FactorySalesView() {
   }, [query, rows]);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
-      <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5 md:px-6">
-        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+    <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
+      <div className="mx-auto w-full max-w-none space-y-4 fds-page-padding">
+        <section className="fds-page-header">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">廠家目錄</p>
-              <h1 className="mt-1 flex items-center gap-2 text-xl font-bold">
+              <h1 className="fds-page-title">
                 <Building2 className="h-5 w-5 text-primary" />
                 銷售表現
               </h1>
-              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              <p className="fds-page-description">
                 每張報價單只計最新版本。有廠家名稱的產品列算 1 次使用。這是報價採用次數，不是出貨金額。
               </p>
             </div>

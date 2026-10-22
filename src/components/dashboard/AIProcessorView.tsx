@@ -4491,8 +4491,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     <div ref={leftPanelRef} className="flex h-full flex-col overflow-y-auto">
 
       {/* ══════ Step Indicator ══════ */}
-      <div className="flex-shrink-0 border-b border-border bg-muted/20 px-6 py-2.5">
-        <div className="flex items-center gap-3 max-w-4xl mx-auto">
+      <div className="flex-shrink-0 border-b border-border bg-muted/20 px-4 md:px-6 py-2.5">
+        <div className="flex items-center gap-3 max-w-none mx-auto">
           <button
             onClick={() => setCurrentStep(1)}
             className={cn(
@@ -4544,7 +4544,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       {currentStep === 1 && (
       <>
       <div className="flex-shrink-0 border-b border-border bg-card/50 p-6">
-        <div className="flex flex-col gap-4 max-w-4xl mx-auto">
+        <div className="flex flex-col gap-4 max-w-none mx-auto">
 
           {/* ━━━ Step 1: 選擇廠家 ━━━ */}
           <div className="space-y-3">
@@ -5200,7 +5200,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       {/* ══════ STEP 2: 上傳產品檔案 → 產品目錄 ══════ */}
       {currentStep === 2 && (
       <>
-      <div className="flex-shrink-0 p-6 max-w-4xl mx-auto w-full">
+      <div className="flex-shrink-0 p-6 max-w-none mx-auto w-full">
         <div className="flex flex-col gap-4">
 
         {/* ━━━ Step 2: 上傳產品檔案 ━━━ */}
@@ -5514,7 +5514,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       />
 
       {/* ══════ BOTTOM SECTION: Product Preview Results ══════ */}
-      <div className="flex-1 p-6 pt-0 max-w-6xl mx-auto w-full">
+      <div className="flex-1 p-6 pt-0 max-w-none mx-auto w-full">
         {/* Visual separator */}
         {(aiFields || isProcessing || catalogProducts.length > 0 || excelPreviewData) && (
           <div className="mb-6 border-t border-border" />

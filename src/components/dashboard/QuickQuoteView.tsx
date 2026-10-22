@@ -965,18 +965,18 @@ export function QuickQuoteView({
 
   return (
     <>
-    <div className={cn('h-full bg-background', currentStep === 3 ? 'flex flex-col overflow-hidden' : 'overflow-y-auto p-5')}>
-      <div className={cn('mx-auto', currentStep === 3 ? 'flex h-full min-h-0 w-full max-w-none flex-col' : 'max-w-3xl')}>
+    <div className={cn('h-full bg-background', currentStep === 3 ? 'flex flex-col overflow-hidden' : 'overflow-y-auto fds-page-padding')}>
+      <div className={cn('mx-auto', currentStep === 3 ? 'flex h-full min-h-0 w-full max-w-none flex-col' : 'w-full max-w-none')}>
         {/* Header — step 3 chrome lives inside QuotationDraftEditor so it can stick */}
         {currentStep !== 3 && (
         <div className="mb-8">
             <div className="grid grid-cols-1 items-start gap-y-3 sm:grid-cols-3">
               {/* title | client info (above 傢俬類別 step) | empty */}
               <div className="min-w-0">
-                <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+                <h1 className="fds-page-title">
                   {copyFromUuid ? '複製報價單' : '建立新報價單'}
                 </h1>
-                <p className="mt-1 font-body text-sm text-muted-foreground">
+                <p className="fds-page-description">
                   {copyFromUuid
                     ? '確認新專案資料後，將複製原報價的產品內容與條款'
                     : '確認並補齊專案資料後生成報價'}

@@ -768,7 +768,7 @@ ${rawDesc}
       <div className="flex h-full flex-col overflow-hidden bg-background">
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-8 py-3">
           <FileText className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">
+          <h2 className="fds-page-title">
             {rejectedOnly ? '不考慮產品' : '產品文案'}
           </h2>
           <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
@@ -832,7 +832,7 @@ ${rawDesc}
               </p>
             </div>
           ) : (
-            <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="mx-auto grid max-w-none grid-cols-1 gap-4 lg:grid-cols-2">
               {items.map((p) => {
                 const isSelected = selectedIds.has(p.id);
                 const dimensionsLabel = formatDimensions(p.dimL, p.dimW, p.dimH);
@@ -913,7 +913,7 @@ ${rawDesc}
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3.5">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3.5">
         <button
           onClick={() => {
             if (isDirty && !window.confirm('您有未儲存的更改，確定要返回列表嗎？')) return;
@@ -949,8 +949,8 @@ ${rawDesc}
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 py-6">
-        <div className="mx-auto max-w-5xl space-y-6">
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-6">
+        <div className="mx-auto max-w-none space-y-6">
           {/* Shopify 產品名稱 */}
           <Section title="Shopify 產品名稱" desc="顯示於 Shopify 商店與搜尋結果的標題">
             <input

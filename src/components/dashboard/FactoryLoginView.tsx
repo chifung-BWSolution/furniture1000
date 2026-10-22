@@ -80,15 +80,14 @@ export function FactoryLoginView() {
   const mine = logins.find((row) => row.active) ?? logins[0];
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
-      <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5 md:px-6">
-        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">廠家目錄</p>
-          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold">
+    <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
+      <div className="mx-auto w-full max-w-none space-y-4 fds-page-padding">
+        <section className="fds-page-header">
+          <h1 className="fds-page-title">
             <LogIn className="h-5 w-5 text-primary" />
             廠家登入
           </h1>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+          <p className="fds-page-description">
             {isSupplier
               ? '你的上載會先進入傢俬組審核，不會直接寫進產品目錄。'
               : '邀請廠家用自己的電郵登入。帳號角色是 supplier，並綁定一間 PMS 廠家。上載先入審核佇列。'}
@@ -181,7 +180,7 @@ export function FactoryLoginView() {
           </section>
         )}
 
-        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+        <section className="rounded-2xl border border-border/80 bg-card px-4 py-5 md:px-6 shadow-sm sm:p-6">
           <p className="text-sm font-medium">{isSupplier ? '我的上載' : '審核佇列'}</p>
           <p className="mt-1 text-xs text-muted-foreground">狀態停留在待審核、解析中或已上載時，產品尚未公開。</p>
           {!loading && documents.length === 0 && (

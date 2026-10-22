@@ -331,7 +331,7 @@ export function UploadProductLogView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3">
         <div className="flex items-center gap-2">
           <ClipboardList className="h-4 w-4 text-primary" />
           <h2 className="font-display text-base font-bold">Shopify 上載產品紀錄</h2>
@@ -427,8 +427,8 @@ export function UploadProductLogView() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="mx-auto max-w-4xl space-y-5">
+      <div className="flex-1 overflow-auto px-4 py-5 md:px-6">
+        <div className="mx-auto max-w-none space-y-5">
           {error && (
             <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-4 py-3 text-sm text-rose-600">
               {error}

@@ -455,10 +455,10 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3">
         <div className="flex items-center gap-2">
           <Boxes className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">產品價錢</h2>
+          <h2 className="fds-page-title">產品價錢</h2>
           <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
             {totalCount} 件待補充
           </span>
@@ -505,7 +505,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
             <p className="font-body text-[12px] text-muted-foreground/70">在「產品文案」提交產品後，於此補充規格資訊；或用上方篩選選一個廠家/分類逐批處理</p>
           </div>
         ) : (
-          <div className="mx-auto max-w-5xl space-y-5">
+          <div className="mx-auto max-w-none space-y-5">
             {items.map((it) => {
               const isSel = selected.has(it.id);
               const dimsOk = hasRequiredDimensions(it);

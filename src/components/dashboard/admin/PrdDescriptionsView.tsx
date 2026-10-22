@@ -34,14 +34,14 @@ export function PrdDescriptionsView() {
   const selectDoc = (doc: PrdDoc) => setSelectedId(doc.id);
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
-      <header className="flex items-start gap-3">
+    <div className="mx-auto flex w-full max-w-none flex-col gap-5 fds-page-padding">
+      <header className="fds-page-header flex items-start gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
           <BookOpenText className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="font-display text-xl font-bold">PRD功能描述</h1>
-          <p className="mt-1 max-w-3xl font-body text-sm text-muted-foreground">
+          <h1 className="fds-page-title">PRD功能描述</h1>
+          <p className="fds-page-description">
             唯讀顯示本系統的 Markdown：逐頁功能描述（docs/prd）及系統說明。修改版面後請同步更新對應文檔。
           </p>
         </div>

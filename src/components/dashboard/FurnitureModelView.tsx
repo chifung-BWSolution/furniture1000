@@ -374,7 +374,7 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-4 py-5 md:px-6">
       {skpRequirements.dialog}
       <FurnitureProductScopeDialog detection={scopeRequest?.detection ?? null} images={scopeRequest?.files ?? []}
         onCancel={() => setScopeRequest(null)} onChoose={choice => {

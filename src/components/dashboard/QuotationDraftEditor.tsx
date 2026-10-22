@@ -3911,7 +3911,7 @@ export function QuotationDraftEditor({
               <h1 className="font-display text-xl font-bold tracking-tight text-foreground sm:text-2xl">
                 報價單草稿編輯
               </h1>
-              <p className="flex flex-wrap items-center gap-x-2 font-body text-xs text-muted-foreground">
+              <p className="fds-page-description">
                 <span className="font-mono-data text-xs tracking-wide text-slate-500">
                   {quoteId || "—"}
                 </span>

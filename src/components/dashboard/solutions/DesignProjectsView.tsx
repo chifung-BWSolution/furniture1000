@@ -3057,10 +3057,10 @@ export function DesignProjectsView() {
     <div ref={pageScrollRef} className="h-full overflow-y-auto bg-background">
       {/* Header */}
       <div className="border-b border-border bg-background">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-3.5 py-4 md:flex-row md:items-center md:px-5">
+        <div className="mx-auto flex w-full max-w-none flex-col gap-4 fds-page-padding md:flex-row md:items-center">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate font-display text-2xl font-bold tracking-tight">
+              <h1 className="fds-page-title">
                 設計專案
               </h1>
               <span className="text-sm font-medium text-muted-foreground">
@@ -3165,7 +3165,7 @@ export function DesignProjectsView() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-[1440px] space-y-6 px-3.5 py-8 md:px-5 md:py-10">
+      <div className="mx-auto w-full max-w-none space-y-6 fds-page-padding">
         {(() => {
           const reply = project.meta?.clientQuoteReply;
           if (!reply || typeof reply !== 'object') return null;
@@ -4104,7 +4104,7 @@ export function DesignProjectsView() {
               ) : null}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
               {productsLoading ? (
                 <div className="flex justify-center py-16">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />

@@ -192,13 +192,13 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
 
   return (
     <div className="h-full overflow-y-auto bg-background">
-      <div className="border-b border-border bg-page-tint px-6 py-5">
-        <h1 className="font-display text-xl font-bold tracking-tight text-foreground">儀表板</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+      <div className="border-b border-border bg-page-tint px-4 md:px-6 py-5">
+        <h1 className="fds-page-title">儀表板</h1>
+        <p className="fds-page-description">
           平台關鍵指標與常用功能捷徑
         </p>
       </div>
-      <div className="space-y-8 p-6">
+      <div className="space-y-8 px-4 py-5 md:px-6">
 
         <div>
           <SectionLabel>關鍵指標</SectionLabel>

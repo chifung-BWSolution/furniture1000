@@ -214,10 +214,10 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3.5">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3.5">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">發佈前檢查</h2>
+          <h2 className="fds-page-title">發佈前檢查</h2>
           <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-xs font-semibold text-primary">
             {items.length} 件待檢查
           </span>
@@ -233,7 +233,7 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
       </div>
 
       {/* Pass-rate banner */}
-      <div className="shrink-0 border-b border-border bg-card px-6 py-4">
+      <div className="shrink-0 border-b border-border bg-card px-4 md:px-6 py-4">
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-3">
             <div className={cn('flex h-14 w-14 items-center justify-center rounded-2xl', allPass ? 'bg-emerald-500/15' : 'bg-amber-500/15')}>

@@ -291,7 +291,7 @@ export function FactoryDetailView({
       </div>
 
       {/* Page Body */}
-      <div className="mx-auto max-w-6xl px-6 py-8">
+      <div className="mx-auto max-w-none px-4 md:px-6 py-8">
         {/* Hero Row */}
         <div className="mb-8 flex items-start justify-between gap-6">
           <div className="flex items-center gap-4">
@@ -299,7 +299,7 @@ export function FactoryDetailView({
               <Factory className="h-8 w-8 text-primary" />
             </div>
             <div>
-              <h1 className="font-display text-2xl font-bold tracking-tight">
+              <h1 className="fds-page-title">
                 {factory.display_name}
               </h1>
               <div className="mt-1 flex items-center gap-2 text-muted-foreground">

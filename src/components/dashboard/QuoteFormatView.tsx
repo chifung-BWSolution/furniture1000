@@ -53,15 +53,14 @@ export function QuoteFormatView() {
   };
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
-      <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-5 md:px-6">
-        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">傢俬報價</p>
-          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold">
+    <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
+      <div className="mx-auto w-full max-w-none space-y-4 fds-page-padding">
+        <section className="fds-page-header">
+          <h1 className="fds-page-title">
             <FileText className="h-5 w-5 text-primary" />
             報價單格式設定
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="fds-page-description">
             全公司共用一組格式。QR 文案、修訂日期和分區小計會用在報價單 PDF 與客戶連結。
           </p>
         </section>

@@ -2324,7 +2324,7 @@ export function PublishedProductsView({
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Toolbar */}
-      <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-muted/30 px-6 py-3">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-muted/30 px-4 md:px-6 py-3">
         {/* Row 1: title + action buttons */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -2863,7 +2863,7 @@ export function PublishedProductsView({
       ) : null}
 
       {/* state filter pills + selection summary */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-6 py-2">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 md:px-6 py-2">
         <div className="flex items-center gap-1.5">
           {STATE_FILTERS.map((f) => (
             <button key={f.key} onClick={() => setStateFilter(f.key)} className={cn('rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors', stateFilter === f.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
@@ -3153,7 +3153,7 @@ export function PublishedProductsView({
 
       {/* table — catalog: 操作 sits at viewport right; 材質描述 + Factory ID scroll */}
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-auto p-6">
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-5 md:px-6">
         <div
           className="overflow-hidden rounded-xl border border-border bg-card"
           style={

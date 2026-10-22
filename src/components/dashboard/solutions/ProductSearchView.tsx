@@ -53,10 +53,10 @@ export function ProductSearchView() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-6 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4 md:px-6 py-3">
         <div className="flex items-center gap-2">
           <Search className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">產品搜尋</h2>
+          <h2 className="fds-page-title">產品搜尋</h2>
           <span className="font-mono-data text-xs text-muted-foreground">{results.length} 筆結果</span>
         </div>
         <div className="flex items-center gap-2">
@@ -72,7 +72,7 @@ export function ProductSearchView() {
       </div>
 
       {/* Advanced search bar */}
-      <div className="shrink-0 space-y-3 border-b border-border bg-card px-6 py-4">
+      <div className="shrink-0 space-y-3 border-b border-border bg-card px-4 md:px-6 py-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -113,7 +113,7 @@ export function ProductSearchView() {
       </div>
 
       {/* Results */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto px-4 py-5 md:px-6">
         {isLoading ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (

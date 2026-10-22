@@ -64,17 +64,16 @@ export function EmailNotificationsView() {
   };
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
-      <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5 md:px-6">
-        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+    <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
+      <div className="mx-auto w-full max-w-none space-y-4 fds-page-padding">
+        <section className="fds-page-header">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">系統設定</p>
-              <h1 className="mt-1 flex items-center gap-2 text-xl font-bold">
+              <h1 className="fds-page-title">
                 <Mail className="h-5 w-5 text-primary" />
                 電郵通知
               </h1>
-              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              <p className="fds-page-description">
                 系統發出的電郵會留在這裡：時間、收件人、類型、關聯單、成功或失敗。紀錄永久保留。目前會寫入的是上載紀錄電郵；客戶登入、每日動態和廠家上載會在那些寄信程式接上之後出現。
               </p>
             </div>
@@ -100,7 +99,7 @@ export function EmailNotificationsView() {
           </section>
         )}
 
-        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+        <section className="rounded-2xl border border-border/80 bg-card px-4 py-5 md:px-6 shadow-sm sm:p-6">
           <div className="mb-4 flex flex-wrap gap-2">
             <select
               value={typeFilter}

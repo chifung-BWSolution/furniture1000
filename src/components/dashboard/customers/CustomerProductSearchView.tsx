@@ -538,7 +538,7 @@ export function CustomerProductSearchView() {
         {showFilters ? (
           <aside className="h-fit space-y-5 rounded-2xl border border-border bg-card p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="font-display text-sm font-bold">進階篩選</h2>
+              <h2 className="fds-page-title">進階篩選</h2>
               <button
                 type="button"
                 onClick={() => setFilters(EMPTY_FILTERS)}

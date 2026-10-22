@@ -593,7 +593,7 @@ export function FGProductDetailModal({
         style={{ width: '1200px', height: '800px', maxWidth: '96vw', maxHeight: '96vh' }}
       >
         {/* ── Modal Header ── */}
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-6 py-3.5">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-4 md:px-6 py-3.5">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={onClose}
@@ -1285,10 +1285,10 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* ── Header ── */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3.5">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3.5">
         <div className="flex items-center gap-2">
           <Sofa className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">傢俬組檢查</h2>
+          <h2 className="fds-page-title">傢俬組檢查</h2>
           <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-xs font-semibold text-primary">
             {totalCount} 件待確認
           </span>
@@ -1318,7 +1318,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       </div>
 
       {/* ── Info Banner ── */}
-      <div className="shrink-0 border-b border-border bg-indigo-500/5 px-8 py-3">
+      <div className="shrink-0 border-b border-border bg-indigo-500/5 px-4 md:px-6 py-3">
         <div className="flex items-center gap-2 text-[12px] text-indigo-700 dark:text-indigo-400">
           <ChevronRight className="h-3.5 w-3.5" />
           <span>傢俬組確認後，勾選產品並按「加入到 準備上載」，產品將進入「準備上載」頁面等待上傳至 Shopify。點擊產品列查看詳細資料。</span>
@@ -1326,7 +1326,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       </div>
 
       {/* ── Filter toolbar — search (name/SKU) · page size · L1/L2 · factory ── */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-background px-8 py-2.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-background px-4 md:px-6 py-2.5">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -1366,7 +1366,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       </div>
 
       {/* ── Table ── */}
-      <div className="flex-1 overflow-auto px-8 py-6">
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-6">
         {isLoading ? (
           <div className="flex h-40 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />

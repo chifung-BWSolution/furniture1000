@@ -358,10 +358,10 @@ export function CategoryManagementView() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* ── Toolbar ── */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3">
         <div className="flex items-center gap-2">
           <FolderTree className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">Shopify 分類</h2>
+          <h2 className="fds-page-title">Shopify 分類</h2>
           <span className="font-mono-data text-[11px] text-muted-foreground">
             {totalL1} 個一級分類 · {totalL2} 個二級分類 · {totalL3} 個三級分類
           </span>
@@ -401,7 +401,7 @@ export function CategoryManagementView() {
       </div>
 
       {/* ── Info Banner ── */}
-      <div className="flex items-center gap-2 border-b border-border bg-indigo-500/5 px-6 py-1.5">
+      <div className="flex items-center gap-2 border-b border-border bg-indigo-500/5 px-4 md:px-6 py-1.5">
         <FolderTree className="h-3 w-3 text-indigo-500" />
         <span className="text-[11px] text-indigo-500 font-body">
           管理 Shopify 產品分類（支援三級）。Excel 格式：第一欄一級、第二欄二級、第三欄三級（可空），由第二行起。儲存後寫入 bwf_product_categories。
@@ -409,7 +409,7 @@ export function CategoryManagementView() {
       </div>
 
       {/* ── Content ── */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto px-4 py-5 md:px-6">
         {isLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -428,7 +428,7 @@ export function CategoryManagementView() {
             </button>
           </div>
         ) : (
-          <div className="mx-auto max-w-4xl space-y-4">
+          <div className="mx-auto max-w-none space-y-4">
             {filtered.map((g) => (
               <div key={g.id} className="overflow-hidden rounded-xl border border-border bg-card">
                 {/* L1 header */}

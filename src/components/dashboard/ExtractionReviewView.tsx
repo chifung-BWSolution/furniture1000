@@ -290,7 +290,7 @@ export function ExtractionReviewView() {
   }
 
   return (
-    <div className="flex h-full min-h-0 gap-4 p-4">
+    <div className="flex h-full min-h-0 gap-4 px-4 py-5 md:px-6">
       <aside className="flex w-72 shrink-0 flex-col rounded-lg border border-border">
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <span className="text-sm font-medium">供應商文件</span>

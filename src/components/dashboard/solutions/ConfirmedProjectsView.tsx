@@ -89,13 +89,13 @@ export function ConfirmedProjectsView() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <div className="h-full overflow-y-auto bg-background fds-page-padding">
+      <div className="mx-auto max-w-none space-y-6">
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="font-display text-2xl font-bold tracking-tight">已確定方案</h1>
+              <h1 className="fds-page-title">已確定方案</h1>
               <span className="text-sm font-medium text-muted-foreground">
                 （客戶專區 &gt; 報價方案）
               </span>
@@ -173,7 +173,7 @@ export function ConfirmedProjectsView() {
         </div>
 
         {/* Real project discussion records */}
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="rounded-xl border border-border bg-card px-4 py-5 md:px-6">
             <div className="mb-3 flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-primary" />
               <h3 className="font-display text-sm font-bold">專案互動紀錄</h3>

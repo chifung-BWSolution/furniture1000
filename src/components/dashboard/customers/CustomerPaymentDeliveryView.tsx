@@ -411,7 +411,7 @@ export function CustomerPaymentDeliveryView() {
 
         {/* Order summary sticky */}
         <aside className="h-fit rounded-2xl border border-border bg-card p-5 shadow-sm lg:sticky lg:top-4">
-          <h2 className="font-display text-sm font-bold">訂單摘要</h2>
+          <h2 className="fds-page-title">訂單摘要</h2>
           <div className="mt-3 space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">商品小計</span>

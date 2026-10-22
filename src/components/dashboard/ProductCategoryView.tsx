@@ -311,10 +311,10 @@ export function ProductCategoryView() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3">
         <div className="flex items-center gap-2">
           <FolderTree className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">產品分類</h2>
+          <h2 className="fds-page-title">產品分類</h2>
           <span className="font-mono-data text-[11px] text-muted-foreground">
             {grouped.length} 個一級分類 · {totalLevel2} 個二級分類
           </span>
@@ -361,7 +361,7 @@ export function ProductCategoryView() {
       </div>
 
       {/* Info banner */}
-      <div className="flex items-center gap-2 border-b border-border bg-indigo-500/5 px-6 py-1.5">
+      <div className="flex items-center gap-2 border-b border-border bg-indigo-500/5 px-4 md:px-6 py-1.5">
         <FolderTree className="h-3 w-3 text-indigo-500" />
         <span className="text-[11px] text-indigo-500 font-body">
           記錄目前產品分類。可直接編輯文字、新增/刪除分類，或由 Excel 導入（第一欄一級分類、第二欄二級分類）。儲存後寫入 Supabase product_category 表，並同步更新 products 及 ready_to_shopify.product_type。
@@ -369,7 +369,7 @@ export function ProductCategoryView() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto px-4 py-5 md:px-6">
         {isLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -385,7 +385,7 @@ export function ProductCategoryView() {
             </button>
           </div>
         ) : (
-          <div className="mx-auto max-w-4xl space-y-4">
+          <div className="mx-auto max-w-none space-y-4">
             {grouped.map(([level1, items]) => (
               <div key={level1} className="overflow-hidden rounded-xl border border-border bg-card">
                 <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2.5">

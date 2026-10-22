@@ -278,11 +278,11 @@ export function SimilarProductsView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="shrink-0 border-b border-border px-5 py-4">
+      <div className="shrink-0 border-b border-border px-4 md:px-6 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="font-display text-lg font-bold tracking-tight">整合相似</h1>
-            <p className="mt-1 max-w-2xl font-body text-xs leading-relaxed text-muted-foreground">
+            <h1 className="fds-page-title">整合相似</h1>
+            <p className="fds-page-description">
               已上載產品裡，名稱與廠家相同、或 SKU 屬於同一產品碼的，會編成一組。合併後保留一件主產品，其餘變成它的規格。已合併的子產品不會再出現。
             </p>
           </div>
@@ -341,7 +341,7 @@ export function SimilarProductsView() {
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+      <div className="min-h-0 flex-1 overflow-auto px-4 md:px-6 py-4">
         {isLoading ? (
           <div className="flex h-full items-center justify-center px-6">
             <div className="w-full max-w-md space-y-3">

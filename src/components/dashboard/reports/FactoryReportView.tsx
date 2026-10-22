@@ -64,16 +64,16 @@ export function FactoryReportView() {
   );
 
   return (
-    <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div>
+    <div className="h-full overflow-y-auto bg-background fds-page-padding">
+      <div className="mx-auto max-w-none space-y-4">
+        <div className="fds-page-header">
           <div className="flex items-center gap-2">
             <Building className="h-5 w-5 text-primary" />
-            <h1 className="font-display text-2xl font-bold tracking-tight">
+            <h1 className="fds-page-title">
               廠家報告
             </h1>
           </div>
-          <p className="mt-1 font-body text-xs text-muted-foreground">
+          <p className="fds-page-description">
             統計報價單一覽各報價單最新版本：每件有廠家的產品列計 1 次使用；並對照目錄廠家產品數
           </p>
         </div>

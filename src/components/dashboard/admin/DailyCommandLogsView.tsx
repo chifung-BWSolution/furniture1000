@@ -157,15 +157,12 @@ export function DailyCommandLogsView() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <ListChecks className="h-5 w-5 text-primary" />
-          </div>
+    <div className="mx-auto flex w-full max-w-none flex-col gap-5 fds-page-padding">
+      <header className="fds-page-header flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <div>
-            <h1 className="font-display text-xl font-bold">每日指令記錄</h1>
-            <p className="mt-1 max-w-3xl font-body text-sm text-muted-foreground">
+            <h1 className="fds-page-title"><ListChecks className="h-5 w-5 text-primary" />每日指令記錄</h1>
+            <p className="fds-page-description">
               檢視開發指令的字眼、開始與完成時間、模型、Credit 與工具成本（USD）。日期以香港時間計算。
             </p>
           </div>

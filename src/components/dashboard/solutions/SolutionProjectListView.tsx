@@ -350,12 +350,12 @@ export function SolutionProjectListView() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <div className="h-full overflow-y-auto bg-background fds-page-padding">
+      <div className="mx-auto max-w-none space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-bold tracking-tight">方案列表</h1>
-            <p className="mt-1 font-body text-sm text-muted-foreground">
+            <h1 className="fds-page-title">方案列表</h1>
+            <p className="fds-page-description">
               依工程類型建立專案；展開每個方案設定「間隔／功能房間」，並按「儲存」寫入專案資料
             </p>
           </div>

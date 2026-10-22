@@ -46,17 +46,14 @@ export function ProPdfView() {
   }, [inquiryId]);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background print:bg-white">
-      <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-5 md:px-6 print:max-w-none print:px-0">
-        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm print:hidden sm:p-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            PM報價 · BWA
-          </p>
-          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold">
+    <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground print:bg-white">
+      <div className="mx-auto w-full max-w-none space-y-4 fds-page-padding print:max-w-none print:px-0">
+        <section className="fds-page-header print:hidden">
+          <h1 className="fds-page-title">
             <FileText className="h-5 w-5 text-primary" />
             專業說明 PDF
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="fds-page-description">
             只列 BWA 送出的傢俬項目，以及 BWF 回覆的賣價。不含成本、廠家或毛利。
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">

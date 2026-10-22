@@ -1441,7 +1441,7 @@ export function ListedProductsView({
     <TooltipProvider>
       <div className="flex h-full flex-col">
         {/* Toolbar */}
-        <div className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-2.5">
+        <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 md:px-6 py-2.5">
           <div className="flex items-center gap-3">
             {/* Search */}
             <div className="relative">

@@ -228,7 +228,7 @@ export function TopBar({
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-border bg-page-tint/90 px-3 backdrop-blur-xl sm:h-16 sm:px-6">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-border bg-page-tint/90 px-4 backdrop-blur-xl sm:h-16 md:px-6">
       {/* Left — Mobile nav + Breadcrumb */}
       <div className="flex min-w-0 items-center gap-2">
         {showMobileNavButton && onOpenMobileNav ? (
@@ -254,7 +254,7 @@ export function TopBar({
               <ChevronRight className="hidden h-3 w-3 text-muted-foreground/50 sm:inline" />
             </>
           )}
-          <h2 className="truncate font-display text-base font-bold tracking-tight sm:text-lg">
+          <h2 className="fds-breadcrumb-title truncate font-display tracking-tight">
             {viewInfo.label}
           </h2>
         </div>

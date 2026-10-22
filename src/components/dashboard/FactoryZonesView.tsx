@@ -55,15 +55,14 @@ export function FactoryZonesView() {
   };
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
-      <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5 md:px-6">
-        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">廠家目錄</p>
-          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold">
+    <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
+      <div className="mx-auto w-full max-w-none space-y-4 fds-page-padding">
+        <section className="fds-page-header">
+          <h1 className="fds-page-title">
             <MapIcon className="h-5 w-5 text-primary" />
             廠家分區
           </h1>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+          <p className="fds-page-description">
             把 PMS 廠家放進自訂分區。廠家主檔仍在 PMS，這裡只記廠家編號。這不是設計專案的空間分區。
           </p>
           <p className="mt-3 text-sm">
