@@ -18,6 +18,7 @@ export interface CatalogDocument {
   doc_type: CatalogDocType;
   status: CatalogStatus;
   page_count?: number | null;
+  parsing_progress?: number | null;
   created_at: string;
   product_count: number;
   segments: CatalogSegment[];

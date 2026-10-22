@@ -24,7 +24,7 @@ const DOC_TYPES: { id: '' | CatalogDocType; label: string }[] = [
 
 const STATUS_LABEL: Record<CatalogStatus, string> = {
   uploaded: '已上載',
-  parsing: '分析中',
+  parsing: '解析中',
   review: '待審',
   ready: '可瀏覽',
   failed: '分析失敗',
@@ -73,9 +73,15 @@ export function DesignerPdfView() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchDesignerCatalogs({ query: debounced, factory, docType })
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = () => fetchDesignerCatalogs({ query: debounced, factory, docType })
       .then((next) => {
-        if (!cancelled) setList(next);
+        if (!cancelled) {
+          setList(next);
+          if (next.items.some((doc) => doc.status === 'parsing' || doc.status === 'uploaded')) {
+            timer = setTimeout(refresh, 5000);
+          }
+        }
       })
       .catch((err) => {
         if (!cancelled) toast.error('讀取產品 PDF 失敗', { description: errorText(err) });
@@ -83,7 +89,9 @@ export function DesignerPdfView() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    refresh();
     return () => {
+      clearTimeout(timer);
       cancelled = true;
     };
   }, [debounced, factory, docType]);
@@ -144,9 +152,9 @@ export function DesignerPdfView() {
   const items = list?.items ?? [];
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4">
+    <div className="flex h-full min-h-0 flex-col gap-3 fds-page-padding">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[16rem] flex-1">
+        <div className="relative min-w-0 basis-64 flex-1">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
@@ -194,34 +202,47 @@ export function DesignerPdfView() {
         ) : items.length === 0 ? (
           <div className="py-24 text-center text-sm text-muted-foreground">沒有符合的產品 PDF</div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-3">
-            {items.map((doc) => (
-              <button
-                key={doc.id}
-                type="button"
-                onClick={() => setSelected(doc)}
-                className="flex h-full flex-col gap-2 rounded-xl border border-border bg-card p-3 text-left shadow-sm transition-shadow hover:shadow-md"
-              >
-                <div className="flex items-start gap-2">
-                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <div className="min-w-0 flex-1">
-                    <div className="line-clamp-2 text-sm font-semibold">{doc.title || '未命名 PDF'}</div>
-                    <div className="truncate text-xs text-muted-foreground">{doc.factory_name || '未指定廠家'}</div>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1.5 text-[11px]">
-                  <span className="rounded-full bg-muted px-2 py-0.5">{doc.doc_type === 'quote' ? '報價 PDF' : '產品目錄'}</span>
-                  <span className="rounded-full bg-muted px-2 py-0.5">{STATUS_LABEL[doc.status] ?? doc.status}</span>
-                  {doc.page_count != null && <span className="rounded-full bg-muted px-2 py-0.5">{doc.page_count} 頁</span>}
-                  <span className="rounded-full bg-muted px-2 py-0.5">{doc.product_count} 件產品</span>
-                </div>
-                {doc.segments.length > 0 && (
-                  <div className="line-clamp-2 text-xs text-muted-foreground">
-                    {doc.segments.slice(0, 4).map(segmentLabel).join('  /  ')}
-                  </div>
-                )}
-              </button>
-            ))}
+          <div className="overflow-hidden rounded-lg border border-border bg-card">
+            <div className="hidden grid-cols-[minmax(0,1fr)_8rem_10rem_5rem_6rem] gap-4 border-b border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground lg:grid" aria-hidden="true">
+              <span>PDF 名稱 / 廠家</span><span>類型</span><span>狀態</span><span className="text-right">頁數</span><span className="text-right">產品數量</span>
+            </div>
+            <ul className="divide-y divide-border">
+              {items.map((doc) => {
+                const progress = typeof doc.parsing_progress === 'number' && Number.isFinite(doc.parsing_progress)
+                  ? Math.round(Math.max(0, Math.min(1, doc.parsing_progress)) * 100)
+                  : null;
+                return (
+                  <li key={doc.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelected(doc)}
+                      className="grid w-full grid-cols-2 items-center gap-x-4 gap-y-2 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid-cols-[minmax(0,1fr)_8rem_10rem_5rem_6rem]"
+                    >
+                      <div className="col-span-2 flex min-w-0 items-start gap-2 lg:col-span-1">
+                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <div className="min-w-0">
+                          <div className="break-words text-sm font-semibold">{doc.title || '未命名 PDF'}</div>
+                          <div className="text-xs text-muted-foreground">{doc.factory_name || '未指定廠家'}</div>
+                          {doc.segments.length > 0 && (
+                            <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                              {doc.segments.slice(0, 4).map(segmentLabel).join(' / ')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{doc.doc_type === 'quote' ? '報價 PDF' : '產品目錄'}</span>
+                      <span className="flex items-center gap-1.5 text-xs tabular-nums">
+                        {doc.status === 'parsing' && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none text-primary" />}
+                        {STATUS_LABEL[doc.status] ?? doc.status}
+                        {doc.status === 'parsing' && progress !== null && ` ${progress}%`}
+                      </span>
+                      <span className="text-xs tabular-nums text-muted-foreground lg:text-right">{doc.page_count != null ? `${doc.page_count} 頁` : '—'}</span>
+                      <span className="text-xs tabular-nums text-muted-foreground lg:text-right">{doc.product_count} 件產品</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
       </div>
