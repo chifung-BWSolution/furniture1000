@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { resolveGeminiModel } from "../_shared/geminiModel.ts";
+import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -94,7 +94,14 @@ Deno.serve(async (req: Request) => {
     const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents }),
+      body: JSON.stringify({
+        contents,
+        ...(Object.keys(geminiThinkingConfig(modelName)).length
+          ? { generationConfig: geminiThinkingConfig(modelName) }
+          : {}),
+      }),
+      // Under the ~150s Edge gateway limit.
+      signal: AbortSignal.timeout(130_000),
     });
 
     const geminiData = await geminiResponse.json();

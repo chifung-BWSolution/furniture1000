@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { resolveGeminiModel } from "../_shared/geminiModel.ts";
+import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1115,6 +1115,7 @@ CRITICAL MULTI-OBJECT RULES:
           maxOutputTokens: maxTokens,
           temperature: 0.1,
           responseMimeType: "application/json",
+          ...geminiThinkingConfig(modelName),
         },
       };
 
@@ -1248,7 +1249,7 @@ CRITICAL MULTI-OBJECT RULES:
           parts: [{ text: "You are a JSON-only extraction engine with MULTI-OBJECT SEGMENTATION capabilities. Never include apologies, conversational text, explanations, or markdown code blocks. Your entire response must be a single valid JSON object. Start with { and end with }. CRITICAL: bounding_box MUST be an array of 4 integers [ymin, xmin, ymax, xmax] on 0-1000 scale, or null. NEVER return text descriptions like 'top left' or 'center' for bounding_box." }],
         },
         contents: [{ parts: [{ text: prompt }, ...fileParts] }],
-        generationConfig: { maxOutputTokens: 65536, temperature: 0.1, responseMimeType: "application/json" },
+        generationConfig: { maxOutputTokens: 65536, temperature: 0.1, responseMimeType: "application/json", ...geminiThinkingConfig(modelName) },
       };
 
       const result = await callGemini(geminiUrl, geminiPayload, "SINGLE");
@@ -1347,7 +1348,7 @@ CRITICAL MULTI-OBJECT RULES:
           parts: [{ text: "You are a JSON-only extraction engine with MULTI-OBJECT SEGMENTATION capabilities. Never include apologies, conversational text, explanations, or markdown code blocks. Your entire response must be a single valid JSON object. Start with { and end with }. CRITICAL: bounding_box MUST be an array of 4 integers [ymin, xmin, ymax, xmax] on 0-1000 scale, or null. NEVER return text descriptions like 'top left' or 'center' for bounding_box." }],
         },
         contents: [{ parts: [{ text: prompt }, ...fileParts] }],
-        generationConfig: { maxOutputTokens: 32768, temperature: 0.1, responseMimeType: "application/json" },
+        generationConfig: { maxOutputTokens: 32768, temperature: 0.1, responseMimeType: "application/json", ...geminiThinkingConfig(modelName) },
       };
 
       const result = await callGemini(geminiUrl, geminiPayload, chunkLabel);

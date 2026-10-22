@@ -15,3 +15,19 @@ export function resolveGeminiModel(requested?: unknown): string {
   if (req && !/^gemini-[12](\.|-)/.test(req)) return req;
   return DEFAULT_GEMINI_MODEL;
 }
+
+/** Gemini 3.x model ids (gemini-3-…, gemini-3.8-flash, …). */
+export function isGemini3Model(model: string): boolean {
+  return /^gemini-3(\.|-)/.test(model.trim());
+}
+
+/**
+ * generationConfig fields that keep thinking low on Gemini 3.x, spread into
+ * generationConfig. Default thinking on gemini-3.8-flash is "medium", which made
+ * large extraction calls outlive the ~150s Edge gateway limit. gemini-3.8-flash
+ * accepts low | medium | high ("minimal" is rejected), so "low" is used.
+ * Other models get nothing, so their request bodies are unchanged.
+ */
+export function geminiThinkingConfig(model: string): { thinkingConfig?: { thinkingLevel: "low" } } {
+  return isGemini3Model(model) ? { thinkingConfig: { thinkingLevel: "low" } } : {};
+}

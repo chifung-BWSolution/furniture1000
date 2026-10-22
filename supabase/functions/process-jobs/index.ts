@@ -12,7 +12,7 @@ import {
   PDFNumber,
   PDFRawStream,
 } from "npm:pdf-lib@1.17.1";
-import { resolveGeminiModel } from "../_shared/geminiModel.ts";
+import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
 
 /**
  * FDS 2.1 背景任務 worker（Edge 過渡版，C-09）。
@@ -362,15 +362,21 @@ async function geminiClassify(
       ? { page: p.page, image_only: true }
       : { page: p.page, text: p.text.slice(0, CLASSIFY_TEXT_CHARS) })),
   };
+  const model = resolveGeminiModel();
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${resolveGeminiModel()}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: CLASSIFY_PROMPT }] },
         contents: [{ parts: [{ text: JSON.stringify(input) }] }],
-        generationConfig: { temperature: 0.1, responseMimeType: "application/json", maxOutputTokens: 8192 },
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+          maxOutputTokens: 8192,
+          ...geminiThinkingConfig(model),
+        },
       }),
       signal: AbortSignal.timeout(120_000),
     },
@@ -862,8 +868,9 @@ async function geminiStructure(
     parts.push({ inline_data: { mime_type: "image/jpeg", data: toBase64(img.bytes) } });
   });
 
+  const model = resolveGeminiModel();
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${resolveGeminiModel()}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -875,9 +882,12 @@ async function geminiStructure(
           responseMimeType: "application/json",
           responseSchema: STRUCTURE_SCHEMA,
           maxOutputTokens: 65536,
+          ...geminiThinkingConfig(model),
         },
       }),
-      signal: AbortSignal.timeout(240_000),
+      // Stays under the ~150s Edge gateway request limit so a slow call fails
+      // as a recorded timeout (and retries) instead of a silent 504.
+      signal: AbortSignal.timeout(130_000),
     },
   );
   const body = await res.json().catch(() => null);

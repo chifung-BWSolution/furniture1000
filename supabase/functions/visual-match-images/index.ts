@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { resolveGeminiModel } from "../_shared/geminiModel.ts";
+import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -375,6 +375,7 @@ async function callGemini(
           temperature: 0.1,
           maxOutputTokens: 4096,
           responseMimeType: "application/json",
+          ...geminiThinkingConfig(modelName),
         },
       }),
       signal: controller.signal,
