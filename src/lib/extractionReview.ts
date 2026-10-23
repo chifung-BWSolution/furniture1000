@@ -225,13 +225,18 @@ export async function listReviewDocuments(): Promise<ReviewDocument[]> {
     .filter((row) => row.counts.total > 0);
 }
 
-export async function listExtractionItems(documentId: string): Promise<ExtractionItem[]> {
+export async function listExtractionItems(
+  documentId: string,
+  offset = 0,
+  limit = 100,
+): Promise<ExtractionItem[]> {
   const { data, error } = await supabase
     .from('extraction_items')
     .select(ITEM_COLUMNS)
     .eq('document_id', documentId)
     .order('seq')
-    .limit(2000);
+    .order('id')
+    .range(offset, offset + limit - 1);
   if (error) throw new Error(error.message);
   return (data ?? []) as unknown as ExtractionItem[];
 }

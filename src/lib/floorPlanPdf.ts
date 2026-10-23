@@ -60,8 +60,14 @@ export async function renderPdfPageToJpegBlob(
   const scale = options?.scale ?? 1.5;
   const quality = options?.quality ?? 0.86;
   const pdfjs = await getPdfjs();
-  const data = await toArrayBuffer(source);
-  const pdf = await pdfjs.getDocument({ data: new Uint8Array(data) }).promise;
+  // Give PDF.js the signed URL directly so it can use HTTP range requests and
+  // fetch only the byte ranges needed for the requested page. Fetching the
+  // entire supplier PDF before rendering made a single-page preview wait on
+  // large catalogs.
+  const loadingTask = typeof source === 'string' && !source.trim().startsWith('data:')
+    ? pdfjs.getDocument({ url: source, disableStream: true, disableAutoFetch: true, rangeChunkSize: 256 * 1024 })
+    : pdfjs.getDocument({ data: new Uint8Array(await toArrayBuffer(source)) });
+  const pdf = await loadingTask.promise;
   try {
     if (pageNumber < 1 || pageNumber > pdf.numPages) {
       throw new Error(`PDF 頁碼無效：${pageNumber}`);

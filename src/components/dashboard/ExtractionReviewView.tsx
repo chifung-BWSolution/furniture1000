@@ -49,7 +49,6 @@ import { importExtractedProducts } from '@/lib/productSearch';
 import {
   EDITABLE_FIELDS,
   FLAG_LABELS,
-  addToReviewCounts,
   countExtractionItems,
   effectiveProduct,
   emptyReviewCounts,
@@ -64,7 +63,6 @@ import {
   type ExtractionItem,
   type ExtractionStatus,
   type ReviewDocument,
-  type ReviewDocumentCounts,
 } from '@/lib/extractionReview';
 
 type Filter = 'all' | 'pending' | 'attention' | 'approved' | 'imported' | 'rejected';
@@ -98,6 +96,7 @@ const PHASE_LABEL: Record<Exclude<Phase, 'all'>, string> = {
 
 /** Flags that are informational only; everything else is shown as a warning. */
 const INFO_FLAGS = new Set(['catalog_no_price', 'currency_from_document', 'ai_uncertain']);
+const REVIEW_PAGE_SIZE = 100;
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -196,6 +195,9 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
   const [docs, setDocs] = useState<ReviewDocument[]>([]);
   const [docId, setDocId] = useState<string | null>(null);
   const [items, setItems] = useState<ExtractionItem[]>([]);
+  const [hasMoreItems, setHasMoreItems] = useState(false);
+  const [loadingMoreItems, setLoadingMoreItems] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [images, setImages] = useState<ExtractionImage[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -210,7 +212,15 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<ExtractionItem | null>(null);
   const [sourcePage, setSourcePage] = useState<number | null | undefined>(undefined);
-  const itemsRequestRef = useRef(0);
+  const itemsRequestRef = useRef({
+    documentId: null as string | null,
+    offset: 0,
+    hasMore: false,
+    loading: false,
+    loadingMore: false,
+    error: null as string | null,
+  });
+  const listEndRef = useRef<HTMLTableRowElement>(null);
 
   const imageById = useMemo(() => new Map(images.map((i) => [i.id, i])), [images]);
 
@@ -240,22 +250,64 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
   }, []);
 
   const reloadItems = useCallback(async (id: string) => {
-    const requestId = ++itemsRequestRef.current;
+    const request = { documentId: id, offset: 0, hasMore: false, loading: true, loadingMore: false, error: null as string | null };
+    itemsRequestRef.current = request;
     setLoadingItems(true);
+    setLoadingMoreItems(false);
+    setLoadMoreError(null);
+    setHasMoreItems(false);
     setItemsError(null);
     try {
-      const [rows, imgs] = await Promise.all([listExtractionItems(id), listExtractionImages(id)]);
-      if (requestId !== itemsRequestRef.current) return;
+      const [rows, imgs] = await Promise.all([
+        listExtractionItems(id, 0, REVIEW_PAGE_SIZE),
+        listExtractionImages(id),
+      ]);
+      if (request !== itemsRequestRef.current) return;
+      request.offset = rows.length;
+      request.hasMore = rows.length === REVIEW_PAGE_SIZE;
       setItems(rows);
+      setHasMoreItems(request.hasMore);
       setImages(imgs);
     } catch (err) {
-      if (requestId !== itemsRequestRef.current) return;
+      if (request !== itemsRequestRef.current) return;
       setItemsError(errorText(err));
       toast.error('讀取提取結果失敗', { description: errorText(err) });
     } finally {
-      if (requestId === itemsRequestRef.current) setLoadingItems(false);
+      if (request === itemsRequestRef.current) {
+        request.loading = false;
+        setLoadingItems(false);
+      }
     }
   }, []);
+
+  const loadMoreItems = useCallback(async (retry = false) => {
+    const request = itemsRequestRef.current;
+    if (!docId || request.documentId !== docId || request.loading || !request.hasMore || request.loadingMore || (request.error && !retry)) return;
+    const offset = request.offset;
+    request.loadingMore = true;
+    request.error = null;
+    setLoadMoreError(null);
+    setLoadingMoreItems(true);
+    try {
+      const rows = await listExtractionItems(docId, offset, REVIEW_PAGE_SIZE);
+      if (request !== itemsRequestRef.current) return;
+      request.offset = offset + rows.length;
+      request.hasMore = rows.length === REVIEW_PAGE_SIZE;
+      setItems((current) => [...current, ...rows]);
+      setHasMoreItems(request.hasMore);
+    } catch (err) {
+      if (request === itemsRequestRef.current) {
+        request.error = errorText(err);
+        setLoadMoreError(request.error);
+        toast.error('載入更多項目失敗', { description: request.error });
+      }
+    } finally {
+      if (request === itemsRequestRef.current) {
+        request.loadingMore = false;
+        setLoadingMoreItems(false);
+      }
+    }
+  }, [docId]);
 
   /** Keep the left-hand document card in step without refetching the whole list. */
   const refreshCounts = useCallback(async (id: string) => {
@@ -277,8 +329,11 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
     setSelected(new Set());
     setEditing(null);
     if (!docId) {
-      itemsRequestRef.current += 1;
+      itemsRequestRef.current = { documentId: null, offset: 0, hasMore: false, loading: false, loadingMore: false, error: null };
+      setLoadingMoreItems(false);
+      setLoadMoreError(null);
       setItems([]);
+      setHasMoreItems(false);
       setImages([]);
       setItemsError(null);
       setLoadingItems(false);
@@ -286,12 +341,23 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
     }
     // Drop the previous document immediately so approve/reject cannot hit its items.
     setItems([]);
+    setHasMoreItems(false);
     setImages([]);
     setItemsError(null);
     setQuery('');
     setFilter('pending');
     void reloadItems(docId);
   }, [docId, reloadItems]);
+
+  useEffect(() => {
+    const container = listEndRef.current?.closest('[data-review-scroll]');
+    if (!container || !hasMoreItems || loadingItems || loadingMoreItems || loadMoreError) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) void loadMoreItems();
+    }, { root: container, rootMargin: '240px' });
+    observer.observe(listEndRef.current!);
+    return () => observer.disconnect();
+  }, [hasMoreItems, loadingItems, loadingMoreItems, loadMoreError, loadMoreItems]);
 
   const factoryOptions = useMemo(() => {
     const names = new Set<string>();
@@ -326,10 +392,8 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
   const docIndex = doc ? visibleDocs.findIndex((d) => d.id === doc.id) : -1;
 
   const itemCounts = useMemo(() => {
-    const c: ReviewDocumentCounts = emptyReviewCounts();
-    for (const item of items) addToReviewCounts(c, item);
-    return c;
-  }, [items]);
+    return doc?.counts ?? emptyReviewCounts();
+  }, [doc]);
 
   const tabs = useMemo(() => {
     const list: { id: Filter; label: string; count: number }[] = [
@@ -357,9 +421,17 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
     });
   }, [items, filter, query]);
 
+  useEffect(() => {
+    // A search or status filter may not match the first page. Continue paging
+    // until a match appears, or the document is exhausted.
+    if (!loadingItems && !loadingMoreItems && !loadMoreError && hasMoreItems && visible.length === 0) {
+      void loadMoreItems();
+    }
+  }, [loadingItems, loadingMoreItems, loadMoreError, hasMoreItems, visible.length, loadMoreItems]);
+
   const selectable = visible.filter((i) => !i.imported_product_id);
   const allSelected = selectable.length > 0 && selectable.every((i) => selected.has(i.id));
-  const importableCount = items.filter((i) => i.status === 'approved' && !i.imported_product_id).length;
+  const importableCount = Math.max(0, itemCounts.approved - itemCounts.imported);
 
   /**
    * First open of a document should land on rows that need work. Only runs once
@@ -784,7 +856,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                         </>
                       ) : (
                         <>
-                          顯示 <span className="font-mono-data tabular-nums">{visible.length}</span> 項
+                        已載入 <span className="font-mono-data tabular-nums">{items.length}</span> / {itemCounts.total} 項
                         </>
                       )}
                     </span>
@@ -824,7 +896,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-auto">
+                <div data-review-scroll className="min-h-0 flex-1 overflow-auto">
                   {itemsError ? (
                     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
                       <AlertCircle className="h-6 w-6 text-destructive" />
@@ -848,7 +920,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                               checked={allSelected}
                               onCheckedChange={toggleAll}
                               disabled={selectable.length === 0}
-                              aria-label="全選可審核項目"
+                              aria-label="全選已載入的可審核項目"
                             />
                           </th>
                           <th className="w-12 py-2.5 text-left font-medium">圖片</th>
@@ -1092,6 +1164,22 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                                   )}
                                 </div>
                               </div>
+                            </td>
+                          </tr>
+                        )}
+                        {hasMoreItems && (
+                          <tr ref={listEndRef}>
+                            <td colSpan={10} className="p-4 text-center text-xs text-muted-foreground">
+                              {loadMoreError ? (
+                                <div role="alert" className="space-y-2">
+                                  <p>載入更多項目失敗：{loadMoreError}</p>
+                                  <Button variant="outline" size="sm" onClick={() => void loadMoreItems(true)}>
+                                    重試載入
+                                  </Button>
+                                </div>
+                              ) : loadingMoreItems ? (
+                                <span className="inline-flex items-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在載入更多項目…</span>
+                              ) : '向下滾動以載入更多'}
                             </td>
                           </tr>
                         )}
