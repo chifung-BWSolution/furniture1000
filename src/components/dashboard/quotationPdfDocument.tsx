@@ -19,9 +19,9 @@ import { pdfDisplayText } from '@/lib/quotationPdfGlyphs';
 import { quoteCnyTotalFromHkd, quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 import {
   formatSectionTitleLabel,
-  productSerialAt,
   sectionTitleOrdinalAt,
 } from '@/lib/quoteSectionTitle';
+import { quoteItemSerialLabel } from '@/lib/quoteZone';
 import { parseRemarksContent } from '@/lib/remarksContent';
 import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
 import { looksLikeMaterialHtml } from '@/lib/quotationMaterialHtml';
@@ -687,7 +687,7 @@ function buildMaterialStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: P
 }
 
 /** 把一個 Item 排成一列（或超長時多段）。 */
-function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: number): PdfBlock[] {
+function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock[] {
   const { labels, P } = ctx;
   const columns = pdfItemColumnWidths(ctx.locale);
   const customWidth = columns.desc + columns.spec + columns.material;
@@ -1476,7 +1476,7 @@ export function QuotationDocument({
       );
       return;
     }
-    tableBlocks.push(...buildItemBlocks(ctx, item, productSerialAt(items, index)));
+    tableBlocks.push(...buildItemBlocks(ctx, item, quoteItemSerialLabel(items, index)));
     if (zonePlacement === 'section_and_summary') {
       const zone = zoneEndAt.get(index);
       if (zone) tableBlocks.push(buildZoneBlock(ctx, zone.name, zone.amount));

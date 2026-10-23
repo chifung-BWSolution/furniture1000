@@ -30,6 +30,7 @@ import {
   Upload,
   UserRound,
   Wallet,
+  Wand2,
   X,
   Check,
   Link2,
@@ -42,12 +43,17 @@ import { QuotePhotoPages } from "@/components/dashboard/QuotePhotoPages";
 import {
   canManageQuotePhotos,
   listQuoteCoverPages,
+  listQuotePhotoAssets,
   parseQuotePhotoAssetRefs,
   quotePhotoObjectUrl,
   quotePhotoRefUrl,
   type QuoteCoverPage,
   type QuotePhotoAssetRef,
 } from "@/lib/quotePhotoLibrary";
+import {
+  QuotePhotoGenerateDialog,
+  type GenerateChoice,
+} from "@/components/dashboard/QuotePhotoGenerateDialog";
 import { parsePhotoLayouts, type PhotoLayoutGroup } from "@/lib/quotePhotoLayouts";
 import { materialPlainText } from "@/lib/quotationMaterialHtml";
 import { toast } from "sonner";
@@ -128,6 +134,12 @@ import {
   sectionTitleOrdinalAt,
   sectionTitlePrefix,
 } from "@/lib/quoteSectionTitle";
+import {
+  quoteItemSerialLabel,
+  zoneEndInsertAt,
+  zoneItemCountAt,
+  zoneItemPrefixAt,
+} from "@/lib/quoteZone";
 import {
   loadQuoteItems,
   itemsFromLegacyProjectData,
@@ -553,6 +565,7 @@ function ImageUploadModal({
   title,
   previewUrl,
   uploadImage,
+  aiChoices = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -561,11 +574,27 @@ function ImageUploadModal({
   previewUrl?: string;
   /** When set, uploads to Supabase Storage and passes back HTTP URL. */
   uploadImage?: (file: File) => Promise<string>;
+  /** AI 生成候選（報價明細產品圖）；空的話仍可純描述生成。 */
+  aiChoices?: GenerateChoice[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLButtonElement>(null);
   const [dragActive, setDragActive] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  /** 圖片庫現有張數 — AI 生成會寫入圖片庫，要擋 QUOTE_PHOTO_LIBRARY_LIMIT。 */
+  const [libraryCount, setLibraryCount] = useState(0);
+
+  useEffect(() => {
+    if (!aiOpen) return;
+    let cancelled = false;
+    void listQuotePhotoAssets().then((result) => {
+      if (!cancelled) setLibraryCount(result.assets.length);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [aiOpen]);
 
   const handleFile = async (file: File) => {
     const err = validateImageFile(file);
@@ -622,15 +651,16 @@ function ImageUploadModal({
   };
 
   return (
-    <Modal
-      open
-      onOpenChange={(next) => { if (!next && !busy) onClose(); }}
-      size="xl"
-      icon={<ImagePlus className="h-6 w-6" />}
-      title={title}
-      description="支援 PNG、JPG、JPEG、WEBP、TIFF、SVG（最大 10 MB）"
-      onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}
-    >
+    <>
+      <Modal
+        open
+        onOpenChange={(next) => { if (!next && !busy) onClose(); }}
+        size="xl"
+        icon={<ImagePlus className="h-6 w-6" />}
+        title={title}
+        description="支援 PNG、JPG、JPEG、WEBP、TIFF、SVG（最大 10 MB）"
+        onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}
+      >
         {previewUrl ? (
           <div className="mb-4 flex max-h-[46vh] items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/20 p-3">
             <TrimmedEdgeImage
@@ -677,7 +707,35 @@ function ImageUploadModal({
           className="hidden"
           onChange={handleInput}
         />
-    </Modal>
+
+        <div className="mt-4 flex items-center gap-3" aria-hidden>
+          <span className="h-px flex-1 bg-border" />
+          <span className="font-body text-xs text-muted-foreground">或</span>
+          <span className="h-px flex-1 bg-border" />
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setAiOpen(true)}
+          className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2.5 font-body text-sm font-semibold text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Wand2 className="h-4 w-4" />
+          用 AI 生成圖片
+        </button>
+      </Modal>
+
+      <QuotePhotoGenerateDialog
+        open={aiOpen}
+        choices={aiChoices}
+        libraryCount={libraryCount}
+        onClose={() => setAiOpen(false)}
+        onGenerated={(asset) => {
+          // 生成結果已寫入圖片庫；直接選為此欄位的圖片。
+          onSelect(quotePhotoRefUrl(asset));
+          onClose();
+        }}
+      />
+    </>
   );
 }
 
@@ -692,6 +750,7 @@ function ReferenceImageCell({
   imageFit = "contain",
   fluid = false,
   uploadImage,
+  aiChoices,
 }: {
   value: string;
   onChange: (url: string) => void;
@@ -701,6 +760,8 @@ function ReferenceImageCell({
   /** Expand to fill grid column width (keeps square aspect ratio) */
   fluid?: boolean;
   uploadImage?: (file: File) => Promise<string>;
+  /** AI 生成候選（報價明細產品圖）— 傳入才會顯示「用 AI 生成圖片」入口。 */
+  aiChoices?: GenerateChoice[];
 }) {
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -746,6 +807,7 @@ function ReferenceImageCell({
         title={modalTitle}
         previewUrl={value || undefined}
         uploadImage={uploadImage}
+        aiChoices={aiChoices}
       />
     </>
   );
@@ -983,6 +1045,8 @@ function QuoteProductItemCard({
   item,
   index,
   serialNumber,
+  zonePrefix,
+  aiChoices,
   draggingItemId,
   dropInsertIndex,
   cutItemId,
@@ -1013,6 +1077,10 @@ function QuoteProductItemCard({
   item: QuotationItem;
   index: number;
   serialNumber: number;
+  /** 「1.2」式分區前綴 — inside a zone; null before the first zone. */
+  zonePrefix?: string | null;
+  /** AI 生成候選（報價明細產品圖），供圖片欄的「用 AI 生成圖片」。 */
+  aiChoices?: GenerateChoice[];
   draggingItemId: string | null;
   dropInsertIndex: number | null;
   cutItemId: string | null;
@@ -1082,6 +1150,7 @@ function QuoteProductItemCard({
         <QuoteRowDragHandle
           itemId={item.id}
           serialNumber={serialNumber}
+          serialLabel={zonePrefix ?? undefined}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         />
@@ -1410,6 +1479,7 @@ function QuoteProductItemCard({
               imageFit="contain"
               fluid
               uploadImage={uploadProductImage}
+              aiChoices={aiChoices}
             />
           </QuoteFieldBlock>
           <QuoteFieldBlock label={labels.referenceImage}>
@@ -1420,6 +1490,7 @@ function QuoteProductItemCard({
               imageFit="contain"
               fluid
               uploadImage={uploadReferenceImage}
+              aiChoices={aiChoices}
             />
           </QuoteFieldBlock>
           <QuoteFieldBlock label={labels.remarks} className="sm:col-span-2 xl:col-span-4">
@@ -1449,6 +1520,7 @@ function QuoteCustomTermCard({
   item,
   index,
   serialNumber,
+  zonePrefix,
   draggingItemId,
   dropInsertIndex,
   cutItemId,
@@ -1465,6 +1537,8 @@ function QuoteCustomTermCard({
   item: QuotationItem;
   index: number;
   serialNumber: number;
+  /** 「1.2」式分區前綴 — inside a zone; null before the first zone. */
+  zonePrefix?: string | null;
   draggingItemId: string | null;
   dropInsertIndex: number | null;
   cutItemId: string | null;
@@ -1496,6 +1570,7 @@ function QuoteCustomTermCard({
           <QuoteRowDragHandle
             itemId={item.id}
             serialNumber={serialNumber}
+            serialLabel={zonePrefix ?? undefined}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
           />
@@ -1591,6 +1666,9 @@ function QuoteSectionTitleCard({
   item,
   index,
   items,
+  itemCount,
+  onAddItemAbove,
+  onAddItemBelow,
   draggingItemId,
   dropInsertIndex,
   cutItemId,
@@ -1607,6 +1685,10 @@ function QuoteSectionTitleCard({
   item: QuotationItem;
   index: number;
   items: QuotationItem[];
+  /** Furniture/service rows currently inside this zone. */
+  itemCount: number;
+  onAddItemAbove: () => void;
+  onAddItemBelow: () => void;
   draggingItemId: string | null;
   dropInsertIndex: number | null;
   cutItemId: string | null;
@@ -1622,6 +1704,8 @@ function QuoteSectionTitleCard({
 }) {
   const ordinal = sectionTitleOrdinalAt(items, index);
   const prefix = sectionTitlePrefix(ordinal);
+  const zoneAddBtn =
+    "inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 bg-background px-2 py-1 font-body text-xs font-medium text-foreground/80 transition-colors hover:bg-primary/5 hover:text-primary";
 
   return (
     <div
@@ -1640,22 +1724,25 @@ function QuoteSectionTitleCard({
         <div className="shrink-0">
           <QuoteRowDragHandle
             itemId={item.id}
+            serialLabel={prefix}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
           />
         </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 font-display text-sm font-bold text-foreground/80">
-            {prefix}
-          </span>
-          <input
-            type="text"
-            value={item.name || ""}
-            placeholder={labels.sectionTitlePlaceholder}
-            onChange={(e) => updateItem(item.id, "name", e.target.value)}
-            className={cn(QUOTE_INPUT_CLASS, "font-display text-sm font-semibold")}
-            aria-label={labels.sectionTitleLabel}
-          />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <input
+              type="text"
+              value={item.name || ""}
+              placeholder={labels.sectionTitlePlaceholder}
+              onChange={(e) => updateItem(item.id, "name", e.target.value)}
+              className={cn(QUOTE_INPUT_CLASS, "font-display text-sm font-semibold")}
+              aria-label={labels.sectionTitleLabel}
+            />
+          </div>
+          <p className="mt-0.5 font-body text-xs text-muted-foreground">
+            {labels.zoneItemCount.replace("{n}", String(itemCount))}
+          </p>
         </div>
         <div className="flex shrink-0 items-center">
           <QuoteRowActionButtons
@@ -1668,6 +1755,57 @@ function QuoteSectionTitleCard({
           />
         </div>
       </div>
+      <div className="mt-2 flex flex-wrap items-center justify-end gap-2 border-t border-primary/15 pt-2">
+        <button
+          type="button"
+          onClick={onAddItemAbove}
+          className={zoneAddBtn}
+          title={labels.zoneAddItemAbove}
+        >
+          <Plus className="h-3 w-3" />
+          {labels.zoneAddItemAbove}
+        </button>
+        <button
+          type="button"
+          onClick={onAddItemBelow}
+          className={zoneAddBtn}
+          title={labels.zoneAddItemBelow}
+        >
+          <Plus className="h-3 w-3" />
+          {labels.zoneAddItemBelow}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Compact read-only zone banner shown in the product/service tabs where
+ * section-title rows are filtered out — keeps 分區 context visible while
+ * editing furniture. Full zone editing lives on the 備註標題 tab.
+ */
+function QuoteZoneDivider({
+  ordinal,
+  name,
+  count,
+  itemCountLabel,
+}: {
+  ordinal: number;
+  name: string;
+  count: number;
+  itemCountLabel: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-1.5">
+      <span className="font-display text-xs font-bold text-primary/70">
+        {sectionTitlePrefix(ordinal)}
+      </span>
+      <span className="min-w-0 truncate font-display text-xs font-bold text-primary/80">
+        {name || "(未命名分區)"}
+      </span>
+      <span className="ml-auto shrink-0 font-body text-[11px] text-muted-foreground">
+        {count > 0 ? itemCountLabel : null}
+      </span>
     </div>
   );
 }
@@ -2450,6 +2588,17 @@ export function QuotationDraftEditor({
     }
     return photos;
   }, [items]);
+  /** AI 生成候選（同 QMS）：只限報價明細的產品圖，AI 按產品圖把產品放進描述場景。 */
+  const quoteAiChoices = useMemo<GenerateChoice[]>(
+    () =>
+      quoteProductPhotos.flatMap((photo) => {
+        const url = (photo.url || "").trim();
+        return url
+          ? [{ id: photo.id, title: photo.title || "產品圖", previewUrl: url, referenceUrl: url }]
+          : [];
+      }),
+    [quoteProductPhotos],
+  );
   /** Prevents async loadQuoteItems from overwriting in-session user edits. */
   const itemsUserEditedRef = useRef(false);
   /** Tracks which quote uuid already hydrated items in this editor session. */
@@ -4680,13 +4829,38 @@ export function QuotationDraftEditor({
                       此分類沒有項目
                     </p>
                   )}
-                  {items.map((item, index) => rowVisible(item) ? (
+                  {items.map((item, index) => {
+                    const zonePrefix = zoneItemPrefixAt(items, index);
+                    if (item.isSectionTitle && contentFilter !== "title") {
+                      return (
+                        <QuoteZoneDivider
+                          key={item.id}
+                          ordinal={sectionTitleOrdinalAt(items, index)}
+                          name={item.name || ""}
+                          count={zoneItemCountAt(items, index)}
+                          itemCountLabel={t.zoneItemCount.replace(
+                            "{n}",
+                            String(zoneItemCountAt(items, index)),
+                          )}
+                        />
+                      );
+                    }
+                    return rowVisible(item) ? (
                     <div key={item.id} className="space-y-3">
                       {item.isSectionTitle ? (
                         <QuoteSectionTitleCard
                           item={item}
                           index={index}
                           items={items}
+                          itemCount={zoneItemCountAt(items, index)}
+                          onAddItemAbove={() => {
+                            setContentFilter("product");
+                            addItem(index + 1);
+                          }}
+                          onAddItemBelow={() => {
+                            setContentFilter("product");
+                            addItem(zoneEndInsertAt(items, index));
+                          }}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
                           cutItemId={cutItemId}
@@ -4705,6 +4879,7 @@ export function QuotationDraftEditor({
                           item={item}
                           index={index}
                           serialNumber={productSerialAt(items, index)}
+                          zonePrefix={zonePrefix}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
                           cutItemId={cutItemId}
@@ -4723,6 +4898,8 @@ export function QuotationDraftEditor({
                           item={item}
                           index={index}
                           serialNumber={productSerialAt(items, index)}
+                          zonePrefix={zonePrefix}
+                          aiChoices={quoteAiChoices}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
                           cutItemId={cutItemId}
@@ -4781,7 +4958,8 @@ export function QuotationDraftEditor({
                         }}
                       />
                     </div>
-                  ) : null)}
+                    ) : null;
+                  })}
                 </div>
 
               </section>
