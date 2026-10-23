@@ -393,7 +393,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
   };
 
   const handleBatch = async (status: ExtractionStatus) => {
-    const ids = [...selected];
+    const ids = selectable.filter((item) => selected.has(item.id)).map((item) => item.id);
     if (ids.length === 0) return;
     setBusy(true);
     try {
@@ -697,7 +697,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                   value={itemCounts.total}
                   tone="neutral"
                   active={filter === 'all'}
-                  onClick={() => setFilter('all')}
+                  onClick={() => { setFilter('all'); setSelected(new Set()); }}
                 />
                 <StatTile
                   icon={AlertCircle}
@@ -706,7 +706,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                   value={itemCounts.attention}
                   tone="amber"
                   active={filter === 'attention'}
-                  onClick={() => setFilter('attention')}
+                  onClick={() => { setFilter('attention'); setSelected(new Set()); }}
                 />
                 <StatTile
                   icon={Search}
@@ -715,7 +715,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                   value={itemCounts.pending}
                   tone="primary"
                   active={filter === 'pending'}
-                  onClick={() => setFilter('pending')}
+                  onClick={() => { setFilter('pending'); setSelected(new Set()); }}
                 />
                 <StatTile
                   icon={PackageCheck}
@@ -726,6 +726,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                   active={filter === 'imported'}
                   onClick={() => {
                     setFilter('imported');
+                    setSelected(new Set());
                     setQuery('');
                   }}
                 />

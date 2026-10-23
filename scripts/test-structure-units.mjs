@@ -28,7 +28,9 @@ assert.deepEqual(units, [
 ]);
 
 assert.deepEqual(unitImagePages(units[0], pages), [2, 3, 4, 5, 6]);
-assert.deepEqual(unitImagePages(units[2], pages), [9, 10]);
+assert.deepEqual(unitImagePages(units[2], pages), []);
+// Vision still receives the original pages privately, never as public images.
+assert.deepEqual(unitImagePages({ start: 8, end: 10, vision: true }, pages), [8]);
 // A text unit never sends scanned page images.
 assert.deepEqual(unitImagePages({ start: 8, end: 9 }, pages), [8]);
 

@@ -129,13 +129,18 @@ export async function fetchQuoteListPage(
 ): Promise<QuoteListPage> {
   const key = `page:${from}:${pageSize}:${withCount ? 1 : 0}:${largeAmount ? 1 : 0}`;
   return shared(pageCache, key, async () => {
-    let query = supabase.from('bwf_quote')
-      .select(QUOTE_LIST_COLUMNS, withCount ? { count: 'exact' } : undefined)
-      .neq('status', '回收桶')
-      .order('created_at', { ascending: false })
+    // Page chains before fetching their headers or siblings. Paging bwf_quote
+    // directly lets old versions repeat the same chain on several pages.
+    const { data: ids, error: idsError, count } = await supabase
+      .rpc('latest_quote_version_ids', { p_large_amount: largeAmount }, withCount ? { count: 'exact' } : undefined)
       .range(from, from + pageSize - 1);
-    if (largeAmount) query = query.gt('total_amount', 50000);
-    const { data, error, count } = await query;
+    if (idsError) throw idsError;
+    if (!ids?.length) return { rows: [], count: count ?? null };
+    const { data, error } = await supabase.from('bwf_quote')
+      .select(QUOTE_LIST_COLUMNS)
+      .in('id', ids.map((row: { id: string }) => row.id))
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
     if (error) throw error;
     return { rows: ((data || []) as unknown as Record<string, unknown>[]).map(toQuoteListRecord), count: count ?? null };
   });
@@ -145,9 +150,8 @@ export async function fetchQuoteListPage(
 export async function fetchQuoteListCount(largeAmount = false): Promise<number | null> {
   const key = `count:${largeAmount ? 1 : 0}`;
   return shared(countCache, key, async () => {
-    let query = supabase.from('bwf_quote').select('id', { count: 'exact', head: true }).neq('status', '回收桶');
-    if (largeAmount) query = query.gt('total_amount', 50000);
-    const { count, error } = await query;
+    const { count, error } = await supabase.rpc('latest_quote_version_ids',
+      { p_large_amount: largeAmount }, { count: 'exact', head: true });
     if (error) throw error;
     return count;
   });

@@ -44,11 +44,12 @@ export function planStructureUnits(segments, pages, opts) {
   return units;
 }
 
-/** Pages whose embedded images should be sent with a unit. */
+/** Pages whose embedded product images may be published. Full scans stay private
+ * and reach the vision model only through extractPagesPdf. */
 export function unitImagePages(unit, pages) {
   return pages
     .filter((p) => p.page_no >= unit.start && p.page_no <= unit.end)
-    .filter((p) => unit.vision || p.text_source === 'text')
+    .filter((p) => p.text_source === 'text')
     .map((p) => p.page_no);
 }
 

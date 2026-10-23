@@ -635,7 +635,7 @@ export function QuotationListView({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span>
                   已顯示最新 {sortedLatestQuotes.length} 張報價
-                  {totalCount != null ? ` · 資料庫共 ${totalCount} 列` : ''}
+                  {totalCount != null ? ` · 共 ${totalCount} 張報價` : ''}
                   {' · '}
                   {sortedLatestQuotes.reduce(
                     (sum, row) =>
