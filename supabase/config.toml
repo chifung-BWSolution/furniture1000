@@ -1,2 +1,7 @@
 [functions.gemini-pdf-catalog]
 verify_jwt = true
+
+# 報價單圖片排版 › AI 生成參考圖（Grok 4.7 / Gemini 3.8 切換）。
+# 部署：SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy generate-quote-reference-image --project-ref <ref>
+[functions.generate-quote-reference-image]
+verify_jwt = true

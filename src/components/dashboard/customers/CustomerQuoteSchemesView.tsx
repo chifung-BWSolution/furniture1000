@@ -20,6 +20,7 @@ import {
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EmptyState } from '@/components/ui/empty-state';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -3450,10 +3451,9 @@ export function CustomerQuoteSchemesView() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <select
+                <Select
                   value={activeId}
-                  onChange={(event) => {
-                    const nextId = event.target.value;
+                  onValueChange={(nextId) => {
                     setActiveId(nextId);
                     setItemReviews({});
                     setItemDraftNotes({});
@@ -3483,14 +3483,18 @@ export function CustomerQuoteSchemesView() {
                     setQuoteDecision(hydrated.decision);
                     setQuoteNote(hydrated.note);
                   }}
-                  className="h-10 rounded-lg border border-border bg-background px-3 text-sm font-semibold"
                 >
-                  {activeVersions.map((version) => (
-                    <option key={version.id} value={version.id}>
-                      {displayQuoteVersion(version.version)} · {version.status}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-10 min-w-[12rem] text-sm font-semibold" aria-label="選擇報價版本">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="z-[300]">
+                    {activeVersions.map((version) => (
+                      <SelectItem key={version.id} value={version.id}>
+                        {displayQuoteVersion(version.version)} · {version.status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <button
                   type="button"
                   onClick={openHtmlQuote}

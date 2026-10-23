@@ -58,9 +58,11 @@ type QuoteItemScanRow = {
 };
 
 type CatalogProductRef = {
+  id: string;
   title: string;
   factoryName: string | null;
   image: string | null;
+  category: string | null;
 };
 
 function normalizeProductName(name: string | null | undefined): string {
@@ -138,13 +140,13 @@ async function fetchLatestQuoteUuidSet(): Promise<Set<string>> {
 }
 
 /** Load products.title → catalog metadata for matching quote line names. */
-async function fetchCatalogProductIndex(): Promise<Map<string, CatalogProductRef>> {
+async function loadCatalogProductIndex(): Promise<Map<string, CatalogProductRef>> {
   const index = new Map<string, CatalogProductRef>();
   for (let from = 0; ; from += PAGE_SIZE * 3) {
     const pages = await mapConcurrent([from, from + PAGE_SIZE, from + PAGE_SIZE * 2], async (offset) => {
       const { data, error } = await supabase
         .from('products')
-        .select('title, factories_display_name, image_url')
+        .select('id, title, factories_display_name, image_url, category')
         .not('title', 'is', null)
         .neq('title', '')
         .range(offset, offset + PAGE_SIZE - 1);
@@ -153,9 +155,11 @@ async function fetchCatalogProductIndex(): Promise<Map<string, CatalogProductRef
     });
     const data = pages.flat();
     const chunk = (data || []) as Array<{
+      id?: string | null;
       title?: string | null;
       factories_display_name?: string | null;
       image_url?: string | null;
+      category?: string | null;
     }>;
     for (const row of chunk) {
       const title = normalizeProductName(row.title);
@@ -163,14 +167,35 @@ async function fetchCatalogProductIndex(): Promise<Map<string, CatalogProductRef
       const key = catalogKey(title);
       if (index.has(key)) continue;
       index.set(key, {
+        id: String(row.id || ''),
         title,
         factoryName: normalizeFactoryDisplayName(row.factories_display_name) || null,
         image: row.image_url?.trim() || null,
+        category: normalizeProductName(row.category) || null,
       });
     }
     if (pages.some((page) => page.length < PAGE_SIZE)) break;
   }
   return index;
+}
+
+/**
+ * 產品目錄索引掃描一次要跑完整張 `products`，但目錄內容不常變。
+ * 5 分鐘內的多次載入（切換日期區間、兩個報告頁）共用同一份結果。
+ */
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+let catalogCache: { at: number; promise: Promise<Map<string, CatalogProductRef>> } | null = null;
+
+function fetchCatalogProductIndex(): Promise<Map<string, CatalogProductRef>> {
+  if (catalogCache && Date.now() - catalogCache.at < CATALOG_CACHE_TTL_MS) {
+    return catalogCache.promise;
+  }
+  const promise = loadCatalogProductIndex();
+  catalogCache = { at: Date.now(), promise };
+  promise.catch(() => {
+    catalogCache = null;
+  });
+  return promise;
 }
 
 function isProductLine(row: QuoteItemScanRow): boolean {
@@ -396,4 +421,243 @@ export async function fetchFactoryCatalogCounts(): Promise<FactoryCatalogCountRo
         b.classBCount - a.classBCount ||
         a.factoryName.localeCompare(b.factoryName, 'zh-Hant'),
     );
+}
+
+/* ── 產品報告：日期區間 + 同期對比 ─────────────────────────────── */
+
+export type ProductReportRange = { from: Date; to: Date };
+
+export type ProductReportRow = QuoteProductUsageRow & {
+  /** 產品目錄 `products.id`（查看詳情用）。 */
+  productId: string | null;
+  /** 產品目錄分類，作為名稱下方的副標。 */
+  category: string | null;
+  /** 期間內用過此產品的報價單編號（新 → 舊）。 */
+  quoteNumbers: string[];
+  /** 期間內最後一次使用的報價建立時間（ISO）。 */
+  lastUsedAt: string | null;
+};
+
+export type ProductReportTotals = {
+  /** 有報價紀錄的產品數。 */
+  productCount: number;
+  /** 產品列總數（每次使用計 1）。 */
+  usageCount: number;
+  /** 含產品列的報價單數（去重）。 */
+  quoteCount: number;
+  /** 有產品被使用的廠家數。 */
+  factoryCount: number;
+};
+
+export type ProductReportResult = {
+  rows: ProductReportRow[];
+  totals: ProductReportTotals;
+  /** 上一個等長期間的數字，用於「較上期」比較。 */
+  previousTotals: ProductReportTotals;
+  range: { from: string; to: string };
+  previousRange: { from: string; to: string };
+};
+
+type QuoteHeader = {
+  id: string;
+  quoteId: string;
+  createdAt: Date | null;
+};
+
+function isoDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * 最新版本報價單表頭，只往前掃到 `since` 為止。
+ * 表頭以 created_at 由新到舊排序，同一 quote_id 鏈第一筆即最新版本；
+ * 一旦整批都早於 `since`，更舊的版本不可能落進比較區間，可直接停。
+ */
+async function fetchQuoteHeadersSince(since: Date): Promise<QuoteHeader[]> {
+  const latest = new Map<string, QuoteHeader>();
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('bwf_quote')
+      .select('id, quote_id, created_at')
+      .neq('status', QUOTE_TRASH_STATUS)
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const chunk = (data || []) as Array<{
+      id: string | null;
+      quote_id: string | null;
+      created_at: string | null;
+    }>;
+    let reachedOlder = false;
+    for (const row of chunk) {
+      const quoteId = String(row.quote_id || '').trim();
+      const id = String(row.id || '').trim();
+      const createdAt = row.created_at ? new Date(row.created_at) : null;
+      if (createdAt && createdAt.getTime() < since.getTime()) reachedOlder = true;
+      if (!quoteId || !id) continue;
+      if (latest.has(quoteId)) continue;
+      latest.set(quoteId, { id, quoteId, createdAt });
+    }
+    if (chunk.length < PAGE_SIZE || reachedOlder) break;
+    from += PAGE_SIZE;
+  }
+  return [...latest.values()];
+}
+
+function aggregateProductReportRows(
+  items: QuoteItemScanRow[],
+  catalog: Map<string, CatalogProductRef>,
+  headersByUuid: Map<string, QuoteHeader>,
+): { rows: ProductReportRow[]; totals: ProductReportTotals } {
+  type Agg = {
+    name: string;
+    productId: string | null;
+    category: string | null;
+    image: string | null;
+    usageCount: number;
+    quantitySum: number;
+    factoryName: string | null;
+    /** quote_id → 報價建立時間（毫秒）。 */
+    quotes: Map<string, number>;
+  };
+
+  const agg = new Map<string, Agg>();
+  const quoteUuids = new Set<string>();
+
+  for (const row of items) {
+    if (!isProductLine(row)) continue;
+    const name = normalizeProductName(row.name);
+    if (!name) continue;
+    const catalogHit = catalog.get(catalogKey(name));
+    if (!catalogHit) continue;
+
+    const pKey = catalogKey(catalogHit.title);
+    let entry = agg.get(pKey);
+    if (!entry) {
+      entry = {
+        name: catalogHit.title,
+        productId: catalogHit.id || null,
+        category: catalogHit.category,
+        image: catalogHit.image || row.image?.trim() || null,
+        usageCount: 0,
+        quantitySum: 0,
+        factoryName: null,
+        quotes: new Map(),
+      };
+      agg.set(pKey, entry);
+    }
+    entry.usageCount += 1;
+    entry.quantitySum += lineQuantity(row);
+
+    const factoryName = normalizeFactoryDisplayName(row.factory_name) || catalogHit.factoryName;
+    if (!entry.factoryName && factoryName) entry.factoryName = factoryName;
+
+    const quoteUuid = String(row.quote_uuid || '');
+    if (quoteUuid) {
+      quoteUuids.add(quoteUuid);
+      const header = headersByUuid.get(quoteUuid);
+      if (header && !entry.quotes.has(header.quoteId)) {
+        entry.quotes.set(header.quoteId, header.createdAt ? header.createdAt.getTime() : 0);
+      }
+    }
+  }
+
+  const rows: ProductReportRow[] = [...agg.values()]
+    .map((entry) => {
+      const quotes = [...entry.quotes.entries()].sort((a, b) => b[1] - a[1]);
+      return {
+        name: entry.name,
+        image: entry.image,
+        usageCount: entry.usageCount,
+        quoteCount: quotes.length,
+        quantitySum: entry.quantitySum,
+        factoryName: entry.factoryName,
+        productId: entry.productId,
+        category: entry.category,
+        quoteNumbers: quotes.map(([number]) => number),
+        lastUsedAt: quotes[0]?.[1] ? new Date(quotes[0][1]).toISOString() : null,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.usageCount - a.usageCount ||
+        b.quoteCount - a.quoteCount ||
+        a.name.localeCompare(b.name, 'zh-Hant'),
+    );
+
+  const factoryNames = new Set(
+    rows.map((row) => row.factoryName).filter((name): name is string => Boolean(name)),
+  );
+
+  return {
+    rows,
+    totals: {
+      productCount: rows.length,
+      usageCount: rows.reduce((sum, row) => sum + row.usageCount, 0),
+      quoteCount: quoteUuids.size,
+      factoryCount: factoryNames.size,
+    },
+  };
+}
+
+/**
+ * 產品報告：某段期間內（依報價單建立日期）最受歡迎的產品，
+ * 並回傳上一個等長期間的匯總數字作「較上期」比較。
+ */
+export async function fetchProductReport(
+  range: ProductReportRange,
+): Promise<ProductReportResult> {
+  const start = new Date(range.from);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(range.to);
+  end.setHours(23, 59, 59, 999);
+
+  const spanMs = Math.max(end.getTime() - start.getTime(), 1);
+  const previousEnd = new Date(start.getTime() - 1);
+  const previousStart = new Date(start.getTime() - spanMs);
+
+  const [headers, catalog] = await Promise.all([
+    fetchQuoteHeadersSince(previousStart),
+    fetchCatalogProductIndex(),
+  ]);
+
+  const currentHeaders = headers.filter(
+    (header) =>
+      header.createdAt &&
+      header.createdAt.getTime() >= start.getTime() &&
+      header.createdAt.getTime() <= end.getTime(),
+  );
+  const previousHeaders = headers.filter(
+    (header) =>
+      header.createdAt &&
+      header.createdAt.getTime() >= previousStart.getTime() &&
+      header.createdAt.getTime() <= previousEnd.getTime(),
+  );
+
+  const headersByUuid = new Map<string, QuoteHeader>();
+  for (const header of [...headers, ...currentHeaders, ...previousHeaders]) {
+    headersByUuid.set(header.id, header);
+  }
+  const currentUuids = new Set(currentHeaders.map((header) => header.id));
+  const previousUuids = new Set(previousHeaders.map((header) => header.id));
+
+  const scanUuids = new Set([...currentUuids, ...previousUuids]);
+  const items = scanUuids.size ? await fetchAllQuoteItemRows(scanUuids) : [];
+
+  const currentItems = items.filter((row) => currentUuids.has(String(row.quote_uuid || '')));
+  const previousItems = items.filter((row) => previousUuids.has(String(row.quote_uuid || '')));
+
+  const current = aggregateProductReportRows(currentItems, catalog, headersByUuid);
+  const previous = aggregateProductReportRows(previousItems, catalog, headersByUuid);
+
+  return {
+    rows: current.rows,
+    totals: current.totals,
+    previousTotals: previous.totals,
+    range: { from: isoDate(start), to: isoDate(end) },
+    previousRange: { from: isoDate(previousStart), to: isoDate(previousEnd) },
+  };
 }

@@ -1,27 +1,13 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ModalContent, ModalRoot } from '@/components/ui/modal';
-import type { QuotationDimensionMode, QuotationPDFData } from '@/types/quotation-pdf';
-import { parseRemarksContent } from '@/lib/remarksContent';
-import { multiColorToChineseDisplay } from '@/constants/color-map';
-import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
-import { quoteCnyTotalFromHkd, quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
+import type { QuotationPDFData } from '@/types/quotation-pdf';
+import { quotePdf } from '@/lib/quotationLocale';
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
-import { formatQuoteNumberWithVersion } from '@/lib/quoteVersions';
-import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
 import { renderQuotePdfPages, type QuotePdfPreviewPage } from '@/lib/quotationPdfCanvas';
-import { quoteZoneTotals } from '@/lib/quoteFormatSettings';
-import {
-  formatSectionTitleLabel,
-  productSerialAt,
-  sectionTitleOrdinalAt,
-} from '@/lib/quoteSectionTitle';
-import {
-  looksLikeMaterialHtml,
-  materialPlainText,
-  normalizeCssColor,
-} from '@/lib/quotationMaterialHtml';
+import { createCanvasTextMeasure, preloadImageSizes, setPdfTextMeasure } from '@/lib/quotationPdfText';
+import { QuotationDocument, collectQuotationPdfImageUrls } from './quotationPdfDocument';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -37,8 +23,9 @@ let loadPromise: Promise<ReactPdfModule> | null = null;
 let fontRegistered = false;
 
 /**
- * Full Noto Sans TC/HK static TTFs (not language-subset builds).
- * Subsets miss HK glyphs such as 枱 (U+67B1).
+ * Gzip-compressed full TC TTFs plus HK fallback TTFs for code points absent from TC.
+ * Native browser decompression restores the original TTF before font registration.
+ * The combined Unicode coverage is checked against the original full TTFs.
  *
  * Load order (China / non-Chrome friendly):
  * 1) Same-origin self-hosted files under /fonts/pdf/ (works if the app itself loads)
@@ -60,8 +47,9 @@ const PDF_FONT_FACES: PdfFontFace[] = [
   {
     family: 'NotoSansTC',
     weight: 400,
-    localPath: '/fonts/pdf/NotoSansTC-Regular.ttf',
+    localPath: '/fonts/pdf/NotoSansTC-Regular-v1.ttf.gz',
     mirrors: [
+      '/fonts/pdf/NotoSansTC-Regular.ttf',
       `${PDF_FONT_CDN_BASE}/NotoSansTC-Regular.ttf`,
       'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz76Cy_Co.ttf',
     ],
@@ -69,8 +57,9 @@ const PDF_FONT_FACES: PdfFontFace[] = [
   {
     family: 'NotoSansTC',
     weight: 700,
-    localPath: '/fonts/pdf/NotoSansTC-Bold.ttf',
+    localPath: '/fonts/pdf/NotoSansTC-Bold-v1.ttf.gz',
     mirrors: [
+      '/fonts/pdf/NotoSansTC-Bold.ttf',
       `${PDF_FONT_CDN_BASE}/NotoSansTC-Bold.ttf`,
       'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz70e1_Co.ttf',
     ],
@@ -78,8 +67,9 @@ const PDF_FONT_FACES: PdfFontFace[] = [
   {
     family: 'NotoSansHK',
     weight: 400,
-    localPath: '/fonts/pdf/NotoSansHK-Regular.ttf',
+    localPath: '/fonts/pdf/NotoSansHK-Fallback-Regular-v1.ttf',
     mirrors: [
+      '/fonts/pdf/NotoSansHK-Regular.ttf',
       `${PDF_FONT_CDN_BASE}/NotoSansHK-Regular.ttf`,
       'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qHB--oU.ttf',
     ],
@@ -87,8 +77,9 @@ const PDF_FONT_FACES: PdfFontFace[] = [
   {
     family: 'NotoSansHK',
     weight: 700,
-    localPath: '/fonts/pdf/NotoSansHK-Bold.ttf',
+    localPath: '/fonts/pdf/NotoSansHK-Fallback-Bold-v1.ttf',
     mirrors: [
+      '/fonts/pdf/NotoSansHK-Bold.ttf',
       `${PDF_FONT_CDN_BASE}/NotoSansHK-Bold.ttf`,
       'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qJd5-oU.ttf',
     ],
@@ -98,11 +89,15 @@ const PDF_FONT_FACES: PdfFontFace[] = [
 /** Per-glyph fallback chain (react-pdf 4+): array form — comma strings are one family name. */
 const PDF_FONT_FAMILY = ['NotoSansTC', 'NotoSansHK'] as const;
 
+/** 量測用 CSS 字體家族（只用作 canvas measureText，不會出現在 PDF）。 */
+const MEASURE_FONT_FAMILY = 'FdsPdfMeasure';
+
 const FONT_FETCH_TIMEOUT_MS = 30_000;
 const PDF_RENDER_TIMEOUT_MS = 90_000;
 
 /** Cached blob: URLs for font files — avoids re-downloading on every preview. */
 const fontBlobUrlCache = new Map<string, string>();
+const fontBlobUrlPromises = new Map<string, Promise<string>>();
 
 function fontErrorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -127,25 +122,39 @@ function renderFailureMessage(err: unknown): string {
 async function fetchFontBlobUrl(url: string): Promise<string> {
   const cached = fontBlobUrlCache.get(url);
   if (cached) return cached;
+  const pending = fontBlobUrlPromises.get(url);
+  if (pending) return pending;
 
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), FONT_FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`Font HTTP ${res.status}`);
-    const blob = await res.blob();
-    if (!blob.size) throw new Error('Font file empty');
-    const objectUrl = URL.createObjectURL(blob);
-    fontBlobUrlCache.set(url, objectUrl);
-    return objectUrl;
-  } finally {
-    window.clearTimeout(timer);
-  }
+  const request = (async () => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), FONT_FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new Error(`Font HTTP ${res.status}`);
+      let blob = await res.blob();
+      if (!blob.size) throw new Error('Font file empty');
+      // Inspect the bytes: some hosts transparently decode gzip via HTTP headers.
+      const magic = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+      if (magic[0] === 0x1f && magic[1] === 0x8b) {
+        if (typeof DecompressionStream === 'undefined') throw new Error('Native font decompression unavailable');
+        blob = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).blob();
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      fontBlobUrlCache.set(url, objectUrl);
+      return objectUrl;
+    } finally {
+      window.clearTimeout(timer);
+      fontBlobUrlPromises.delete(url);
+    }
+  })();
+  fontBlobUrlPromises.set(url, request);
+  return request;
 }
 
 /** Try same-origin first, then mirrors (jsDelivr → gstatic). */
 async function resolveFontBlobUrl(face: PdfFontFace): Promise<string> {
-  const candidates = [face.localPath, ...face.mirrors];
+  const candidates = [face.localPath, ...face.mirrors].filter((url) =>
+    typeof DecompressionStream !== 'undefined' || !url.endsWith('.gz'));
   let lastError: unknown;
   for (const url of candidates) {
     try {
@@ -160,14 +169,56 @@ async function resolveFontBlobUrl(face: PdfFontFace): Promise<string> {
     : new Error(`無法載入字型 ${face.family} (${face.weight})`);
 }
 
-async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
-  const resolved = await Promise.all(
+/**
+ * 量測用的字體：把同一批 TTF 註冊到 document.fonts（CSS），
+ * 這樣 canvas measureText 得到的字寬與 react-pdf 內嵌字體一致，
+ * 逐行高度估算才可靠（PRD 6.2）。
+ */
+let measureFontPromise: Promise<void> | null = null;
+
+async function ensureMeasureFont(): Promise<void> {
+  if (measureFontPromise) return measureFontPromise;
+  measureFontPromise = (async () => {
+    if (typeof document === 'undefined' || typeof FontFace === 'undefined') return;
+    const faces = await Promise.all(
+      PDF_FONT_FACES.filter((face) => face.family === 'NotoSansTC').map(async (face) => ({
+        face,
+        src: await resolveFontBlobUrl(face),
+      })),
+    );
+    const added = await Promise.all(faces.map(async ({ face, src }) => {
+      try {
+        const cssFace = new FontFace(MEASURE_FONT_FAMILY, `url(${src})`, {
+          weight: String(face.weight),
+        });
+        await cssFace.load();
+        document.fonts.add(cssFace);
+        return true;
+      } catch (err) {
+        console.warn('[PDF measure font] failed:', err);
+        return false;
+      }
+    }));
+    if (added.some(Boolean)) {
+      const measure = createCanvasTextMeasure(MEASURE_FONT_FAMILY);
+      if (measure) setPdfTextMeasure(measure);
+    }
+  })().catch((err) => {
+    console.warn('[PDF measure font] unavailable, falling back to heuristic widths:', err);
+  });
+  return measureFontPromise;
+}
+
+function resolvePdfFonts() {
+  return Promise.all(
     PDF_FONT_FACES.map(async (face) => ({
       face,
       src: await resolveFontBlobUrl(face),
     })),
   );
+}
 
+async function registerPdfFonts(mod: ReactPdfModule, resolved: Awaited<ReturnType<typeof resolvePdfFonts>>): Promise<void> {
   const byFamily = new Map<string, { src: string; fontWeight: number }[]>();
   for (const { face, src } of resolved) {
     const list = byFamily.get(face.family) ?? [];
@@ -181,6 +232,9 @@ async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
 
   // Soft-break CJK per code point (no visible "-"). Latin words stay whole.
   mod.Font.registerHyphenationCallback(pdfSoftBreakNoHyphen);
+
+  // 同一批字體給 canvas 量測用（失敗不影響 PDF 生成）。
+  await ensureMeasureFont();
 }
 
 /** CJK / Hangul / Kana — need per-glyph soft wrap in narrow PDF cells. */
@@ -223,6 +277,8 @@ function resetPdfLoaderState(mod?: ReactPdfModule | null) {
   fontRegistered = false;
   cachedModule = null;
   loadPromise = null;
+  measureFontPromise = null;
+  setPdfTextMeasure(null);
 }
 
 async function loadReactPdfModule(): Promise<ReactPdfModule> {
@@ -231,9 +287,13 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
 
   loadPromise = (async () => {
     try {
-      const mod = await import('@react-pdf/renderer');
+      // Fetch fonts while the renderer chunk downloads/evaluates, not afterwards.
+      const [mod, resolved] = await Promise.all([
+        import('@react-pdf/renderer'),
+        resolvePdfFonts(),
+      ]);
       if (!fontRegistered) {
-        await registerPdfFonts(mod);
+        await registerPdfFonts(mod, resolved);
         fontRegistered = true;
         console.log('PDF fonts registered successfully');
       }
@@ -298,1536 +358,6 @@ function useReactPdf(reloadToken = 0) {
   return { mod, loading, error };
 }
 
-// ─── HTML → PDF text helper ───────────────────────────────────────────────────
-
-/** Inline segment with formatting info */
-interface PdfInlineSegment {
-  text: string;
-  bold?: boolean;
-  underline?: boolean;
-  italic?: boolean;
-  /** CSS / hex color from TipTap Color mark (e.g. #dc2626). */
-  color?: string;
-  /** True when this segment is an underlined blank (fill-in-the-blank line) */
-  underlineBlank?: boolean;
-}
-
-/** Parsed block element for PDF rendering */
-interface PdfBlock {
-  type: 'heading' | 'text' | 'spacer';
-  segments: PdfInlineSegment[];
-}
-
-/** Parse a Tiptap HTML string into rich blocks with inline formatting for PDF rendering */
-function parseHtmlForPdf(html: string): PdfBlock[] {
-  if (!html || typeof html !== 'string') return [];
-  
-  // Pre-process: convert spaces inside <u> tags to \u00A0 BEFORE DOMParser
-  // This prevents the browser's HTML parser from collapsing whitespace
-  const preprocessed = html.replace(/<u([^>]*)>([\s\S]*?)<\/u>/gi, (_match, attrs: string, inner: string) => {
-    // Convert &nbsp; to \u00A0
-    let content = inner.replace(/&nbsp;/g, '\u00A0');
-    // Convert regular spaces to \u00A0 to prevent DOM collapse
-    content = content.replace(/ /g, '\u00A0');
-    return `<u${attrs}>${content}</u>`;
-  });
-
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(preprocessed, 'text/html');
-  const results: PdfBlock[] = [];
-
-  /** Extract inline segments from an element, preserving bold/underline/italic/color */
-  const extractInlineSegments = (
-    node: Node,
-    inherited: {
-      bold?: boolean;
-      underline?: boolean;
-      italic?: boolean;
-      color?: string;
-    } = {},
-  ): PdfInlineSegment[] => {
-    const segments: PdfInlineSegment[] = [];
-
-    if (node.nodeType === Node.TEXT_NODE) {
-      const raw = node.textContent || '';
-      // Remove word-joiners (\u2060) used to prevent TipTap collapse
-      // Convert em-spaces (\u2003) and nbsp (\u00A0) to regular spaces
-      let text = raw.replace(/\u2060/g, '').replace(/[\u2003\u00A0]/g, ' ');
-      // For underlined segments that are only whitespace, mark as underlineBlank
-      // so the renderer can use borderBottom instead of textDecoration
-      if (inherited.underline && text.trim().length === 0 && text.length > 0) {
-        // Use non-breaking spaces (\u00A0) so PDF renderer doesn't collapse them
-        text = '\u00A0'.repeat(Math.max(text.length, 30));
-        segments.push({ text, ...inherited, underlineBlank: true });
-        return segments;
-      }
-      if (text.length > 0) {
-        segments.push({ text: normalizeQuotationPdfGlyphs(text), ...inherited });
-      }
-      return segments;
-    }
-
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as Element;
-      const tag = el.tagName.toLowerCase();
-
-      // Determine formatting from this element
-      const fmt = { ...inherited };
-      if (tag === 'strong' || tag === 'b') fmt.bold = true;
-      if (tag === 'u') fmt.underline = true;
-      if (tag === 'em' || tag === 'i') fmt.italic = true;
-      // Check for style attribute (TipTap Color / TextStyle uses inline styles)
-      const style = el.getAttribute('style') || '';
-      if (style.includes('text-decoration') && style.includes('underline')) fmt.underline = true;
-      if (style.includes('font-weight') && (style.includes('bold') || style.includes('700'))) fmt.bold = true;
-      if (style.includes('font-style') && style.includes('italic')) fmt.italic = true;
-      const colorMatch = style.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
-      if (colorMatch) {
-        const normalized = normalizeCssColor(colorMatch[1]);
-        if (normalized) fmt.color = normalized;
-      }
-
-      if (tag === 'br') {
-        segments.push({ text: '\n', ...inherited });
-        return segments;
-      }
-
-      // Recurse into children
-      el.childNodes.forEach(child => {
-        segments.push(...extractInlineSegments(child, fmt));
-      });
-    }
-
-    return segments;
-  };
-
-  const walk = (node: Node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = normalizeQuotationPdfGlyphs(node.textContent?.trim() || '');
-      if (text) results.push({ type: 'text', segments: [{ text }] });
-      return;
-    }
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as Element;
-      const tag = el.tagName.toLowerCase();
-      if (tag === 'h1' || tag === 'h2' || tag === 'h3' || tag === 'h4' || tag === 'h5' || tag === 'h6') {
-        const segments = extractInlineSegments(el);
-        if (segments.length > 0) results.push({ type: 'heading', segments });
-      } else if (tag === 'p') {
-        const segments = extractInlineSegments(el);
-        const hasContent = segments.some(
-          (s) => s.text.trim().length > 0 || s.underline || s.underlineBlank,
-        );
-        if (hasContent) {
-          results.push({ type: 'text', segments });
-        } else {
-          // TipTap uses empty <p> / <p><br></p> for intentional blank lines between sections
-          results.push({ type: 'spacer', segments: [] });
-        }
-      } else if (tag === 'li') {
-        const segments = extractInlineSegments(el);
-        // Prepend bullet
-        if (segments.length > 0) {
-          results.push({ type: 'text', segments: [{ text: '• ' }, ...segments] });
-        }
-      } else if (tag === 'br') {
-        // skip standalone line breaks
-      } else {
-        // For ul, ol, div, blockquote, etc. — recurse into children
-        el.childNodes.forEach(walk);
-      }
-    }
-  };
-
-  doc.body.childNodes.forEach(walk);
-  return results;
-}
-
-/** Render plain-text term lines, preserving intentional blank lines as vertical spacers */
-function renderPlainTermLines(
-  text: string | undefined,
-  keyPrefix: string,
-  Text: ReactPdfModule['Text'],
-  View: ReactPdfModule['View'],
-) {
-  return (text || '').split('\n').map((line, i) =>
-    line.trim()
-      ? <Text key={`${keyPrefix}-${i}`} style={styles.termItem}>{normalizeQuotationPdfGlyphs(line)}</Text>
-      : <View key={`${keyPrefix}-${i}`} style={styles.termSpacer} />,
-  );
-}
-
-function dimensionPdfSubLabel(mode?: QuotationDimensionMode): string {
-  return mode === 'dh' ? 'DIA * H' : 'W*D*H';
-}
-
-function formatItemDimensions(item: QuotationPDFData['items'][0] | undefined): string {
-  if (!item) return '';
-  const mode = item.dimensionMode ?? 'lwh';
-  const parts: string[] = [];
-  if (mode === 'dh') {
-    if (item.dimensionLMm != null) parts.push(String(item.dimensionLMm));
-    if (item.dimensionHMm != null) parts.push(String(item.dimensionHMm));
-  } else {
-    if (item.dimensionLMm != null) parts.push(String(item.dimensionLMm));
-    if (item.dimensionWMm != null) parts.push(String(item.dimensionWMm));
-    if (item.dimensionHMm != null) parts.push(String(item.dimensionHMm));
-  }
-  return parts.length > 0 ? parts.join('*') : '';
-}
-
-/**
- * Wrap L×W×H only when the string exceeds the column. Each dimension number stays intact;
- * breaks occur at * boundaries (e.g. 1800*750* / 750, or 1800*750 / *750).
- */
-function wrapDimensionsForPdf(dimText: string, maxChars = DESC_DIM_MAX_CHARS): string[] {
-  const trimmed = dimText.trim();
-  if (!trimmed) return [];
-  if (trimmed.length <= maxChars) return [trimmed];
-
-  const parts = trimmed.split('*').filter((part) => part.length > 0);
-  if (parts.length <= 1) return [trimmed];
-
-  const lines: string[] = [];
-  let line = '';
-  let idx = 0;
-
-  while (idx < parts.length) {
-    const num = parts[idx];
-    const isLast = idx === parts.length - 1;
-    const withStar = isLast ? num : `${num}*`;
-
-    const appendIfFits = (suffix: string): string | null => {
-      const next = line + suffix;
-      return next.length <= maxChars ? next : null;
-    };
-
-    const withFull = appendIfFits(withStar);
-    if (withFull !== null) {
-      line = withFull;
-      idx += 1;
-      continue;
-    }
-
-    if (!isLast) {
-      const withoutStar = appendIfFits(num);
-      if (withoutStar !== null) {
-        lines.push(withoutStar);
-        const tailParts = parts.slice(idx + 1);
-        const tailLines = wrapDimensionsForPdf(tailParts.join('*'), maxChars);
-        if (tailLines.length > 0) {
-          tailLines[0] = `*${tailLines[0]}`;
-        }
-        lines.push(...tailLines);
-        return lines;
-      }
-    }
-
-    if (line) {
-      lines.push(line);
-      line = '';
-      continue;
-    }
-
-    lines.push(withStar);
-    idx += 1;
-  }
-
-  if (line) lines.push(line);
-  return lines.length > 0 ? lines : [trimmed];
-}
-
-function renderDescFixedLineStack(
-  lines: string[],
-  View: ReactPdfModule['View'],
-  Text: ReactPdfModule['Text'],
-  textStyle: Record<string, unknown>,
-) {
-  const safeLines = lines.length > 0 ? lines : [''];
-  return (
-    <View style={{ width: '100%' }}>
-      {safeLines.map((line, li) => (
-        <View
-          key={`desc-line-${li}`}
-          style={{
-            height: DESC_UNIFORM_LINE_PT,
-            justifyContent: 'center',
-            width: '100%',
-          }}
-        >
-          <Text
-            wrap={false}
-            style={textStyle}
-            // Pre-wrapped lines — disable soft char breaks so Latin words stay intact.
-            hyphenationCallback={(word) => [word]}
-          >
-            {pdfDisplayText(line)}
-          </Text>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function renderDescDimensionsValue(
-  dimText: string,
-  dimSubLabel: string,
-  View: ReactPdfModule['View'],
-  Text: ReactPdfModule['Text'],
-  locale: 'zh' | 'en' = 'zh',
-) {
-  const valuePct = `${PDF_DESC_VALUE_PCT[locale] * 100}%`;
-  const dimLines = wrapDimensionsForPdf(dimText, descDimMaxChars(locale));
-  return (
-    <View
-      style={{
-        width: valuePct,
-        minWidth: 0,
-        flexGrow: 1,
-        paddingHorizontal: 2,
-        paddingVertical: DESC_ROW_PAD_V,
-        justifyContent: 'center',
-      }}
-    >
-      <View style={{ width: '100%' }}>
-        {dimSubLabel ? (
-          <View
-            style={{
-              height: DESC_UNIFORM_LINE_PT,
-              justifyContent: 'center',
-              width: '100%',
-            }}
-          >
-            <Text wrap={false} style={styles.descDimLabelText}>
-              {dimSubLabel}
-            </Text>
-          </View>
-        ) : null}
-        {dimLines.length > 0
-          ? renderDescFixedLineStack(
-              dimLines,
-              View,
-              Text,
-              styles.descDimValueText,
-            )
-          : null}
-      </View>
-    </View>
-  );
-}
-
-type QuotationItem = QuotationPDFData['items'][0];
-
-const TABLE_BORDER = '#333';
-const MATERIAL_BLANK_LINE_HEIGHT = 7 * 1.45;
-// A4 content width ≈ 555pt (595 − 20×2 horizontal padding)
-const PDF_TABLE_WIDTH_PT = 555;
-const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
-const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
-
-/**
- * EN needs a slightly wider Description column so "Dimensions (mm)" fits on one line.
- * Transfer just enough width from Materials & Details (sum stays 41.6%).
- * ZH: slightly wider 說明 (+0.8pp from 單價) so ~6 CJK chars fit in 類別 value.
- */
-const PDF_COL_DESC_PCT = { zh: 0.132, en: 0.195 } as const;
-const PDF_COL_MATERIAL_PCT = { zh: 0.292, en: 0.221 } as const;
-/** Match styles.colRemarks / colImage so custom-term spans align with product columns. */
-const PDF_COL_REMARKS_PCT = 0.09;
-const PDF_COL_IMAGE_PCT = 0.114;
-/** Label / value split inside Description — ZH ≈ 4:6 so 類別 data gets more room. */
-const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.6 } as const;
-const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.4 } as const;
-/** 單價 column — ZH trimmed to fund wider 說明 (EN unchanged). */
-const PDF_COL_UNIT_PRICE_PCT = { zh: 0.097, en: 0.105 } as const;
-const PDF_COL_INDEX_PCT = 0.05;
-const PDF_COL_QTY_PCT = 0.05;
-const PDF_COL_UNIT_PCT = 0.05;
-const PDF_COL_SUBTOTAL_PCT = 0.125;
-/** Install-fee title block. The condition cell fills up to the 單價 column. */
-const PDF_INSTALL_LEAD_PCT = 0.57;
-
-function pdfColWidthPct(locale: 'zh' | 'en', key: 'desc' | 'material' | 'unitPrice'): string {
-  const pct =
-    key === 'desc'
-      ? PDF_COL_DESC_PCT[locale]
-      : key === 'material'
-        ? PDF_COL_MATERIAL_PCT[locale]
-        : PDF_COL_UNIT_PRICE_PCT[locale];
-  return `${(pct * 100).toFixed(1)}%`;
-}
-
-/**
- * Install-fee row: FREE sits in 單價. ZH 單價 is 9.7% (EN 10.5%); a fixed 10.5%
- * cell starts too far left on the Chinese preview. Width matches the column
- * above, and the condition cell absorbs the difference so the left rule lines up.
- */
-function pdfInstallRowWidths(locale: 'zh' | 'en') {
-  const unitPrice = PDF_COL_UNIT_PRICE_PCT[locale];
-  const beforeUnitPrice =
-    PDF_COL_INDEX_PCT +
-    PDF_COL_DESC_PCT[locale] +
-    PDF_COL_MATERIAL_PCT[locale] +
-    PDF_COL_REMARKS_PCT +
-    PDF_COL_IMAGE_PCT +
-    PDF_COL_QTY_PCT +
-    PDF_COL_UNIT_PCT;
-  const condition = beforeUnitPrice - PDF_INSTALL_LEAD_PCT;
-  const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
-  return {
-    lead: pct(PDF_INSTALL_LEAD_PCT),
-    condition: pct(condition),
-    unitPrice: pct(unitPrice),
-    subtotal: pct(PDF_COL_SUBTOTAL_PCT),
-  };
-}
-
-/** 增值服務：說明跨 說明+材質+備註+圖例，其餘欄與產品列同寬。 */
-function pdfCustomTermDescSpanPct(locale: 'zh' | 'en'): string {
-  const pct =
-    PDF_COL_DESC_PCT[locale] +
-    PDF_COL_MATERIAL_PCT[locale] +
-    PDF_COL_REMARKS_PCT +
-    PDF_COL_IMAGE_PCT;
-  return `${(pct * 100).toFixed(1)}%`;
-}
-
-/** 說明欄規格值半寬 — 保守估算每行字元上限，避免 PDF 再二次折行 */
-function descDimMaxChars(locale: 'zh' | 'en' = 'zh'): number {
-  const valueWidthPt =
-    PDF_TABLE_WIDTH_PT * PDF_COL_DESC_PCT[locale] * PDF_DESC_VALUE_PCT[locale];
-  return Math.max(6, Math.floor(valueWidthPt / 3.8));
-}
-
-const DESC_DIM_MAX_CHARS = descDimMaxChars('zh');
-
-/**
- * Uniform line box for 說明 sub-rows (類別 / 規格 / 顏色).
- * Every wrapped line uses the same height so multi-line 規格 does not look denser.
- */
-const DESC_UNIFORM_LINE_PT = 9;
-const DESC_ROW_PAD_V = 3;
-
-/**
- * Approx. display units per line for 類別 / 顏色 (1 ≈ one CJK cell at 6.5pt).
- * ZH value cell fits ~5 CJK chars; Latin packing is handled by descDisplayUnits.
- */
-function descValueMaxChars(locale: 'zh' | 'en' = 'zh'): number {
-  const valueWidthPt =
-    PDF_TABLE_WIDTH_PT * PDF_COL_DESC_PCT[locale] * PDF_DESC_VALUE_PCT[locale] - 4;
-  // Keep CJK capacity conservative (~5) so pre-wrapped lines do not clip.
-  return Math.max(5, Math.floor(valueWidthPt / 7));
-}
-
-/**
- * Latin letters in Noto Sans are narrower than CJK.
- * Tuned so short phrases like "Office Chair" stay on one line when width allows;
- * longer phrases still wrap at word boundaries (never mid-word).
- */
-function descDisplayUnits(text: string): number {
-  let units = 0;
-  for (const ch of Array.from(text)) {
-    if (/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(ch)) {
-      units += 1;
-    } else if (/\s/.test(ch)) {
-      units += 0.22;
-    } else if (/[A-Z]/.test(ch)) {
-      units += 0.48;
-    } else if (/[a-z0-9]/.test(ch)) {
-      units += 0.42;
-    } else {
-      // hyphen / punctuation
-      units += 0.32;
-    }
-  }
-  return units;
-}
-
-/**
- * Wrap 類別 / 顏色 for PDF:
- * - CJK may break between characters
- * - Latin words (e.g. "Budget", "Office Chair") stay intact as units
- * - Hyphenated compounds may break after "-" (Budget- | Friendly)
- * - Never split a Latin word mid-letters (no "Bud" / "get")
- */
-function wrapDescValueLines(text: string, maxUnits: number): string[] {
-  const trimmed = (text || '').trim();
-  if (!trimmed) return [''];
-
-  const out: string[] = [];
-  for (const paragraph of trimmed.split('\n')) {
-    if (!paragraph) {
-      out.push('');
-      continue;
-    }
-    // Tokenize: CJK char | Latin run + optional trailing hyphen | whitespace | other.
-    // Trailing "-" lets "Budget-Friendly" break as "Budget-" / "Friendly".
-    const tokens =
-      paragraph.match(
-        /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]|[A-Za-z0-9]+-?|\s+|./g,
-      ) || [paragraph];
-
-    let line = '';
-    const flush = () => {
-      const cleaned = line.replace(/\s+$/g, '');
-      if (cleaned || line.length > 0) out.push(cleaned);
-      line = '';
-    };
-
-    for (const token of tokens) {
-      if (/^\s+$/.test(token)) {
-        // Prefer wrapping at spaces; keep a single space if line already has content.
-        if (!line) continue;
-        const withSpace = `${line} `;
-        if (descDisplayUnits(withSpace) <= maxUnits) {
-          line = withSpace;
-        } else {
-          flush();
-        }
-        continue;
-      }
-
-      const candidate = line + token;
-      if (!line || descDisplayUnits(candidate) <= maxUnits) {
-        line = candidate;
-        continue;
-      }
-
-      // Does not fit — start a new line with this token (never split Latin words).
-      flush();
-      line = token;
-    }
-    flush();
-  }
-  return out.length > 0 ? out : [''];
-}
-
-function estimateWrappedLines(text: string, maxUnits: number): number {
-  return Math.max(1, wrapDescValueLines(text, maxUnits).length);
-}
-
-/** Preserve user line breaks from the draft editor (single Enter = one line). */
-function normalizeMaterialForPdf(text: string): string {
-  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-}
-
-function materialSegmentStyle(seg: PdfInlineSegment): Record<string, unknown> {
-  const style: Record<string, unknown> = {};
-  if (seg.bold) style.fontWeight = 700;
-  if (seg.italic) style.fontStyle = 'italic';
-  if (seg.underline) style.textDecoration = 'underline';
-  if (seg.color) style.color = seg.color;
-  return style;
-}
-
-function renderMaterialPdfContent(
-  material: string | undefined,
-  View: ReactPdfModule['View'],
-  Text: ReactPdfModule['Text'],
-) {
-  const raw = material || '';
-  if (!materialPlainText(raw) && !looksLikeMaterialHtml(raw)) return null;
-
-  // Rich HTML from MaterialRichEditor (bold / italic / underline / color).
-  if (looksLikeMaterialHtml(raw)) {
-    const blocks = parseHtmlForPdf(raw);
-    if (blocks.length === 0) return null;
-    return (
-      <View style={{ width: '100%' }}>
-        {blocks.map((block, i) => {
-          if (block.type === 'spacer') {
-            return (
-              <View
-                key={`material-html-blank-${i}`}
-                style={{ width: '100%', height: MATERIAL_BLANK_LINE_HEIGHT }}
-              />
-            );
-          }
-          return (
-            <Text
-              key={`material-html-${i}`}
-              style={styles.materialCellText}
-              hyphenationCallback={pdfSoftBreakNoHyphen}
-            >
-              {block.segments.map((seg, j) => {
-                const segStyle = materialSegmentStyle(seg);
-                return Object.keys(segStyle).length > 0 ? (
-                  <Text key={j} style={segStyle}>
-                    {pdfDisplayText(seg.text)}
-                  </Text>
-                ) : (
-                  pdfDisplayText(seg.text)
-                );
-              })}
-            </Text>
-          );
-        })}
-      </View>
-    );
-  }
-
-  const body = normalizeMaterialForPdf(raw);
-  if (!body.trim()) return null;
-
-  const lines = body.split('\n');
-  return (
-    <View style={{ width: '100%' }}>
-      {lines.map((line, i) => {
-        if (line === '') {
-          return (
-            <View
-              key={`material-blank-${i}`}
-              style={{ width: '100%', height: MATERIAL_BLANK_LINE_HEIGHT }}
-            />
-          );
-        }
-        return (
-          <Text
-            key={`material-line-${i}`}
-            style={styles.materialCellText}
-            hyphenationCallback={pdfSoftBreakNoHyphen}
-          >
-            {pdfDisplayText(line)}
-          </Text>
-        );
-      })}
-    </View>
-  );
-}
-
-/** Shared border for each table band — bottom line closes the row at page breaks. */
-const tableBandBorder = {
-  borderTopWidth: 0.5,
-  borderLeftWidth: 0.5,
-  borderRightWidth: 0.5,
-  borderBottomWidth: 0.5,
-  borderColor: TABLE_BORDER,
-};
-
-function pdfRemarksImageHeight(imageCount: number): number {
-  if (imageCount <= 0) return 0;
-  const ratio = imageCount === 1 ? 1.15 : 0.9;
-  return Math.round(REMARKS_COL_WIDTH_PT * ratio);
-}
-
-function pdfIllustrationImageHeight(dual: boolean): number {
-  return Math.round(ILLUSTRATION_COL_WIDTH_PT * (dual ? 0.72 : 0.85));
-}
-
-/** Matches styles.materialCellText (fontSize 7 × lineHeight 1.45). */
-const MATERIAL_LINE_HEIGHT_PT = MATERIAL_BLANK_LINE_HEIGHT;
-
-/**
- * Estimate wrapped line count for material / remarks text.
- * Uses the same display-unit model as 說明 wrapping (CJK ≈ 1 unit).
- */
-function estimateTextBlockLines(text: string, maxUnits: number): number {
-  if (!text) return 1;
-  let total = 0;
-  for (const para of text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')) {
-    if (!para) {
-      total += 1;
-      continue;
-    }
-    total += Math.max(1, Math.ceil(descDisplayUnits(para) / maxUnits));
-  }
-  return Math.max(1, total);
-}
-
-function materialCharsPerLine(locale: 'zh' | 'en'): number {
-  // colMaterial paddingLeft/Right = 4 each
-  const widthPt = PDF_TABLE_WIDTH_PT * PDF_COL_MATERIAL_PCT[locale] - 8;
-  // Slightly conservative (fewer chars → more lines) so 說明 never underfills.
-  return Math.max(6, Math.floor(widthPt / 7.2));
-}
-
-/**
- * Estimate 材質及明細 column height so 說明 can pre-size 類別/規格/顏色 equally.
- * react-pdf flexGrow / height:100% is unreliable for this split — use explicit pt.
- */
-function estimateMaterialColumnHeight(
-  material: string | undefined,
-  locale: 'zh' | 'en',
-): number {
-  const raw = material || '';
-  if (!materialPlainText(raw) && !looksLikeMaterialHtml(raw)) return 0;
-
-  const maxUnits = materialCharsPerLine(locale);
-  let lines = 0;
-
-  if (looksLikeMaterialHtml(raw)) {
-    const blocks = parseHtmlForPdf(raw);
-    if (blocks.length === 0) return 0;
-    for (const block of blocks) {
-      if (block.type === 'spacer') {
-        lines += 1;
-        continue;
-      }
-      const text = block.segments.map((s) => s.text).join('');
-      lines += estimateTextBlockLines(text, maxUnits);
-    }
-  } else {
-    lines = estimateTextBlockLines(normalizeMaterialForPdf(raw), maxUnits);
-  }
-
-  // paddingTop/Bottom 4 + small safety so leftover space is not left under 顏色.
-  return 8 + lines * MATERIAL_LINE_HEIGHT_PT + 4;
-}
-
-function estimateRemarksColumnHeight(
-  remarks: string | undefined,
-  legacyImage: string | undefined,
-): number {
-  const blocks = parseRemarksContent(remarks, legacyImage).filter(
-    (block) =>
-      (block.type === 'text' && block.content.trim()) || block.type === 'image',
-  );
-  if (blocks.length === 0) return 0;
-
-  const imageCount = blocks.filter((b) => b.type === 'image').length;
-  const remarkImgHeight = pdfRemarksImageHeight(imageCount);
-  let height = 0;
-  for (const block of blocks) {
-    if (block.type === 'image') {
-      height += remarkImgHeight + 4;
-    } else {
-      const lineCount = Math.max(1, block.content.split('\n').length);
-      height += lineCount * 7 * 1.3 + 4;
-    }
-  }
-  return height;
-}
-
-function estimateIllustrationColumnHeight(
-  productImage: string | undefined,
-  referenceImage: string | undefined,
-): number {
-  const hasProduct = Boolean(productImage?.trim());
-  const hasReference = Boolean(referenceImage?.trim());
-  if (!hasProduct && !hasReference) return 0;
-  const dual = hasProduct && hasReference;
-  const imgHeight = pdfIllustrationImageHeight(dual);
-  return dual ? imgHeight * 2 + 8 : imgHeight + 4;
-}
-
-function renderSubtotalPdfCell(
-  item: QuotationItem,
-  View: ReactPdfModule['View'],
-  Text: ReactPdfModule['Text'],
-  labels: QuotePdfLabels,
-) {
-  if (item?.isOptional) {
-    return (
-      <View style={styles.colSubtotal}>
-        <Text style={styles.tableCellText}>{labels.optionalProduct}</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.colSubtotal}>
-      <Text style={styles.tableCellText}>
-        HK${quoteItemLineSubtotal(item).toLocaleString()}
-      </Text>
-    </View>
-  );
-}
-
-function renderQuotationTableRow(
-  item: QuotationItem,
-  idx: number,
-  items: QuotationItem[],
-  View: ReactPdfModule['View'],
-  Text: ReactPdfModule['Text'],
-  Image: ReactPdfModule['Image'],
-  labels: QuotePdfLabels,
-  locale: 'zh' | 'en',
-) {
-  if (item?.isSectionTitle) {
-    const label = formatSectionTitleLabel(
-      sectionTitleOrdinalAt(items, idx),
-      item?.name || '',
-    );
-    return (
-      <View style={{ ...styles.tableRow, minHeight: 22, backgroundColor: '#f3f3f3' }} key={idx} wrap={false}>
-        <View
-          style={{
-            width: '100%',
-            paddingLeft: 6,
-            paddingRight: 6,
-            paddingTop: 5,
-            paddingBottom: 5,
-            justifyContent: 'center',
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 9,
-              fontWeight: 700,
-              textAlign: 'left',
-              lineHeight: 1.35,
-            }}
-          >
-            {pdfDisplayText(label)}
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
-  const serial = productSerialAt(items, idx);
-
-  if (item?.isCustomTerm) {
-    return (
-      <View style={{ ...styles.tableRow, minHeight: 28 }} key={idx} wrap={false}>
-        <View style={styles.colIndex}><Text style={styles.tableCellText}>{serial}</Text></View>
-        <View
-          style={{
-            width: pdfCustomTermDescSpanPct(locale),
-            paddingLeft: 6,
-            paddingRight: 6,
-            paddingTop: 6,
-            paddingBottom: 6,
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            borderRightWidth: 0.5,
-            borderColor: '#ddd',
-          }}
-        >
-          <Text style={styles.tableCellTextLeft}>{pdfDisplayText(item?.name || '')}</Text>
-        </View>
-        <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
-        <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
-        <View style={{ ...styles.colUnitPrice, width: pdfColWidthPct(locale, 'unitPrice') }}>
-          <Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text>
-        </View>
-        {renderSubtotalPdfCell(item, View, Text, labels)}
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.tableRow} key={idx} wrap={false}>
-      <View style={styles.colIndex}><Text style={styles.tableCellText}>{serial}</Text></View>
-      <View style={{ ...styles.colDesc, width: pdfColWidthPct(locale, 'desc') }}>
-        {renderDescriptionPdfContent(item, View, Text, labels, locale)}
-      </View>
-      <View style={{ ...styles.colMaterial, width: pdfColWidthPct(locale, 'material') }}>
-        {renderMaterialPdfContent(item?.material, View, Text)}
-      </View>
-      <View style={styles.colRemarks}>
-        <View style={{ width: '100%', flex: 1 }}>
-          {renderRemarksPdfContent(item?.remarks, item?.remarksImage, View, Image, Text)}
-        </View>
-      </View>
-      <View style={styles.colImage}>
-        <View style={{ width: '100%', flex: 1 }}>
-          {renderIllustrationPdfContent(item?.image, item?.referenceImage, View, Image, Text)}
-        </View>
-      </View>
-      <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
-      <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
-      <View style={{ ...styles.colUnitPrice, width: pdfColWidthPct(locale, 'unitPrice') }}>
-        <Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text>
-      </View>
-      {renderSubtotalPdfCell(item, View, Text, labels)}
-    </View>
-  );
-}
-
-function renderRemarksPdfContent(
-  remarks: string | undefined,
-  legacyImage: string | undefined,
-  View: ReactPdfModule['View'],
-  Image: ReactPdfModule['Image'],
-  Text: ReactPdfModule['Text'],
-) {
-  const blocks = parseRemarksContent(remarks, legacyImage).filter(
-    (block) =>
-      (block.type === 'text' && block.content.trim()) || block.type === 'image',
-  );
-
-  if (blocks.length === 0) return null;
-
-  const imageCount = blocks.filter((b) => b.type === 'image').length;
-  const remarkImgHeight = pdfRemarksImageHeight(imageCount);
-
-  return (
-    <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
-      {blocks.map((block, i) => (
-        <View
-          key={`remarks-block-${i}`}
-          style={block.type === 'image' ? styles.cellImageSlot : styles.cellStackSlot}
-        >
-          {block.type === 'text' ? (
-            <Text style={styles.remarksCellText}>{pdfDisplayText(block.content)}</Text>
-          ) : (
-            <Image
-              src={block.src}
-              style={{ width: '100%', height: remarkImgHeight, objectFit: 'contain' }}
-            />
-          )}
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function renderIllustrationPdfContent(
-  productImage: string | undefined,
-  referenceImage: string | undefined,
-  View: ReactPdfModule['View'],
-  Image: ReactPdfModule['Image'],
-  Text: ReactPdfModule['Text'],
-) {
-  const hasProduct = Boolean(productImage?.trim());
-  const hasReference = Boolean(referenceImage?.trim());
-
-  if (!hasProduct && !hasReference) {
-    return null;
-  }
-
-  const dual = hasProduct && hasReference;
-  const imgHeight = pdfIllustrationImageHeight(dual);
-  const imgStyle = { width: '100%', height: imgHeight, objectFit: 'contain' as const };
-
-  if (dual) {
-    return (
-      <View style={{ width: '100%', flex: 1, flexDirection: 'column', justifyContent: 'center' }}>
-        <View style={styles.cellImageSlot}>
-          <Image src={productImage!} style={imgStyle} />
-        </View>
-        <View style={styles.cellImageSlot}>
-          <Image src={referenceImage!} style={imgStyle} />
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={{ width: '100%', flex: 1, flexDirection: 'column', justifyContent: 'center' }}>
-      <View style={styles.cellImageSlot}>
-        <Image src={(productImage || referenceImage)!} style={imgStyle} />
-      </View>
-    </View>
-  );
-}
-
-function renderDescriptionPdfContent(
-  item: QuotationPDFData['items'][0] | undefined,
-  View: ReactPdfModule['View'],
-  Text: ReactPdfModule['Text'],
-  labels: QuotePdfLabels,
-  locale: 'zh' | 'en',
-) {
-  const dimText = formatItemDimensions(item);
-  const dimSubLabel = dimensionPdfSubLabel(item?.dimensionMode);
-  const colorValue =
-    locale === 'en'
-      ? (item?.color || '')
-      : multiColorToChineseDisplay(item?.color || '');
-  const categoryValue = item?.category || '';
-  const labelPct = `${PDF_DESC_LABEL_PCT[locale] * 100}%`;
-  const valuePct = `${PDF_DESC_VALUE_PCT[locale] * 100}%`;
-  const valueMaxChars = descValueMaxChars(locale);
-
-  const dimBodyLines = wrapDimensionsForPdf(dimText, descDimMaxChars(locale));
-  const dimLineCount = Math.max(
-    1,
-    (dimSubLabel ? 1 : 0) + dimBodyLines.length,
-  );
-  const categoryLines = wrapDescValueLines(categoryValue, valueMaxChars);
-  const colorLines = wrapDescValueLines(colorValue, valueMaxChars);
-  // Floor from tallest of 類別 / 規格 / 顏色 content…
-  const maxLines = Math.max(
-    estimateWrappedLines(categoryValue, valueMaxChars),
-    dimLineCount,
-    estimateWrappedLines(colorValue, valueMaxChars),
-    1,
-  );
-  const contentRowMinHeight = maxLines * DESC_UNIFORM_LINE_PT + DESC_ROW_PAD_V * 2;
-  // …then grow all three equally to match the row driver (usually tall 材質及明細).
-  // Explicit pt heights only — do NOT use flexGrow / height:100% (breaks react-pdf).
-  const driverHeight = Math.max(
-    60, // styles.tableRow.minHeight
-    contentRowMinHeight * 3,
-    estimateMaterialColumnHeight(item?.material, locale),
-    estimateRemarksColumnHeight(item?.remarks, item?.remarksImage),
-    estimateIllustrationColumnHeight(item?.image, item?.referenceImage),
-  );
-  const rowMinHeight = Math.ceil(driverHeight / 3);
-
-  const rows: Array<
-    | { kind: 'category'; label: string; lines: string[] }
-    | { kind: 'simple'; label: string; lines: string[] }
-    | { kind: 'dimensions'; label: string; dimText: string; dimSubLabel: string }
-  > = [
-    { kind: 'category', label: labels.descCategory, lines: categoryLines },
-    { kind: 'dimensions', label: labels.descDimensions, dimText, dimSubLabel },
-    { kind: 'simple', label: labels.descColor, lines: colorLines },
-  ];
-
-  return (
-    <View style={{ width: '100%', flexDirection: 'column' }}>
-      {rows.map((row, i) => (
-        <View
-          key={row.label}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'stretch',
-            flexGrow: 0,
-            flexShrink: 0,
-            minHeight: rowMinHeight,
-            height: rowMinHeight,
-            borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
-            borderColor: '#ddd',
-          }}
-        >
-          <View
-            style={{
-              width: labelPct,
-              height: rowMinHeight,
-              justifyContent: 'center',
-              alignItems: 'flex-start',
-              paddingLeft: 2,
-              paddingRight: 2,
-              borderRightWidth: 0.5,
-              borderColor: '#ddd',
-            }}
-          >
-            {row.kind === 'dimensions' ? (
-              <View style={{ width: '100%', alignItems: 'flex-start' }}>
-                {row.label.split('\n').map((line, li) => (
-                  <View
-                    key={`dim-label-${li}`}
-                    style={{
-                      height: DESC_UNIFORM_LINE_PT,
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text style={styles.descLabelText} wrap={false}>
-                      {line}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.descLabelText} wrap={false}>
-                {row.label}
-              </Text>
-            )}
-          </View>
-          {row.kind === 'dimensions' ? (
-            renderDescDimensionsValue(
-              row.dimText,
-              row.dimSubLabel,
-              View,
-              Text,
-              locale,
-            )
-          ) : (
-            <View
-              style={{
-                width: valuePct,
-                height: rowMinHeight,
-                justifyContent: 'center',
-                paddingHorizontal: 2,
-                paddingVertical: DESC_ROW_PAD_V,
-              }}
-            >
-              {renderDescFixedLineStack(
-                row.lines,
-                View,
-                Text,
-                row.kind === 'category'
-                  ? styles.descCategoryValueText
-                  : styles.descValueText,
-              )}
-            </View>
-          )}
-        </View>
-      ))}
-    </View>
-  );
-}
-
-// ─── Styles (plain object — StyleSheet.create is a pass-through) ─────────────
-
-const styles: Record<string, any> = {
-  page: { fontFamily: PDF_FONT_FAMILY, fontSize: 8, lineHeight: 1.4, paddingTop: 22, paddingBottom: 50, paddingHorizontal: 20, color: '#1a1a1a' },
-  headerBlock: { marginBottom: 8 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  logo: { width: 130, height: 32, objectFit: 'contain', marginBottom: 4 },
-  titleCenter: { fontSize: 16, fontWeight: 700, textAlign: 'center', lineHeight: 1.3, marginBottom: 0 },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  infoLeft: { width: '45%' },
-  infoRight: { width: '50%' },
-  infoLine: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 1 },
-  infoLabel: { fontSize: 8, lineHeight: 1.5, flexShrink: 0, paddingRight: 4 },
-  infoValue: { fontSize: 8, lineHeight: 1.5, flexGrow: 1, flexShrink: 1, flexBasis: 0 },
-  infoBold: { fontWeight: 700 },
-  table: { width: '100%', marginTop: 8 },
-  tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', minHeight: 24, alignItems: 'center', ...tableBandBorder },
-  tableRow: { display: 'flex', flexDirection: 'row', minHeight: 60, alignItems: 'stretch', ...tableBandBorder },
-  colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colDesc: { width: '13.2%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colMaterial: { width: '29.2%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignSelf: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colImage: { width: '11.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colUnit: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colUnitPrice: { width: '9.7%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colSubtotal: { width: '12.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', paddingVertical: 4 },
-  tableHeaderText: { fontSize: 6.5, fontWeight: 700, textAlign: 'center', lineHeight: 1.4 },
-  tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
-  tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, paddingLeft: 4 },
-  materialCellText: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, width: '100%' },
-  /** Description row labels (Category / Dimensions / Color) — left-aligned column. */
-  descLabelText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1 },
-  descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1, paddingLeft: 2 },
-  descMultilineValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1, paddingLeft: 2, width: '100%' },
-  /** 類別 — fixed line boxes; parent row height equalizes with 規格 / 顏色. */
-  descCategoryValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1, paddingLeft: 2, width: '100%' },
-  descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1, paddingLeft: 2, color: '#555' },
-  descDimValueText: { fontSize: 6, lineHeight: 1, textAlign: 'left', paddingLeft: 2 },
-  cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
-  cellImageSlot: { width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
-  cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
-  remarksCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
-  installRow: { flexDirection: 'row', minHeight: 28, ...tableBandBorder },
-  totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
-  totalLabel: { fontSize: 10, fontWeight: 700, marginRight: 8, lineHeight: 1.4 },
-  totalValue: { fontSize: 10, fontWeight: 700, lineHeight: 1.4 },
-  // Delivery title sits ~2 lines under 總金額 (margin set on the wrapper).
-  // 訂單確認及交付細節 / 條款及付款 — keep +1px body sizes from main.
-  sectionTitle: { fontSize: 10, fontWeight: 700, marginTop: 0, marginBottom: 4, lineHeight: 1.4 },
-  sectionText: { fontSize: 8.5, lineHeight: 1.8, marginBottom: 2 },
-  boldText: { fontWeight: 700 },
-  termsTitle: { fontSize: 10, fontWeight: 700, marginTop: 8, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
-  termItem: { fontSize: 8, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
-  termSpacer: { height: 10 },
-  termSubTitle: { fontSize: 9, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
-  // Follows the last 條款 line in document flow (not page-bottom / not wrap={false}).
-  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingTop: 4 },
-  signatureBlock: { width: '45%' },
-  signatureTitle: { fontSize: 9, fontWeight: 700, marginBottom: 6, lineHeight: 1.4 },
-  signatureLabel: { fontSize: 8, lineHeight: 1.4 },
-  signatureMiddle: { height: 32, position: 'relative' },
-  signatureLine: { borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 4 },
-  signatureDate: { fontSize: 7, color: '#666', lineHeight: 1.4 },
-  stamp: { width: 64, height: 64, objectFit: 'contain', position: 'absolute', bottom: 0, right: 0, opacity: 0.85 },
-};
-
-// ─── QuotationDocument (uses PDF primitives from module) ─────────────────────
-
-function QuotationDocument({
-  data,
-  pdfMod,
-  showCnyTotal = false,
-}: {
-  data: QuotationPDFData;
-  pdfMod: ReactPdfModule;
-  showCnyTotal?: boolean;
-}) {
-  const { Document, Page, Text, View, Image } = pdfMod;
-
-  if (!data) {
-    return (
-      <Document>
-        <Page size="A4" style={styles.page}>
-          <Text>Loading Data...</Text>
-        </Page>
-      </Document>
-    );
-  }
-
-  const locale = data.locale === 'en' ? 'en' : 'zh';
-  const labels = quotePdf(locale);
-
-  const today =
-    data.quoteMeta?.date ||
-    new Date().toLocaleDateString(locale === 'en' ? 'en-GB' : 'zh-HK', {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-    });
-  const quoteNumber = formatQuoteNumberWithVersion(
-    data.quoteMeta?.quoteNumber || '',
-    data.quoteMeta?.version,
-  );
-  const infoLabelWidth = locale === 'en' ? 92 : 56;
-  const renderInfoField = (label: string, value: string | undefined | null) => {
-    const text = String(value ?? '').trim();
-    if (!text) return null;
-    return (
-      <View key={label} style={styles.infoLine}>
-        <Text style={{ ...styles.infoLabel, width: infoLabelWidth }}>{label}:</Text>
-        <Text style={styles.infoValue} hyphenationCallback={pdfSoftBreakNoHyphen}>
-          {pdfDisplayText(text)}
-        </Text>
-      </View>
-    );
-  };
-  const discountValue = (() => {
-    const raw = data.discountNote;
-    if (raw == null) return 0;
-    const n = parseFloat(String(raw));
-    return isNaN(n) ? 0 : n;
-  })();
-  const isFreeInstallation = (data.subtotal || 0) >= 12000;
-  const installationAmount = isFreeInstallation ? 0 : (data.installationFee?.amount ?? 0);
-  const installFeeRaw = data.installationFee?.amount;
-  const totalAmount = Math.max(0, (data.subtotal || 0) - discountValue + installationAmount);
-  const items = data.items || [];
-  const zonePlacement = data.format?.zoneSubtotalPlacement ?? 'section_and_summary';
-  const zoneTotals = zonePlacement === 'hidden' ? [] : quoteZoneTotals(items);
-  const zoneEndAt = new Map(zoneTotals.map((zone) => [zone.endIndex, zone]));
-
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://26c0258f-253c-4e4e-9027-922d08aab63f.canvases.tempo.build';
-  const logoUrl = `${baseUrl}/assets/bwf-logo.png`;
-
-  const fallbackTermsHeadings =
-    locale === 'en'
-      ? {
-          deliveryAddress: '1　Delivery Address: ',
-          deliveryAddressFallback:
-            'Customer must provide an accurate delivery address. This quotation applies to standard areas in Hong Kong.',
-          payment: '2　Payment Terms',
-          transport: '3　Transport & Installation Terms',
-          extraFees: '4　Additional Charges',
-          warranty: '5　Warranty & Maintenance',
-          other: '6　Others',
-        }
-      : {
-          deliveryAddress: '1　交付地址: ',
-          deliveryAddressFallback: '客戶須提供準確交付地址。本報價適用於香港標準地區。',
-          payment: '2　付款條款',
-          transport: '3　運輸及安裝條款',
-          extraFees: '4　額外費用',
-          warranty: '5　保養及維修',
-          other: '6　其他',
-        };
-
-  const renderTableHeader = () => (
-    <View style={styles.tableHeader}>
-      <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{labels.colNo}</Text></View>
-      <View style={{ ...styles.colDesc, width: pdfColWidthPct(locale, 'desc') }}>
-        <Text style={styles.tableHeaderText}>{labels.colDesc}</Text>
-      </View>
-      <View style={{ ...styles.colMaterial, width: pdfColWidthPct(locale, 'material') }}>
-        <Text style={styles.tableHeaderText}>{labels.colMaterial}</Text>
-      </View>
-      <View style={styles.colRemarks}><Text style={styles.tableHeaderText}>{labels.colRemarks}</Text></View>
-      <View style={styles.colImage}><Text style={styles.tableHeaderText}>{labels.colImage}</Text></View>
-      <View style={styles.colQty}><Text style={styles.tableHeaderText}>{labels.colQty}</Text></View>
-      <View style={styles.colUnit}><Text style={styles.tableHeaderText}>{labels.colUnit}</Text></View>
-      <View style={{ ...styles.colUnitPrice, width: pdfColWidthPct(locale, 'unitPrice') }}>
-        <Text style={styles.tableHeaderText}>{labels.colUnitPrice}</Text>
-      </View>
-      <View style={styles.colSubtotal}><Text style={styles.tableHeaderText}>{labels.colTotal}</Text></View>
-    </View>
-  );
-
-  const installWidths = pdfInstallRowWidths(locale);
-
-  const renderInstallRow = () => (
-    <View style={styles.installRow} wrap={false}>
-      <View style={{ width: installWidths.lead, padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-        <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.title || labels.installTitle)}</Text>
-        <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.subtitle || labels.installSubtitle)}</Text>
-      </View>
-      <View style={{ width: installWidths.condition, padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-        <Text style={{ fontSize: 6.5, textAlign: 'center', lineHeight: 1.4 }}>
-          {pdfDisplayText(data.installationFee?.conditionText || labels.installCondition)}
-        </Text>
-      </View>
-      <View style={{ ...styles.colUnitPrice, width: installWidths.unitPrice }}>
-        <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : ''}</Text>
-      </View>
-      <View style={{ ...styles.colSubtotal, width: installWidths.subtotal }}>
-        <Text style={styles.tableCellText}>
-          {isFreeInstallation
-            ? 'FREE'
-            : installFeeRaw === null || installFeeRaw === undefined
-              ? ''
-              : installFeeRaw === 0
-                ? 'HK$0'
-                : `HK$${Number(installFeeRaw).toLocaleString()}`}
-        </Text>
-      </View>
-    </View>
-  );
-
-  return (
-    <Document>
-      {/* Page 1 - Product Table */}
-      <Page size="A4" style={styles.page}>
-        <View style={styles.headerBlock}>
-          <View style={styles.headerRow}>
-            <Image src={logoUrl} style={styles.logo} />
-          </View>
-          <Text style={styles.titleCenter}>{labels.title}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <View style={styles.infoLeft}>
-            {(
-              [
-                [labels.customerCompanyName, data.clientInfo?.name],
-                [labels.customerName, data.clientInfo?.contactName],
-                [labels.customerPhone, data.clientInfo?.phone],
-                [labels.customerEmail, data.clientInfo?.email],
-                [labels.quotationNo, quoteNumber],
-                [labels.date, today],
-                ...(data.format?.showRevisionDate
-                  ? [[labels.revisionDate, data.format.revisionDate] as [string, string | undefined]]
-                  : []),
-                ...(data.format?.showLatestModifiedDate
-                  ? [[labels.latestModifiedDate, data.format.latestModifiedDate] as [string, string | undefined]]
-                  : []),
-                [labels.projectInCharge, data.quoteMeta?.pmName],
-              ] as Array<[string, string | undefined | null]>
-            ).map(([label, value]) => renderInfoField(label, value))}
-            {data.format?.qrDataUrl ? (
-              <View style={{ marginTop: 6, alignItems: 'flex-start' }}>
-                <Image src={data.format.qrDataUrl} style={{ width: 64, height: 64 }} />
-                <Text style={{ fontSize: 8, marginTop: 2 }}>
-                  {pdfDisplayText(data.format.qrCaption || '')}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-          <View style={styles.infoRight}>
-            {(
-              [
-                [labels.company, data.companyInfo?.name],
-                [labels.address, data.companyInfo?.address],
-                [labels.tel, data.companyInfo?.phone],
-                [labels.email, data.companyInfo?.email],
-                [labels.website, data.companyInfo?.website],
-              ] as Array<[string, string | undefined | null]>
-            ).map(([label, value]) => renderInfoField(label, value))}
-          </View>
-        </View>
-
-        <View style={styles.table}>
-          {renderTableHeader()}
-          {items.flatMap((item, idx) => {
-            const row = renderQuotationTableRow(
-              item,
-              idx,
-              items,
-              View,
-              Text,
-              Image,
-              labels,
-              locale,
-            );
-            const zone = zonePlacement === 'section_and_summary' ? zoneEndAt.get(idx) : undefined;
-            if (!zone) return [row];
-            return [
-              row,
-              <View
-                key={`zone-${idx}`}
-                style={{ ...styles.tableRow, minHeight: 18, backgroundColor: '#fafafa' }}
-                wrap={false}
-              >
-                <View
-                  style={{
-                    width: '100%',
-                    paddingLeft: 8,
-                    paddingRight: 8,
-                    paddingTop: 4,
-                    paddingBottom: 4,
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <Text style={{ fontSize: 8, fontWeight: 700 }}>
-                    {pdfDisplayText(`${zone.name} ${labels.zoneSubtotal}`)}
-                  </Text>
-                  <Text style={{ fontSize: 8, fontWeight: 700 }}>HK${zone.amount.toLocaleString()}</Text>
-                </View>
-              </View>,
-            ];
-          })}
-          {renderInstallRow()}
-        </View>
-
-        {/*
-          Keep discount + 總金額 with the product table (wrap={false}) so react-pdf
-          does not orphan 總金額 onto the next page when 交付細節/條款 is large.
-        */}
-        <View wrap={false}>
-          {discountValue > 0 ? (
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, paddingRight: 4 }}>
-              <Text
-                style={{
-                  fontSize: 8,
-                  marginRight: 8,
-                  lineHeight: 1.4,
-                  width: locale === 'en' ? 92 : 60,
-                  textAlign: 'right',
-                }}
-                wrap={false}
-              >
-                Discount:
-              </Text>
-              <Text style={{ fontSize: 8, lineHeight: 1.4, width: 90, textAlign: 'right' }}>HK${discountValue.toLocaleString()}</Text>
-            </View>
-          ) : null}
-
-          {zoneTotals.length > 0 ? (
-            <View style={{ marginTop: 8, alignItems: 'flex-end' }}>
-              <Text style={{ fontSize: 8, fontWeight: 700, marginBottom: 2 }}>{labels.zoneSummary}</Text>
-              {zoneTotals.map((zone, index) => (
-                <View key={`${zone.name}-${index}`} style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-                  <Text style={{ fontSize: 8, width: 140, textAlign: 'right', marginRight: 8 }}>
-                    {pdfDisplayText(zone.name)}
-                  </Text>
-                  <Text style={{ fontSize: 8, width: 90, textAlign: 'right' }}>
-                    HK${zone.amount.toLocaleString()}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4, alignItems: 'flex-end' }}>
-            <Text
-              style={{
-                ...styles.totalLabel,
-                width: locale === 'en' ? 92 : 60,
-                textAlign: 'right',
-                marginRight: 8,
-              }}
-              wrap={false}
-            >
-              {labels.grandTotal}:
-            </Text>
-            <View style={{ borderBottomWidth: 1, borderBottomColor: TABLE_BORDER, minWidth: 90, paddingBottom: 1 }}>
-              <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${totalAmount.toLocaleString()}</Text>
-            </View>
-          </View>
-          {showCnyTotal ? (
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4, alignItems: 'flex-end' }}>
-              <Text
-                style={{
-                  ...styles.totalLabel,
-                  width: locale === 'en' ? 92 : 60,
-                  textAlign: 'right',
-                  marginRight: 8,
-                }}
-                wrap={false}
-              >
-                {labels.grandTotal}:
-              </Text>
-              <View style={{ borderBottomWidth: 1, borderBottomColor: TABLE_BORDER, minWidth: 90, paddingBottom: 1 }}>
-                <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>
-                  CNY${quoteCnyTotalFromHkd(totalAmount).toLocaleString()}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-        </View>
-
-        {/*
-          「訂單確認及交付細節」: sit ~2 lines under 總金額 when space allows.
-          wrap={false} + minPresenceAhead keeps title+body together — if only the
-          title would fit, the whole block moves to the next page (no orphan title).
-          Do NOT force `break` (that left a blank half-page after short product lists).
-        */}
-        <View wrap={false} minPresenceAhead={56} style={{ marginTop: 18 }}>
-          <Text style={styles.sectionTitle}>{labels.deliveryTitle}</Text>
-          <Text style={styles.sectionText}>{pdfDisplayText(data.deliveryDetails || '')}</Text>
-        </View>
-
-        <Text style={styles.termsTitle}>{labels.termsTitle}</Text>
-
-        {data.termsContent?.fullHtml && (data.termsContent.fullHtml.replace(/<[^>]*>/g, '').replace(/\s/g, '').length > 0 || /<u[^>]*>/i.test(data.termsContent.fullHtml)) ? (
-          parseHtmlForPdf(data.termsContent.fullHtml).map((item, i) => {
-            if (item.type === 'spacer') {
-              return <View key={i} style={styles.termSpacer} />;
-            }
-
-            const hasUnderlineBlank = item.segments.some(s => s.underlineBlank);
-            const baseStyle = item.type === 'heading' ? styles.termSubTitle : styles.termItem;
-
-            if (hasUnderlineBlank) {
-              const viewStyle: any = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: baseStyle.marginBottom || 0, marginTop: baseStyle.marginTop || 0 };
-              const textBaseStyle: any = { fontSize: baseStyle.fontSize || 7, lineHeight: baseStyle.lineHeight || 1.7, fontWeight: baseStyle.fontWeight };
-              return (
-                <View key={i} style={viewStyle}>
-                  {item.segments.map((seg, j) => {
-                    if (seg.underlineBlank) {
-                      return (
-                        <View key={j} style={{ borderBottomWidth: 0.5, borderBottomColor: '#1a1a1a', flexGrow: 1, minWidth: 120, height: (baseStyle.fontSize || 7) + 2, marginBottom: 0 }} />
-                      );
-                    }
-                    const segStyle: any = { ...textBaseStyle };
-                    if (seg.bold) segStyle.fontWeight = 700;
-                    if (seg.underline) segStyle.textDecoration = 'underline';
-                    if (seg.italic) segStyle.fontStyle = 'italic';
-                    if (seg.color) segStyle.color = seg.color;
-                    return <Text key={j} style={segStyle}>{seg.text}</Text>;
-                  })}
-                </View>
-              );
-            }
-
-            return (
-              <Text key={i} style={baseStyle}>
-                {item.segments.map((seg, j) => {
-                  const segStyle: any = {};
-                  if (seg.bold) segStyle.fontWeight = 700;
-                  if (seg.underline) segStyle.textDecoration = 'underline';
-                  if (seg.italic) segStyle.fontStyle = 'italic';
-                  if (seg.color) segStyle.color = seg.color;
-                  return Object.keys(segStyle).length > 0
-                    ? <Text key={j} style={segStyle}>{seg.text}</Text>
-                    : seg.text;
-                })}
-              </Text>
-            );
-          })
-        ) : (
-          <>
-            <Text style={styles.termItem}>
-              <Text style={styles.boldText}>{fallbackTermsHeadings.deliveryAddress}</Text>
-              {pdfDisplayText(data.quoteMeta?.deliveryAddress || fallbackTermsHeadings.deliveryAddressFallback)}
-            </Text>
-
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.payment}</Text>
-            {renderPlainTermLines(data.termsContent?.payment, 'payment', Text, View)}
-
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.transport}</Text>
-            {renderPlainTermLines(data.termsContent?.transport, 'transport', Text, View)}
-
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.extraFees}</Text>
-            {renderPlainTermLines(data.termsContent?.extraFees, 'extraFees', Text, View)}
-
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.warranty}</Text>
-            {renderPlainTermLines(data.termsContent?.warranty, 'warranty', Text, View)}
-
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.other}</Text>
-            {renderPlainTermLines(data.termsContent?.other, 'other', Text, View)}
-          </>
-        )}
-
-        <View style={styles.signatureSection}>
-          <View style={styles.signatureBlock}>
-            <Text style={styles.signatureTitle}>{labels.customerAcceptance}</Text>
-            <Text style={styles.signatureLabel}>{labels.customerSignLabel}</Text>
-            <View style={styles.signatureMiddle} />
-            <View style={styles.signatureLine} />
-            <Text style={styles.signatureDate}>{labels.dateOfSignature}</Text>
-          </View>
-        </View>
-      </Page>
-    </Document>
-  );
-}
-
 // ─── Exported Modal Component ────────────────────────────────────────────────
 
 interface QuotationPDFPreviewProps {
@@ -1877,8 +407,13 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
     if (!pdfMod || !pdfData) return null;
     let timer: number | undefined;
     try {
+      // 先把圖片原始比例與字體量測準備好 —— 分頁與圖例排版都依賴它們。
+      await ensureMeasureFont();
+      await preloadImageSizes(collectQuotationPdfImageUrls(pdfData), { timeoutMs: 8000, concurrency: 4 });
       return await Promise.race([
-        pdfMod.pdf(<QuotationDocument data={pdfData} pdfMod={pdfMod} showCnyTotal={showCnyTotal} />).toBlob(),
+        pdfMod
+          .pdf(<QuotationDocument data={pdfData} pdfMod={pdfMod} showCnyTotal={showCnyTotal} />)
+          .toBlob(),
         new Promise<never>((_, reject) => {
           timer = window.setTimeout(
             () => reject(new Error('PDF 生成逾時，請檢查網絡後重試。')),
@@ -2040,7 +575,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
               <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
               <p className="text-sm">正在載入 PDF 字體與引擎…</p>
               <p className="max-w-sm text-center text-xs text-neutral-400">
-                字體優先從本站載入，不依賴 Google；首次約需數秒至半分鐘
+                首次需下載中文字體，之後會重用快取
               </p>
             </div>
           )}
@@ -2065,13 +600,13 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
               <p className="text-xs text-neutral-400">
                 {pageProgress
                   ? `正在繪製預覽頁面 ${pageProgress.done} / ${pageProgress.total}`
-                  : '字體已就緒，正在排版文件'}
+                  : '字體與圖片已就緒，正在排版文件'}
               </p>
             </div>
           )}
           {previewPages.length > 0 && !combinedError && (
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-              <div className="mx-auto flex w-full max-w-[980px] flex-col items-center gap-4 pb-24">
+              <div className="mx-auto flex w-full max-w-[980px] flex-col items-center gap-4 pb-4">
                 {previewPages.map((page) => (
                   <img
                     key={page.pageNumber}
@@ -2082,35 +617,6 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
                   />
                 ))}
               </div>
-            </div>
-          )}
-          {previewPages.length > 0 && !combinedError && (
-            <div className="absolute inset-x-4 bottom-4 z-20 flex justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => setShowCnyTotal((prev) => !prev)}
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-lg border px-5 py-2.5 font-body text-sm font-semibold shadow-lg backdrop-blur-sm transition-all active:scale-[0.98]",
-                  showCnyTotal
-                    ? "border-primary/40 bg-primary/15 text-primary"
-                    : "border-border/80 bg-card/95 text-foreground hover:bg-card",
-                )}
-              >
-                {labels.addCnyTotal}
-              </button>
-              <button
-                type="button"
-                onClick={handleDownload}
-                disabled={downloadDisabled}
-                className="inline-flex items-center gap-2 rounded-lg border border-border/80 bg-card/95 px-5 py-2.5 font-body text-sm font-semibold text-foreground shadow-lg backdrop-blur-sm transition-all hover:bg-card active:scale-[0.98] disabled:opacity-60"
-              >
-                {isDownloading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-                {labels.downloadPdf}
-              </button>
             </div>
           )}
           {pdfMod && !data && !loading && (

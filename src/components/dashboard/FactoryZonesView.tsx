@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Map as MapIcon, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   addFactoryToZone,
   createFactoryZone,
@@ -179,19 +180,21 @@ export function FactoryZonesView() {
                   })}
                 </ul>
                 <div className="mt-3 flex gap-2">
-                  <select
-                    aria-label={`${zone.name} 加入廠家`}
+                  <Select
                     value={pick[zone.id] ?? ''}
-                    onChange={(event) => setPick((prev) => ({ ...prev, [zone.id]: event.target.value }))}
-                    className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm"
+                    onValueChange={(value) => setPick((prev) => ({ ...prev, [zone.id]: value }))}
                   >
-                    <option value="">選擇廠家</option>
-                    {choices.map((factory) => (
-                      <option key={factory.id} value={factory.id}>
-                        {factory.name}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="h-10 min-w-0 flex-1" aria-label={`${zone.name} 加入廠家`}>
+                      <SelectValue placeholder="選擇廠家" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {choices.map((factory) => (
+                        <SelectItem key={factory.id} value={factory.id}>
+                          {factory.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <button
                     type="button"
                     className="h-10 rounded-lg border border-border px-3 text-sm"

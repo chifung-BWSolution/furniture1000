@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
-  CheckCircle2, MessageSquare, ChevronDown, Clock, Loader2,
+  CheckCircle2, MessageSquare, Clock, Loader2,
 } from 'lucide-react';
 import {
   fetchDiscussions,
@@ -103,11 +104,17 @@ export function ConfirmedProjectsView() {
                 <CheckCircle2 className="h-3.5 w-3.5" /> 已確認
               </span>
             </div>
-            <div className="relative mt-3 max-w-xl">
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="h-10 w-full appearance-none rounded-lg border border-border bg-card pl-3 pr-9 font-display text-sm font-semibold focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20">
-                {confirmedProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <div className="mt-3 max-w-xl">
+              <Select value={projectId} onValueChange={setProjectId}>
+                <SelectTrigger className="h-10 w-full font-display text-sm font-semibold" aria-label="選擇已確認專案">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {confirmedProjects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>

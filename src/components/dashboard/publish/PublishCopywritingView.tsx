@@ -8,11 +8,13 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { Checkbox } from '@/components/ui/checkbox';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ImageLightbox as ImageLightboxModal } from '@/components/ui/image-lightbox';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { toast } from 'sonner';
+import { confirm } from '@/components/ui/confirm-dialog';
 import { supabase } from '@/lib/supabase';
 import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from '@/lib/imageStorage';
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
@@ -844,14 +846,13 @@ ${rawDesc}
                   )}
                 >
                   <div className="absolute left-3 top-3 z-10">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={isSelected}
-                      onChange={() => toggleSelected(p.id)}
+                      onCheckedChange={() => toggleSelected(p.id)}
                       onClick={(e) => e.stopPropagation()}
                       className={cn(
-                        'h-4 w-4 rounded border-border',
-                        rejectedOnly ? 'accent-primary' : 'accent-rose-600',
+                        'h-4 w-4',
+                        rejectedOnly ? 'border-primary data-[state=checked]:bg-primary' : 'border-rose-600 data-[state=checked]:bg-rose-600',
                       )}
                       aria-label={`選取 ${p.title}`}
                     />
@@ -912,8 +913,16 @@ ${rawDesc}
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 md:px-6 py-3.5">
         <button
-          onClick={() => {
-            if (isDirty && !window.confirm('您有未儲存的更改，確定要返回列表嗎？')) return;
+          onClick={async () => {
+            if (isDirty) {
+              const ok = await confirm({
+                title: '返回列表？',
+                description: '您有未儲存的更改，離開後這次修改不會保存。',
+                confirmLabel: '放棄並返回',
+                destructive: true,
+              });
+              if (!ok) return;
+            }
             setActiveId(null);
           }}
           className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

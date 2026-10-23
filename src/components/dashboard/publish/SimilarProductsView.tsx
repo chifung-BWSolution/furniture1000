@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Combine, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -321,19 +322,23 @@ export function SimilarProductsView() {
               className="h-8 pl-8 text-xs"
             />
           </div>
-          <select
+          <Select
             value={factory}
-            onChange={(e) => {
-              setFactory(e.target.value);
+            onValueChange={(value) => {
+              setFactory(value);
               setPage(1);
             }}
-            className="h-8 rounded-md border border-border bg-card px-2 font-body text-xs"
           >
-            <option value="全部">全部廠家</option>
-            {factories.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
+            <SelectTrigger className="h-8 w-[9rem] text-xs" aria-label="廠家">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="全部">全部廠家</SelectItem>
+              {factories.filter((name) => name !== '全部').map((name) => (
+                <SelectItem key={name} value={name}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         {criteria.length === 2 ? (
           <p className="mt-2 font-body text-[11px] text-muted-foreground">

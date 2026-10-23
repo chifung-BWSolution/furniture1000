@@ -176,6 +176,7 @@ export type ViewType =
   | 'fds2-quote-large'
   | 'fds2-quote-trash'
   | 'fds2-quote-format'
+  | 'fds2-quote-photos'
   | 'fds2-factory-info'
   | 'fds2-factory-upload'
   | 'fds2-factory-sales'

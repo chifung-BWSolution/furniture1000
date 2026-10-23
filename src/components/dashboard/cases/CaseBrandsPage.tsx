@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { LoadingImage } from "@/components/ui/loading-image";
 import {
@@ -182,25 +183,26 @@ export function CaseBrandsPage() {
               </Button>
             </CaseSearch>
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-primary"
+              <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  id="case-brand-select-all"
                   checked={
                     selectable.length > 0 &&
                     selectedRows.length === selectable.length
                   }
                   disabled={!selectable.length || downloading}
-                  onChange={(e) =>
+                  onCheckedChange={(checked) =>
                     setSelected(
-                      e.target.checked
+                      checked === true
                         ? new Set(selectable.map((b) => b.id))
                         : new Set(),
                     )
                   }
                 />
-                選取全部篩選結果的 Logo（{selectable.length}）
-              </label>
+                <label htmlFor="case-brand-select-all" className="cursor-pointer">
+                  選取全部篩選結果的 Logo（{selectable.length}）
+                </label>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -238,24 +240,25 @@ export function CaseBrandsPage() {
                 className="overflow-hidden rounded-lg border border-border bg-card"
               >
                 <div className="flex items-center justify-between px-4 pt-3">
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Checkbox
+                      id={`case-brand-pick-${b.id}`}
                       aria-label={`選取 ${name} Logo`}
-                      className="h-4 w-4 accent-primary"
                       checked={selected.has(b.id)}
                       disabled={!url || downloading}
-                      onChange={(e) =>
+                      onCheckedChange={(checked) =>
                         setSelected((old) => {
                           const next = new Set(old);
-                          if (e.target.checked) next.add(b.id);
+                          if (checked === true) next.add(b.id);
                           else next.delete(b.id);
                           return next;
                         })
                       }
                     />
-                    選取 Logo
-                  </label>
+                    <label htmlFor={`case-brand-pick-${b.id}`} className="cursor-pointer">
+                      選取 Logo
+                    </label>
+                  </div>
                   <span className="text-xs text-muted-foreground">
                     {b.view_system || "未設定系統"}
                   </span>

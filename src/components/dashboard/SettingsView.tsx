@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { AppSettings } from '@/types/product';
 import { Input } from '@/components/ui/input';
@@ -59,7 +60,9 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
       .replace(/\/+$/, '');
 
     if (!shopDomain || !shopDomain.includes('.')) {
-      alert('Please enter a valid Shopify store URL (e.g. your-store.myshopify.com)');
+      toast.error('Shopify 商店網址格式不正確', {
+        description: '請輸入類似 your-store.myshopify.com 的網址。',
+      });
       return;
     }
 

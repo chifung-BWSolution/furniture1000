@@ -8,6 +8,8 @@ import {
   type QuoteFormatSettings,
   type ZoneSubtotalPlacement,
 } from '@/lib/quoteFormatSettings';
+import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const PLACEMENT_OPTIONS: { value: ZoneSubtotalPlacement; label: string }[] = [
   { value: 'section_and_summary', label: '每分區段落結尾，並在頁尾列出總表' },
@@ -90,43 +92,49 @@ export function QuoteFormatView() {
 
             <div className="space-y-2">
               <p className="text-sm font-medium">日期</p>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  id="quote-format-show-revision-date"
                   checked={settings.showRevisionDate}
-                  onChange={(event) =>
-                    setSettings((prev) => ({ ...prev, showRevisionDate: event.target.checked }))
+                  onCheckedChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, showRevisionDate: checked === true }))
                   }
                 />
-                顯示修訂日期（此版本建立日）
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+                <label htmlFor="quote-format-show-revision-date" className="cursor-pointer">
+                  顯示修訂日期（此版本建立日）
+                </label>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  id="quote-format-show-latest-modified"
                   checked={settings.showLatestModifiedDate}
-                  onChange={(event) =>
-                    setSettings((prev) => ({ ...prev, showLatestModifiedDate: event.target.checked }))
+                  onCheckedChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, showLatestModifiedDate: checked === true }))
                   }
                 />
-                顯示最新修改日期
-              </label>
+                <label htmlFor="quote-format-show-latest-modified" className="cursor-pointer">
+                  顯示最新修改日期
+                </label>
+              </div>
             </div>
 
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">分區小計</legend>
-              {PLACEMENT_OPTIONS.map((option) => (
-                <label key={option.value} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="zone-subtotal"
-                    checked={settings.zoneSubtotalPlacement === option.value}
-                    onChange={() =>
-                      setSettings((prev) => ({ ...prev, zoneSubtotalPlacement: option.value }))
-                    }
-                  />
-                  {option.label}
-                </label>
-              ))}
+              <RadioGroup
+                value={settings.zoneSubtotalPlacement}
+                onValueChange={(value) =>
+                  setSettings((prev) => ({ ...prev, zoneSubtotalPlacement: value as typeof prev.zoneSubtotalPlacement }))
+                }
+              >
+                {PLACEMENT_OPTIONS.map((option) => (
+                  <div key={option.value} className="flex items-center gap-2 text-sm">
+                    <RadioGroupItem id={`zone-subtotal-${option.value}`} value={option.value} />
+                    <label htmlFor={`zone-subtotal-${option.value}`} className="cursor-pointer">
+                      {option.label}
+                    </label>
+                  </div>
+                ))}
+              </RadioGroup>
             </fieldset>
 
             <div className="rounded-xl border border-dashed border-border bg-muted/30 p-4">

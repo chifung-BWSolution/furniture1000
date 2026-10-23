@@ -111,6 +111,8 @@ Invoke-RestMethod -Method Post -Uri "https://api.supabase.com/v1/projects/riaubh
 
 **坑**：SQL 裡的中文字經 PowerShell 命令列會變成 `%??%`，改用 ASCII 子字串比對
 （例如廠家「華座 HUAZUO」用 `ILIKE '%HUAZUO%'`）。console 顯示中文也是亂碼，但 DB 內資料正常。
+要送含中文註解的 **DDL／migration**，不要走上面這段 PowerShell，改用 `node scripts/apply-migration.mjs`（見 §8）——
+PS 5.1 的 `ConvertTo-Json` 會把字串包成 `{ value: … }`，API 直接回 400。
 
 ## 6. PMS Quote tab ↔ 快速報價 handoff
 
@@ -322,8 +324,16 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   不用品牌模板、不用 Autofill、不需要 `CANVA_BRAND_TEMPLATE_ID`。
   session 表 `canva_design_sessions`（`generation_mode=ai`、`thumbnail_url` 約 15 分鐘過期）；流程見 `docs/prd/FDS-2.1-Canva-AI生成.md`。
   secrets＝`CANVA_CLIENT_ID`／`CANVA_CLIENT_SECRET`（`CANVA_BASE_URL` 可選）；redirect URI＝`<域名>/fds/pm/presentation`。
-- 本機 dev／develop 連的是 Supabase 分支 FDS2.0（`omxizeukbcqzsnjsuwod`）。FDS 2.1 的 migration 與 `process-jobs`
-  要**兩邊都部署**（正式 `riaubhtruisbwdlwjzur` ＋ 分支）。`fds-process-jobs` 的 function host 以該庫現有 cron 為準（`20261022000100_fds21_worker_cron_stale_wake.sql`），不要在新 cron 裡寫死正式 ref。
+- 本機 dev／develop 連的是 Supabase 分支 FDS2.0（`omxizeukbcqzsnjsuwod`），正式站是 `riaubhtruisbwdlwjzur`。
+  FDS 2.1 的 migration 用 `node scripts/apply-migration.mjs <file> [--refs=both|prod|branch]` 套用，
+  **預設 `both`（正式＋分支）**——目的是本機 select 不會撞到不存在的表／欄位，不是「必須兩邊都手動跑一次」：
+  - 已套用過的會自動 `SKIP`（看 `supabase_migrations.schema_migrations` 的 name），要重跑加 `--force`；
+  - 套完腳本自己會 `notify pgrst, 'reload schema'`，不用另外跑；
+  - 只補分支讓本機不報錯、暫時不上正式站時，用 `--refs=branch`（反過來 `--refs=prod` 也一樣）；
+  - **不要用 PowerShell 送 SQL**：PS 5.1 的 `ConvertTo-Json` 遇到含中文註解的 SQL 會把字串包成 `{ value: … }`，
+    Management API 直接回 400 `query: Invalid input: expected string, received object`。
+    `scripts/apply-pending-migrations.ps1` 只適合純 ASCII 舊檔，而且只會套 allowlist 內那三支。
+  `process-jobs` 的 function host 以該庫現有 cron 為準（`20261022000100_fds21_worker_cron_stale_wake.sql`），不要在新 cron 裡寫死正式 ref。
   分支的一鍵登入帳號 `fds-develop-preview@…` 在分支 `platform_user_profiles` 設為 admin。
 - SKP（設計師 SU）：不用 OpenSKP。SketchUp C SDK 只跑 Windows／macOS，所以 SKP 由 Windows 機器上的
   `workers/skp-writer`（`skp_writer.exe` ＋ `worker.mjs`）領 `processing_jobs` 的 `generate_skp` 寫出，Edge 不處理。

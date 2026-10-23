@@ -7,6 +7,7 @@ import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -788,14 +789,18 @@ export function PublishedProductMergeModal({
                   className="pl-8 h-8 text-xs font-body"
                 />
               </div>
-              <select
-                value={pickerFactory}
-                onChange={(e) => { setPickerFactory(e.target.value); setPickerPage(0); }}
-                className="rounded-md border border-border bg-background px-2 py-1 font-body text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 h-8"
+              <Select
+                value={pickerFactory || '__all__'}
+                onValueChange={(value) => { setPickerFactory(value === '__all__' ? '' : value); setPickerPage(0); }}
               >
-                <option value="">所有廠家</option>
-                {pickerFactories.map((f) => <option key={f} value={f}>{f}</option>)}
-              </select>
+                <SelectTrigger className="h-8 w-[10rem] text-xs" aria-label="廠家">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="z-[300]">
+                  <SelectItem value="__all__">所有廠家</SelectItem>
+                  {pickerFactories.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
 
             {pickerLoading ? (

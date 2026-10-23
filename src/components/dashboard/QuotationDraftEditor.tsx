@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment, type ReactNode } from "react";
 import QRCode from "qrcode";
 import {
   ArrowDown,
@@ -38,6 +38,17 @@ import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
 import { MaterialRichEditor } from "@/components/dashboard/MaterialRichEditor";
+import { QuotePhotoPages } from "@/components/dashboard/QuotePhotoPages";
+import {
+  canManageQuotePhotos,
+  listQuoteCoverPages,
+  parseQuotePhotoAssetRefs,
+  quotePhotoObjectUrl,
+  quotePhotoRefUrl,
+  type QuoteCoverPage,
+  type QuotePhotoAssetRef,
+} from "@/lib/quotePhotoLibrary";
+import { parsePhotoLayouts, type PhotoLayoutGroup } from "@/lib/quotePhotoLayouts";
 import { materialPlainText } from "@/lib/quotationMaterialHtml";
 import { toast } from "sonner";
 import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
@@ -54,6 +65,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Modal, ModalButton } from "@/components/ui/modal";
 import { LoadingImage } from "@/components/ui/loading-image";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Command,
   CommandEmpty,
@@ -1129,28 +1142,34 @@ function QuoteProductItemCard({
       {cardCollapsed ? null : (
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <QuoteFieldBlock label={labels.level1Category}>
-            <select
+            <Select
               value={level1Value || "__none__"}
               disabled={registryLocked || categoryPairsLoading}
-              title={registryLocked ? labels.productCategoryLockedHint : undefined}
-              onChange={(e) =>
+              onValueChange={(value) =>
                 onRegistryLevel1Change(
                   item.id,
-                  e.target.value === "__none__" ? "" : e.target.value,
+                  value === "__none__" ? "" : value,
                 )
               }
-              className={registrySelectClass}
             >
-              <option value="__none__">—</option>
-              {level1Options.map((l1) => (
-                <option key={l1} value={l1}>
-                  {l1}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                className={cn(registrySelectClass, "z-[300]")}
+                title={registryLocked ? labels.productCategoryLockedHint : undefined}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="z-[300]">
+                <SelectItem value="__none__">—</SelectItem>
+                {level1Options.map((l1) => (
+                  <SelectItem key={l1} value={l1}>
+                    {l1}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </QuoteFieldBlock>
           <QuoteFieldBlock label={labels.level2Category}>
-            <select
+            <Select
               value={level2Value || "__none__"}
               disabled={
                 registryLocked ||
@@ -1158,22 +1177,28 @@ function QuoteProductItemCard({
                 !level1Value ||
                 level2Options.length === 0
               }
-              title={registryLocked ? labels.productCategoryLockedHint : undefined}
-              onChange={(e) =>
+              onValueChange={(value) =>
                 onRegistryLevel2Change(
                   item.id,
-                  e.target.value === "__none__" ? "" : e.target.value,
+                  value === "__none__" ? "" : value,
                 )
               }
-              className={registrySelectClass}
             >
-              <option value="__none__">—</option>
-              {level2Options.map((l2) => (
-                <option key={l2} value={l2}>
-                  {l2}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                className={cn(registrySelectClass, "z-[300]")}
+                title={registryLocked ? labels.productCategoryLockedHint : undefined}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="z-[300]">
+                <SelectItem value="__none__">—</SelectItem>
+                {level2Options.map((l2) => (
+                  <SelectItem key={l2} value={l2}>
+                    {l2}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </QuoteFieldBlock>
           <QuoteFieldBlock label={labels.category} className="sm:col-span-2">
             <textarea
@@ -1293,16 +1318,20 @@ function QuoteProductItemCard({
           <div className="min-w-0 sm:col-span-2">
             <div className="mb-1 flex min-h-[22px] flex-wrap items-center gap-1.5 font-body text-xs font-medium text-muted-foreground">
               <span className="shrink-0 leading-normal">{labels.dimensionsMm}</span>
-              <select
+              <Select
                 value={dimensionMode}
-                onChange={(e) =>
-                  updateDimensionMode(item.id, e.target.value as QuotationDimensionMode)
+                onValueChange={(value) =>
+                  updateDimensionMode(item.id, value as QuotationDimensionMode)
                 }
-                className="h-[22px] min-w-0 max-w-full cursor-pointer rounded-md border border-border bg-background px-1.5 font-body text-xs leading-normal text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
               >
-                <option value="lwh">{labels.dimLwh}</option>
-                <option value="dh">{labels.dimDh}</option>
-              </select>
+                <SelectTrigger className="z-[300] h-[22px] w-auto gap-1 rounded-md px-1.5 font-body text-xs" aria-label={labels.dimensionsMm}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="z-[300]">
+                  <SelectItem value="lwh">{labels.dimLwh}</SelectItem>
+                  <SelectItem value="dh">{labels.dimDh}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid w-full min-w-0 grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-x-1">
               <input
@@ -2094,15 +2123,60 @@ export function QuotationDraftEditor({
   const [collapseQuoteMeta, setCollapseQuoteMeta] = useState(true);
   const [contentFilter, setContentFilter] = useState<"product" | "service" | "title">("product");
   const [summaryEditing, setSummaryEditing] = useState(true);
-  const [activeNav, setActiveNav] = useState<"basic" | "content" | "fees" | "terms" | "output">("basic");
+  const [activeNav, setActiveNav] = useState<"basic" | "content" | "fees" | "photos" | "terms" | "output">("basic");
   const chromeRef = useRef<HTMLDivElement | null>(null);
   const navLockUntilRef = useRef(0);
-  const [showUnifyRatePanel, setShowUnifyRatePanel] = useState(false);
+  /** 統一匯率改為彈窗輸入：按鈕只負責開啟，不再在工具列展開輸入框。 */
+  const [unifyRateModalOpen, setUnifyRateModalOpen] = useState(false);
   const [unifyRateDraft, setUnifyRateDraft] = useState("");
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const { settings: formatSettings } = useQuoteFormatSettings();
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  // 報價單圖片：project_data.quotePhotoLayouts 存排版，quotePhotoAssets 存圖片庫快照。
+  const [quotePhotoLayouts, setQuotePhotoLayouts] = useState<PhotoLayoutGroup[]>(() =>
+    parsePhotoLayouts(savedProjectData.quotePhotoLayouts),
+  );
+  const [quotePhotoAssets, setQuotePhotoAssets] = useState<QuotePhotoAssetRef[]>(() =>
+    parseQuotePhotoAssetRefs(savedProjectData.quotePhotoAssets),
+  );
+  const [canManagePhotos, setCanManagePhotos] = useState(false);
+  /**
+   * 圖片庫標為封面／封底的圖（照 FCCD）：每次出 PDF 自動各佔一整頁，
+   * 不隨報價存檔，改動圖片庫設定後下一個 PDF 就換圖。
+   */
+  const [quoteCoverPages, setQuoteCoverPages] = useState<QuoteCoverPage[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listQuoteCoverPages().then((pages) => {
+      if (!cancelled) setQuoteCoverPages(pages);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void canManageQuotePhotos().then((ok) => {
+      if (!cancelled) setCanManagePhotos(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 版本審核後父層會重新載入 project_data，排版與快照要跟上。
+  useEffect(() => {
+    if (!existingQuote?.quoteId) return;
+    const projectData = existingQuote.projectData as Record<string, unknown> | undefined;
+    const nextLayouts = parsePhotoLayouts(projectData?.quotePhotoLayouts);
+    setQuotePhotoLayouts((prev) => (JSON.stringify(prev) === JSON.stringify(nextLayouts) ? prev : nextLayouts));
+    const nextAssets = parseQuotePhotoAssetRefs(projectData?.quotePhotoAssets);
+    setQuotePhotoAssets((prev) => (JSON.stringify(prev) === JSON.stringify(nextAssets) ? prev : nextAssets));
+  }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
   useEffect(() => {
     if (!shareUrl) {
@@ -2359,6 +2433,23 @@ export function QuotationDraftEditor({
     return DEFAULT_ITEMS;
   });
   const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(false);
+
+  // 報價明細的產品圖：排版時預設放進素材區，不用再去圖片庫找。
+  const quoteProductPhotos = useMemo(() => {
+    const seen = new Set<string>();
+    const photos: { id: string; title: string; url: string }[] = [];
+    for (const item of items) {
+      const url = (item.image || '').trim();
+      if (!url || seen.has(url) || !hasQuoteItemContent(item)) continue;
+      seen.add(url);
+      photos.push({
+        id: `product:${item.id}`,
+        title: (item.name || item.sku || '產品圖').slice(0, 120),
+        url,
+      });
+    }
+    return photos;
+  }, [items]);
   /** Prevents async loadQuoteItems from overwriting in-session user edits. */
   const itemsUserEditedRef = useRef(false);
   /** Tracks which quote uuid already hydrated items in this editor session. */
@@ -3189,6 +3280,12 @@ export function QuotationDraftEditor({
         if (cachedRecord.priceMultiplier != null && cachedRecord.priceMultiplier !== "") {
           setPriceMultiplier(String(cachedRecord.priceMultiplier));
         }
+        if (Array.isArray(cachedRecord.quotePhotoLayouts)) {
+          setQuotePhotoLayouts(parsePhotoLayouts(cachedRecord.quotePhotoLayouts));
+        }
+        if (Array.isArray(cachedRecord.quotePhotoAssets)) {
+          setQuotePhotoAssets(parseQuotePhotoAssetRefs(cachedRecord.quotePhotoAssets));
+        }
         if (cached.termsContent) {
           const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
           setTermsContent(
@@ -3261,6 +3358,8 @@ export function QuotationDraftEditor({
       installationFee,
       gpSummary,
       priceMultiplier: parseFloat(priceMultiplier) || 1,
+      quotePhotoLayouts: quotePhotoLayouts as unknown as Record<string, unknown>[],
+      quotePhotoAssets: quotePhotoAssets as unknown as Record<string, unknown>[],
     }),
     [
       storageKey,
@@ -3278,6 +3377,8 @@ export function QuotationDraftEditor({
       installationFee,
       gpSummary,
       priceMultiplier,
+      quotePhotoLayouts,
+      quotePhotoAssets,
     ],
   );
 
@@ -3644,6 +3745,8 @@ export function QuotationDraftEditor({
       installationFee,
       gpSummary,
       priceMultiplier: parseFloat(priceMultiplier) || 1,
+      quotePhotoLayouts,
+      quotePhotoAssets,
     };
   };
 
@@ -3703,6 +3806,23 @@ export function QuotationDraftEditor({
       qrDataUrl: qrDataUrl ?? undefined,
     };
 
+    const pdfQuotePhotoLayouts = {
+      groups: quotePhotoLayouts,
+      assets: quotePhotoAssets.map((asset) => ({
+        id: asset.id,
+        title: asset.title,
+        url: quotePhotoRefUrl(asset),
+        ...(asset.isGenerated ? { isGenerated: true } : {}),
+      })),
+    };
+
+    const pdfCoverPages = quoteCoverPages.map((page) => ({
+      id: page.id,
+      title: page.title,
+      placement: page.placement,
+      url: page.url,
+    }));
+
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
       const { addressEn, address: _zhAddress, ...companyRest } = companyInfo;
@@ -3738,6 +3858,8 @@ export function QuotationDraftEditor({
         items: pdfItems,
         subtotal: pdfSubtotal,
         discountNote,
+        quotePhotoLayouts: pdfQuotePhotoLayouts,
+        quoteCoverPages: pdfCoverPages,
         installationFee: {
           ...installationFee,
           title: pdfLabels.installTitle,
@@ -3781,6 +3903,8 @@ export function QuotationDraftEditor({
     items: pdfItems,
     subtotal: pdfSubtotal,
     discountNote,
+    quotePhotoLayouts: pdfQuotePhotoLayouts,
+    quoteCoverPages: pdfCoverPages,
     installationFee,
   };
   };
@@ -3791,18 +3915,19 @@ export function QuotationDraftEditor({
   const activeStep =
     activeNav === "basic"
       ? 1
-      : activeNav === "content" || activeNav === "fees"
+      : activeNav === "content" || activeNav === "fees" || activeNav === "photos"
         ? 2
         : activeNav === "terms"
           ? 3
           : 4;
 
   const scrollToNav = useCallback(
-    (nav: "basic" | "content" | "fees" | "terms" | "output") => {
+    (nav: "basic" | "content" | "fees" | "photos" | "terms" | "output") => {
       const sectionId = {
         basic: "quote-sec-basic",
         content: "quote-sec-content",
         fees: "quote-sec-fees",
+        photos: "quote-sec-photos",
         terms: "quote-sec-terms",
         output: "quote-sec-output",
       }[nav];
@@ -3830,6 +3955,7 @@ export function QuotationDraftEditor({
       "quote-sec-basic",
       "quote-sec-content",
       "quote-sec-fees",
+      "quote-sec-photos",
       "quote-sec-terms",
       "quote-sec-output",
     ] as const;
@@ -3837,6 +3963,7 @@ export function QuotationDraftEditor({
       "quote-sec-basic": "basic",
       "quote-sec-content": "content",
       "quote-sec-fees": "fees",
+      "quote-sec-photos": "photos",
       "quote-sec-terms": "terms",
       "quote-sec-output": "output",
     } as const;
@@ -3868,7 +3995,7 @@ export function QuotationDraftEditor({
     const obs = new ResizeObserver(apply);
     obs.observe(chrome);
     return () => obs.disconnect();
-  }, [showUnifyRatePanel, quoteLocale, autoSaveFailed, lastLocalSavedAt, isSavingDraft]);
+  }, [unifyRateModalOpen, quoteLocale, autoSaveFailed, lastLocalSavedAt, isSavingDraft]);
 
   const productCount = items.filter((row) => !row.isSectionTitle && !row.isCustomTerm).length;
   const serviceCount = items.filter((row) => row.isCustomTerm).length;
@@ -3918,54 +4045,33 @@ export function QuotationDraftEditor({
                 </span>
                 <span>目前版本 {shownVersion}</span>
                 <span>送出新版本審核 {currentVersion}</span>
+                <span
+                  className={cn(
+                    "ml-2",
+                    autoSaveFailed ? "text-rose-500" : "text-emerald-600",
+                  )}
+                  title={t.autoSaveHint}
+                >
+                  {autoSaveFailed
+                    ? "本機備份失敗；請按「保存現有版本」寫入伺服器"
+                    : lastLocalSavedAt
+                      ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+                      : t.autoSaveHint}
+                </span>
               </p>
             </div>
             <div className="flex flex-col items-stretch gap-2 sm:items-end">
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {showUnifyRatePanel ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="shrink-0 font-body text-xs text-muted-foreground">
-                      {t.exchangeRate}
-                    </span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={unifyRateDraft}
-                      onChange={(e) =>
-                        setUnifyRateDraft(sanitizeExchangeRateInput(e.target.value))
-                      }
-                      placeholder="—"
-                      className="h-9 w-[5.5rem] rounded-lg border border-violet-200 bg-background px-2 font-mono-data text-sm text-foreground focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (applyUnifiedExchangeRate(unifyRateDraft)) {
-                          setShowUnifyRatePanel(false);
-                          setUnifyRateDraft("");
-                        }
-                      }}
-                      className="inline-flex items-center justify-center rounded-lg border border-violet-300 bg-violet-100 px-3 py-2 font-body text-sm font-semibold text-violet-800 hover:bg-violet-200"
-                    >
-                      {t.confirm}
-                    </button>
-                  </div>
-                ) : null}
                 <button
                   type="button"
-                  onClick={() => setShowUnifyRatePanel((v) => !v)}
-                  className={cn(
-                    "inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 font-body text-sm font-medium transition-colors",
-                    showUnifyRatePanel
-                      ? "border-violet-400 bg-violet-100 text-violet-800"
-                      : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100",
-                  )}
+                  onClick={() => {
+                    setUnifyRateDraft("");
+                    setUnifyRateModalOpen(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 font-body text-sm font-medium text-violet-700 transition-colors hover:bg-violet-100"
                 >
-                  <span className="truncate">
-                    {showUnifyRatePanel
-                      ? t.unifyExchangeRateApplied
-                      : t.unifyExchangeRate}
-                  </span>
+                  <Percent className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t.unifyExchangeRate}</span>
                 </button>
                 <button
                   type="button"
@@ -3990,35 +4096,20 @@ export function QuotationDraftEditor({
                 </button>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="flex flex-col items-stretch">
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveExistingVersion()}
-                    disabled={isSavingDraft || !hasQuoteData}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
-                    title={t.autoSaveHint}
-                  >
-                    {isSavingDraft ? (
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4 shrink-0" />
-                    )}
-                    <span className="truncate">{t.saveDraft}</span>
-                  </button>
-                  <p
-                    className={cn(
-                      "mt-0.5 text-center font-body text-[10px] leading-snug",
-                      autoSaveFailed ? "text-rose-500" : "text-muted-foreground",
-                    )}
-                    title={t.autoSaveHint}
-                  >
-                    {autoSaveFailed
-                      ? "本機備份失敗；請按「保存現有版本」寫入伺服器"
-                      : lastLocalSavedAt
-                        ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
-                        : t.autoSaveHint}
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveExistingVersion()}
+                  disabled={isSavingDraft || !hasQuoteData}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
+                  title={t.autoSaveHint}
+                >
+                  {isSavingDraft ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 shrink-0" />
+                  )}
+                  <span className="truncate">{t.saveDraft}</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleOpenSubmitReview}
@@ -4042,7 +4133,7 @@ export function QuotationDraftEditor({
               </div>
             </div>
           </div>
-          <ol aria-label="報價步驟" className="mt-3 grid gap-2 sm:grid-cols-4">
+          <ol aria-label="報價步驟" className="mt-3 flex items-center gap-2 sm:gap-3">
             {[
               { step: 1, label: "基本資料", nav: "basic" as const },
               { step: 2, label: "報價項目", nav: "content" as const },
@@ -4052,40 +4143,46 @@ export function QuotationDraftEditor({
               const current = item.step === activeStep;
               const done = item.step < activeStep;
               return (
-                <li key={item.nav} className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => scrollToNav(item.nav)}
-                    aria-current={current ? "step" : undefined}
-                    className="flex min-w-0 items-center gap-2 text-left"
-                  >
-                    <span
-                      className={cn(
-                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
-                        current
-                          ? "bg-indigo-600 text-white"
-                          : done
-                            ? "bg-indigo-100 text-indigo-700"
-                            : "bg-muted text-muted-foreground",
-                      )}
+                <Fragment key={item.nav}>
+                  <li className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => scrollToNav(item.nav)}
+                      aria-current={current ? "step" : undefined}
+                      className="flex min-w-0 items-center gap-2.5 text-left"
                     >
-                      {item.step}
-                    </span>
-                    <span
-                      className={cn(
-                        "truncate text-xs font-medium",
-                        current ? "text-foreground" : "text-muted-foreground",
-                      )}
-                    >
-                      {item.label}
-                    </span>
-                  </button>
+                      <span
+                        className={cn(
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold transition-colors",
+                          current
+                            ? "bg-indigo-600 text-white"
+                            : done
+                              ? "bg-indigo-100 text-indigo-700"
+                              : "bg-slate-200 text-slate-600",
+                        )}
+                      >
+                        {item.step}
+                      </span>
+                      <span
+                        className={cn(
+                          "truncate font-body text-sm",
+                          current ? "font-semibold text-foreground" : "font-medium text-muted-foreground",
+                        )}
+                      >
+                        {item.label}
+                      </span>
+                    </button>
+                  </li>
                   {index < arr.length - 1 ? (
-                    <span className="hidden text-muted-foreground/50 sm:inline" aria-hidden>
-                      →
-                    </span>
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "h-[3px] min-w-6 flex-1 rounded-full transition-colors",
+                        item.step <= activeStep ? "bg-indigo-500" : "bg-slate-200",
+                      )}
+                    />
                   ) : null}
-                </li>
+                </Fragment>
               );
             })}
           </ol>
@@ -4095,6 +4192,7 @@ export function QuotationDraftEditor({
                 ["basic", "基本資料"],
                 ["content", "報價內容"],
                 ["fees", "費用與總價"],
+                ["photos", "報價單圖片"],
                 ["terms", "條款及付款"],
                 ["output", "版本與輸出"],
               ] as const
@@ -4713,8 +4811,29 @@ export function QuotationDraftEditor({
                 />
               </section>
 
+              {/* 報價單圖片 / QUOTATION IMAGES */}
+              <section id="quote-sec-photos" className="order-5 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+                <h2 className="font-display text-base font-bold text-foreground">報價單圖片</h2>
+                <p className="mb-3 mt-1 font-body text-sm text-muted-foreground">
+                  排版時會預設帶入報價明細的產品圖，也可由報價設定的圖片庫選圖；內容內頁的圖印在總價之後、訂單確認及交付細節之前。
+                  {quoteCoverPages.length > 0
+                    ? `另有 ${quoteCoverPages.filter((page) => page.placement === 'cover').length} 張封面、${quoteCoverPages.filter((page) => page.placement === 'back').length} 張封底（圖片庫設定），每次出 PDF 會各自插入一整頁。`
+                    : '封面／封底在報價設定的「圖片庫」設定，每次出 PDF 會各自插入一整頁。'}
+                </p>
+                <QuotePhotoPages
+                  layouts={quotePhotoLayouts}
+                  assets={quotePhotoAssets}
+                  productPhotos={quoteProductPhotos}
+                  canManage={canManagePhotos}
+                  onChange={(groups, usedAssets) => {
+                    setQuotePhotoLayouts(groups);
+                    setQuotePhotoAssets(usedAssets);
+                  }}
+                />
+              </section>
+
               {/* 條款及付款 / TERMS AND CONDITIONS */}
-              <section id="quote-sec-terms" className="order-5 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+              <section id="quote-sec-terms" className="order-6 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-display text-base font-bold text-foreground">
                     {t.termsSection}
@@ -4899,7 +5018,7 @@ export function QuotationDraftEditor({
                 </div>
               </section>
 
-              <section id="quote-sec-output" className="order-6 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+              <section id="quote-sec-output" className="order-7 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
                 <h2 className="font-display text-base font-bold text-foreground">版本與輸出</h2>
                 <p className="mb-3 mt-1 font-body text-sm text-muted-foreground">
                   預覽 PDF、QR、保存現有版本與版本審核使用頁首同一組操作。
@@ -4960,30 +5079,20 @@ export function QuotationDraftEditor({
 
             <aside className="order-2 lg:sticky lg:top-[var(--quote-chrome)] lg:order-none lg:col-start-2 lg:row-start-1 lg:max-h-[calc(100dvh-var(--quote-chrome))] lg:self-start lg:overflow-y-auto">
               <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <h2 className="font-display text-base font-bold text-foreground">報價摘要</h2>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={summaryEditing}
-                    onClick={() => setSummaryEditing((v) => !v)}
-                    className="inline-flex items-center gap-2 font-body text-xs text-muted-foreground"
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h2 className="min-w-0 truncate font-display text-base font-bold text-foreground">報價摘要</h2>
+                  <label
+                    htmlFor="quote-summary-editing"
+                    className="flex shrink-0 cursor-pointer select-none items-center gap-2 whitespace-nowrap font-body text-xs text-muted-foreground"
                   >
-                    編輯模式
-                    <span
-                      className={cn(
-                        "relative h-5 w-9 rounded-full transition-colors",
-                        summaryEditing ? "bg-indigo-600" : "bg-slate-300",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
-                          summaryEditing ? "translate-x-4" : "translate-x-0.5",
-                        )}
-                      />
-                    </span>
-                  </button>
+                    <span>編輯模式</span>
+                    <Switch
+                      id="quote-summary-editing"
+                      checked={summaryEditing}
+                      onCheckedChange={setSummaryEditing}
+                      aria-label="切換報價摘要編輯模式"
+                    />
+                  </label>
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between gap-2">
@@ -5213,6 +5322,73 @@ export function QuotationDraftEditor({
         existingQuoteUuid={existingQuote?.quoteUuid ?? null}
         forceNewQuote={forceNewQuote}
       />
+
+      {/* 統一匯率 Modal */}
+      <Modal
+        open={unifyRateModalOpen}
+        onOpenChange={(open) => {
+          setUnifyRateModalOpen(open);
+          if (!open) setUnifyRateDraft("");
+        }}
+        size="sm"
+        icon={<Percent className="h-5 w-5" />}
+        title={t.unifyExchangeRate}
+        description={t.unifyRateHint}
+        footer={
+          <>
+            <ModalButton
+              variant="secondary"
+              onClick={() => {
+                setUnifyRateModalOpen(false);
+                setUnifyRateDraft("");
+              }}
+            >
+              {t.cancel}
+            </ModalButton>
+            <ModalButton
+              onClick={() => {
+                if (applyUnifiedExchangeRate(unifyRateDraft)) {
+                  setUnifyRateModalOpen(false);
+                  setUnifyRateDraft("");
+                }
+              }}
+            >
+              {t.confirm}
+            </ModalButton>
+          </>
+        }
+      >
+        <div className="space-y-2.5">
+          <label
+            htmlFor="unify-exchange-rate-input"
+            className="block font-body text-sm font-medium text-foreground"
+          >
+            {t.exchangeRate}
+            <span className="ml-1 font-normal text-muted-foreground">CNY¥ → HKD$</span>
+          </label>
+          <input
+            id="unify-exchange-rate-input"
+            type="text"
+            inputMode="decimal"
+            autoFocus
+            value={unifyRateDraft}
+            onChange={(e) => setUnifyRateDraft(sanitizeExchangeRateInput(e.target.value))}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              if (applyUnifiedExchangeRate(unifyRateDraft)) {
+                setUnifyRateModalOpen(false);
+                setUnifyRateDraft("");
+              }
+            }}
+            placeholder="0.92"
+            className="h-11 w-full rounded-xl border border-input bg-background px-3 font-mono-data text-base text-foreground focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200"
+          />
+          <p className="font-body text-xs text-muted-foreground">
+            {t.unifyRateScope.replace("{n}", String(productCount))}
+          </p>
+        </div>
+      </Modal>
 
       <CopyQuoteItemsModal
         open={showCopyFromOther}

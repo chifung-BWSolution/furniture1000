@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { UserCog, UserPlus, Check, X, Power, Mail, ChevronDown, Loader2, RefreshCw } from 'lucide-react';
+import { UserCog, UserPlus, Check, X, Power, Mail, Loader2, RefreshCw } from 'lucide-react';
 import {
   ROLE_META, PERMISSIONS, ROLE_PERMISSIONS,
   type PlatformUser, type UserRole,
@@ -10,6 +10,7 @@ import {
 } from '@/lib/adminApi';
 import { toast } from 'sonner';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EmptyState } from '@/components/ui/empty-state';
 
 const ROLE_OPTIONS: UserRole[] = ['admin', 'uploader', 'pm', 'designer', 'client'];
@@ -158,18 +159,22 @@ export function UserManagementView() {
                         </div>
                       </td>
                       <td className="px-3 py-2.5">
-                        <div className="relative inline-block">
-                          <select
-                            value={u.role}
-                            onChange={(e) => void changeRole(u.id, e.target.value as UserRole)}
-                            className={cn('appearance-none rounded-full border px-2.5 py-0.5 pr-6 text-[10.5px] font-medium focus:outline-none', ROLE_META[u.role].className)}
+                        <Select
+                          value={u.role}
+                          onValueChange={(value) => void changeRole(u.id, value as UserRole)}
+                        >
+                          <SelectTrigger
+                            aria-label={`${u.name || u.email} 的角色`}
+                            className={cn('h-auto w-auto gap-1 rounded-full border px-2.5 py-0.5 text-[10.5px] font-medium [&>svg]:h-3 [&>svg]:w-3 [&>svg]:opacity-60', ROLE_META[u.role].className)}
                           >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
                             {ROLE_OPTIONS.map((r) => (
-                              <option key={r} value={r}>{ROLE_META[r].label}</option>
+                              <SelectItem key={r} value={r}>{ROLE_META[r].label}</SelectItem>
                             ))}
-                          </select>
-                          <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 opacity-60" />
-                        </div>
+                          </SelectContent>
+                        </Select>
                       </td>
                       <td className="px-3 py-2.5 font-mono-data text-[11.5px] text-muted-foreground">{fmt(u.lastLogin)}</td>
                       <td className="px-3 py-2.5 text-center">

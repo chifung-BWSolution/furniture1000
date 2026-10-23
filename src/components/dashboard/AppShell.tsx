@@ -4,6 +4,7 @@ import { inkEase, ViewEnter } from "@/components/motion/NavInk";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppStoreProvider, useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import {
   resetQuickQuoteSessionStorage,
   readQuickQuoteEditingId,
@@ -236,6 +237,9 @@ const FactorySalesView = lazy(() =>
 const QuoteFormatView = lazy(() =>
   import("./QuoteFormatView").then((mod) => ({ default: mod.QuoteFormatView }))
 );
+const QuotePhotoLibraryView = lazy(() =>
+  import("./QuotePhotoLibraryView").then((mod) => ({ default: mod.QuotePhotoLibraryView }))
+);
 const EmailNotificationsView = lazy(() =>
   import("./EmailNotificationsView").then((mod) => ({ default: mod.EmailNotificationsView }))
 );
@@ -299,6 +303,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-pm-pro-pdf",
   "fds2-factory-sales",
   "fds2-quote-format",
+  "fds2-quote-photos",
   "fds2-admin-email",
   "fds2-cases-orders",
   "fds2-cases-photos",
@@ -604,8 +609,8 @@ function AppShellContent() {
   }, [navigate, setEditingQuoteId, store]);
 
   const openQuoteForEdit = useCallback(
-    (quoteId: string, opts?: { quoteUuid?: string; version?: string }) => {
-      if (!unsavedGuard.confirmLeave()) return;
+    async (quoteId: string, opts?: { quoteUuid?: string; version?: string }) => {
+      if (!(await unsavedGuard.confirmLeave())) return;
       writeQuickQuoteCopyFrom(user?.email, null);
       // Opening from 報價一覽: always prefer Supabase 版本審核 snapshot, not IndexedDB.
       clearUseLocalQuoteDraft(user?.email);
@@ -1073,6 +1078,7 @@ function AppShellContent() {
     if (store.currentView === 'fds2-pm-pro-pdf') return <ProPdfView />;
     if (store.currentView === 'fds2-factory-sales') return <FactorySalesView />;
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;
+    if (store.currentView === 'fds2-quote-photos') return <QuotePhotoLibraryView />;
     if (store.currentView === 'fds2-admin-email') return <EmailNotificationsView />;
     if (store.currentView === 'fds2-cases-orders') return <CaseOrdersView />;
     if (store.currentView === 'fds2-cases-photos') return <CasePhotosView />;
@@ -1324,8 +1330,8 @@ function AppShellContent() {
                 : 'all'
             }
             onOpenQuote={openQuoteForEdit}
-            onCopyQuote={(quoteUuid) => {
-              if (!unsavedGuard.confirmLeave()) return;
+            onCopyQuote={async (quoteUuid) => {
+              if (!(await unsavedGuard.confirmLeave())) return;
               writeQuickQuoteCopyFrom(user?.email, quoteUuid);
               if (typeof window !== "undefined") {
                 sessionStorage.removeItem(quickQuoteStepKey(user?.email));
@@ -1354,7 +1360,7 @@ function AppShellContent() {
 
   const activeSection: PrimarySection = findSection(store.currentView);
 
-  const handleViewChange = (view: typeof store.currentView) => {
+  const handleViewChange = async (view: typeof store.currentView) => {
     const linked = implementedPage(view);
     if (!roleLoading && !isAdmin && (isAdminOnlyView(view) || (linked != null && isAdminOnlyView(linked)))) {
       return;
@@ -1364,7 +1370,7 @@ function AppShellContent() {
     }
 
     if (linked === "quick-quote" || view === "quick-quote") {
-      if (unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) return;
+      if (unsavedGuard.isDirty && !(await unsavedGuard.confirmLeave())) return;
       writeQuickQuoteCopyFrom(user?.email, null);
       resetQuickQuoteSessionStorage(user?.email);
       void deleteDraft(makeDraftKey(user?.email, "NEW"));
@@ -1387,7 +1393,7 @@ function AppShellContent() {
       linked === "quotation-list" ||
       linked === "quotation-large-amount"
     ) {
-      if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
+      if (view !== store.currentView && unsavedGuard.isDirty && !(await unsavedGuard.confirmLeave())) {
         return;
       }
       const targetPath = linked
@@ -1404,7 +1410,7 @@ function AppShellContent() {
     }
 
     if (view === "design-projects" || view === "product-search") {
-      if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
+      if (view !== store.currentView && unsavedGuard.isDirty && !(await unsavedGuard.confirmLeave())) {
         return;
       }
       const parsed = parseDesignProjectPathname(location.pathname);
@@ -1420,7 +1426,7 @@ function AppShellContent() {
       return;
     }
 
-    if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
+    if (view !== store.currentView && unsavedGuard.isDirty && !(await unsavedGuard.confirmLeave())) {
       return;
     }
     const leavingView = implementedPage(store.currentView) ?? store.currentView;
@@ -1494,6 +1500,7 @@ function AppShellContent() {
   };
 
   return (
+    <ConfirmProvider>
     <div
       className="fixed inset-0 flex flex-col overflow-hidden"
       data-typography-zone={
@@ -1660,5 +1667,6 @@ function AppShellContent() {
         products={publishModalProducts}
       />
     </div>
+    </ConfirmProvider>
   );
 }

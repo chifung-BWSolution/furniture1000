@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
   fetchZoneProducts,
   fetchZones,
@@ -239,6 +240,7 @@ export function ProjectPartitionPanel({
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
   const [editLabel, setEditLabel] = useState('');
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const editingKeyRef = useRef<string | null>(null);
@@ -535,10 +537,16 @@ export function ProjectPartitionPanel({
     });
   };
 
-  const deleteRoom = (key: string) => {
+  const deleteRoom = async (key: string) => {
     const target = orderedRooms.find((room) => room.key === key);
     if (!target) return;
-    if (!window.confirm(`確定刪除房間類型「${target.label}」？`)) return;
+    const ok = await confirm({
+      title: `刪除房間類型「${target.label}」？`,
+      description: '房間內的配置會一併移除，按「儲存」後才會寫入專案資料。',
+      confirmLabel: '刪除',
+      destructive: true,
+    });
+    if (!ok) return;
     setCustomRooms((current) => current.filter((room) => room.key !== key));
     setRoomCounts((current) => {
       const next = { ...current };
@@ -846,6 +854,7 @@ export function ProjectPartitionPanel({
           改名、刪除、排序與數量調整後，記得按「儲存」才會寫入專案。
         </p>
       </div>
+      {confirmDialog}
     </div>
   );
 }

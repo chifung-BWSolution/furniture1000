@@ -1,3 +1,4 @@
+import { confirm } from '@/components/ui/confirm-dialog';
 import { QUOTE_UNSAVED_LEAVE_MESSAGE } from '@/lib/quickQuoteSession';
 
 // Lightweight module-level guard for unsaved work that should block navigation.
@@ -30,10 +31,15 @@ export const unsavedGuard = {
     if (!draftFlushHandler) return;
     await draftFlushHandler();
   },
-  /** Returns true if navigation may proceed. */
-  confirmLeave(): boolean {
+  /** Returns true if navigation may proceed (asks via the shared confirm dialog). */
+  async confirmLeave(): Promise<boolean> {
     if (!dirty) return true;
-    const ok = window.confirm(message);
+    const ok = await confirm({
+      title: '離開目前頁面？',
+      description: message,
+      confirmLabel: '離開',
+      destructive: true,
+    });
     if (ok) {
       leaveHandler?.();
       dirty = false;

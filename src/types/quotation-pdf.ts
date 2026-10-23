@@ -1,3 +1,5 @@
+import type { PhotoLayoutGroup } from '@/lib/quotePhotoLayouts';
+
 export type QuotationDimensionMode = 'lwh' | 'dh';
 
 export interface QuotationPDFData {
@@ -39,6 +41,35 @@ export interface QuotationPDFData {
     qrDataUrl?: string;
   };
   deliveryDetails: string;
+  /**
+   * 報價單圖片：圖片庫快照，按清單次序 3 張一列，
+   * 印在總價之後、訂單確認及交付細節之前。
+   */
+  quotePhotos?: {
+    id: string;
+    title: string;
+    url: string;
+    caption?: string;
+  }[];
+  /**
+   * 報價單圖片排版（QMS 版）：每個 group 一組版式，印在總價之後、訂單確認及交付細節之前。
+   * assets 是圖片庫快照（assetId → url），欄位位置見 src/lib/quotePhotoLayouts.ts。
+   */
+  quotePhotoLayouts?: {
+    groups: PhotoLayoutGroup[];
+    assets: { id: string; title: string; url: string; isGenerated?: boolean }[];
+  };
+  /**
+   * 圖片庫設定為封面／封底的圖片（照 FCCD 的做法）：每張各佔一整頁 A4，
+   * 封面排在正文之前（第 1 頁起）、封底排在簽署欄之後。
+   * 這不是單一報價的資料，是圖片庫的全域設定，所以不寫進 project_data。
+   */
+  quoteCoverPages?: {
+    id: string;
+    title: string;
+    placement: 'cover' | 'back';
+    url: string;
+  }[];
   termsContent?: {
     transport?: string;
     extraFees?: string;
@@ -74,6 +105,17 @@ export interface QuotationPDFData {
     /** Section heading (一、開放區) — full-width title row in PDF. */
     isSectionTitle?: boolean;
     unit?: string;
+    /**
+     * Item 的全部圖片（產品圖＋參考圖＋備註圖），供 PDF 圖例自適應排版使用。
+     * 未提供時由 PDF 從 image / referenceImage / remarks 自行組合，舊資料不必改。
+     */
+    images?: {
+      url: string;
+      kind?: 'product' | 'reference' | 'remarks' | 'drawing' | 'other';
+      /** 原始像素寬高；未提供時由 PDF 預載圖片量測。 */
+      width?: number;
+      height?: number;
+    }[];
   }[];
   subtotal: number;
   discountNote?: string;

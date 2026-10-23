@@ -6,6 +6,7 @@ import {
 import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { Checkbox } from '@/components/ui/checkbox';
 
 // ── Field definitions ────────────────────────────────────────────────────────
 
@@ -266,12 +267,10 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
             <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="w-10 px-3 py-2.5 text-center font-medium border-b border-border/60" rowSpan={2}>
-                  <input
-                    type="checkbox"
-                    title="全選"
-                    className="rounded border-border"
+                  <Checkbox
+                    aria-label="全選"
                     checked={allPassingSelected}
-                    onChange={e => toggleAll(e.target.checked)}
+                    onCheckedChange={(checked) => toggleAll(checked === true)}
                     disabled={passingItems.length === 0}
                   />
                 </th>
@@ -321,13 +320,11 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
                 return (
                   <tr key={row.id} className={cn('hover:bg-muted/30', !rowPass && 'bg-amber-500/[0.03]')}>
                     <td className="px-3 py-3 text-center">
-                      <input
-                        type="checkbox"
-                        className="rounded border-border disabled:opacity-30"
+                      <Checkbox
                         checked={selectedIds.has(row.id)}
-                        onChange={() => toggleRow(row.id)}
+                        onCheckedChange={() => toggleRow(row.id)}
                         disabled={!rowPass}
-                        title={rowPass ? '選擇此產品' : '此產品仍有項目未通過'}
+                        aria-label={rowPass ? '選擇此產品' : '此產品仍有項目未通過'}
                       />
                     </td>
                     <td className="px-4 py-3">

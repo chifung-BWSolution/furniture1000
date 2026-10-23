@@ -657,3 +657,70 @@ u {
     line-height: 28px;
   }
 }
+
+/* ── 報價單圖片排版（欄位幾何以百分比定位，畫布／卡片／A4 共用） ───────── */
+.fds-photo-layout {
+  position: relative;
+  width: 100%;
+}
+.fds-photo-layout-slot {
+  position: absolute;
+  overflow: hidden;
+  background: hsl(var(--muted));
+}
+.fds-photo-layout-frame {
+  position: absolute;
+  overflow: hidden;
+}
+.fds-photo-layout-img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+.fds-photo-layout-text {
+  position: absolute;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2mm;
+  padding-inline: 1mm;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.fds-photo-layout-title {
+  font-weight: 700;
+}
+.fds-photo-layout-caption {
+  color: hsl(var(--muted-foreground));
+  white-space: pre-wrap;
+}
+.fds-photo-layout-image {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+}
+.fds-photo-layout-slot-caption {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  margin: 0;
+  padding: 2px 2px 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}

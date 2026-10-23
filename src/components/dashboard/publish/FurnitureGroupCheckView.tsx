@@ -23,6 +23,9 @@ import {
 } from '@/lib/productCategoryOptions';
 import { toast } from 'sonner';
 import { ModalContent, ModalRoot } from '@/components/ui/modal';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 
 const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/jpg,image/webp,image/avif,image/png';
@@ -822,26 +825,34 @@ export function FGProductDetailModal({
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">一級分類</label>
-                    <select
-                      className={`${inputCls} cursor-pointer`}
-                      value={editL1}
-                      onChange={e => { setEditL1(e.target.value); setEditL2(''); }}
+                    <Select
+                      value={editL1 || '__none__'}
+                      onValueChange={(value) => { setEditL1(value === '__none__' ? '' : value); setEditL2(''); }}
                     >
-                      <option value="">— 請選擇 —</option>
-                      {level1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
-                    </select>
+                      <SelectTrigger className={cn(inputCls, 'cursor-pointer z-[300]')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="z-[300]">
+                        <SelectItem value="__none__">— 請選擇 —</SelectItem>
+                        {level1Options.map(l1 => <SelectItem key={l1} value={l1}>{l1}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">二級分類</label>
-                    <select
-                      className={`${inputCls} cursor-pointer`}
-                      value={editL2}
-                      onChange={e => setEditL2(e.target.value)}
+                    <Select
+                      value={editL2 || '__none__'}
+                      onValueChange={(value) => setEditL2(value === '__none__' ? '' : value)}
                       disabled={!editL1}
                     >
-                      <option value="">— 請選擇 —</option>
-                      {getLevel2Options(editL1).map(l2 => <option key={l2} value={l2}>{l2}</option>)}
-                    </select>
+                      <SelectTrigger className={cn(inputCls, 'cursor-pointer')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="z-[300]">
+                        <SelectItem value="__none__">— 請選擇 —</SelectItem>
+                        {getLevel2Options(editL1).map(l2 => <SelectItem key={l2} value={l2}>{l2}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">廠家 (Vendor)</label>
@@ -960,18 +971,23 @@ export function FGProductDetailModal({
                       </button>
                     </div>
                     {editProductionType === 'custom' && (
-                      // Native <select> — the shadcn Select renders its dropdown in a
-                      // portal at z-50, BELOW this modal (z-[200]), so it was invisible
-                      // / unclickable. A native select always paints on top.
+                      // shadcn Select with a bumped z-index — the portal now sits
+                      // above this modal (previously z-50 was hidden under z-[200]).
                       // w-auto so the box only fits its content (not full width).
-                      <select
-                        value={editLeadTime || ''}
-                        onChange={e => setEditLeadTime(e.target.value)}
-                        className="shrink-0 w-auto rounded-lg border border-border bg-background px-2 py-1.5 text-xs font-body text-foreground cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
+                      <Select
+                        value={editLeadTime || '__none__'}
+                        onValueChange={(value) => setEditLeadTime(value === '__none__' ? '' : value)}
                       >
-                        <option value="">選擇生產天數</option>
-                        {LEAD_TIME_OPTIONS.map(opt => <option key={opt} value={opt}>{opt.replace('天', ' 天')}</option>)}
-                      </select>
+                        <SelectTrigger className="z-[300] h-auto w-auto shrink-0 gap-1 rounded-lg px-2 py-1.5 text-xs font-body">
+                          <SelectValue placeholder="選擇生產天數" />
+                        </SelectTrigger>
+                        <SelectContent className="z-[300]">
+                          <SelectItem value="__none__">選擇生產天數</SelectItem>
+                          {LEAD_TIME_OPTIONS.map(opt => (
+                            <SelectItem key={opt} value={opt}>{opt.replace('天', ' 天')}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     )}
                     {editProductionType === null && <span className="text-[11px] text-muted-foreground/60 italic">未選擇</span>}
                   </div>
@@ -1034,6 +1050,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [detailRtsId, setDetailRtsId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const { confirm, confirmDialog } = useConfirm();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -1232,7 +1249,13 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
     if (selected.size === 0) { toast.message('請先勾選要退回的產品'); return; }
     const rtsIds = Array.from(selected);
     if (rtsIds.length === 0) return;
-    if (!window.confirm(`確定要把已選的 ${rtsIds.length} 件產品退回「產品文案」頁面嗎？`)) return;
+    const ok = await confirm({
+      title: `把 ${rtsIds.length} 件已選產品退回「產品文案」？`,
+      description: '退回後這些產品會離開「待發佈」清單，需要重新完成文案與檢查才能再提交。',
+      confirmLabel: '退回',
+      destructive: true,
+    });
+    if (!ok) return;
     setIsReverting(true);
     try {
       const { data: rtsMeta } = await supabase
@@ -1340,21 +1363,62 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
             <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
           )}
         </div>
-        <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-          {[20, 25, 50, 100].map(n => <option key={n} value={n}>每頁 {n} 項</option>)}
-        </select>
-        <select value={level1Filter} onChange={(e) => { setLevel1Filter(e.target.value); setLevel2Filter(''); }} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-          <option value="">全部一級分類</option>
-          {level1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
-        </select>
-        <select value={level2Filter} onChange={(e) => setLevel2Filter(e.target.value)} disabled={!level1Filter} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer disabled:opacity-50">
-          <option value="">全部二級分類</option>
-          {level2Options.map(l2 => <option key={l2} value={l2}>{l2}</option>)}
-        </select>
-        <select value={factoryFilter} onChange={(e) => setFactoryFilter(e.target.value)} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-          <option value="">篩選廠家：全部</option>
-          {factoryOptions.map(f => <option key={f} value={f}>{f}</option>)}
-        </select>
+        <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
+          <SelectTrigger className="h-8 w-[7.5rem] text-xs" aria-label="每頁項目數">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {[20, 25, 50, 100].map((n) => (
+              <SelectItem key={n} value={String(n)}>{`每頁 ${n} 項`}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={level1Filter || '__all__'}
+          onValueChange={(value) => {
+            setLevel1Filter(value === '__all__' ? '' : value);
+            setLevel2Filter('');
+          }}
+        >
+          <SelectTrigger className="h-8 w-[9.5rem] text-xs" aria-label="一級分類">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部一級分類</SelectItem>
+            {level1Options.map((l1) => (
+              <SelectItem key={l1} value={l1}>{l1}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={level2Filter || '__all__'}
+          onValueChange={(value) => setLevel2Filter(value === '__all__' ? '' : value)}
+          disabled={!level1Filter}
+        >
+          <SelectTrigger className="h-8 w-[9.5rem] text-xs" aria-label="二級分類">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部二級分類</SelectItem>
+            {level2Options.map((l2) => (
+              <SelectItem key={l2} value={l2}>{l2}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={factoryFilter || '__all__'}
+          onValueChange={(value) => setFactoryFilter(value === '__all__' ? '' : value)}
+        >
+          <SelectTrigger className="h-8 w-[10rem] text-xs" aria-label="廠家">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">篩選廠家：全部</SelectItem>
+            {factoryOptions.map((f) => (
+              <SelectItem key={f} value={f}>{f}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {(searchQuery || level1Filter || level2Filter || factoryFilter) && (
           <button
             onClick={() => { setSearchQuery(''); setLevel1Filter(''); setLevel2Filter(''); setFactoryFilter(''); }}
@@ -1388,11 +1452,10 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
               <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="w-10 px-4 py-3 text-center border-b border-border/60">
-                    <input
-                      type="checkbox"
+                    <Checkbox
+                      aria-label="全選"
                       checked={allSelected}
-                      onChange={e => toggleAll(e.target.checked)}
-                      className="rounded border-border"
+                      onCheckedChange={(checked) => toggleAll(checked === true)}
                     />
                   </th>
                   <th className="px-4 py-3 text-left font-medium border-b border-border/60">產品</th>
@@ -1420,11 +1483,10 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
                       className="px-4 py-3 text-center"
                       onClick={e => { e.stopPropagation(); toggleRow(row.rtsId); }}
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={selected.has(row.rtsId)}
-                        readOnly
-                        className="rounded border-border pointer-events-none"
+                        className="pointer-events-none"
+                        aria-label={`選取 ${row.rtsId}`}
                       />
                     </td>
 
@@ -1532,6 +1594,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
           }}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }

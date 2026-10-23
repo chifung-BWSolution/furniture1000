@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Mail, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   EMAIL_TYPE_LABELS,
   loadEmailNotificationLogs,
@@ -102,27 +103,27 @@ export function EmailNotificationsView() {
 
         <section className="rounded-2xl border border-border/80 bg-card px-4 py-5 md:px-6 shadow-sm sm:p-6">
           <div className="mb-4 flex flex-wrap gap-2">
-            <select
-              value={typeFilter}
-              onChange={(event) => setTypeFilter(event.target.value)}
-              aria-label="通知類型"
-              className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
-            >
-              <option value="all">全部類型</option>
-              {Object.entries(EMAIL_TYPE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              aria-label="發送狀態"
-              className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
-            >
-              <option value="all">全部狀態</option>
-              <option value="success">成功</option>
-              <option value="failed">失敗</option>
-            </select>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="h-10 w-[11rem]" aria-label="通知類型">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部類型</SelectItem>
+                {Object.entries(EMAIL_TYPE_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-10 w-[9rem]" aria-label="發送狀態">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部狀態</SelectItem>
+                <SelectItem value="success">成功</SelectItem>
+                <SelectItem value="failed">失敗</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {loading && (

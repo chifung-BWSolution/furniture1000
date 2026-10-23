@@ -16,6 +16,7 @@ export const QUOTE_UI = {
     previewPdf: '預覽 PDF',
     generateQrLink: '生成QR Code 及連結',
     confirm: '確認',
+    cancel: '取消',
     saveDraft: '保存現有版本',
     autoSaving: '自動暫存中…',
     autoSavedAt: '已自動暫存',
@@ -60,6 +61,8 @@ export const QUOTE_UI = {
     unifyExchangeRate: '統一匯率',
     /** Button label after clicking（EN switches to Apply to all; ZH stays 統一匯率）. */
     unifyExchangeRateApplied: '統一匯率',
+    unifyRateHint: '輸入匯率，一次套用到所有產品列（成本價與 HKD 金額會同步重算）。',
+    unifyRateScope: '將套用到 {n} 個產品列',
     hkdCost: 'HKD$成本價',
     /** Value-added service row — user-entered HKD cost (feeds GP Cost). */
     hkdCostAmount: 'HKD$成本',
@@ -99,6 +102,7 @@ export const QUOTE_UI = {
     previewPdf: 'Preview PDF',
     generateQrLink: 'Generate QR & Link',
     confirm: 'Confirm',
+    cancel: 'Cancel',
     saveDraft: 'Save Current Version',
     autoSaving: 'Auto-saving…',
     autoSavedAt: 'Auto-saved',
@@ -144,6 +148,9 @@ export const QUOTE_UI = {
     unifyExchangeRate: 'Exchange Rate',
     /** Button label after clicking 統一匯率 / Exchange Rate. */
     unifyExchangeRateApplied: 'Apply to all',
+    unifyRateHint:
+      'Enter the exchange rate to apply to every product row (cost and HKD amounts are recalculated).',
+    unifyRateScope: 'Applies to {n} product rows',
     hkdCost: 'HKD$ Cost Price',
     hkdCostAmount: 'HKD$ Cost',
     unit: 'Unit',
@@ -216,6 +223,7 @@ export const QUOTE_PDF = {
     descDimensions: '規格\n(mm)',
     descColor: '顏色',
     optionalProduct: '可選',
+    itemContinued: '（續）',
     grandTotal: '總金額',
     deliveryTitle: '<訂單確認及交付細節>',
     termsTitle: '條款及付款',
@@ -261,6 +269,7 @@ export const QUOTE_PDF = {
     descDimensions: 'Dimensions\n(mm)',
     descColor: 'Color',
     optionalProduct: 'Optional',
+    itemContinued: '(continued)',
     grandTotal: 'Grand Total',
     deliveryTitle: '<Order Confirmation and Delivery Details>',
     termsTitle: 'TERMS AND CONDITIONS',

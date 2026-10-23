@@ -40,6 +40,11 @@ export interface DraftData {
   gpSummary?: { ship?: number; installation?: number };
   /** Last applied cost multiplier (e.g. 2.3). */
   priceMultiplier?: number | string;
+  /** 報價單圖片排版與圖片庫快照，還原草稿時要一併帶回。 */
+  quotePhotoLayouts?: Record<string, unknown>[];
+  quotePhotoAssets?: Record<string, unknown>[];
+  /** 舊版：未排版的圖片清單（只讀，兼容已存在的草稿）。 */
+  quotePhotos?: Record<string, unknown>[];
 }
 
 function openDB(): Promise<IDBDatabase> {

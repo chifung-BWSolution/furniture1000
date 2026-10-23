@@ -6,6 +6,7 @@ import { LoadingImage } from '@/components/ui/loading-image';
 import { Product, ProductVariant } from '@/types/product';
 import { TagSelector } from './TagSelector';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -887,38 +888,53 @@ export const ProductTableView = memo(function ProductTableView({
               <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
             )}
           </div>
-          <select
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
-            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+          <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
+            <SelectTrigger className="h-8 w-[7.5rem] text-xs" aria-label="每頁項目數">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[20, 25, 50, 100].map((n) => (
+                <SelectItem key={n} value={String(n)}>{`每頁 ${n} 項`}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={level1Filter || '__all__'}
+            onValueChange={(value) => { setLevel1Filter(value === '__all__' ? '' : value); setLevel2Filter(''); }}
           >
-            {[20, 25, 50, 100].map(n => <option key={n} value={n}>每頁 {n} 項</option>)}
-          </select>
-          <select
-            value={level1Filter}
-            onChange={(e) => { setLevel1Filter(e.target.value); setLevel2Filter(''); }}
-            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
-          >
-            <option value="">全部一級分類</option>
-            {level1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
-          </select>
-          <select
-            value={level2Filter}
-            onChange={(e) => setLevel2Filter(e.target.value)}
+            <SelectTrigger className="h-8 w-[9.5rem] text-xs" aria-label="一級分類">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">全部一級分類</SelectItem>
+              {level1Options.map((l1) => <SelectItem key={l1} value={l1}>{l1}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select
+            value={level2Filter || '__all__'}
+            onValueChange={(value) => setLevel2Filter(value === '__all__' ? '' : value)}
             disabled={!level1Filter}
-            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer disabled:opacity-50"
           >
-            <option value="">全部二級分類</option>
-            {level2Options.map(l2 => <option key={l2} value={l2}>{l2}</option>)}
-          </select>
-          <select
-            value={factoryFilter}
-            onChange={(e) => setFactoryFilter(e.target.value)}
-            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+            <SelectTrigger className="h-8 w-[9.5rem] text-xs" aria-label="二級分類">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">全部二級分類</SelectItem>
+              {level2Options.map((l2) => <SelectItem key={l2} value={l2}>{l2}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select
+            value={factoryFilter || '__all__'}
+            onValueChange={(value) => setFactoryFilter(value === '__all__' ? '' : value)}
           >
-            <option value="">篩選廠家：全部</option>
-            {factoryOptions.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
+            <SelectTrigger className="h-8 w-[10rem] text-xs" aria-label="廠家">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">篩選廠家：全部</SelectItem>
+              {factoryOptions.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+            </SelectContent>
+          </Select>
           {(searchQuery || level1Filter || level2Filter || factoryFilter) && (
             <button
               onClick={() => { setSearchQuery(''); setLevel1Filter(''); setLevel2Filter(''); setFactoryFilter(''); }}
@@ -1183,14 +1199,18 @@ export const ProductTableView = memo(function ProductTableView({
                         className="pl-8 h-8 text-xs font-body"
                       />
                     </div>
-                    <select
-                      value={pickerFactoryFilter}
-                      onChange={e => { setPickerFactoryFilter(e.target.value); setPickerPage(0); }}
-                      className="rounded-md border border-border bg-background px-2 py-1 font-body text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 h-8"
+                    <Select
+                      value={pickerFactoryFilter || '__all__'}
+                      onValueChange={(value) => { setPickerFactoryFilter(value === '__all__' ? '' : value); setPickerPage(0); }}
                     >
-                      <option value="">所有廠家</option>
-                      {allFactories.map(f => <option key={f} value={f}>{f}</option>)}
-                    </select>
+                      <SelectTrigger className="h-8 w-[10rem] text-xs" aria-label="廠家">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="z-[300]">
+                        <SelectItem value="__all__">所有廠家</SelectItem>
+                        {allFactories.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-1 max-h-48 overflow-y-auto">
                     {paginated.length === 0 ? (
@@ -1288,20 +1308,24 @@ export const ProductTableView = memo(function ProductTableView({
           }
         >
           <div className="space-y-3">
-            {REVERT_OPTIONS.map(opt => (
-              <label key={opt} className="flex items-center gap-3 cursor-pointer group">
-                <input
-                  type="checkbox"
+            {REVERT_OPTIONS.map((opt, index) => (
+              <div key={opt} className="group flex items-center gap-3">
+                <Checkbox
+                  id={`product-revert-reason-${index}`}
                   checked={revertReasons.includes(opt)}
-                  onChange={e => {
+                  onCheckedChange={(checked) => {
                     setRevertReasons(prev =>
-                      e.target.checked ? [...prev, opt] : prev.filter(r => r !== opt)
+                      checked === true ? [...prev, opt] : prev.filter(r => r !== opt)
                     );
                   }}
-                  className="h-4 w-4 rounded border-border accent-primary"
                 />
-                <span className="font-body text-sm text-foreground group-hover:text-primary transition-colors">{opt}</span>
-              </label>
+                <label
+                  htmlFor={`product-revert-reason-${index}`}
+                  className="cursor-pointer font-body text-sm text-foreground group-hover:text-primary transition-colors"
+                >
+                  {opt}
+                </label>
+              </div>
             ))}
             {revertReasons.includes('其他') && (
               <textarea

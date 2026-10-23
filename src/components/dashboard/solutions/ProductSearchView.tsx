@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Search, SlidersHorizontal, LayoutGrid, List, Share2, FolderPlus,
   FileText, Check, Package, Truck,
@@ -177,7 +179,7 @@ export function ProductSearchView() {
               <tbody className="divide-y divide-border/60">
                 {results.map((p) => (
                   <tr key={p.id} className="hover:bg-muted/30">
-                    <td className="px-4 py-2.5"><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} className="rounded border-border" /></td>
+                    <td className="px-4 py-2.5"><Checkbox checked={selected.has(p.id)} onCheckedChange={() => toggle(p.id)} aria-label={`選取 ${p.title}`} /></td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-3">
                         <LoadingImage src={productThumbUrl(p.imageUrl)} alt={p.title} loading="lazy" decoding="async" className="h-10 w-10 rounded-md object-cover bg-muted" />
@@ -215,15 +217,15 @@ export function ProductSearchView() {
 
 function FilterSelect({ value, onChange, options, label }: { value: string; onChange: (v: string) => void; options: string[]; label: string }) {
   return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-8 appearance-none rounded-lg border border-border bg-background pl-2.5 pr-7 text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-        aria-label={label}
-      >
-        {options.map((o) => <option key={o} value={o}>{o === '全部' ? `${label}：全部` : o}</option>)}
-      </select>
-    </div>
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="h-8 w-auto min-w-[7rem] gap-1 text-xs" aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="z-[300]">
+        {options.map((o) => (
+          <SelectItem key={o} value={o}>{o === '全部' ? `${label}：全部` : o}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

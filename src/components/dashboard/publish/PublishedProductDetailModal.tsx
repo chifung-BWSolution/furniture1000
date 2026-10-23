@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import {
@@ -819,17 +820,34 @@ export function PublishedProductDetailModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">一級分類</label>
-                  <select className={`${inputCls} cursor-pointer`} value={editL1} onChange={(e) => { setEditL1(e.target.value); setEditL2(''); }}>
-                    <option value="">— 請選擇 —</option>
-                    {level1Options.map((l1) => <option key={l1} value={l1}>{l1}</option>)}
-                  </select>
+                  <Select
+                    value={editL1 || '__none__'}
+                    onValueChange={(value) => { setEditL1(value === '__none__' ? '' : value); setEditL2(''); }}
+                  >
+                    <SelectTrigger className={cn(inputCls, 'cursor-pointer z-[300]')}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="z-[300]">
+                      <SelectItem value="__none__">— 請選擇 —</SelectItem>
+                      {level1Options.map((l1) => <SelectItem key={l1} value={l1}>{l1}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">二級分類</label>
-                  <select className={`${inputCls} cursor-pointer`} value={editL2} onChange={(e) => setEditL2(e.target.value)} disabled={!editL1}>
-                    <option value="">— 請選擇 —</option>
-                    {getLevel2Options(editL1).map((l2) => <option key={l2} value={l2}>{l2}</option>)}
-                  </select>
+                  <Select
+                    value={editL2 || '__none__'}
+                    onValueChange={(value) => setEditL2(value === '__none__' ? '' : value)}
+                    disabled={!editL1}
+                  >
+                    <SelectTrigger className={cn(inputCls, 'cursor-pointer')}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="z-[300]">
+                      <SelectItem value="__none__">— 請選擇 —</SelectItem>
+                      {getLevel2Options(editL1).map((l2) => <SelectItem key={l2} value={l2}>{l2}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div>

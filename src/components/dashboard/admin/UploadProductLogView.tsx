@@ -5,6 +5,7 @@ import {
   ClipboardList, RefreshCw, Loader2, Clock, ChevronLeft, ChevronRight, ChevronDown, Mail,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EmptyState } from '@/components/ui/empty-state';
 import type { PublishLogStage } from '@/lib/uploadLog';
 import {
@@ -355,20 +356,24 @@ export function UploadProductLogView() {
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
-                <select
+                <Select
                   value={selectedDate ?? report.todayHk}
-                  onChange={(e) => {
-                    setSelectedDate(e.target.value);
+                  onValueChange={(value) => {
+                    setSelectedDate(value);
                     setViewMode('single');
                   }}
-                  className="h-9 min-w-[160px] border-x border-border bg-transparent px-2 font-mono-data text-xs focus:outline-none"
                 >
-                  {report.dailyRows.map((row) => (
-                    <option key={row.hkDate} value={row.hkDate}>
-                      {formatHkDateLabel(row.hkDate, report.todayHk)}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-9 min-w-[160px] border-x border-border bg-transparent px-2 font-mono-data text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {report.dailyRows.map((row) => (
+                      <SelectItem key={row.hkDate} value={row.hkDate}>
+                        {formatHkDateLabel(row.hkDate, report.todayHk)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <button
                   type="button"
                   onClick={goNextDay}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
@@ -458,14 +459,16 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
               </div>
             </div>
           ))}
-          <label className="flex h-8 items-center gap-1.5 text-sm">
-            <input
-              type="checkbox"
+          <div className="flex h-8 items-center gap-1.5 text-sm">
+            <Checkbox
+              id="furniture-model-cable-tray"
               checked={style.cable_tray}
-              onChange={(event) => setStyle((cur) => ({ ...cur, cable_tray: event.target.checked }))}
+              onCheckedChange={(checked) => setStyle((cur) => ({ ...cur, cable_tray: checked === true }))}
             />
-            中間走線槽
-          </label>
+            <label htmlFor="furniture-model-cable-tray" className="cursor-pointer">
+              中間走線槽
+            </label>
+          </div>
         </div>
       )}
 

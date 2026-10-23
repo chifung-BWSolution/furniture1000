@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Search, X, FolderTree, Factory, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 export type PageSize = 20 | 50 | 100;
@@ -277,16 +278,15 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
                   <span className="font-mono-data text-[10px] text-muted-foreground">{selectedFactories.length} / {availableFactories.length} 已選</span>
                   <button onClick={() => setSelectedFactories([])} className="text-[10px] text-indigo-500 hover:underline">清除全部</button>
                 </div>
-                {availableFactories.map((f) => (
-                  <label key={f} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60">
-                    <input
-                      type="checkbox"
+                {availableFactories.map((f, index) => (
+                  <div key={f} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60">
+                    <Checkbox
+                      id={`publish-factory-${index}`}
                       checked={selectedFactories.includes(f)}
-                      onChange={(e) => setSelectedFactories((prev) => e.target.checked ? [...prev, f] : prev.filter((x) => x !== f))}
-                      className="h-3.5 w-3.5 rounded border-border accent-indigo-600"
+                      onCheckedChange={(checked) => setSelectedFactories((prev) => checked === true ? [...prev, f] : prev.filter((x) => x !== f))}
                     />
-                    <span className="truncate font-body text-xs">{f}</span>
-                  </label>
+                    <label htmlFor={`publish-factory-${index}`} className="cursor-pointer truncate font-body text-xs">{f}</label>
+                  </div>
                 ))}
               </>
             )}

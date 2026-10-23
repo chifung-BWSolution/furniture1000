@@ -11,6 +11,16 @@
  *  C) lightbox-originals — <ImageLightbox> without `thumbWidth`: the strip
  *     thumbnails pull full-size files.
  *
+ * Plus the "don't hand-roll a control" rules added after the report/quote
+ * screens grew bespoke shells:
+ *
+ *  E) custom-dialog-shell — `role="dialog"` / `aria-modal` written by hand
+ *     instead of the shared <Modal> (no focus trap, no ESC, no scroll lock,
+ *     and nested dialogs land under the wrong z-index).
+ *  F) custom-switch       — a `<button role="switch">` instead of <Switch>.
+ *  G) advisories          — native <select> / <input type=checkbox|radio> and
+ *     window.confirm/alert/prompt where the shared component exists.
+ *
  * Usage:
  *   node scripts/audit-image-components.mjs
  *   node scripts/audit-image-components.mjs --json
@@ -46,6 +56,16 @@ const RAW_IMG_EXCEPTIONS = [
   ["components/dashboard/customers/CustomerPortalExtraViews.tsx", "src={imagePreview}", "local blob: preview of the just-picked file"],
   ["components/dashboard/ProductWorkbench.tsx", "src={qr}", "QR code data URL generated in the browser"],
   ["components/dashboard/QuotationDraftEditor.tsx", "qrserver", "QR code from an external QR service"],
+  [
+    "components/dashboard/QuotePhotoLayoutEditor.tsx",
+    null,
+    "crop dialog positions the bitmap with pixel math (natural size × scale × offset); the shared 320px thumb would be too soft to crop",
+  ],
+  [
+    "components/dashboard/QuotePhotoLayoutView.tsx",
+    null,
+    "printed layout needs object-position / scale transforms on the full-size photo; a 320px thumb would blur the canvas and the A4 output",
+  ],
 ];
 
 /** Files allowed to use the raw <Dialog> (not the app-wide <Modal>). */
@@ -101,6 +121,7 @@ for (const file of walk(SRC)) {
 
   for (const [i, line] of lines.entries()) {
     const at = `${rel}:${i + 1}`;
+    const isPrimitive = rel.startsWith("components/ui/");
 
     // B) raw <Dialog> instead of the shared <Modal>
     if (/<Dialog\b/.test(line) && !DIALOG_ALLOW.some((f) => rel === f)) {
@@ -109,6 +130,28 @@ for (const file of walk(SRC)) {
         file: at,
         code: line.trim().slice(0, 120),
         fix: "use <Modal> from @/components/ui/modal (canonical modal: overlay, focus trap, ESC, same chrome everywhere)",
+      });
+    }
+
+    // E) a dialog shell written by hand: backdrop + role="dialog"/aria-modal.
+    //    Only <Modal> owns that markup, so focus trap / ESC / scroll lock /
+    //    layer stacking stay consistent (nested dialogs included).
+    if (!isPrimitive && /role="dialog"|aria-modal=/.test(line)) {
+      violations.push({
+        rule: "custom-dialog-shell",
+        file: at,
+        code: line.trim().slice(0, 120),
+        fix: 'use <Modal variant="fullscreen"> for a window-sized surface, or <Modal> + footer for a normal dialog — never a bare fixed inset-0 + role="dialog"',
+      });
+    }
+
+    // F) a switch drawn by hand instead of <Switch>.
+    if (!isPrimitive && /role="switch"/.test(line)) {
+      violations.push({
+        rule: "custom-switch",
+        file: at,
+        code: line.trim().slice(0, 120),
+        fix: "use <Switch> from @/components/ui/switch (Radix: real thumb, focus ring, aria-checked)",
       });
     }
 
@@ -130,6 +173,35 @@ for (const file of walk(SRC)) {
         });
       }
     }
+  }
+
+  // G) native controls where the shared primitive already exists. Advisory:
+  //    most of these sit in dense tables/filters, so they are migrated in
+  //    batches instead of blocking every commit.
+  const count = (re) => (source.match(re) || []).length;
+  const nativeSelects = count(/<select\b/g);
+  if (nativeSelects) {
+    advisories.push({
+      rule: "native-select",
+      file: `${rel} (${nativeSelects})`,
+      fix: "use <Select> from @/components/ui/select so the trigger matches the rest of the app",
+    });
+  }
+  const nativeChoices = count(/type="checkbox"/g) + count(/type="radio"/g);
+  if (nativeChoices) {
+    advisories.push({
+      rule: "native-checkbox",
+      file: `${rel} (${nativeChoices})`,
+      fix: "use <Checkbox> / <RadioGroup> from @/components/ui",
+    });
+  }
+  const nativeConfirm = count(/window\.(confirm|alert|prompt)\(/g);
+  if (nativeConfirm && rel !== "components/ui/confirm-dialog.tsx") {
+    advisories.push({
+      rule: "native-confirm",
+      file: `${rel} (${nativeConfirm})`,
+      fix: "use <AlertDialog> for a yes/no and sonner toast() for a notice — window.confirm blocks the paint and cannot be styled",
+    });
   }
 
   // D) the transform trap: a bleed modal whose children are absolutely

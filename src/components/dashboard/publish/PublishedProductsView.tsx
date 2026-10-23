@@ -1817,13 +1817,6 @@ export function PublishedProductsView({
 
   const clearAllSelection = () => setSelectedIds([]);
 
-  const pageSelectAllRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (pageSelectAllRef.current) {
-      pageSelectAllRef.current.indeterminate = pageSomeSelected;
-    }
-  }, [pageSomeSelected]);
-
   const togglePageSelectAll = (checked: boolean) => {
     setSelectedIds((prev) => {
       if (checked) {
@@ -2422,13 +2415,16 @@ export function PublishedProductsView({
               className="h-8 w-56 rounded-lg border border-border bg-card pl-8 pr-3 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
-          <select
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
-            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
-          >
-            {[20, 25, 50, 100].map(n => <option key={n} value={n}>每頁 {n} 項</option>)}
-          </select>
+          <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
+            <SelectTrigger className="h-8 w-[7.5rem] text-xs" aria-label="每頁項目數">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[20, 25, 50, 100].map((n) => (
+                <SelectItem key={n} value={String(n)}>{`每頁 ${n} 項`}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select
             value={level1Filter || '__all__'}
             onValueChange={(val) => {
@@ -2488,16 +2484,20 @@ export function PublishedProductsView({
               </SelectContent>
             </Select>
           )}
-          <div className="relative">
-            <select
-              value={factoryFilter}
-              onChange={(e) => setFactoryFilter(e.target.value)}
-              className="h-8 appearance-none rounded-lg border border-border bg-card pl-3 pr-8 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-            >
-              {factories.map((f) => <option key={f} value={f}>{f === '全部' ? '篩選廠家：全部' : f}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          </div>
+          <Select
+            value={factoryFilter || '全部'}
+            onValueChange={setFactoryFilter}
+          >
+            <SelectTrigger className="h-8 w-[10rem] text-xs" aria-label="廠家">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="全部">篩選廠家：全部</SelectItem>
+              {factories.filter((f) => f !== '全部').map((f) => (
+                <SelectItem key={f} value={f}>{f}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {priceAudit ? (
             <div className="inline-flex h-8 overflow-hidden rounded-lg border border-border">
               <button
@@ -3187,13 +3187,10 @@ export function PublishedProductsView({
                   onClick={() => togglePageSelectAll(!pageAllSelected)}
                 >
                   <div className="flex h-full min-h-[2.5rem] w-full items-center justify-center">
-                    <input
-                      ref={pageSelectAllRef}
-                      type="checkbox"
-                      className="pointer-events-none rounded border-border"
-                      title="全選本頁"
-                      checked={pageAllSelected}
-                      readOnly
+                    <Checkbox
+                      className="pointer-events-none"
+                      aria-label="全選本頁"
+                      checked={pageAllSelected ? true : pageSomeSelected ? 'indeterminate' : false}
                       tabIndex={-1}
                     />
                   </div>
@@ -3350,11 +3347,9 @@ export function PublishedProductsView({
                       }}
                     >
                       <div className="flex w-full items-start justify-center pt-3" style={{ minHeight: thumbPx }}>
-                        <input
-                          type="checkbox"
-                          className="pointer-events-none rounded border-border"
+                        <Checkbox
+                          className="pointer-events-none"
                           checked={selectedIds.includes(p.id)}
-                          readOnly
                           tabIndex={-1}
                           aria-label="選擇產品"
                         />
@@ -3620,18 +3615,19 @@ export function PublishedProductsView({
               <thead className="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border">
                 <tr className="text-xs text-muted-foreground uppercase tracking-wider">
                   <th className="w-10 px-4 py-2.5">
-                    <input
-                      type="checkbox"
-                      checked={filteredPreview.length > 0 && filteredPreview.every(p => selectedImportIds.has(p.shopify_product_id))}
-                      onChange={e => {
+                    <Checkbox
+                      aria-label="全選"
+                      checked={
+                        filteredPreview.length > 0 &&
+                        filteredPreview.every(p => selectedImportIds.has(p.shopify_product_id))
+                      }
+                      onCheckedChange={checked => {
                         setSelectedImportIds(prev => {
                           const n = new Set(prev);
-                          filteredPreview.forEach(p => e.target.checked ? n.add(p.shopify_product_id) : n.delete(p.shopify_product_id));
+                          filteredPreview.forEach(p => checked === true ? n.add(p.shopify_product_id) : n.delete(p.shopify_product_id));
                           return n;
                         });
                       }}
-                      className="rounded border-border"
-                      title="全選"
                     />
                   </th>
                   <th className="px-3 py-2.5 text-left font-medium">產品</th>
@@ -3645,7 +3641,7 @@ export function PublishedProductsView({
                 {filteredPreview.map(p => (
                   <tr key={p.shopify_product_id} className={cn('hover:bg-muted/30 cursor-pointer', selectedImportIds.has(p.shopify_product_id) && 'bg-emerald-500/5')} onClick={() => toggleImportSelect(p.shopify_product_id)}>
                     <td className="px-4 py-2.5">
-                      <input type="checkbox" checked={selectedImportIds.has(p.shopify_product_id)} onChange={() => toggleImportSelect(p.shopify_product_id)} onClick={e => e.stopPropagation()} className="rounded border-border" />
+                      <Checkbox checked={selectedImportIds.has(p.shopify_product_id)} onCheckedChange={() => toggleImportSelect(p.shopify_product_id)} onClick={e => e.stopPropagation()} aria-label={`選取 ${p.title}`} />
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2.5">

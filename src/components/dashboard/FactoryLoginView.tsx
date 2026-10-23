@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FileText, LogIn, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 import { CompactEmptyState } from '@/components/ui/empty-state';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePlatformRole } from '@/hooks/use-platform-role';
 import {
   inviteSupplier,
@@ -118,17 +119,16 @@ export function FactoryLoginView() {
                 aria-label="廠家電郵"
                 className="h-10 flex-1 rounded-lg border border-border bg-background px-3 text-sm"
               />
-              <select
-                value={factoryId}
-                onChange={(event) => setFactoryId(event.target.value)}
-                aria-label="綁定廠家"
-                className="h-10 flex-1 rounded-lg border border-border bg-background px-3 text-sm"
-              >
-                <option value="">選擇廠家</option>
-                {factories.map((factory) => (
-                  <option key={factory.id} value={factory.id}>{factory.name}</option>
-                ))}
-              </select>
+              <Select value={factoryId} onValueChange={setFactoryId}>
+                <SelectTrigger className="h-10 flex-1" aria-label="綁定廠家">
+                  <SelectValue placeholder="選擇廠家" />
+                </SelectTrigger>
+                <SelectContent>
+                  {factories.map((factory) => (
+                    <SelectItem key={factory.id} value={factory.id}>{factory.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <button
                 type="button"
                 disabled={saving}

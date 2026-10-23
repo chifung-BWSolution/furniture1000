@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Progress } from '@/components/ui/progress';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ImageLightbox } from '@/components/ui/image-lightbox';
@@ -5229,14 +5231,23 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           <div className="space-y-4">
             <fieldset disabled={isProcessing || isUploadingDocuments || uploadedFiles.length > 0} className="space-y-2">
               <legend className="mb-2 text-xs font-medium text-muted-foreground">處理方式</legend>
-              <div className="flex flex-wrap gap-x-6 gap-y-3">
+              <RadioGroup
+                value={uploadMethod}
+                onValueChange={(value) => setUploadMethod(value as 'background' | 'instant')}
+                className="flex flex-wrap gap-x-6 gap-y-3"
+              >
                 {([{ value: 'background', label: 'PDF 背景解析' }, { value: 'instant', label: '即時提取 · PDF / Excel / 圖片' }] as const).map(option => (
-                  <label key={option.value} className="flex cursor-pointer items-center gap-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
-                    <input type="radio" name="product-upload-method" value={option.value} checked={uploadMethod === option.value} onChange={() => setUploadMethod(option.value)} className="h-4 w-4 accent-primary" />
-                    {option.label}
-                  </label>
+                  <div key={option.value} className="flex items-center gap-2">
+                    <RadioGroupItem id={`upload-method-${option.value}`} value={option.value} />
+                    <label
+                      htmlFor={`upload-method-${option.value}`}
+                      className="cursor-pointer text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60"
+                    >
+                      {option.label}
+                    </label>
+                  </div>
                 ))}
-              </div>
+              </RadioGroup>
             </fieldset>
             <p id="upload-method-help" className="text-xs leading-relaxed text-muted-foreground">
               {uploadMethod === 'background'
@@ -5244,19 +5255,40 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                 : '先加入所有檔案，再開始提取；請保持此頁開啟。PDF 原件會自動保存，支援 PDF 與 Excel 配對提取。'}
             </p>
             <div className="flex flex-wrap gap-3">
-              <label className="space-y-1 text-xs text-muted-foreground">
+              <div className="space-y-1 text-xs text-muted-foreground">
                 <span className="block">PDF 文件類型</span>
-                <select value={documentType} onChange={event => setDocumentType(event.target.value as 'quote' | 'catalog')} disabled={isUploadingDocuments || isProcessing || uploadedFiles.length > 0} className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground disabled:opacity-60">
-                  <option value="quote">報價單</option><option value="catalog">產品目錄</option>
-                </select>
-              </label>
-              <label className="space-y-1 text-xs text-muted-foreground">
+                <Select
+                  value={documentType}
+                  onValueChange={(value) => setDocumentType(value as 'quote' | 'catalog')}
+                  disabled={isUploadingDocuments || isProcessing || uploadedFiles.length > 0}
+                >
+                  <SelectTrigger className="h-9 w-full text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="quote">報價單</SelectItem>
+                    <SelectItem value="catalog">產品目錄</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1 text-xs text-muted-foreground">
                 <span className="block">PDF 貨幣</span>
-                <select value={documentCurrency} onChange={event => setDocumentCurrency(event.target.value)} disabled={isUploadingDocuments || isProcessing || uploadedFiles.length > 0} className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground disabled:opacity-60">
-                  <option value="">貨幣未標示</option>
-                  {['HKD', 'RMB', 'USD', 'EUR'].map(currency => <option key={currency} value={currency}>{currency}</option>)}
-                </select>
-              </label>
+                <Select
+                  value={documentCurrency || '__none__'}
+                  onValueChange={(value) => setDocumentCurrency(value === '__none__' ? '' : value)}
+                  disabled={isUploadingDocuments || isProcessing || uploadedFiles.length > 0}
+                >
+                  <SelectTrigger className="h-9 w-full text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">貨幣未標示</SelectItem>
+                    {['HKD', 'RMB', 'USD', 'EUR'].map((currency) => (
+                      <SelectItem key={currency} value={currency}>{currency}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 

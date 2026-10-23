@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CompactEmptyState } from '@/components/ui/empty-state';
 import {
   CreditCard, Truck, ShoppingBag, Trash2, Loader2, Lock, MapPin, Package,
@@ -290,15 +291,16 @@ export function CustomerPaymentDeliveryView() {
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-xs text-muted-foreground">地區</span>
-                  <select
-                    value={form.district}
-                    onChange={(e) => updateForm('district', e.target.value)}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  >
-                    <option>香港島</option>
-                    <option>九龍</option>
-                    <option>新界</option>
-                  </select>
+                  <Select value={form.district || '香港島'} onValueChange={(value) => updateForm('district', value)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="香港島">香港島</SelectItem>
+                      <SelectItem value="九龍">九龍</SelectItem>
+                      <SelectItem value="新界">新界</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </label>
                 <label className="block sm:col-span-2">
                   <span className="mb-1 block text-xs text-muted-foreground">送貨地址 *</span>

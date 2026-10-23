@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { CompactEmptyState } from '@/components/ui/empty-state';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Building2,
   Check,
-  ChevronDown,
   Copy,
   Eye,
   EyeOff,
@@ -258,20 +258,22 @@ export function InviteClientsView() {
               「設計專案」完成傢俬配置並儲存後，可在此為該專案建立免登入連結。客戶開啟後直接查看報價方案，亦可瀏覽客戶專區其他頁面；成本資料一律隱藏。
             </p>
           </div>
-          <div className="relative min-w-[280px]">
-            <select
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              className="h-11 w-full appearance-none rounded-lg border border-border bg-card pl-3 pr-9 font-display text-sm font-semibold focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-              aria-label="選擇專案"
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {p.clientCompany || p.clientName || '未填客戶'}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <div className="min-w-[280px]">
+            <Select value={projectId} onValueChange={setProjectId}>
+              <SelectTrigger
+                className="h-11 w-full font-display text-sm font-semibold"
+                aria-label="選擇專案"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-w-[min(90vw,32rem)]">
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name} · {p.clientCompany || p.clientName || '未填客戶'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

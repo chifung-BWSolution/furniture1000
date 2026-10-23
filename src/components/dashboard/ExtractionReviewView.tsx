@@ -98,6 +98,41 @@ const PHASE_LABEL: Record<Exclude<Phase, 'all'>, string> = {
 const INFO_FLAGS = new Set(['catalog_no_price', 'currency_from_document', 'ai_uncertain']);
 const REVIEW_PAGE_SIZE = 100;
 
+/**
+ * The dashboard unmounts this view whenever the reviewer switches section, so a
+ * fresh mount used to refetch the whole document (docs + first page + every
+ * image) even though nothing had changed. One module-level snapshot lets the
+ * reviewer come back to exactly where they were.
+ */
+interface ReviewSnapshot {
+  docs: ReviewDocument[];
+  docId: string | null;
+  items: ExtractionItem[];
+  images: ExtractionImage[];
+  hasMoreItems: boolean;
+  filter: Filter;
+  query: string;
+  docQuery: string;
+  factoryFilter: string;
+  phaseFilter: Phase;
+  scrollTop: number;
+  savedAt: number;
+}
+
+/** Long enough to cover tab hopping, short enough that counts stay believable. */
+const SNAPSHOT_TTL_MS = 10 * 60 * 1000;
+let reviewSnapshot: ReviewSnapshot | null = null;
+
+function readSnapshot(): ReviewSnapshot | null {
+  if (!reviewSnapshot) return null;
+  const stale = Date.now() - reviewSnapshot.savedAt > SNAPSHOT_TTL_MS;
+  if (stale || reviewSnapshot.docs.length === 0) {
+    reviewSnapshot = null;
+    return null;
+  }
+  return reviewSnapshot;
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -191,35 +226,40 @@ interface ExtractionReviewViewProps {
 }
 
 export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps = {}) {
+  // Read once: restoring after a tab switch should not depend on re-render order.
+  const restoredRef = useRef<ReviewSnapshot | null>(readSnapshot());
+  const restored = restoredRef.current;
   const [canManage, setCanManage] = useState<boolean | null>(null);
-  const [docs, setDocs] = useState<ReviewDocument[]>([]);
-  const [docId, setDocId] = useState<string | null>(null);
-  const [items, setItems] = useState<ExtractionItem[]>([]);
-  const [hasMoreItems, setHasMoreItems] = useState(false);
+  const [docs, setDocs] = useState<ReviewDocument[]>(restored?.docs ?? []);
+  const [docId, setDocId] = useState<string | null>(restored?.docId ?? null);
+  const [items, setItems] = useState<ExtractionItem[]>(restored?.items ?? []);
+  const [hasMoreItems, setHasMoreItems] = useState(restored?.hasMoreItems ?? false);
   const [loadingMoreItems, setLoadingMoreItems] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
-  const [images, setImages] = useState<ExtractionImage[]>([]);
+  const [images, setImages] = useState<ExtractionImage[]>(restored?.images ?? []);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
   const [itemsError, setItemsError] = useState<string | null>(null);
-  const [docQuery, setDocQuery] = useState('');
-  const [factoryFilter, setFactoryFilter] = useState('all');
-  const [phaseFilter, setPhaseFilter] = useState<Phase>('all');
-  const [filter, setFilter] = useState<Filter>('pending');
-  const [query, setQuery] = useState('');
+  const [docQuery, setDocQuery] = useState(restored?.docQuery ?? '');
+  const [factoryFilter, setFactoryFilter] = useState(restored?.factoryFilter ?? 'all');
+  const [phaseFilter, setPhaseFilter] = useState<Phase>(restored?.phaseFilter ?? 'all');
+  const [filter, setFilter] = useState<Filter>(restored?.filter ?? 'pending');
+  const [query, setQuery] = useState(restored?.query ?? '');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<ExtractionItem | null>(null);
   const [sourcePage, setSourcePage] = useState<number | null | undefined>(undefined);
   const itemsRequestRef = useRef({
-    documentId: null as string | null,
-    offset: 0,
-    hasMore: false,
+    documentId: restored?.docId ?? null,
+    offset: restored?.items.length ?? 0,
+    hasMore: restored?.hasMoreItems ?? false,
     loading: false,
     loadingMore: false,
     error: null as string | null,
   });
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollTopRef = useRef(restored?.scrollTop ?? 0);
   const listEndRef = useRef<HTMLTableRowElement>(null);
 
   const imageById = useMemo(() => new Map(images.map((i) => [i.id, i])), [images]);
@@ -293,7 +333,13 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
       if (request !== itemsRequestRef.current) return;
       request.offset = offset + rows.length;
       request.hasMore = rows.length === REVIEW_PAGE_SIZE;
-      setItems((current) => [...current, ...rows]);
+      // De-dupe by id: a repeated page (double-fired scroll sentinel, retry after
+      // a failed batch) must never inflate the list with the same row twice.
+      setItems((current) => {
+        const seen = new Set(current.map((i) => i.id));
+        const fresh = rows.filter((row) => !seen.has(row.id));
+        return fresh.length === rows.length ? [...current, ...rows] : [...current, ...fresh];
+      });
       setHasMoreItems(request.hasMore);
     } catch (err) {
       if (request === itemsRequestRef.current) {
@@ -322,8 +368,12 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
   }, []);
 
   useEffect(() => {
-    if (canManage) void reloadDocs();
-  }, [canManage, reloadDocs]);
+    if (!canManage) return;
+    // A restored snapshot already holds the document list; refetching it on every
+    // tab switch is what made returning to this section feel like a reload.
+    if (docs.length > 0) return;
+    void reloadDocs();
+  }, [canManage, reloadDocs, docs.length]);
 
   useEffect(() => {
     setSelected(new Set());
@@ -339,6 +389,10 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
       setLoadingItems(false);
       return;
     }
+    // Already showing this document (restored after a tab switch, or effects
+    // re-running): keep the loaded pages and the current tab instead of
+    // fetching page 1 again.
+    if (items.length > 0 && itemsRequestRef.current.documentId === docId) return;
     // Drop the previous document immediately so approve/reject cannot hit its items.
     setItems([]);
     setHasMoreItems(false);
@@ -347,17 +401,9 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
     setQuery('');
     setFilter('pending');
     void reloadItems(docId);
+    // `items` is deliberately not a dependency: it changes on every page load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docId, reloadItems]);
-
-  useEffect(() => {
-    const container = listEndRef.current?.closest('[data-review-scroll]');
-    if (!container || !hasMoreItems || loadingItems || loadingMoreItems || loadMoreError) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) void loadMoreItems();
-    }, { root: container, rootMargin: '240px' });
-    observer.observe(listEndRef.current!);
-    return () => observer.disconnect();
-  }, [hasMoreItems, loadingItems, loadingMoreItems, loadMoreError, loadMoreItems]);
 
   const factoryOptions = useMemo(() => {
     const names = new Set<string>();
@@ -421,13 +467,67 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
     });
   }, [items, filter, query]);
 
+  /** How many rows the server says this filter has — used to bound auto-paging. */
+  const filterKnownCount = useMemo(() => {
+    switch (filter) {
+      case 'pending': return itemCounts.pending;
+      case 'attention': return itemCounts.attention;
+      case 'approved': return itemCounts.approved;
+      case 'imported': return itemCounts.imported;
+      case 'rejected': return itemCounts.rejected;
+      default: return itemCounts.total;
+    }
+  }, [filter, itemCounts]);
+
+  /**
+   * Auto-paging is only safe when the tab actually claims rows. A search that
+   * currently matches nothing must not silently pull the rest of the document.
+   */
+  const autoPagingAllowed = filterKnownCount > 0 && (query.trim() === '' || visible.length > 0);
+
   useEffect(() => {
-    // A search or status filter may not match the first page. Continue paging
-    // until a match appears, or the document is exhausted.
+    // A status filter may not match the first page, so keep paging until a match
+    // appears. Never page for a filter the counts already report as empty:
+    // that used to sweep all 800+ rows just to show an empty "待審核" tab.
+    if (!autoPagingAllowed) return;
     if (!loadingItems && !loadingMoreItems && !loadMoreError && hasMoreItems && visible.length === 0) {
       void loadMoreItems();
     }
-  }, [loadingItems, loadingMoreItems, loadMoreError, hasMoreItems, visible.length, loadMoreItems]);
+  }, [autoPagingAllowed, loadingItems, loadingMoreItems, loadMoreError, hasMoreItems, visible.length, loadMoreItems]);
+
+  /**
+   * Infinite scroll. Two rules learned the hard way:
+   * 1. The sentinel sits right under the empty state, so on a tab with no rows it
+   *    is always 100% visible — never page for a filter the counts know is empty.
+   * 2. The observer must not be rebuilt after each page (depending on
+   *    `loadingMoreItems` did that). Every fresh observer immediately reports the
+   *    still-visible sentinel, which loaded another page, which rebuilt it again
+   *    — that loop is what kept pushing rows into the list on every tab click.
+   *    The observer now only records visibility; a separate effect decides.
+   */
+  const [sentinelInView, setSentinelInView] = useState(false);
+
+  useEffect(() => {
+    if (!hasMoreItems) return;
+    const sentinel = listEndRef.current;
+    const container = sentinel?.closest('[data-review-scroll]');
+    if (!sentinel || !container) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setSentinelInView(entry.isIntersecting),
+      { root: container, rootMargin: '240px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+    // `autoPagingAllowed` matters because it is what mounts/unmounts the sentinel
+    // row — without it the observer would keep watching a detached node after a
+    // tab switch and scrolling would stop loading.
+  }, [hasMoreItems, autoPagingAllowed, loadMoreItems]);
+
+  useEffect(() => {
+    if (!sentinelInView || !autoPagingAllowed) return;
+    if (!hasMoreItems || loadingItems || loadingMoreItems || loadMoreError) return;
+    void loadMoreItems();
+  }, [sentinelInView, autoPagingAllowed, hasMoreItems, loadingItems, loadingMoreItems, loadMoreError, loadMoreItems]);
 
   const selectable = visible.filter((i) => !i.imported_product_id);
   const allSelected = selectable.length > 0 && selectable.every((i) => selected.has(i.id));
@@ -437,7 +537,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
    * First open of a document should land on rows that need work. Only runs once
    * per document so a reviewer can still pick an empty tab on purpose.
    */
-  const autoFilterDocRef = useRef<string | null>(null);
+  const autoFilterDocRef = useRef<string | null>(restored?.docId ?? null);
   useEffect(() => {
     if (!docId || loadingItems || items.length === 0 || autoFilterDocRef.current === docId) return;
     autoFilterDocRef.current = docId;
@@ -445,6 +545,39 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
     if (itemCounts.attention > 0) setFilter('attention');
     else if (itemCounts.imported > 0) setFilter('imported');
   }, [docId, loadingItems, items.length, itemCounts]);
+
+  // Keep the snapshot in step with every review / batch / filter change so
+  // coming back to this section shows the same rows, tab and scroll position.
+  useEffect(() => {
+    if (docs.length === 0) return;
+    reviewSnapshot = {
+      docs,
+      docId,
+      items,
+      images,
+      hasMoreItems,
+      filter,
+      query,
+      docQuery,
+      factoryFilter,
+      phaseFilter,
+      scrollTop: scrollTopRef.current,
+      savedAt: Date.now(),
+    };
+  }, [docs, docId, items, images, hasMoreItems, filter, query, docQuery, factoryFilter, phaseFilter]);
+
+  // Capture the final scroll offset on the way out (unmount = switching tabs).
+  useEffect(
+    () => () => {
+      if (reviewSnapshot) reviewSnapshot.scrollTop = scrollTopRef.current;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const el = tableScrollRef.current;
+    if (el && scrollTopRef.current > 0) el.scrollTop = scrollTopRef.current;
+  }, []);
 
   const toggleAll = () => {
     setSelected(allSelected ? new Set() : new Set(selectable.map((i) => i.id)));
@@ -530,17 +663,15 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
     setSourcePage(page);
   };
 
-  if (canManage === null) {
-    return (
-      <div className="flex h-full items-center justify-center bg-muted/20 p-6">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> 檢查權限…
-        </div>
-      </div>
-    );
-  }
+  /**
+   * The first paint has no document list yet. Keep the two-column shell and its
+   * skeletons on screen for that window instead of flipping to the "nothing to
+   * review" empty state and then back again once the list arrives.
+   */
+  const bootstrapping = canManage === null;
+  const firstLoad = (bootstrapping || loadingDocs) && docs.length === 0;
 
-  if (!canManage) {
+  if (canManage === false) {
     return (
       <div className="flex h-full items-center justify-center bg-muted/20 p-6">
         <div className="max-w-sm rounded-2xl border border-border bg-card p-6 text-center">
@@ -560,7 +691,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-muted/20">
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-3 md:p-5 xl:flex-row">
         {/* ── 供應商文件 ─────────────────────────────────────────────── */}
-        <aside className="flex max-h-[46vh] min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card xl:max-h-none xl:w-[336px]">
+        <aside className="flex max-h-[46vh] min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card xl:max-h-none xl:w-[272px] 2xl:w-[312px]">
           <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
             <h2 className="font-display text-base font-bold tracking-tight text-foreground">供應商文件</h2>
             <Button
@@ -568,7 +699,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
               size="icon"
               className="h-8 w-8 text-muted-foreground hover:text-foreground"
               onClick={() => void reloadDocs()}
-              disabled={loadingDocs}
+              disabled={loadingDocs || bootstrapping}
               title="重新整理文件清單"
               aria-label="重新整理文件清單"
             >
@@ -616,7 +747,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {loadingDocs && docs.length === 0 && (
+            {firstLoad && (
               <div className="space-y-2">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className="rounded-xl border border-border/60 p-3">
@@ -648,7 +779,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
               </div>
             )}
 
-            {!docsError && !loadingDocs && visibleDocs.length === 0 && (
+            {!docsError && !firstLoad && visibleDocs.length === 0 && (
               <div className="px-2 py-6 text-center">
                 <FileSearch className="mx-auto h-6 w-6 text-muted-foreground/60" />
                 <p className="mt-2 text-xs text-muted-foreground">
@@ -690,24 +821,43 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
         {/* ── 提取結果 ───────────────────────────────────────────────── */}
         <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3.5">
           {!doc ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-dashed border-border bg-card/60 p-8">
-              <div className="max-w-sm text-center">
-                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <FileSearch className="h-6 w-6" />
-                </span>
-                <h2 className="mt-3 font-display text-lg font-bold tracking-tight text-foreground">
-                  未有待審核的提取結果
-                </h2>
-                <p className="mt-1 font-body text-sm leading-relaxed text-muted-foreground">
-                  上載供應商報價單或產品目錄，AI 會抽出型號、尺寸與成本價，再交給你逐項核對。
-                </p>
-                {onOpenUpload && (
-                  <Button className="mt-4" onClick={onOpenUpload}>
-                    <PackagePlus className="mr-1.5 h-4 w-4" /> 上載報價 PDF
-                  </Button>
-                )}
+            firstLoad ? (
+              <ReviewPanelSkeleton />
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-dashed border-border bg-card/60 p-8">
+                <div className="max-w-sm text-center">
+                  <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    {docsError ? <AlertCircle className="h-6 w-6" /> : <FileSearch className="h-6 w-6" />}
+                  </span>
+                  <h2 className="mt-3 font-display text-lg font-bold tracking-tight text-foreground">
+                    {docsError
+                      ? '未能讀取文件清單'
+                      : docs.length > 0
+                        ? '沒有符合篩選的文件'
+                        : '未有待審核的提取結果'}
+                  </h2>
+                  <p className="mt-1 font-body text-sm leading-relaxed text-muted-foreground">
+                    {docsError
+                      ? docsError
+                      : docs.length > 0
+                        ? '請清除搜尋關鍵字，或把供應商／狀態篩選改回「全部」。'
+                        : '上載供應商報價單或產品目錄，AI 會抽出型號、尺寸與成本價，再交給你逐項核對。'}
+                  </p>
+                  {docsError ? (
+                    <Button className="mt-4" variant="outline" onClick={() => void reloadDocs()}>
+                      <RefreshCw className="mr-1.5 h-4 w-4" /> 重試
+                    </Button>
+                  ) : (
+                    docs.length === 0 &&
+                    onOpenUpload && (
+                      <Button className="mt-4" onClick={onOpenUpload}>
+                        <PackagePlus className="mr-1.5 h-4 w-4" /> 上載報價 PDF
+                      </Button>
+                    )
+                  )}
+                </div>
               </div>
-            </div>
+            )
           ) : (
             <>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -896,7 +1046,12 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                   </div>
                 </div>
 
-                <div data-review-scroll className="min-h-0 flex-1 overflow-auto">
+                <div
+                  data-review-scroll
+                  ref={tableScrollRef}
+                  onScroll={(e) => { scrollTopRef.current = e.currentTarget.scrollTop; }}
+                  className="min-h-0 flex-1 overflow-auto"
+                >
                   {itemsError ? (
                     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
                       <AlertCircle className="h-6 w-6 text-destructive" />
@@ -923,13 +1078,13 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                               aria-label="全選已載入的可審核項目"
                             />
                           </th>
-                          <th className="w-12 py-2.5 text-left font-medium">圖片</th>
-                          <th className="min-w-[180px] py-2.5 text-left font-medium">型號／名稱</th>
+                          <th className="w-11 py-2.5 text-left font-medium">圖片</th>
+                          <th className="min-w-[160px] py-2.5 text-left font-medium">型號／名稱</th>
                           <th className="w-[6.5rem] py-2.5 text-left font-medium">尺寸 (mm)</th>
-                          <th className="w-[4rem] py-2.5 text-center font-medium">PDF 頁</th>
+                          <th className="w-[3.5rem] py-2.5 text-center font-medium">PDF 頁</th>
                           <th className="w-[6.5rem] py-2.5 text-right font-medium">成本價</th>
-                          <th className="w-[6.5rem] py-2.5 text-left font-medium">置信度</th>
-                          <th className="w-[9.5rem] py-2.5 text-left font-medium">標籤</th>
+                          <th className="w-[6rem] py-2.5 text-left font-medium">置信度</th>
+                          <th className="w-[11rem] py-2.5 text-left font-medium">標籤</th>
                           <th className="w-[5rem] py-2.5 text-left font-medium">狀態</th>
                           <th className="w-[6rem] py-2.5 pr-3 text-right font-medium">操作</th>
                         </tr>
@@ -957,7 +1112,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                             const locked = !!item.imported_product_id;
                             const price = priceParts(p, doc.currency);
                             const tags = itemTags(item);
-                            const extraTags = tags.length - 3;
+                            const extraTags = tags.length - 2;
                             const category = p.series || p.category;
                             return (
                               <tr
@@ -1059,11 +1214,11 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                                 </td>
                                 <td className="py-2.5 pr-2">
                                   <div className="flex flex-wrap items-center gap-1">
-                                    {tags.slice(0, 3).map((tag) => (
+                                    {tags.slice(0, 2).map((tag) => (
                                       <span
                                         key={`${tag.label}-${tag.tone}`}
                                         className={cn(
-                                          'inline-flex max-w-[9.5rem] items-center truncate rounded-md border px-1.5 py-0.5 text-[10px] font-medium',
+                                          'inline-flex max-w-full items-center truncate rounded-md border px-1.5 py-0.5 text-[10px] font-medium',
                                           tag.tone === 'warn'
                                             ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400'
                                             : 'border-border bg-muted/60 text-muted-foreground',
@@ -1076,7 +1231,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                                     {extraTags > 0 && (
                                       <span
                                         className="inline-flex rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                                        title={tags.slice(3).map((t) => t.label).join('、')}
+                                        title={tags.slice(2).map((t) => t.label).join('、')}
                                       >
                                         +{extraTags}
                                       </span>
@@ -1167,7 +1322,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                             </td>
                           </tr>
                         )}
-                        {hasMoreItems && (
+                        {hasMoreItems && (autoPagingAllowed || query.trim() !== '') && (
                           <tr ref={listEndRef}>
                             <td colSpan={10} className="p-4 text-center text-xs text-muted-foreground">
                               {loadMoreError ? (
@@ -1179,7 +1334,16 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                                 </div>
                               ) : loadingMoreItems ? (
                                 <span className="inline-flex items-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在載入更多項目…</span>
-                              ) : '向下滾動以載入更多'}
+                              ) : autoPagingAllowed ? (
+                                '向下滾動以載入更多'
+                              ) : (
+                                // Search with no hit on the loaded pages: make the
+                                // next page an explicit choice instead of sweeping
+                                // the whole document in the background.
+                                <Button variant="outline" size="sm" className="h-7" onClick={() => void loadMoreItems(true)}>
+                                  繼續載入更多
+                                </Button>
+                              )}
                             </td>
                           </tr>
                         )}
@@ -1218,6 +1382,54 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
 }
 
 /* ── Pieces ─────────────────────────────────────────────────────────── */
+
+/**
+ * Placeholder for the whole right-hand panel. Mirrors the real header, stat
+ * tiles and table so the first load does not jump in layout.
+ */
+function ReviewPanelSkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3.5" aria-busy="true">
+      <span className="sr-only">正在載入提取結果…</span>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-5 w-72 max-w-full" />
+          <Skeleton className="h-3 w-96 max-w-full" />
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Skeleton className="h-9 w-28 rounded-lg" />
+          <Skeleton className="h-9 w-32 rounded-lg" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-16 rounded-xl" />
+        ))}
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
+          <Skeleton className="h-8 w-full rounded-lg sm:w-56" />
+          <Skeleton className="h-7 w-16 rounded-lg" />
+          <Skeleton className="h-7 w-16 rounded-lg" />
+          <Skeleton className="ml-auto h-8 w-24 rounded-lg" />
+        </div>
+        <div className="min-h-0 flex-1 divide-y divide-border/60">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="flex items-center gap-3 px-3 py-3">
+              <Skeleton className="h-4 w-4 rounded" />
+              <Skeleton className="h-10 w-10 rounded-lg" />
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="hidden h-3 w-24 sm:block" />
+              <Skeleton className="ml-auto h-3 w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function DocTile({
   doc,
@@ -1273,8 +1485,7 @@ function DocTile({
           </div>
         </div>
 
-        <div className="mt-2 grid grid-cols-4 divide-x divide-border/60 rounded-lg border border-border/60 bg-card/70 py-1.5">
-          <TileStat label="文件筆數" value={total} />
+        <div className="mt-2 grid grid-cols-4 divide-x divide-border/60 rounded-lg border border-border/60 bg-card/70 py-1.5">          <TileStat label="文件筆數" value={total} />
           <TileStat label="未處理" value={doc.counts.attention} tone="amber" />
           <TileStat label="待審核" value={doc.counts.pending} tone="primary" />
           <TileStat label="已匯入" value={doc.counts.imported} tone="emerald" />

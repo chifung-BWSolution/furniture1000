@@ -9,6 +9,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { Checkbox } from '@/components/ui/checkbox';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ImageLightbox } from '@/components/ui/image-lightbox';
 import { Button } from '@/components/ui/button';
@@ -513,7 +514,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                 <div key={it.id} ref={(el) => { cardRefs.current[it.id] = el; }} className={cn('rounded-2xl border bg-card transition-all', isSel ? 'border-emerald-500/50 ring-2 ring-emerald-500/20' : 'border-border')}>
                   {/* card head */}
                   <div className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
-                    <input type="checkbox" checked={isSel} onChange={() => toggle(it.id)} className="h-4 w-4 rounded border-border accent-emerald-600" />
+                    <Checkbox checked={isSel} onCheckedChange={() => toggle(it.id)} aria-label={`選取 ${it.title}`} />
                     <ProductImageStrip
                       productId={it.id}
                       title={it.title}
@@ -764,11 +765,10 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
           <div className="flex flex-col gap-2">
             {REVERT_OPTIONS.map(opt => (
               <label key={opt} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 hover:bg-accent">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-amber-500"
+                <Checkbox
+                  id={`revert-reason-${opt}`}
                   checked={revertReasons.includes(opt)}
-                  onChange={() =>
+                  onCheckedChange={() =>
                     setRevertReasons(prev =>
                       prev.includes(opt) ? prev.filter(r => r !== opt) : [...prev, opt]
                     )

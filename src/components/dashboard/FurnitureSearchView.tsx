@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { confirm } from '@/components/ui/confirm-dialog';
 import {
   ChevronDown, ChevronLeft, ChevronRight, Box, Check, ExternalLink, FileText, ImagePlus, Loader2, Package, PackageSearch, RotateCcw, Ruler, Search, Sparkles,
 } from 'lucide-react';
@@ -1072,8 +1073,13 @@ function SupplierCompareSection({
                             <button
                               type="button"
                               className="mt-1 text-primary hover:underline"
-                              onClick={() => {
-                                if (!window.confirm(`把「${row.factory_name ?? row.model ?? '這件'}」的報價併入目前產品？被合併的產品會從列表隱藏。`)) return;
+                              onClick={async () => {
+                                const ok = await confirm({
+                                  title: '合併重複產品？',
+                                  description: `把「${row.factory_name ?? row.model ?? '這件'}」的報價併入目前產品，被合併的產品會從列表隱藏。`,
+                                  confirmLabel: '合併',
+                                });
+                                if (!ok) return;
                                 mergeDuplicateProduct(keepId, row.product_id)
                                   .then(() => {
                                     toast.success('已合併重複產品');
@@ -1448,6 +1454,9 @@ function ProductModelsSection({
   const savedRef = useRef<{ key: string; id: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  /** 上載模型前先問版本說明（取代 window.prompt）。 */
+  const [pendingModel, setPendingModel] = useState<{ file: File } | null>(null);
+  const [pendingModelNote, setPendingModelNote] = useState('');
   const [extraPhotos, setExtraPhotos] = useState<File[]>([]);
   const [scopeChoice, setScopeChoice] = useState<ProductScopeChoice>();
   const [scopeRequest, setScopeRequest] = useState<{ target: 'su' | '3d' | 'parts'; detection: ProductCountDetection } | null>(null);
@@ -2034,21 +2043,62 @@ function ProductModelsSection({
     : shownProgress.percent >= 100
       ? '已完成'
       : progressFlowConfig.hints[progressFlowConfig.index[shownProgress.label] ?? 0] ?? '正在處理，請稍候…';
+  const commitModelUpload = () => {
+    const pending = pendingModel;
+    if (!pending) return;
+    const note = pendingModelNote.trim();
+    setPendingModel(null);
+    setPendingModelNote('');
+    void run(() => uploadProductModel(productId, pending.file, note), '上載模型失敗');
+  };
+
   const uploadInput = canManage ? (
-    <input
-      ref={inputRef}
-      type="file"
-      accept=".skp,.glb,.fbx"
-      className="hidden"
-      onChange={(event) => {
-        const file = event.target.files?.[0];
-        event.target.value = '';
-        if (!file) return;
-        const note = window.prompt('版本說明（可留空，按取消則不上載）');
-        if (note === null) return;
-        void run(() => uploadProductModel(productId, file, note), '上載模型失敗');
-      }}
-    />
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".skp,.glb,.fbx"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (!file) return;
+          setPendingModelNote('');
+          setPendingModel({ file });
+        }}
+      />
+      <Modal
+        open={pendingModel !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingModel(null);
+        }}
+        title="上載模型檔"
+        description={pendingModel?.file.name}
+        size="md"
+        footer={
+          <>
+            <ModalButton variant="secondary" onClick={() => setPendingModel(null)}>
+              取消
+            </ModalButton>
+            <ModalButton onClick={commitModelUpload}>上載</ModalButton>
+          </>
+        }
+      >
+        <label className="block text-sm font-medium text-foreground">
+          版本說明（可留空）
+          <Input
+            autoFocus
+            value={pendingModelNote}
+            placeholder="例如：修正椅腳比例"
+            onChange={(event) => setPendingModelNote(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commitModelUpload();
+            }}
+            className="mt-1.5"
+          />
+        </label>
+      </Modal>
+    </>
   ) : null;
 
   if (!files) {
@@ -2316,8 +2366,14 @@ function ProductModelsSection({
                   type="button"
                   className="text-muted-foreground hover:text-destructive"
                   disabled={busy != null}
-                  onClick={() => {
-                    if (window.confirm('刪除這個模型檔？')) void run(() => deleteProductModel(f.id), '刪除模型失敗');
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: '刪除這個模型檔？',
+                      description: '刪除後無法復原，需要重新上載。',
+                      confirmLabel: '刪除',
+                      destructive: true,
+                    });
+                    if (ok) void run(() => deleteProductModel(f.id), '刪除模型失敗');
                   }}
                 >
                   刪除

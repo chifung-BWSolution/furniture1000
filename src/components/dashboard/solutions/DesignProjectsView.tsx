@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CompactEmptyState, EmptyState } from '@/components/ui/empty-state';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
@@ -1010,21 +1012,27 @@ function ZoneProductRow({
   );
 
   const statusSelect = (
-    <select
+    <Select
       value={item.status}
-      onChange={(e) =>
-        onSetStatus(item.id, e.target.value as ZoneProductStatus)
+      onValueChange={(value) =>
+        onSetStatus(item.id, value as ZoneProductStatus)
       }
-      className={cn(
-        'shrink-0 rounded-full border px-2.5 py-1 text-[12px] font-medium',
-        ZONE_PRODUCT_STATUS_META[item.status]?.className,
-      )}
-      aria-label={`${titleLabel}狀態`}
     >
-      <option value="pending">未確定</option>
-      <option value="discussing">待討論</option>
-      <option value="confirmed">已確定</option>
-    </select>
+      <SelectTrigger
+        className={cn(
+          'z-[300] h-auto w-auto shrink-0 gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium',
+          ZONE_PRODUCT_STATUS_META[item.status]?.className,
+        )}
+        aria-label={`${titleLabel}狀態`}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="z-[300]">
+        <SelectItem value="pending">未確定</SelectItem>
+        <SelectItem value="discussing">待討論</SelectItem>
+        <SelectItem value="confirmed">已確定</SelectItem>
+      </SelectContent>
+    </Select>
   );
 
   const feedbackBlock =
@@ -1515,6 +1523,7 @@ export function DesignProjectsView() {
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [confirmingProject, setConfirmingProject] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
   const [creatingBlankZoneId, setCreatingBlankZoneId] = useState<string | null>(null);
   const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
   const [savingFurniture, setSavingFurniture] = useState(false);
@@ -1552,15 +1561,17 @@ export function DesignProjectsView() {
   }, [schemeSessionPicks]);
 
   const selectProject = useCallback(
-    (projectId: string, opts?: { force?: boolean }) => {
+    async (projectId: string, opts?: { force?: boolean }) => {
       const nextId = (projectId || '').trim();
       if (!nextId || nextId === activeProjectId) return;
-      if (
-        !opts?.force &&
-        furnitureDirtyRef.current &&
-        !window.confirm('目前傢俬配置尚未儲存，確定切換專案？')
-      ) {
-        return;
+      if (!opts?.force && furnitureDirtyRef.current) {
+        const ok = await confirm({
+          title: '切換專案？',
+          description: '目前傢俬配置尚未儲存，切換後這次修改不會保存。',
+          confirmLabel: '切換',
+          destructive: true,
+        });
+        if (!ok) return;
       }
       setActiveProjectId(nextId);
       setFurnitureDirty(false);
@@ -1630,13 +1641,25 @@ export function DesignProjectsView() {
       }
       return;
     }
-    if (
-      furnitureDirtyRef.current &&
-      !window.confirm('目前傢俬配置尚未儲存，確定切換專案？')
-    ) {
-      navigate(buildDesignProjectPath(activeProjectIdRef.current), {
-        replace: true,
-      });
+    if (furnitureDirtyRef.current) {
+      // Async confirm: the URL already points at the new project; on cancel we
+      // snap back to the active one.
+      void (async () => {
+        const ok = await confirm({
+          title: '切換專案？',
+          description: '目前傢俬配置尚未儲存，切換後這次修改不會保存。',
+          confirmLabel: '切換',
+          destructive: true,
+        });
+        if (ok) {
+          setActiveProjectId(parsed.projectId);
+          setFurnitureDirty(false);
+        } else {
+          navigate(buildDesignProjectPath(activeProjectIdRef.current), {
+            replace: true,
+          });
+        }
+      })();
       return;
     }
     setActiveProjectId(parsed.projectId);
@@ -2235,18 +2258,18 @@ export function DesignProjectsView() {
     });
   };
 
-  const removeDivision = (zoneId: string, divisionId: string) => {
+  const removeDivision = async (zoneId: string, divisionId: string) => {
     const target = (furnitureDivisions[zoneId] || []).find(
       (row) => row.id === divisionId,
     );
     if (!target) return;
-    if (
-      !window.confirm(
-        `確定刪除劃分「${target.level1}${target.level2 ? ` > ${target.level2}` : ''}」？劃分下的產品會改為未劃分。`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: `確定刪除劃分「${target.level1}${target.level2 ? ` > ${target.level2}` : ''}」？`,
+      description: '劃分下的產品會改為未劃分。',
+      confirmLabel: '刪除',
+      destructive: true,
+    });
+    if (!ok) return;
     const next = {
       ...furnitureDivisions,
       [zoneId]: (furnitureDivisions[zoneId] || []).filter(
@@ -2478,12 +2501,13 @@ export function DesignProjectsView() {
 
   const removeProduct = async (item: ZoneProduct) => {
     if (!activeProjectId || deletingProductId) return;
-    if (
-      !window.confirm(
-        `確定從此間隔移除「${item.productTitle || '未命名產品'}」？`,
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: `確定從此間隔移除「${item.productTitle || '未命名產品'}」？`,
+      description: '產品會從這個間隔移除，圖片與資料仍保留在產品庫。',
+      confirmLabel: '移除',
+      destructive: true,
+    });
+    if (!ok) return;
     setDeletingProductId(item.id);
     const result = await deleteZoneProductWithProgress(
       item.id,
@@ -2599,7 +2623,13 @@ export function DesignProjectsView() {
   ) => {
     const feedbackKey = `${item.id}:${feedbackIndex}`;
     if (deletingFeedbackKey) return;
-    if (!window.confirm('確定刪除此客戶意見？')) return;
+    const ok = await confirm({
+      title: '刪除這條客戶意見？',
+      description: '刪除後無法復原。',
+      confirmLabel: '刪除',
+      destructive: true,
+    });
+    if (!ok) return;
     const nextNotes = removeClientFeedbackFromNotes(item.notes, feedbackIndex);
     setDeletingFeedbackKey(feedbackKey);
     const previous = item.notes;
@@ -3070,18 +3100,21 @@ export function DesignProjectsView() {
               </span>
             </div>
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-3">
-              <select
-                value={activeProjectId}
-                onChange={(e) => selectProject(e.target.value)}
-                className="h-10 min-w-[280px] max-w-xl flex-1 truncate rounded-lg border border-border bg-card px-3 font-display text-sm font-semibold"
-                aria-label="選擇設計專案"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <Select value={activeProjectId} onValueChange={(value) => void selectProject(value)}>
+                <SelectTrigger
+                  className="h-10 min-w-[280px] max-w-xl flex-1 font-display text-sm font-semibold"
+                  aria-label="選擇設計專案"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-w-[min(90vw,36rem)]">
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {activeProjectId ? (
                 <button
                   type="button"
@@ -3999,17 +4032,21 @@ export function DesignProjectsView() {
               </div>
               {!replacingZoneProductId && !schemeForProductId ? (
               <div className="flex flex-wrap gap-1.5">
-                <select
+                <Select
                   value={pickerZoneId || zones[0]?.id || ''}
-                  onChange={(e) => setPickerZoneId(e.target.value || null)}
-                  className="rounded-lg border border-border bg-background px-2 py-1.5 text-[15px]"
+                  onValueChange={(value) => setPickerZoneId(value || null)}
                 >
-                  {zones.map((z) => (
-                    <option key={z.id} value={z.id}>
-                      {z.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="z-[300] w-auto text-[15px]" aria-label="選擇間隔">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="z-[300]">
+                    {zones.map((z) => (
+                      <SelectItem key={z.id} value={z.id}>
+                        {z.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               ) : null}
               <div className="flex flex-wrap items-center gap-1.5">
@@ -4223,6 +4260,7 @@ export function DesignProjectsView() {
         previewUrl={floorPlanPreviewUrl}
         onClose={() => setFloorPlanViewerOpen(false)}
       />
+      {confirmDialog}
     </div>
   );
 }

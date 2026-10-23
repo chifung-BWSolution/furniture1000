@@ -12,6 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
   COMMAND_LOG_PAGE_SIZE,
   deleteCommandLog,
@@ -69,6 +70,7 @@ export function DailyCommandLogsView() {
   const [exporting, setExporting] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
   const appliedSearchRef = useRef(filters.search);
+  const { confirm, confirmDialog } = useConfirm();
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -145,7 +147,13 @@ export function DailyCommandLogsView() {
   };
 
   const remove = async (row: CommandLogRow) => {
-    if (!window.confirm(`刪除 ${row.developerName} 於 ${row.businessDate} 的指令記錄？`)) return;
+    const ok = await confirm({
+      title: '刪除這筆指令記錄？',
+      description: `刪除 ${row.developerName} 於 ${row.businessDate} 的指令記錄，刪除後無法復原。`,
+      confirmLabel: '刪除',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await deleteCommandLog(row.id);
       toast.success('已刪除指令記錄');
@@ -366,6 +374,7 @@ export function DailyCommandLogsView() {
           </dl>
         )}
       </Modal>
+      {confirmDialog}
     </div>
   );
 }
