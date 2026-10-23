@@ -48,3 +48,6 @@ tmp/
 ._probe_result.txt
 ._*
 supabase/.temp/
+
+# WorkBuddy local workspace data (memory/logs) — never commit
+.workbuddy/
