@@ -103,6 +103,13 @@ export function quotePhotoErrorText(error: unknown): string {
   return photoErrorMessages[code] ?? '圖片處理失敗，請稍後再試。';
 }
 
+/** 顯示用短標題：舊有的 AI 生成圖可能以整句描述做標題，介面一律截斷。 */
+export function quotePhotoShortTitle(title: string, max = 20): string {
+  const clean = (title || '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean || '圖片';
+  return `${clean.slice(0, max)}…`;
+}
+
 /** 圖片來源 URL：圖片庫走 objectPath，產品圖直接給絕對 URL。 */
 export function quotePhotoRefUrl(ref: { objectPath?: string; url?: string }): string {
   const absolute = (ref.url || '').trim();
@@ -263,14 +270,15 @@ const GENERATE_SLUGS = [
 ] as const;
 
 /**
- * AI 生成一張參考圖並寫入圖片庫（Grok 4.7 或 Gemini 3.8，可帶最多 5 張參考圖）。
+ * AI 生成一張參考圖並寫入圖片庫（Grok 4.7 或 Gemini 3.8，可帶最多 5 張產品圖作參考）。
  * 生成結果 isGenerated = true，介面與 PDF 都會標示「僅供設計參考」。
  */
 export async function generateQuoteReferenceImage(input: {
   model: QuotePhotoGenerateModel;
   prompt: string;
   aspectRatio: string;
-  referenceAssetIds?: string[];
+  /** 產品圖的絕對 URL（product-images 公開 bucket），Edge function 直接抓圖。 */
+  referenceUrls?: string[];
 }): Promise<QuotePhotoAsset> {
   const prompt = (input.prompt || '').replace(/\s+/g, ' ').trim();
   if (!prompt) throw new Error('quote_photo_generate_invalid');
@@ -297,7 +305,7 @@ export async function generateQuoteReferenceImage(input: {
           model: input.model,
           prompt,
           aspectRatio: input.aspectRatio,
-          referenceAssetIds: input.referenceAssetIds ?? [],
+          referenceUrls: input.referenceUrls ?? [],
         }),
         signal: controller.signal,
       });

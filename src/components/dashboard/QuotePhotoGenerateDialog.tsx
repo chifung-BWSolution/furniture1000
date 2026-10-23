@@ -25,9 +25,9 @@ import {
 /**
  * 「AI 生成參考圖」對話框（照 QMS 的同名功能，多了模型切換）。
  *
- * 用 Grok 4.7 或 Gemini 3.8 按描述生成一張室內示意圖，可帶最多 5 張現有圖片
- * 作參考；生成結果直接寫入圖片庫（isGenerated = true），再由呼叫方放進素材區。
- * 排版編輯器與報價設定 › 圖片庫共用同一個對話框。
+ * 用 Grok 4.7 或 Gemini 3.8 按描述生成一張室內示意圖，可帶最多 5 張產品圖
+ * 作參考（AI 會把產品放進描述的場景）；生成結果直接寫入圖片庫
+ * （isGenerated = true），再由呼叫方放進素材區。排版編輯器與報價設定 › 圖片庫共用同一個對話框。
  */
 
 /** 共用結尾，令所有預設場景維持同一種視覺風格。 */
@@ -44,7 +44,7 @@ const GENERATE_PROMPT_PRESETS: Array<{ label: string; prompt: string }> = [
   { label: '洗手間', prompt: `洗手間，淺色潔具、鏡櫃、白牆。${GENERATE_STYLE}` },
 ];
 
-export type GenerateChoice = { id: string; title: string; previewUrl: string };
+export type GenerateChoice = { id: string; title: string; previewUrl: string; /** 傳給模型的參考圖 URL（產品圖絕對 URL）。 */ referenceUrl: string };
 
 export function QuotePhotoGenerateDialog({
   open,
@@ -55,7 +55,7 @@ export function QuotePhotoGenerateDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  /** 可以做參考圖的圖片（素材區／圖片庫）。 */
+  /** 可以做參考圖的產品圖（報價明細帶來的圖）。 */
   choices: GenerateChoice[];
   /** 圖片庫現有張數，用來擋上限。 */
   libraryCount: number;
@@ -94,11 +94,15 @@ export function QuotePhotoGenerateDialog({
     const label = QUOTE_PHOTO_GENERATE_MODELS.find((entry) => entry.id === model)?.label ?? 'AI';
     setGenerating(true);
     try {
+      const referenceUrls = refs.flatMap((id) => {
+        const choice = choices.find((entry) => entry.id === id);
+        return choice?.referenceUrl ? [choice.referenceUrl] : [];
+      });
       const asset = await generateQuoteReferenceImage({
         model,
         prompt: cleanPrompt,
         aspectRatio: ratio,
-        referenceAssetIds: refs,
+        referenceUrls,
       });
       onGenerated(asset);
       setPrompt('');
@@ -120,7 +124,7 @@ export function QuotePhotoGenerateDialog({
       }}
       icon={<Wand2 className="h-6 w-6" />}
       title="AI 生成參考圖"
-      description={`按描述生成一張室內示意圖，可選最多 ${QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張現有圖片作參考。${AI_REFERENCE_LABEL}，不會當成現場實拍。`}
+      description={`按描述生成一張室內示意圖，可選最多 ${QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張產品圖作參考。${AI_REFERENCE_LABEL}，不會當成現場實拍。`}
       size="3xl"
       footer={
         <>
@@ -207,11 +211,11 @@ export function QuotePhotoGenerateDialog({
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
           <div>
             <p className="text-sm font-semibold text-foreground">
-              參考圖片（可選，最多 {QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張）
+              參考圖片（產品圖，可選，最多 {QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張）
             </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">點圖片加入。沒有選時只按描述生成。</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">點選產品圖，AI 會把這些產品放進描述的場景。沒有選時只按描述生成。</p>
             {choices.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">尚未有圖片。可先上載，再選為參考。</p>
+              <p className="mt-2 text-sm text-muted-foreground">未有產品圖。報價明細加入有圖片的產品後，就可以在這裡選用。</p>
             ) : (
               <div className="mt-2 max-h-44 overflow-y-auto overscroll-contain pr-1">
                 <ul className="grid grid-cols-4 gap-2 sm:grid-cols-5">
@@ -224,7 +228,7 @@ export function QuotePhotoGenerateDialog({
                           disabled={generating}
                           aria-pressed={selected}
                           title={choice.title}
-                          aria-label={`${selected ? '取消選取' : '選取'}參考圖「${choice.title}」`}
+                          aria-label={`${selected ? '取消選取' : '選取'}產品圖「${choice.title}」`}
                           onClick={() => toggleRef(choice.id)}
                           className={`relative block w-full overflow-hidden rounded-lg border ${
                             selected ? 'border-primary ring-2 ring-primary' : 'border-border hover:border-primary/50'

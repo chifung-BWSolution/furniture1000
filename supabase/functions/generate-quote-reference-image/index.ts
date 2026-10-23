@@ -5,8 +5,9 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
  * 報價單「AI 生成參考圖」。
  *
  * 用 Grok（xAI）或 Gemini（Google）按文字描述生成一張室內示意圖，可帶最多 5 張
- * 圖片庫現有圖片作參考，生成結果直接寫入公開 bucket `quote-photos` 與
- * `quote_photo_assets`（is_generated = true），前端再放進排版素材區。
+ * 產品圖的公開 URL 作參考（referenceUrls，AI 會把產品如實放進場景）；生成結果
+ * 直接寫入公開 bucket `quote-photos` 與 `quote_photo_assets`（is_generated = true），
+ * 前端再放進排版素材區。仍相容舊的 referenceAssetIds（圖片庫 asset id）。
  *
  * 兩個模型都走同一個 slug，前端用 { model: "grok" | "gemini" } 切換。
  * 權限跟圖片庫一致：只有 admin / uploader 可以生成（RLS 同樣會擋）。
@@ -50,6 +51,9 @@ type GenerateBody = {
   model?: string;
   prompt?: string;
   aspectRatio?: string;
+  /** 產品圖的公開 URL（product-images bucket 等），優先於 referenceAssetIds。 */
+  referenceUrls?: string[];
+  /** 舊參數：圖片庫 quote_photo_assets 的 asset id。 */
   referenceAssetIds?: string[];
 };
 
@@ -285,18 +289,32 @@ Deno.serve(async (req: Request) => {
   const referenceIds = Array.isArray(raw.referenceAssetIds)
     ? raw.referenceAssetIds.filter((id): id is string => typeof id === "string")
     : [];
+  const rawReferenceUrls = Array.isArray(raw.referenceUrls)
+    ? raw.referenceUrls.filter((url): url is string => typeof url === "string")
+    : [];
 
   if (!prompt || prompt.length > PROMPT_MAX) return fail("quote_photo_generate_invalid", 400, "prompt");
   if (!RATIOS.has(aspectRatio)) return fail("quote_photo_generate_invalid", 400, "ratio");
-  if (referenceIds.length > MAX_REFERENCES) return fail("quote_photo_generate_reference_limit", 400);
+  if (referenceIds.length > MAX_REFERENCES || rawReferenceUrls.length > MAX_REFERENCES) {
+    return fail("quote_photo_generate_reference_limit", 400);
+  }
   if (new Set(referenceIds).size !== referenceIds.length || referenceIds.some((id) => !UUID_PATTERN.test(id))) {
     return fail("quote_photo_generate_invalid", 400, "reference id");
   }
 
-  // 參考圖片：圖片庫是公開 bucket，xAI 可以直接拉 URL；Gemini 需要 inline base64。
+  // 參考圖片：產品圖直接用公開 URL；舊參數就由圖片庫 object path 組 URL。
+  // xAI 可以直接拉 URL；Gemini 需要 inline base64。
   let referenceUrls: string[] = [];
   let referenceInline: Array<{ mimeType: string; data: string }> = [];
-  if (referenceIds.length > 0) {
+  if (rawReferenceUrls.length > 0) {
+    if (
+      new Set(rawReferenceUrls).size !== rawReferenceUrls.length ||
+      rawReferenceUrls.some((url) => !/^https?:\/\//i.test(url.trim()))
+    ) {
+      return fail("quote_photo_generate_invalid", 400, "reference url");
+    }
+    referenceUrls = rawReferenceUrls.map((url) => url.trim());
+  } else if (referenceIds.length > 0) {
     const { data: rows, error } = await client
       .from("quote_photo_assets")
       .select("id,object_path")
@@ -311,22 +329,27 @@ Deno.serve(async (req: Request) => {
       urls.push(`${supabaseUrl}/storage/v1/object/public/${BUCKET}/${path}`);
     }
     referenceUrls = urls;
-    if (model === "gemini") {
-      referenceInline = [];
-      for (const url of urls) {
-        const response = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
-        if (!response?.ok) return fail("quote_photo_generate_reference_invalid", 400, "reference download failed");
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.byteLength === 0 || bytes.byteLength > MAX_REFERENCE_BYTES) {
-          return fail("quote_photo_generate_reference_invalid", 400, "reference size");
-        }
-        referenceInline.push({
-          mimeType: sniffImageType(bytes) ?? "image/jpeg",
-          data: toBase64(bytes),
-        });
+  }
+  if (referenceUrls.length > 0 && model === "gemini") {
+    for (const url of referenceUrls) {
+      const response = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+      if (!response?.ok) return fail("quote_photo_generate_reference_invalid", 400, "reference download failed");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength === 0 || bytes.byteLength > MAX_REFERENCE_BYTES) {
+        return fail("quote_photo_generate_reference_invalid", 400, "reference size");
       }
+      referenceInline.push({
+        mimeType: sniffImageType(bytes) ?? "image/jpeg",
+        data: toBase64(bytes),
+      });
     }
   }
+
+  // 有產品圖時補上指令，令模型如實把參考圖中的產品放進場景。
+  const composedPrompt =
+    referenceUrls.length > 0
+      ? `${prompt}。參考圖是產品圖：如實保留參考圖中每件產品的外觀、比例與顏色，把它們自然擺放進場景，不要改動產品設計，也不要加插參考圖以外的文字或商標`
+      : prompt;
 
   // 生成
   let bytes: Uint8Array;
@@ -337,11 +360,11 @@ Deno.serve(async (req: Request) => {
       if (!apiKey) return fail("quote_photo_generate_unavailable", 500, "XAI_API_KEY missing");
       const modelId = (Deno.env.get("XAI_IMAGE_MODEL") ?? "").trim() || DEFAULT_XAI_IMAGE_MODEL;
       modelLabel = modelId;
-      bytes = await generateWithGrok(apiKey, modelId, prompt, aspectRatio, referenceUrls);
+      bytes = await generateWithGrok(apiKey, modelId, composedPrompt, aspectRatio, referenceUrls);
     } else {
       const apiKey = (Deno.env.get("GEMINI_API_KEY") ?? "").trim();
       if (!apiKey) return fail("quote_photo_generate_unavailable", 500, "GEMINI_API_KEY missing");
-      const result = await generateWithGemini(apiKey, prompt, aspectRatio, referenceInline);
+      const result = await generateWithGemini(apiKey, composedPrompt, aspectRatio, referenceInline);
       bytes = result.bytes;
       modelLabel = result.model;
     }
@@ -380,7 +403,9 @@ Deno.serve(async (req: Request) => {
     .limit(1);
   const nextSortOrder = (((top ?? []) as Array<{ sort_order: number | null }>)[0]?.sort_order ?? 0) + 1;
 
-  const title = prompt.length > 40 ? `${prompt.slice(0, 40)}…` : prompt;
+  // 標題取描述的第一個短語，避免把整句 prompt 當成圖片名稱顯示。
+  const firstPhrase = prompt.split(/[。，、,.;；！？!?]/)[0].trim();
+  const title = (firstPhrase || prompt).slice(0, 24) || "AI 參考圖";
   const { data: inserted, error: insertError } = await client
     .from("quote_photo_assets")
     .insert({

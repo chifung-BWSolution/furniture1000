@@ -517,7 +517,8 @@ export function QuotePhotoLibraryView() {
         <QuotePhotoGenerateDialog
           open
           onClose={() => setGenerateOpen(false)}
-          choices={assets.map((asset) => ({ id: asset.id, title: asset.title, previewUrl: asset.url }))}
+          /* 參考圖片只限產品圖；圖片庫頁沒有產品圖，只能按描述生成。 */
+          choices={[]}
           libraryCount={assets.length}
           onGenerated={(asset) =>
             setAssets((current) => (current.some((row) => row.id === asset.id) ? current : [...current, asset]))

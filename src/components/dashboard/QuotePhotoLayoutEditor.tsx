@@ -34,11 +34,12 @@ import {
   QUOTE_PHOTO_LIBRARY_LIMIT,
   quotePhotoErrorText,
   quotePhotoObjectUrl,
+  quotePhotoShortTitle,
   uploadQuotePhotoAsset,
   type QuotePhotoAsset,
   type QuotePhotoRef,
 } from '@/lib/quotePhotoLibrary';
-import { QuotePhotoGenerateDialog } from '@/components/dashboard/QuotePhotoGenerateDialog';
+import { QuotePhotoGenerateDialog, type GenerateChoice } from '@/components/dashboard/QuotePhotoGenerateDialog';
 import {
   AI_REFERENCE_LABEL,
   CAPTION_MAX,
@@ -770,15 +771,15 @@ export function QuotePhotoLayoutEditor({
     toast.success(`已上載 ${added.length} 張圖片`);
   }
 
-  /** 參考圖片候選：素材區先，其他圖片庫的圖在後。 */
-  const generateChoices = useMemo(() => {
-    const ids = [...trayIds];
-    for (const asset of library) if (!ids.includes(asset.id)) ids.push(asset.id);
-    return ids.flatMap((id) => {
-      const photo = sources.get(id);
-      return photo?.previewUrl ? [{ id, title: photo.title || '圖片', previewUrl: photo.previewUrl }] : [];
-    });
-  }, [library, sources, trayIds]);
+  /** 參考圖片候選：只限報價明細帶來的產品圖，AI 按產品圖把產品放進場景。 */
+  const generateChoices = useMemo<GenerateChoice[]>(
+    () =>
+      productPhotos.flatMap((photo) => {
+        const url = (photo.url || '').trim();
+        return url ? [{ id: photo.id, title: photo.title || '產品圖', previewUrl: url, referenceUrl: url }] : [];
+      }),
+    [productPhotos],
+  );
 
   /** AI 生成完成：加入素材區，已選佈局就順手填空槽。 */
   function onGenerated(asset: QuotePhotoAsset) {
@@ -875,7 +876,7 @@ export function QuotePhotoLayoutEditor({
               ariaLabel={`移出槽位 ${index}`}
               title="移出槽位"
               confirmLabel="移出"
-              description={`從槽位 ${index} 移出「${photo?.title ?? '圖片'}」。圖片留在素材區；按「套用到報價單」後才更新報價。`}
+              description={`從槽位 ${index} 移出「${quotePhotoShortTitle(photo?.title ?? '圖片')}」。圖片留在素材區；按「套用到報價單」後才更新報價。`}
               onConfirm={() => {
                 setGroup((current) => ({
                   ...current,
@@ -903,7 +904,9 @@ export function QuotePhotoLayoutEditor({
       variant="fullscreen"
       title="報價單圖片排版"
       description="先選佈局，再放入圖片並按需要裁剪，最後套用到報價單。"
-      headerClassName="border-b border-border/80"
+      /* fullscreen 預設是透明底白字（給燈箱用）；排版編輯器要正常白色頁面。 */
+      className="bg-background text-foreground"
+      headerClassName="border-b border-border/80 bg-background text-foreground"
       bodyClassName="p-0"
     >
       <div className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
