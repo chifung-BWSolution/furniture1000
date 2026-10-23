@@ -16,6 +16,7 @@ import {
   ModalTrigger,
   type ModalButtonProps,
 } from "@/components/ui/modal"
+import { cn } from "@/lib/utils"
 
 /**
  * Compatibility layer for the historic shadcn `AlertDialog` API.
@@ -30,10 +31,28 @@ const AlertDialogTrigger = ModalTrigger
 const AlertDialogPortal = ModalPortal
 const AlertDialogOverlay = ModalOverlay
 const AlertDialogContent = ModalContent
-const AlertDialogHeader = ModalHeader
-const AlertDialogFooter = ModalFooter
 const AlertDialogTitle = ModalTitle
 const AlertDialogDescription = ModalDescription
+
+/**
+ * Confirmations render `<AlertDialogHeader>` / `<AlertDialogFooter>` as
+ * children of `AlertDialogContent`, whose card body already carries the
+ * padding. So the header drops its own padding, and the footer bleeds to the
+ * card edges (same full-width band as ModalContent's built-in footer) instead
+ * of floating inset with double padding.
+ */
+const AlertDialogHeader = ({ className, ...props }: React.ComponentProps<typeof ModalHeader>) => (
+  <ModalHeader className={cn("p-0", className)} {...props} />
+)
+AlertDialogHeader.displayName = "AlertDialogHeader"
+
+const AlertDialogFooter = ({ className, ...props }: React.ComponentProps<typeof ModalFooter>) => (
+  <ModalFooter
+    className={cn("-mx-5 -mb-5 sm:-mx-6 sm:-mb-6", className)}
+    {...props}
+  />
+)
+AlertDialogFooter.displayName = "AlertDialogFooter"
 
 const AlertDialogAction = React.forwardRef<HTMLButtonElement, ModalButtonProps>(
   ({ className, ...props }, ref) => (
