@@ -275,9 +275,9 @@ export function CaseOrdersPage() {
                       />
                     </td>
                     <td className="max-w-64 px-3 py-3">
-                      <p className="font-medium">{r.project_code || "—"}</p>
+                      <p className="font-medium">{r.project_name || "—"}</p>
                       <p className="mt-1 text-muted-foreground">
-                        {r.project_name || "—"}
+                        {r.project_code || "—"}
                       </p>
                     </td>
                     <td className="px-3 py-3">{r.pm_name || "—"}</td>
