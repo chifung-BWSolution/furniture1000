@@ -95,15 +95,16 @@ export function CaseOrdersPage() {
     (page - 1) * ORDERS_PAGE_SIZE,
     page * ORDERS_PAGE_SIZE,
   );
-  const allKeys = useMemo(
+  const visibleKeys = useMemo(
     () =>
-      grouped.map((items) => `${items[0].project_id}:${items[0].project_code || ""}`),
-    [grouped],
+      visibleGroups.map((items) => `${items[0].project_id}:${items[0].project_code || ""}`),
+    [visibleGroups],
   );
-  const allSelected = allKeys.length > 0 && allKeys.every((key) => picked.has(key));
-  const someSelected = allKeys.some((key) => picked.has(key));
+  const allSelected =
+    visibleKeys.length > 0 && visibleKeys.every((key) => picked.has(key));
+  const someSelected = visibleKeys.some((key) => picked.has(key));
   const toggleAll = () =>
-    setPicked(allSelected ? new Set() : new Set(allKeys));
+    setPicked(allSelected ? new Set() : new Set(visibleKeys));
   return (
     <CaseShell
       {...data}
@@ -207,9 +208,7 @@ export function CaseOrdersPage() {
                   >
                     {index === 0 ? (
                       <Checkbox
-                        aria-label={
-                          allSelected ? "取消全選訂單" : "全選所有篩選後訂單"
-                        }
+                        aria-label={allSelected ? "取消全選本頁訂單" : "全選本頁訂單"}
                         checked={
                           allSelected
                             ? true
