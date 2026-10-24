@@ -11,6 +11,14 @@ import { QuotationDocument, collectQuotationPdfImageUrls } from './quotationPdfD
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
+/**
+ * 共用載入器：回傳已完成字體註冊的 @react-pdf/renderer 模組。
+ * 供成功案例導出（caseExportPdf）等其他 PDF 功能復用，避免各自重複註冊字體。
+ */
+export function ensureQuotationPdfModule(): Promise<ReactPdfModule> {
+  return loadReactPdfModule();
+}
+
 // ─── Deferred @react-pdf/renderer loading ───────────────────────────────────
 // We load @react-pdf/renderer lazily inside the component to avoid
 // module-scope crashes (Font.register, StyleSheet.create) that break

@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Modal } from "@/components/ui/modal";
+import {
+  buildExportItem,
+  type CaseExportItem,
+} from "@/lib/caseExport";
 import { caseDate, type CaseOrder } from "@/lib/caseShowcase";
 import {
   CaseEmpty,
@@ -10,6 +16,7 @@ import {
   CaseSearch,
   useCaseData,
 } from "./CaseShared";
+import { CaseExportDialog } from "./CaseExportDialog";
 
 const ORDERS_PAGE_SIZE = 20;
 
@@ -21,6 +28,8 @@ export function CaseOrdersPage() {
   const [factory, setFactory] = useState("");
   const [page, setPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState<CaseOrder[] | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [exportItems, setExportItems] = useState<CaseExportItem[] | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const filtered = useMemo(
     () =>
@@ -60,6 +69,22 @@ export function CaseOrdersPage() {
     setPage(1);
     scrollContainerRef.current?.scrollTo({ top: 0 });
   }, [search, status, pm, factory, data.items]);
+  useEffect(() => {
+    setPicked(new Set());
+  }, [search, status, pm, factory]);
+  const openExport = () => {
+    setExportItems(
+      grouped
+        .filter((items) => picked.has(`${items[0].project_id}:${items[0].project_code || ""}`))
+        .map((items) =>
+          buildExportItem(
+            "order",
+            `${items[0].project_id}:${items[0].project_code || ""}`,
+            items,
+          ),
+        ),
+    );
+  };
   const options = (key: "status" | "pm_name" | "factory_name") =>
     [
       ...new Set(
@@ -127,6 +152,16 @@ export function CaseOrdersPage() {
             >
               清除篩選
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={!picked.size}
+              onClick={openExport}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              導出已選（{picked.size}）
+            </Button>
           </CaseSearch>
           <div className="text-xs text-muted-foreground" role="status">
             共 {grouped.length} 個項目
@@ -145,6 +180,7 @@ export function CaseOrdersPage() {
             <thead className="bg-muted text-muted-foreground">
               <tr>
                 {[
+                  "",
                   "項目",
                   "PM",
                   "產品數",
@@ -154,9 +190,9 @@ export function CaseOrdersPage() {
                   "預計到場",
                   "預計安裝",
                   "實際安裝",
-                ].map((h) => (
+                ].map((h, index) => (
                   <th
-                    key={h}
+                    key={index}
                     scope="col"
                     className="whitespace-nowrap px-3 py-2.5 text-[11px] font-medium"
                   >
@@ -168,6 +204,7 @@ export function CaseOrdersPage() {
             <tbody className="divide-y divide-border">
               {visibleGroups.map((items) => {
                 const r = items[0];
+                const rowKey = `${r.project_id}:${r.project_code || ""}`;
                 const factories = [
                   ...new Set(items.map((x) => x.factory_name).filter(Boolean)),
                 ];
@@ -182,7 +219,7 @@ export function CaseOrdersPage() {
                   : null;
                 return (
                   <tr
-                    key={`${r.project_id}:${r.project_code || ""}`}
+                    key={rowKey}
                     className="cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     tabIndex={0}
                     onClick={() => setSelectedOrder(items)}
@@ -194,6 +231,24 @@ export function CaseOrdersPage() {
                     }}
                     aria-label={`查看訂單 ${r.project_code || r.project_name || "詳情"}`}
                   >
+                    <td
+                      className="px-3 py-3"
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
+                    >
+                      <Checkbox
+                        aria-label={`選取訂單 ${r.project_code || r.project_name || ""}`}
+                        checked={picked.has(rowKey)}
+                        onCheckedChange={(checked) =>
+                          setPicked((old) => {
+                            const next = new Set(old);
+                            if (checked === true) next.add(rowKey);
+                            else next.delete(rowKey);
+                            return next;
+                          })
+                        }
+                      />
+                    </td>
                     <td className="max-w-64 px-3 py-3">
                       <p className="font-medium">{r.project_code || "—"}</p>
                       <p className="mt-1 text-muted-foreground">
@@ -329,6 +384,12 @@ export function CaseOrdersPage() {
           ))}
         </div>
       </Modal>
+      <CaseExportDialog
+        open={exportItems !== null}
+        onOpenChange={(open) => !open && setExportItems(null)}
+        items={exportItems || []}
+        onChange={setExportItems}
+      />
     </CaseShell>
   );
 }

@@ -2,14 +2,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CalendarDays,
+  Download,
   LayoutGrid,
   List,
   MapPin,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { LoadingImage } from "@/components/ui/loading-image";
+import {
+  buildExportItem,
+  type CaseExportItem,
+} from "@/lib/caseExport";
 import { caseDate, photoUrls, type CasePhotoProject } from "@/lib/caseShowcase";
 import {
   CaseEmpty,
@@ -19,6 +25,7 @@ import {
   CaseFilter,
   useCaseData,
 } from "./CaseShared";
+import { CaseExportDialog } from "./CaseExportDialog";
 
 const PAGE_SIZE = 20;
 
@@ -30,6 +37,8 @@ interface PhotoProjectCardProps {
   project: CasePhotoProject;
   urls: string[];
   viewMode: ViewMode;
+  picked: boolean;
+  onPick: (projectId: string, picked: boolean) => void;
   onOpenAlbum: (projectId: string) => void;
   onOpenPhoto: (project: CasePhotoProject, index: number) => void;
 }
@@ -87,6 +96,8 @@ function PhotoProjectCard({
   project,
   urls,
   viewMode,
+  picked,
+  onPick,
   onOpenAlbum,
   onOpenPhoto,
 }: PhotoProjectCardProps) {
@@ -142,7 +153,10 @@ function PhotoProjectCard({
 
   if (viewMode === "list") {
     return (
-      <article className="flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/40 md:flex-row md:items-center">
+      <article className="relative flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/40 md:flex-row md:items-center">
+        <div className="absolute left-2 top-2 z-10">
+          <PickBox project={project} picked={picked} onPick={onPick} />
+        </div>
         {details}
         <div className="w-full md:w-[300px] md:shrink-0">
           <PhotoStrip
@@ -156,7 +170,10 @@ function PhotoProjectCard({
   }
 
   return (
-    <article className="flex min-h-[220px] min-w-0 flex-col gap-1.5 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40">
+    <article className="relative flex min-h-[220px] min-w-0 flex-col gap-1.5 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40">
+      <div className="absolute left-2 top-2 z-10">
+        <PickBox project={project} picked={picked} onPick={onPick} />
+      </div>
       {details}
       <PhotoStrip
         urls={urls}
@@ -164,6 +181,30 @@ function PhotoProjectCard({
         onOpenPhoto={(index) => onOpenPhoto(project, index)}
       />
     </article>
+  );
+}
+
+function PickBox({
+  project,
+  picked,
+  onPick,
+}: {
+  project: CasePhotoProject;
+  picked: boolean;
+  onPick: (projectId: string, picked: boolean) => void;
+}) {
+  return (
+    <span
+      className="rounded-md border border-border bg-background/85 p-1 shadow-sm"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      <Checkbox
+        aria-label={`選取專案 ${project.project_code || project.project_name || ""}`}
+        checked={picked}
+        onCheckedChange={(checked) => onPick(project.id, checked === true)}
+      />
+    </span>
   );
 }
 
@@ -254,6 +295,8 @@ export function CasePhotosPage() {
   const [page, setPage] = useState(1);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [activeAlbumId, setActiveAlbumId] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [exportItems, setExportItems] = useState<CaseExportItem[] | null>(null);
   const [lightbox, setLightbox] = useState<{
     title: string;
     urls: string[];
@@ -310,6 +353,20 @@ export function CasePhotosPage() {
     setLightbox(null);
     setActiveAlbumId(null);
   }, [data.items, search, status, pm, year, sortMode]);
+  useEffect(() => {
+    setPicked(new Set());
+  }, [search, status, pm, year, sortMode]);
+  const openExport = () => {
+    setExportItems(
+      data.items
+        .filter(
+          (project) =>
+            picked.has(project.id) &&
+            photoUrls(project.completion_photos).length > 0,
+        )
+        .map((project) => buildExportItem("photo", project.id, project)),
+    );
+  };
 
   const options = (key: "status" | "pm_name" | "financial_year") =>
     [
@@ -437,6 +494,16 @@ export function CasePhotosPage() {
                     清除篩選
                   </Button>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  disabled={!picked.size}
+                  onClick={openExport}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  導出已選（{picked.size}）
+                </Button>
               </CaseSearch>
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <p role="status">共 {filtered.length} 個專案</p>
@@ -476,6 +543,15 @@ export function CasePhotosPage() {
                   project={project}
                   urls={photoUrls(project.completion_photos)}
                   viewMode={viewMode}
+                  picked={picked.has(project.id)}
+                  onPick={(id, next) =>
+                    setPicked((old) => {
+                      const nextSet = new Set(old);
+                      if (next) nextSet.add(id);
+                      else nextSet.delete(id);
+                      return nextSet;
+                    })
+                  }
                   onOpenAlbum={setActiveAlbumId}
                   onOpenPhoto={openLightbox}
                 />
@@ -491,6 +567,12 @@ export function CasePhotosPage() {
         startIndex={lightbox?.index ?? 0}
         title={lightbox?.title}
         thumbWidth={160}
+      />
+      <CaseExportDialog
+        open={exportItems !== null}
+        onOpenChange={(open) => !open && setExportItems(null)}
+        items={exportItems || []}
+        onChange={setExportItems}
       />
     </CaseShell>
   );

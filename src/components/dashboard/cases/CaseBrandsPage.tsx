@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { LoadingImage } from "@/components/ui/loading-image";
+import {
+  buildExportItem,
+  type CaseExportItem,
+} from "@/lib/caseExport";
 import {
   brandName,
   caseDate,
@@ -19,6 +23,7 @@ import {
   CaseSearch,
   useCaseData,
 } from "./CaseShared";
+import { CaseExportDialog } from "./CaseExportDialog";
 
 const BRAND_PAGE_SIZE = 24;
 
@@ -34,6 +39,7 @@ export function CaseBrandsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
+  const [exportItems, setExportItems] = useState<CaseExportItem[] | null>(null);
   const [preview, setPreview] = useState<{
     title: string;
     urls: string[];
@@ -214,6 +220,19 @@ export function CaseBrandsPage() {
                   ? "下載中…"
                   : `下載已選 Logo（${selectedRows.length}）`}
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedRows.length || downloading}
+                onClick={() =>
+                  setExportItems(
+                    selectedRows.map((b) => buildExportItem("brand", b.id, b)),
+                  )
+                }
+              >
+                <Send className="mr-2 h-4 w-4" />
+                加入導出／發布（{selectedRows.length}）
+              </Button>
             </div>
             {downloadError && (
               <p role="alert" className="text-sm text-destructive">
@@ -316,6 +335,12 @@ export function CaseBrandsPage() {
         startIndex={preview?.index ?? 0}
         title={preview?.title}
         simple
+      />
+      <CaseExportDialog
+        open={exportItems !== null}
+        onOpenChange={(open) => !open && setExportItems(null)}
+        items={exportItems || []}
+        onChange={setExportItems}
       />
     </CaseShell>
   );

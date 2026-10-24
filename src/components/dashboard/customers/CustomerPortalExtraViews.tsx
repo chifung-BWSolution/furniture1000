@@ -28,18 +28,17 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import type { SearchProduct } from '@/types/solutions';
 import { toast } from 'sonner';
-import {
-  CorporateLogoWall,
-  CorporateSection,
-  CorporateTrustStats,
-  CorporateYouTubeGrid,
-} from '@/components/corporate/CorporateModules';
+import { CorporateLogoWall, CorporateSection, CorporateTrustStats, CorporateYouTubeGrid } from '@/components/corporate/CorporateModules';
 import {
   BW_COMPANY,
   BW_CONTACT_HIGHLIGHTS,
   BW_PUBLIC_CASES,
   BW_SERVICE_MODULES,
 } from '@/content/bwCorporate';
+import {
+  fetchPublishedCaseShowcase,
+  type CasePublishPayload,
+} from '@/lib/caseShowcasePublish';
 
 const CONTACT_HIGHLIGHT_ICONS = [Factory, Truck, Ruler, Percent] as const;
 
@@ -404,11 +403,41 @@ export function CustomerOrderStatusView() {
 }
 
 export function CustomerCaseStudiesView() {
+  // F-CASE-005：由內部「成功案例 › 導出預覽」發布的精選內容驅動；
+  // 無發布時回退靜態 B&W 公開案例內容，頁面永不空白。
+  const [published, setPublished] = useState<CasePublishPayload | null>(null);
+  const [publishedLoading, setPublishedLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPublishedCaseShowcase()
+      .then((payload) => {
+        if (!cancelled) setPublished(payload);
+      })
+      .finally(() => {
+        if (!cancelled) setPublishedLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const photoCases = (published?.cases || []).filter((c) => c.kind === 'photo');
+  const orderCases = (published?.cases || []).filter((c) => c.kind === 'order');
+  const brands = published?.brands || [];
+  const hasPublished = Boolean(
+    published && (photoCases.length || orderCases.length || brands.length),
+  );
+
   return (
     <PortalPageShell
       title="成功案例"
       badge="Client Portal"
-      subtitle="公開工程案例、服務客戶 Logo 牆及公司 YouTube。"
+      subtitle={
+        hasPublished
+          ? '精選工程案例與服務客戶。'
+          : '公開工程案例、服務客戶 Logo 牆及公司 YouTube。'
+      }
     >
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="p-6 lg:p-8">
@@ -423,47 +452,152 @@ export function CustomerCaseStudiesView() {
           </div>
         </div>
       </section>
-      <CorporateTrustStats />
+      {!hasPublished && <CorporateTrustStats />}
 
-      <CorporateSection
-        title="公開工程案例"
-        subtitle="內容及圖片參考 B&W Office 公開成功案例頁。"
-        icon={<Film className="h-5 w-5 text-primary" />}
-      >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {BW_PUBLIC_CASES.map((item) => (
-            <article
-              key={`${item.title}-${item.location}`}
-              className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+      {hasPublished ? (
+        <>
+          {(photoCases.length > 0 || orderCases.length > 0) && (
+            <CorporateSection
+              title="精選工程案例"
+              subtitle={
+                published?.publishedAt
+                  ? `最近更新：${new Intl.DateTimeFormat('zh-HK', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(published.publishedAt))}`
+                  : undefined
+              }
+              icon={<Film className="h-5 w-5 text-primary" />}
             >
-              <div className="aspect-[3/2] overflow-hidden bg-muted">
-                <LoadingImage
-                  src={item.image}
-                  alt={`${item.title} ${item.location}`}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full"
-                  imgClassName="object-cover transition-transform hover:scale-105"
-                />
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {photoCases.map((item) => (
+                  <article
+                    key={`photo-${item.title}`}
+                    className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+                  >
+                    <div className="aspect-[3/2] overflow-hidden bg-muted">
+                      {item.cover ? (
+                        <LoadingImage
+                          src={item.cover}
+                          alt={item.title}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full"
+                          imgClassName="object-cover transition-transform hover:scale-105"
+                        />
+                      ) : null}
+                    </div>
+                    <div className="p-4">
+                      <h3 className="font-display text-base font-bold">{item.title}</h3>
+                      {item.note && (
+                        <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                          {item.note}
+                        </p>
+                      )}
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        完工相片 {item.photos.length} 張
+                        {item.pmName ? `　·　PM：${item.pmName}` : ''}
+                      </p>
+                    </div>
+                  </article>
+                ))}
+                {orderCases.map((item) => (
+                  <article
+                    key={`order-${item.title}`}
+                    className="rounded-2xl border border-border bg-card p-4 shadow-sm"
+                  >
+                    <h3 className="font-display text-base font-bold">{item.title}</h3>
+                    {item.note && (
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                        {item.note}
+                      </p>
+                    )}
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {[
+                        item.productCount !== null ? `產品 ${item.productCount} 項` : '',
+                        item.totalQuantity !== null ? `總數量 ${item.totalQuantity}` : '',
+                      ]
+                        .filter(Boolean)
+                        .join('　·　')}
+                      {item.pmName ? `　·　PM：${item.pmName}` : ''}
+                    </p>
+                  </article>
+                ))}
               </div>
-              <div className="p-4">
-                <h3 className="font-display text-base font-bold">{item.title}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {item.location} · {item.size}
-                </p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </CorporateSection>
+            </CorporateSection>
+          )}
 
-      <CorporateSection
-        title="服務客戶 Logo 牆"
-        subtitle="取自 B&W Office 公開首頁，涵蓋教育、金融及專業服務、政府及法定機構、酒店、科技、醫療與社福等分類。"
-        icon={<Building2 className="h-5 w-5 text-primary" />}
-      >
-        <CorporateLogoWall />
-      </CorporateSection>
+          {brands.length > 0 && (
+            <CorporateSection
+              title="服務客戶"
+              icon={<Building2 className="h-5 w-5 text-primary" />}
+            >
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {brands.map((brand) => (
+                  <div
+                    key={brand.name}
+                    className="flex h-24 items-center justify-center overflow-hidden rounded-xl border border-border bg-card p-4"
+                  >
+                    {brand.logoUrl ? (
+                      <LoadingImage
+                        src={brand.logoUrl}
+                        alt={brand.name}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full"
+                        imgClassName="bg-white object-contain"
+                      />
+                    ) : (
+                      <span className="text-sm font-semibold">{brand.name}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CorporateSection>
+          )}
+        </>
+      ) : (
+        <CorporateSection
+          title="公開工程案例"
+          subtitle="內容及圖片參考 B&W Office 公開成功案例頁。"
+          icon={<Film className="h-5 w-5 text-primary" />}
+        >
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {BW_PUBLIC_CASES.map((item) => (
+              <article
+                key={`${item.title}-${item.location}`}
+                className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+              >
+                <div className="aspect-[3/2] overflow-hidden bg-muted">
+                  <LoadingImage
+                    src={item.image}
+                    alt={`${item.title} ${item.location}`}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full"
+                    imgClassName="object-cover transition-transform hover:scale-105"
+                  />
+                </div>
+                <div className="p-4">
+                  <h3 className="font-display text-base font-bold">{item.title}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {item.location} · {item.size}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </CorporateSection>
+      )}
+
+      {hasPublished && <CorporateTrustStats />}
+
+      {!hasPublished && (
+        <CorporateSection
+          title="服務客戶 Logo 牆"
+          subtitle="取自 B&W Office 公開首頁，涵蓋教育、金融及專業服務、政府及法定機構、酒店、科技、醫療與社福等分類。"
+          icon={<Building2 className="h-5 w-5 text-primary" />}
+        >
+          <CorporateLogoWall />
+        </CorporateSection>
+      )}
 
       <CorporateSection
         title="公司 YouTube"
