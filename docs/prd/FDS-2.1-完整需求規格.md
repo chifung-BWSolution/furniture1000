@@ -27,11 +27,18 @@
 
 ### 1.1.1 PM報價與傢俬報價分離（2026-10-21）
 
-**BWA 與 BWF 是兩家機構。** PM報價（`/fds/pm/*`：報價預算、快速報價、專業說明 PDF、簡報生成，以及日後加在此區的頁）是 **BWA 項目經理** 的詢價方。傢俬報價（`/fds/quote/*`、`/quote/*`，表 `bwf_quote`／`bwf_quote_item`／`bwf_quote_share_links`，含快速報價、報價一覽、回收桶）是 **BWF 傢俬部** 的內部報價，BWA 不能打開或修改。
+**BWA 與 BWF 是兩家機構。** PM報價（`/fds/pm/*`：報價預算、快速報價、專業說明 PDF、簡報生成，以及日後加在此區的頁）是 **BWA 與 BWF 之間的跨機構詢價／報價區**：其中報價預算、專業說明 PDF、簡報生成是 **BWA 項目經理** 的詢價方入口，快速報價則是 **BWF 項目經理** 建報價單給 BWA PM 的入口（分工見下方表）。傢俬報價（`/fds/quote/*`、`/quote/*`，表 `bwf_quote`／`bwf_quote_item`／`bwf_quote_share_links`，含快速報價、報價一覽、回收桶）是 **BWF 傢俬部** 的內部報價，BWA 不能打開或修改。
 
 規格裡沒有既有的詢價單、`quote_requests`，或「工程報價交給傢俬部」的交接表。`bwf_quote.bwf_pitching_id` 只是 BWF 報價掛上 PMS pitching，方向相反。FDS 2.0 第 5 節與 C-04 的中間價（賣價 × 0.8）是產品搜索的內部遮罩，不是這次的跨組織詢價。
 
 **提案（最小模型）**：BWA PM 從 BWA 工程報價抽出傢俬項目，寫成一張詢價送給 BWF，並只讀 BWF 正式回覆的賣價。
+
+**兩個入口的分工（2026-10-23 釐清）**：
+
+| 入口 | 使用者 | 定義 |
+|---|---|---|
+| 快速報價（`fds2-pm-quick`） | **BWF PM** | BWF PM 進來建立報價單給 BWA 的 PM；報價單可關聯 BWA 的 pitching 與項目（`bwa_pitching_id`／`bwa_project_id`） |
+| 報價預算（`fds2-pm-budget`） | **BWA PM** | BWA PM 進來選對應 pitching 下具體報價單裡的傢俬項目，即時試算該工程／提案需要多少預算 |
 
 | 表／函式 | 用途 |
 |---|---|
@@ -652,8 +659,8 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 | 設計師選傢俬 → SU模型 | `fds2-designer-su` | 待開發 | D-5／**F-AI-008** |
 | 設計師選傢俬 → 3D模型 | `fds2-designer-3d` | 待開發 | D-6／**F-AI-008** |
 | PM報價 → 專業說明 PDF | `fds2-pm-pro-pdf` | 已接上，只列詢價項目與 BWF 回覆賣價 | R5.2／§1.1.1 |
-| PM報價 → 快速報價 | `fds2-pm-quick` | 已接上，BWA 填傢俬項目並送給 BWF | R5.1／§1.1.1 |
-| PM報價 → 報價預算 | `fds2-pm-budget` | 已接上，詢價狀態與回覆賣價 | R5.1／§1.1.1 |
+| PM報價 → 快速報價 | `fds2-pm-quick` | 已接上，BWF PM 建報價單給 BWA PM，可關聯 BWA pitching／項目 | R5.1／§1.1.1 |
+| PM報價 → 報價預算 | `fds2-pm-budget` | 已接上，BWA PM 選 pitching 下報價單的傢俬，快速試算預算 | R5.1／§1.1.1 |
 | 系統設定 → 電郵通知 | `fds2-admin-email` | 待開發 | R6.5 |
 | **新增：AI 解析／審核** | 建議新 view（如 `fds2-products-ai-review`） | 新增 | F-AI-002/003 |
 | **新增：供應商報價比較** | 建議新 view | 新增 | F-AI-007 |
