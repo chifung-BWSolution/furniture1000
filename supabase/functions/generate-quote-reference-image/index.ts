@@ -32,6 +32,30 @@ const MAX_REFERENCE_BYTES = 8 * 1024 * 1024;
 const RATIOS = new Set(["1:1", "3:4", "4:3", "16:9", "9:16"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+
+/** Host allowlist for referenceUrls — only this project's public Storage buckets. */
+function isAllowedReferenceUrl(raw: string, supabaseUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw.trim());
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+  if (parsed.username || parsed.password) return false;
+  let base: URL;
+  try {
+    base = new URL(supabaseUrl);
+  } catch {
+    return false;
+  }
+  if (parsed.host.toLowerCase() !== base.host.toLowerCase()) return false;
+  // Only public object paths for product / quote photo buckets (no SSRF to other hosts).
+  const path = parsed.pathname.replace(/\/+/g, "/");
+  return /^\/storage\/v1\/object\/public\/(product-images|quote-photos)\//i.test(path);
+}
+
+
 /** xAI 圖像模型。可用 Edge secret XAI_IMAGE_MODEL 覆寫，不必重新部署。 */
 const DEFAULT_XAI_IMAGE_MODEL = "grok-imagine-image-2.0";
 /**
@@ -309,7 +333,7 @@ Deno.serve(async (req: Request) => {
   if (rawReferenceUrls.length > 0) {
     if (
       new Set(rawReferenceUrls).size !== rawReferenceUrls.length ||
-      rawReferenceUrls.some((url) => !/^https?:\/\//i.test(url.trim()))
+      rawReferenceUrls.some((url) => !isAllowedReferenceUrl(url, supabaseUrl))
     ) {
       return fail("quote_photo_generate_invalid", 400, "reference url");
     }
