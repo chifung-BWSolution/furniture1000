@@ -95,6 +95,15 @@ export function CaseOrdersPage() {
     (page - 1) * ORDERS_PAGE_SIZE,
     page * ORDERS_PAGE_SIZE,
   );
+  const allKeys = useMemo(
+    () =>
+      grouped.map((items) => `${items[0].project_id}:${items[0].project_code || ""}`),
+    [grouped],
+  );
+  const allSelected = allKeys.length > 0 && allKeys.every((key) => picked.has(key));
+  const someSelected = allKeys.some((key) => picked.has(key));
+  const toggleAll = () =>
+    setPicked(allSelected ? new Set() : new Set(allKeys));
   return (
     <CaseShell
       {...data}
@@ -196,7 +205,23 @@ export function CaseOrdersPage() {
                     scope="col"
                     className="whitespace-nowrap px-3 py-2.5 text-[11px] font-medium"
                   >
-                    {h}
+                    {index === 0 ? (
+                      <Checkbox
+                        aria-label={
+                          allSelected ? "取消全選訂單" : "全選所有篩選後訂單"
+                        }
+                        checked={
+                          allSelected
+                            ? true
+                            : someSelected
+                              ? "indeterminate"
+                              : false
+                        }
+                        onCheckedChange={toggleAll}
+                      />
+                    ) : (
+                      h
+                    )}
                   </th>
                 ))}
               </tr>
