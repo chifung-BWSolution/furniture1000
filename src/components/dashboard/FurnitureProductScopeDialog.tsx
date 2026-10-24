@@ -34,7 +34,7 @@ export function FurnitureProductScopeDialog({ detection, images, onChoose, onCan
     footer={<>
       <ModalButton onClick={() => onChoose({scope:'single',count:1})}>只生成其中一件</ModalButton>
       <ModalButton variant="secondary" disabled={!Number.isInteger(n) || n < 2 || n > 20} onClick={() => onChoose({scope:'arrangement',count:n})}>按整組生成</ModalButton>
-      <ModalButton variant="ghost" onClick={onCancel}>取消</ModalButton>
+      <ModalButton variant="secondary" onClick={onCancel}>取消</ModalButton>
     </>}
   >
     <div className="space-y-4 text-sm">

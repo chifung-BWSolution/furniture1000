@@ -89,7 +89,7 @@ export function DevelopmentCostView() {
   const app = overview?.appSummary;
 
   return (
-    <div className="mx-auto flex w-full max-w-none flex-col gap-5 fds-page-padding">
+    <div className="mx-auto flex h-full w-full max-w-none flex-col gap-5 overflow-y-auto fds-page-padding">
       <header className="fds-page-header flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div>
@@ -111,28 +111,28 @@ export function DevelopmentCostView() {
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-xs text-muted-foreground">目前時薪</p>
-              <p className="mt-1 font-display text-2xl font-bold">
+              <p className="text-xs leading-4 text-muted-foreground">目前時薪</p>
+              <p className="mt-1 text-2xl font-bold leading-8 tracking-tight tabular-nums">
                 {overview?.currentRate ? `${formatHkd(overview.currentRate.rate)} / 小時` : '未設定'}
               </p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                 {overview?.currentRate ? `由 ${overview.currentRate.effectiveFrom} 起` : '儲存第一個版本後開始計價'}
               </p>
             </div>
             <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-xs text-muted-foreground">本月工時成本</p>
-              <p className="mt-1 font-display text-2xl font-bold">{month ? formatHkd(month.labourCostHkd) : '—'}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">{formatDuration(month?.durationSeconds)} · {statusLabel[month?.status ?? 'none']}</p>
+              <p className="text-xs leading-4 text-muted-foreground">本月工時成本</p>
+              <p className="mt-1 text-2xl font-bold leading-8 tracking-tight tabular-nums">{month ? formatHkd(month.labourCostHkd) : '—'}</p>
+              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{formatDuration(month?.durationSeconds)} · {statusLabel[month?.status ?? 'none']}</p>
             </div>
             <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-xs text-muted-foreground">本月工具成本</p>
-              <p className="mt-1 font-display text-2xl font-bold">{month ? formatUsd(month.toolCostUsd) : '—'}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">{month?.toolCostCount ?? 0} 筆有來源成本</p>
+              <p className="text-xs leading-4 text-muted-foreground">本月工具成本</p>
+              <p className="mt-1 text-2xl font-bold leading-8 tracking-tight tabular-nums">{month ? formatUsd(month.toolCostUsd) : '—'}</p>
+              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{month?.toolCostCount ?? 0} 筆有來源成本</p>
             </div>
             <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-xs text-muted-foreground">累計工時成本</p>
-              <p className="mt-1 font-display text-2xl font-bold">{app ? formatHkd(app.labourCostHkd) : '—'}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="text-xs leading-4 text-muted-foreground">累計工時成本</p>
+              <p className="mt-1 text-2xl font-bold leading-8 tracking-tight tabular-nums">{app ? formatHkd(app.labourCostHkd) : '—'}</p>
+              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                 未定價 {formatDuration(app?.unpricedSeconds)}
               </p>
             </div>

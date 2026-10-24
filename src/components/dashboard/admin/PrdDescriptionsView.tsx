@@ -35,7 +35,7 @@ export function PrdDescriptionsView() {
   const selectDoc = (doc: PrdDoc) => setSelectedId(doc.id);
 
   return (
-    <div className="mx-auto flex w-full max-w-none flex-col gap-5 fds-page-padding">
+    <div className="mx-auto flex h-full w-full max-w-none flex-col gap-5 overflow-y-auto fds-page-padding lg:overflow-hidden">
       <header className="fds-page-header flex items-start gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
           <BookOpenText className="h-5 w-5 text-primary" />
@@ -43,14 +43,14 @@ export function PrdDescriptionsView() {
         <div>
           <h1 className="fds-page-title">PRD功能描述</h1>
           <p className="fds-page-description">
-            唯讀顯示本系統的 Markdown：逐頁功能描述（docs/prd）及系統說明。修改版面後請同步更新對應文檔。
+            唯讀顯示 docs/prd 下的需求文件（系統 PRD 及逐頁功能描述）。修改版面後請同步更新對應文檔。
           </p>
         </div>
       </header>
 
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
-        <section className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="space-y-3 border-b border-border p-3">
+      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+        <section className="overflow-hidden rounded-xl border border-border bg-card lg:flex lg:min-h-0 lg:flex-col">
+          <div className="shrink-0 space-y-3 border-b border-border p-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -89,7 +89,7 @@ export function PrdDescriptionsView() {
               className="p-6"
             />
           ) : (
-            <ul className="divide-y divide-border">
+            <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
               {rows.map((doc) => {
                 const active = doc.id === selected?.id;
                 return (
@@ -112,7 +112,7 @@ export function PrdDescriptionsView() {
             </ul>
           )}
 
-          <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-muted-foreground">
+          <div className="flex shrink-0 items-center justify-between border-t border-border px-4 py-2 text-xs text-muted-foreground">
             <span>{filtered.length} 份文檔</span>
             <div className="flex items-center gap-2">
               <Button type="button" size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
@@ -126,10 +126,10 @@ export function PrdDescriptionsView() {
           </div>
         </section>
 
-        <article className="min-w-0 rounded-xl border border-border bg-card">
+        <article className="min-w-0 rounded-xl border border-border bg-card lg:flex lg:min-h-0 lg:flex-col">
           {selected ? (
             <>
-              <div className="border-b border-border p-5">
+              <div className="shrink-0 border-b border-border p-5">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <Badge variant="secondary">{selected.group}</Badge>
                   <Badge variant="outline">唯讀</Badge>
@@ -139,7 +139,7 @@ export function PrdDescriptionsView() {
                 <p className="mt-1 text-xs text-muted-foreground">最後更新：{selected.date ?? '未標示日期'}</p>
               </div>
               <div
-                className="prd-markdown max-w-none p-5 font-body text-sm leading-relaxed text-foreground [&_a]:text-primary [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:mt-6 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_ol]:my-2 [&_p]:my-2 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:bg-muted/50 [&_th]:px-2 [&_th]:py-1 [&_ul]:my-2"
+                className="prd-markdown min-h-0 max-w-none flex-1 p-5 font-body text-sm leading-relaxed text-foreground lg:overflow-y-auto [&_a]:text-primary [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:mt-6 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_ol]:my-2 [&_p]:my-2 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:bg-muted/50 [&_th]:px-2 [&_th]:py-1 [&_ul]:my-2"
                 dangerouslySetInnerHTML={{ __html: html }}
               />
             </>

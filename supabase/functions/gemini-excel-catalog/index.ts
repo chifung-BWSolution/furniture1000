@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
+import { logAiUsage } from "../_shared/usageLog.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -376,6 +377,13 @@ async function callGeminiWithRetry(
       }
 
       const geminiData = await geminiRes.json();
+      await logAiUsage({
+        source: "gemini-excel-catalog",
+        model: modelName,
+        promptTokens: geminiData?.usageMetadata?.promptTokenCount,
+        outputTokens: geminiData?.usageMetadata?.candidatesTokenCount,
+        totalTokens: geminiData?.usageMetadata?.totalTokenCount,
+      });
       const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!textContent) {

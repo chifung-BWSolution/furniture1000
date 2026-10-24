@@ -593,7 +593,7 @@ export function FGProductDetailModal({
         variant="bleed"
         size="full"
         className="bg-background"
-        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0"
+        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0 sm:p-0"
         style={{ width: '1200px', height: '800px', maxWidth: '96vw', maxHeight: '96vh' }}
       >
         {/* ── Modal Header ── */}

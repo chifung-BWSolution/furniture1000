@@ -13,6 +13,7 @@
  * （產品圖＋參考圖＋備註圖 → 同一組自適應圖例）。
  */
 
+import { Fragment } from 'react';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
 import { pdfDisplayText } from '@/lib/quotationPdfGlyphs';
@@ -28,7 +29,7 @@ import { looksLikeMaterialHtml } from '@/lib/quotationMaterialHtml';
 import { quoteZoneTotals } from '@/lib/quoteFormatSettings';
 import { parseHtmlForPdf, type PdfHtmlBlock } from '@/lib/quotationPdfHtml';
 import {
-  layoutItemPhotoRows,
+  layoutItemImages,
   type PdfImageGallery,
   type PdfImageSource,
 } from '@/lib/quotationPdfImages';
@@ -40,9 +41,8 @@ import {
   PDF_PAGE_MARGIN,
   PDF_TABLE,
   PDF_TYPE,
+  itemImageColumnWidthPt,
   pdfColumnWidths,
-  pdfItemColumnWidths,
-  PDF_ITEM_PHOTOS,
   type PdfColumnKey,
   type PdfLocale,
 } from '@/lib/quotationPdfMetrics';
@@ -353,13 +353,7 @@ function buildHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: JSX.El
   const fieldsHeight = (fields: HeaderField[]) =>
     fields.reduce((total, field) => total + Math.max(1, field.lines.length) * infoLine + 1.5, 0);
 
-  const qrSize = 60;
-  const qrCaptionLines = data.format?.qrDataUrl
-    ? plainLines(data.format.qrCaption || '', qrSize + 10, PDF_TYPE.descValue.size).slice(0, 2)
-    : [];
-  const qrHeight = data.format?.qrDataUrl ? 4 + qrSize + qrCaptionLines.length * 9.5 : 0;
-
-  const leftHeight = fieldsHeight(leftFields) + qrHeight;
+  const leftHeight = fieldsHeight(leftFields);
   const rightHeight = fieldsHeight(rightFields);
   const infoHeight = Math.max(leftHeight, rightHeight, 20);
 
@@ -411,16 +405,7 @@ function buildHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: JSX.El
       <P.View style={{ flexDirection: 'row', marginTop: 6 }}>
         <P.View style={{ width: columnWidth, marginRight: columnGap }}>
           {leftFields.map(fieldNode)}
-          {data.format?.qrDataUrl ? (
-            <P.View style={{ marginTop: 4 }}>
-              <P.Image src={data.format.qrDataUrl} style={{ width: qrSize, height: qrSize }} />
-              {qrCaptionLines.map((line, index) => (
-                <P.View key={index} style={{ height: 9.5, justifyContent: 'center' }}>
-                  <P.Text style={{ fontSize: PDF_TYPE.descValue.size }}>{line.text}</P.Text>
-                </P.View>
-              ))}
-            </P.View>
-          ) : null}
+
         </P.View>
         <P.View style={{ width: columnWidth }}>{rightFields.map(fieldNode)}</P.View>
       </P.View>
@@ -457,12 +442,13 @@ function buildCompactHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node:
 
 function buildTableHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: JSX.Element } {
   const { labels } = ctx;
-  const columns = pdfItemColumnWidths(ctx.locale);
+  const columns = pdfColumnWidths(ctx.locale);
   const cells: Array<{ key: PdfColumnKey; label: string }> = [
     { key: 'no', label: labels.colNo },
     { key: 'desc', label: labels.colDesc },
     { key: 'spec', label: labels.descDimensions },
     { key: 'material', label: labels.colMaterial },
+    { key: 'image', label: labels.colImage },
     { key: 'qty', label: labels.colQty },
     { key: 'unit', label: labels.colUnit },
     { key: 'unitPrice', label: labels.colUnitPrice },
@@ -686,11 +672,11 @@ function buildMaterialStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: P
   return strips;
 }
 
-/** 把一個 Item 排成一列（或超長時多段）。 */
+/** 把一個 Item 排成一列（或超長時多段）。圖例按原樣式放在列內圖片欄。 */
 function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock[] {
   const { labels, P } = ctx;
-  const columns = pdfItemColumnWidths(ctx.locale);
-  const customWidth = columns.desc + columns.spec + columns.material;
+  const columns = pdfColumnWidths(ctx.locale);
+  const customWidth = columns.desc + columns.spec + columns.material + columns.image;
   let desc = item.isCustomTerm
     ? plainLines(item.name || '', customWidth - 8, PDF_TYPE.material.size).map((line) =>
       textStrip(line, { size: PDF_TYPE.material.size, linePt: PDF_TYPE.material.line }, P))
@@ -698,6 +684,12 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
       ...buildColorStrips(ctx, item, columns.desc - 4, P)];
   let spec = item.isCustomTerm ? [] : buildSpecStrips(ctx, item, columns.spec - 4, P);
   let material = item.isCustomTerm ? [] : buildMaterialStrips(ctx, item, columns.material - 6, P);
+
+  // 圖例欄：產品圖／參考圖／備註圖自適應排版（原樣式：圖片在列內圖片欄）。
+  const galleryWidth = itemImageColumnWidthPt(ctx.locale);
+  const gallery = item.isCustomTerm
+    ? null
+    : layoutItemImages(itemImageSources(item), { widthPt: galleryWidth });
 
   const priceValues: Array<{ key: PdfColumnKey; text: string; bold?: boolean; align: 'center' | 'right' }> = [
     { key: 'qty', text: String(item.quantity ?? 0), align: 'center' },
@@ -726,7 +718,8 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
     const m = takeStrips(material, available);
     desc = d.rest; spec = sp.rest; material = m.rest;
     const heightPt = Math.max(sumHeight(d.taken) + continuationHeight, sumHeight(sp.taken),
-      sumHeight(m.taken), first ? priceHeight : 0, PDF_TABLE.minRowHeightPt - ROW_PAD * 2)
+      sumHeight(m.taken), first ? priceHeight : 0,
+      first && gallery ? gallery.heightPt : 0, PDF_TABLE.minRowHeightPt - ROW_PAD * 2)
       + ROW_PAD * 2 + ROW_SLACK_PT;
     const showPrices = first;
     const continued = !first;
@@ -745,6 +738,9 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
         {!item.isCustomTerm ? <>
           <P.View style={cellStyle(columns.spec)}>{stackNode(sp.taken, P)}</P.View>
           <P.View style={{ ...cellStyle(columns.material), paddingHorizontal: 3 }}>{stackNode(m.taken, P)}</P.View>
+          <P.View style={cellStyle(columns.image, { center: true })}>
+            {gallery && first ? renderGalleryRow(gallery.images, gallery.heightPt, galleryWidth, P) : null}
+          </P.View>
         </> : null}
         {prices.map((cell, index) => <P.View key={cell.key}
           style={cellStyle(columns[cell.key], { center: true, borderRight: index < prices.length - 1 })}>
@@ -761,22 +757,6 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
     first = false;
   } while (desc.length || spec.length || material.length);
 
-  if (!item.isCustomTerm) {
-    const { paddingPt } = PDF_ITEM_PHOTOS;
-    const galleryWidth = PDF_CONTENT_WIDTH_PT - paddingPt * 2 - BORDER * 2;
-    const photos = layoutItemPhotoRows(itemImageSources(item), galleryWidth);
-    photos.forEach((gallery, index) => {
-      const heightPt = gallery.heightPt + paddingPt * 2 + BORDER;
-      blocks.push({
-        key: `item-${serial}-photos-${index}`, heightPt, table: true,
-        node: <P.View style={{ ...rowStyle, height: heightPt }}>
-          <P.View style={{ padding: paddingPt, width: galleryWidth + paddingPt * 2 }}>
-            {renderGalleryRow(gallery.images, gallery.heightPt, galleryWidth, P)}
-          </P.View>
-        </P.View>,
-      });
-    });
-  }
   // Keep the description and its photos together whenever the full item fits a page.
   const heightPt = blocks.reduce((sum, block) => sum + block.heightPt, 0);
   if (heightPt <= capacity) {
@@ -1213,6 +1193,43 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
   const P = ctx.P;
   const { data, labels, locale } = ctx;
   const blocks: PdfBlock[] = [];
+  const qrUrl = data.format?.qrDataUrl;
+  const qrSize = 80;
+  const qrColumnWidth = 96;
+  const columnGap = 14;
+  const termsWidth = qrUrl ? PDF_CONTENT_WIDTH_PT - qrColumnWidth - columnGap : PDF_CONTENT_WIDTH_PT;
+  const finish = (): PdfBlock[] => {
+    if (!qrUrl) return blocks;
+    const caption = plainLines(data.format?.qrCaption || '', qrColumnWidth, PDF_TYPE.descValue.size);
+    const qrHeight = 4 + qrSize + (caption.length ? 4 + caption.length * 9.5 : 0);
+    let leftHeight = 0;
+    let count = 0;
+    // Keep the QR and the opening terms together as one measured page block.
+    while (count < blocks.length && leftHeight < qrHeight) {
+      leftHeight += blocks[count].heightPt;
+      count += 1;
+    }
+    const opening = blocks.slice(0, count);
+    const heightPt = Math.max(leftHeight, qrHeight);
+    return [{
+      key: 'terms-with-qr',
+      heightPt,
+      keepWithNext: opening[opening.length - 1]?.keepWithNext,
+      node: (
+        <P.View style={{ height: heightPt, flexDirection: 'row' }}>
+          <P.View style={{ width: termsWidth, marginRight: columnGap }}>
+            {opening.map((block) => <P.View key={block.key}>{block.node}</P.View>)}
+          </P.View>
+          <P.View style={{ width: qrColumnWidth, alignItems: 'center', paddingTop: 4 }}>
+            <P.Image src={qrUrl} style={{ width: qrSize, height: qrSize }} />
+            {caption.map((line, index) => (
+              <P.Text key={index} style={{ width: qrColumnWidth, fontSize: PDF_TYPE.descValue.size, lineHeight: lineHeightRatio(PDF_TYPE.descValue.size, 9.5), textAlign: 'center', marginTop: index === 0 ? 4 : 0 }}>{line.text}</P.Text>
+            ))}
+          </P.View>
+        </P.View>
+      ),
+    }, ...blocks.slice(count)];
+  };
 
   blocks.push({
     key: 'terms-title',
@@ -1238,7 +1255,7 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
       heightPt,
       keepWithNext: extra.keepWithNext,
       node: (
-        <P.View style={{ height: heightPt, paddingTop: marginTop }}>
+        <P.View style={{ width: termsWidth, height: heightPt, paddingTop: marginTop }}>
           {lines.map((line, index) => (
             <P.View key={index} style={{ height: linePt, justifyContent: 'center' }}>
               <P.Text
@@ -1266,7 +1283,7 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
       const isHeading = block.type === 'heading';
       const size = isHeading ? PDF_TYPE.termsHeading.size : PDF_TYPE.terms.size;
       const linePt = isHeading ? PDF_TYPE.termsHeading.line : PDF_TYPE.terms.line;
-      const lines = wrapPdfSegments(block.segments, PDF_CONTENT_WIDTH_PT, size);
+      const lines = wrapPdfSegments(block.segments, termsWidth, size);
       if (!lines.length) return;
       pushLines(`term-${index}`, lines, size, linePt, {
         marginTopPt: isHeading ? 6 : 0,
@@ -1274,7 +1291,7 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
         bold: isHeading,
       });
     });
-    return blocks;
+    return finish();
   }
 
   // 沒有富文本：用結構化條款（交付地址／付款／運輸／額外費用／保養／其他）。
@@ -1301,7 +1318,7 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
   const addressLine = `${heading.deliveryAddress}${data.quoteMeta?.deliveryAddress || heading.deliveryAddressFallback}`;
   pushLines(
     'term-address',
-    plainLines(addressLine, PDF_CONTENT_WIDTH_PT, PDF_TYPE.terms.size),
+    plainLines(addressLine, termsWidth, PDF_TYPE.terms.size),
     PDF_TYPE.terms.size,
     PDF_TYPE.terms.line,
   );
@@ -1317,7 +1334,7 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
   sections.forEach(([title, body], index) => {
     pushLines(
       `term-h-${index}`,
-      plainLines(title, PDF_CONTENT_WIDTH_PT, PDF_TYPE.termsHeading.size, true),
+      plainLines(title, termsWidth, PDF_TYPE.termsHeading.size, true),
       PDF_TYPE.termsHeading.size,
       PDF_TYPE.termsHeading.line,
       { marginTopPt: 7, keepWithNext: true, bold: true },
@@ -1326,11 +1343,11 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
     if (!text) return;
     const lines = text
       .split('\n')
-      .flatMap((line) => plainLines(line, PDF_CONTENT_WIDTH_PT, PDF_TYPE.terms.size));
+      .flatMap((line) => plainLines(line, termsWidth, PDF_TYPE.terms.size));
     pushLines(`term-b-${index}`, lines, PDF_TYPE.terms.size, PDF_TYPE.terms.line);
   });
 
-  return blocks;
+  return finish();
 }
 
 function buildSignatureBlock(ctx: Ctx): PdfBlock {
@@ -1389,6 +1406,7 @@ export function collectQuotationPdfImageUrls(data: QuotationPDFData): string[] {
   (data.quotePhotos || []).forEach((photo) => push(photo.url));
   (data.quotePhotoLayouts?.assets || []).forEach((asset) => push(asset.url));
   (data.quoteCoverPages || []).forEach((page) => push(page.url));
+  (data.quoteContentPages || []).forEach((page) => push(page.url));
   if (data.format?.qrDataUrl) push(data.format.qrDataUrl);
   return Array.from(urls);
 }
@@ -1517,6 +1535,20 @@ export function QuotationDocument({
 
   const coverPages = (data.quoteCoverPages ?? []).filter((page) => page.placement === 'cover');
   const backPages = (data.quoteCoverPages ?? []).filter((page) => page.placement === 'back');
+  // 內頁獨立整頁：插在正文第 pageNumber 頁之後；超出正文頁數時排在正文最後一頁之後。
+  const contentPages = (data.quoteContentPages ?? [])
+    .slice()
+    .sort((a, b) => a.pageNumber - b.pageNumber);
+  const contentPagesAfter = (bodyPageIndex: number) =>
+    contentPages.filter((page) => page.pageNumber === bodyPageIndex + 1);
+  const trailingContentPages = contentPages.filter(
+    (page) => page.pageNumber > pages.length || page.pageNumber < 1,
+  );
+  const renderFullPageImage = (page: { id: string; url: string }, keyPrefix: string) => (
+    <Page key={`${keyPrefix}-${page.id}`} size="A4" style={{ padding: 0 }}>
+      <Image src={page.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+    </Page>
+  );
 
   const footerNode = () => (
     <View
@@ -1550,11 +1582,7 @@ export function QuotationDocument({
       author={pdfDisplayText(data.companyInfo?.name || '')}
       subject={pdfDisplayText(data.quoteMeta?.projectName || '')}
     >
-      {coverPages.map((page) => (
-        <Page key={`cover-${page.id}`} size="A4" style={{ padding: 0 }}>
-          <Image src={page.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-        </Page>
-      ))}
+      {coverPages.map((page) => renderFullPageImage(page, 'cover'))}
 
       {pages.map((page, pageIndex) => {
         const showTableHeader = hasTable && page.blocks.some((block) => block.table);
@@ -1566,34 +1594,37 @@ export function QuotationDocument({
           return last;
         })();
         return (
-          <Page key={`page-${pageIndex}`} size="A4" style={pageStyle}>
-            {pageIndex === 0 ? <View style={{ height: header.heightPt }}>{header.node}</View> : (
-              <View style={{ height: compactHeader.heightPt }}>{compactHeader.node}</View>
+          <Fragment key={`page-${pageIndex}`}>
+            <Page size="A4" style={pageStyle}>
+              {pageIndex === 0 ? <View style={{ height: header.heightPt }}>{header.node}</View> : (
+                <View style={{ height: compactHeader.heightPt }}>{compactHeader.node}</View>
+              )}
+              {showTableHeader ? <View style={{ height: tableHeader.heightPt }}>{tableHeader.node}</View> : null}
+              {page.blocks.map((block, index) => (
+                <View
+                  key={block.key}
+                  wrap={false}
+                  style={{
+                    height: block.heightPt,
+                    borderBottomWidth: index === tableTail ? BORDER : 0,
+                    borderColor: RULE,
+                  }}
+                >
+                  {block.node}
+                </View>
+              ))}
+              {footerNode()}
+            </Page>
+            {contentPagesAfter(pageIndex).map((contentPage) =>
+              renderFullPageImage(contentPage, 'content'),
             )}
-            {showTableHeader ? <View style={{ height: tableHeader.heightPt }}>{tableHeader.node}</View> : null}
-            {page.blocks.map((block, index) => (
-              <View
-                key={block.key}
-                wrap={false}
-                style={{
-                  height: block.heightPt,
-                  borderBottomWidth: index === tableTail ? BORDER : 0,
-                  borderColor: RULE,
-                }}
-              >
-                {block.node}
-              </View>
-            ))}
-            {footerNode()}
-          </Page>
+          </Fragment>
         );
       })}
 
-      {backPages.map((page) => (
-        <Page key={`back-${page.id}`} size="A4" style={{ padding: 0 }}>
-          <Image src={page.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-        </Page>
-      ))}
+      {trailingContentPages.map((page) => renderFullPageImage(page, 'content'))}
+
+      {backPages.map((page) => renderFullPageImage(page, 'back'))}
     </Document>
   );
 }

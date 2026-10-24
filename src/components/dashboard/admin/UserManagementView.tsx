@@ -244,7 +244,7 @@ export function UserManagementView() {
             <ModalButton onClick={() => void invite()}>
               <UserPlus className="h-4 w-4" /> 新增用戶
             </ModalButton>
-            <ModalButton variant="ghost" onClick={() => setShowInvite(false)}>
+            <ModalButton variant="secondary" onClick={() => setShowInvite(false)}>
               取消
             </ModalButton>
           </>

@@ -47,6 +47,36 @@ function chainDisplayName(row: QuoteOptionRow): string {
   return row.quote_id?.trim() || "—";
 }
 
+/** Group quote rows into picker chains (version-sorted, duplicate titles suffixed). */
+function buildChains(rows: QuoteOptionRow[]): QuoteChainOption[] {
+  const grouped = new Map<string, QuoteOptionRow[]>();
+  for (const row of rows) {
+    const quoteId = (row.quote_id || "").trim();
+    if (!quoteId) continue;
+    const list = grouped.get(quoteId) || [];
+    list.push(row);
+    grouped.set(quoteId, list);
+  }
+
+  const titleCounts = new Map<string, number>();
+  for (const versions of grouped.values()) {
+    versions.sort((a, b) => -compareQuoteVersion(a.version, b.version));
+    const title = chainDisplayName(versions[0]);
+    titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
+  }
+
+  const chains: QuoteChainOption[] = [...grouped.entries()].map(
+    ([quoteId, versions]) => {
+      const title = chainDisplayName(versions[0]);
+      const label =
+        (titleCounts.get(title) || 0) > 1 ? `${title} · ${quoteId}` : title;
+      return { quoteId, label, versions };
+    },
+  );
+  chains.sort((a, b) => a.label.localeCompare(b.label, "zh-Hant"));
+  return chains;
+}
+
 function formatItemDimensions(item: BwfQuoteItemInput): string {
   const parts = [item.dimensionLMm, item.dimensionWMm, item.dimensionHMm]
     .map((v) => (v == null ? "" : String(v).trim()))
@@ -125,35 +155,16 @@ export function CopyQuoteItemsModal({
           bwf_pitching_id: string | null;
           created_at: string | null;
         }>;
-        const withPitching = await loadPitchingsForQuoteRows(raw);
         if (cancelled) return;
 
-        const grouped = new Map<string, QuoteOptionRow[]>();
-        for (const row of withPitching) {
-          const quoteId = (row.quote_id || "").trim();
-          if (!quoteId) continue;
-          const list = grouped.get(quoteId) || [];
-          list.push(row);
-          grouped.set(quoteId, list);
-        }
+        // Phase 1: show the picker immediately (labels fall back to quote_id).
+        setChains(buildChains(raw.map((row) => ({ ...row, pitching: null }))));
+        setListLoading(false);
 
-        const titleCounts = new Map<string, number>();
-        for (const versions of grouped.values()) {
-          versions.sort((a, b) => -compareQuoteVersion(a.version, b.version));
-          const title = chainDisplayName(versions[0]);
-          titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
-        }
-
-        const nextChains: QuoteChainOption[] = [...grouped.entries()].map(
-          ([quoteId, versions]) => {
-            const title = chainDisplayName(versions[0]);
-            const label =
-              (titleCounts.get(title) || 0) > 1 ? `${title} · ${quoteId}` : title;
-            return { quoteId, label, versions };
-          },
-        );
-        nextChains.sort((a, b) => a.label.localeCompare(b.label, "zh-Hant"));
-        setChains(nextChains);
+        // Phase 2: enrich with live PMS pitchings in the background.
+        const withPitching = await loadPitchingsForQuoteRows(raw);
+        if (cancelled) return;
+        setChains(buildChains(withPitching));
       } catch (err: unknown) {
         if (!cancelled) {
           toast.error("載入報價單一覽失敗", {
@@ -263,7 +274,7 @@ export function CopyQuoteItemsModal({
             {labels.copyFromOtherQuoteAddSelected}
             {selectedKeys.size > 0 ? ` (${selectedKeys.size})` : ""}
           </ModalButton>
-          <ModalButton variant="ghost" onClick={onClose}>
+          <ModalButton variant="secondary" onClick={onClose}>
             {labels.copyFromOtherQuoteClose}
           </ModalButton>
         </>
@@ -274,7 +285,7 @@ export function CopyQuoteItemsModal({
             <label className="font-body text-xs font-medium text-muted-foreground">
               {labels.copyFromOtherQuoteName}
             </label>
-            <div className="space-y-1.5">
+            <div className="relative space-y-1.5">
               <button
                 type="button"
                 disabled={listLoading}
@@ -289,7 +300,7 @@ export function CopyQuoteItemsModal({
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </button>
               {nameOpen ? (
-                <div className="overflow-hidden rounded-md border border-border bg-popover shadow-sm">
+                <div className="absolute inset-x-0 top-full z-50 mt-1 overflow-hidden rounded-md border border-border bg-popover shadow-md">
                   <input
                     type="text"
                     autoFocus
@@ -310,7 +321,7 @@ export function CopyQuoteItemsModal({
                           key={chain.quoteId}
                           onClick={() => handleSelectName(chain.quoteId)}
                           className={cn(
-                            "flex w-full items-center gap-2 px-3 py-2 text-left font-body text-sm hover:bg-accent",
+                            "flex w-full select-none items-center gap-2 px-3 py-2 text-left font-body text-sm hover:bg-accent",
                             selectedQuoteId === chain.quoteId && "bg-accent",
                           )}
                         >
@@ -354,7 +365,7 @@ export function CopyQuoteItemsModal({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border">
+        <div className="mt-4 min-h-0 flex-1 overflow-auto rounded-md border border-border">
           {!selectedQuoteId ? (
             <p className="px-4 py-10 text-center font-body text-sm text-muted-foreground">
               {labels.copyFromOtherQuotePickName}

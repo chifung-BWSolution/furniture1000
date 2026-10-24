@@ -1707,7 +1707,7 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
           <ModalButton variant="secondary" disabled={saving} onClick={() => void save(item.status)}>
             只保存
           </ModalButton>
-          <ModalButton variant="ghost" disabled={saving} onClick={() => void save('rejected')}>
+          <ModalButton variant="secondary" disabled={saving} onClick={() => void save('rejected')}>
             拒絕
           </ModalButton>
         </>

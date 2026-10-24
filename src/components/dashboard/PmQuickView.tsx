@@ -1,17 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Calculator, FileText } from 'lucide-react';
-import { PM_PRO_PDF_PATH, pmInquiryPath } from '@/content/bwaPm';
+import { useAuth } from '@/contexts/AuthProvider';
+import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
+import { Calculator, CircleDollarSign } from 'lucide-react';
+import { PM_BUDGET_PATH } from '@/content/bwaPm';
 import {
-  getFurnitureInquiry,
-  inquiryErrorMessage,
-  inquiryStatusLabel,
-  saveFurnitureInquiry,
-  sendFurnitureInquiry,
-  type BwaInquiryStatus,
-} from '@/lib/bwaFurnitureInquiry';
+  formatHkMoney,
+  getPmQuickQuote,
+  pmQuoteErrorMessage,
+  pmQuoteItemsTotal,
+  savePmQuickQuote,
+} from '@/lib/pmQuickQuote';
 import { searchBwaWorks, type BwaWorkOption } from '@/lib/bwaWorks';
-import { formatListMoney } from '@/lib/listTableUtils';
 import { Button } from '@/components/ui/button';
 
 interface DraftLine {
@@ -20,7 +20,7 @@ interface DraftLine {
   spec: string;
   quantity: string;
   unit: string;
-  returnedUnitPrice: number | null;
+  unitPrice: string;
 }
 
 function blankLine(): DraftLine {
@@ -30,14 +30,16 @@ function blankLine(): DraftLine {
     spec: '',
     quantity: '1',
     unit: '',
-    returnedUnitPrice: null,
+    unitPrice: '',
   };
 }
 
-function money(value: number | null): string {
-  if (value == null || Number.isNaN(value)) return '未回覆';
-  const text = formatListMoney(value);
-  return text === 'N/A' ? '未回覆' : `HK$ ${text}`;
+function toMoneyInput(value: number): string {
+  return Number.isFinite(value) && value !== 0 ? String(value) : '';
+}
+
+function lineSubtotal(line: DraftLine): number {
+  return (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
 }
 
 function workKindLabel(kind: BwaWorkOption['kind']): string {
@@ -55,18 +57,20 @@ function optionKey(option: BwaWorkOption): string {
 }
 
 export function PmQuickView() {
+  const { user } = useAuth();
+  const staffName = usePmsStaffName(user?.id);
   const [params, setParams] = useSearchParams();
-  const inquiryId = (params.get('inquiry') || '').trim();
+  const quoteUuid = (params.get('quote') || '').trim();
   const [projectRef, setProjectRef] = useState('');
   const [projectName, setProjectName] = useState('');
   const [pitchingId, setPitchingId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [note, setNote] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
-  const [status, setStatus] = useState<BwaInquiryStatus>('draft');
-  const [loading, setLoading] = useState(Boolean(inquiryId));
+  const [savedQuoteId, setSavedQuoteId] = useState('');
+  const [loading, setLoading] = useState(Boolean(quoteUuid));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [workQuery, setWorkQuery] = useState('');
   const [workOptions, setWorkOptions] = useState<BwaWorkOption[]>([]);
   const [workError, setWorkError] = useState('');
@@ -74,42 +78,42 @@ export function PmQuickView() {
   const [workLoading, setWorkLoading] = useState(false);
 
   useEffect(() => {
-    if (!inquiryId) {
+    if (!quoteUuid) {
       setProjectRef('');
       setProjectName('');
       setPitchingId(null);
       setProjectId(null);
-      setNote('');
       setLines([blankLine()]);
-      setStatus('draft');
+      setSavedQuoteId('');
       setLoading(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    void getFurnitureInquiry(inquiryId).then((result) => {
+    void getPmQuickQuote(quoteUuid).then((result) => {
       if (cancelled) return;
-      if (result.error || !result.inquiry) {
-        setMessage(result.error ? inquiryErrorMessage(result.error) : '找不到這張詢價。');
+      if (result.error || !result.quote) {
+        setErrorMessage(
+          result.error ? pmQuoteErrorMessage(result.error) : '找不到這張快速報價單。',
+        );
         setLoading(false);
         return;
       }
-      const inquiry = result.inquiry;
-      setProjectRef(inquiry.bwa_project_ref);
-      setProjectName(inquiry.bwa_project_name);
-      setPitchingId(inquiry.bwa_pitching_id);
-      setProjectId(inquiry.bwa_project_id);
-      setNote(inquiry.note);
-      setStatus(inquiry.status);
+      const quote = result.quote;
+      setProjectRef(quote.bwaProjectRef);
+      setProjectName(quote.bwaProjectName);
+      setPitchingId(quote.bwaPitchingId);
+      setProjectId(quote.bwaProjectId);
+      setSavedQuoteId(quote.quoteId);
       setLines(
-        inquiry.items.length > 0
-          ? inquiry.items.map((item) => ({
+        quote.items.length > 0
+          ? quote.items.map((item) => ({
             key: item.id,
             name: item.name,
             spec: item.spec,
-            quantity: String(item.quantity),
+            quantity: String(item.quantity || ''),
             unit: item.unit,
-            returnedUnitPrice: item.returned_unit_price,
+            unitPrice: toMoneyInput(item.unitPrice),
           }))
           : [blankLine()],
       );
@@ -118,12 +122,10 @@ export function PmQuickView() {
     return () => {
       cancelled = true;
     };
-  }, [inquiryId]);
-
-  const locked = status !== 'draft';
+  }, [quoteUuid]);
 
   useEffect(() => {
-    if (locked || !workOpen) return;
+    if (!workOpen) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       setWorkLoading(true);
@@ -138,7 +140,22 @@ export function PmQuickView() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [workQuery, workOpen, locked]);
+  }, [workQuery, workOpen]);
+
+  const total = useMemo(
+    () => pmQuoteItemsTotal(
+      lines.map((line) => ({
+        id: line.key,
+        sortOrder: 0,
+        name: line.name,
+        spec: line.spec,
+        quantity: Number(line.quantity) || 0,
+        unit: line.unit,
+        unitPrice: Number(line.unitPrice) || 0,
+      })),
+    ),
+    [lines],
+  );
 
   const clearWorkLink = () => {
     setPitchingId(null);
@@ -154,200 +171,191 @@ export function PmQuickView() {
     setWorkOpen(false);
   };
 
+  const newQuote = () => {
+    const next = new URLSearchParams(params);
+    next.delete('quote');
+    setParams(next, { replace: true });
+    setMessage('');
+    setErrorMessage('');
+  };
+
   const updateLine = (key: string, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
   };
 
-  const payload = () => ({
-    id: inquiryId || null,
-    projectRef,
-    projectName,
-    pitchingId,
-    projectId,
-    note,
-    items: lines.map((line) => ({
-      name: line.name.trim(),
-      spec: line.spec.trim(),
-      quantity: Number(line.quantity) || 0,
-      unit: line.unit.trim(),
-    })),
-  });
-
   const save = async () => {
     setSaving(true);
     setMessage('');
-    const result = await saveFurnitureInquiry(payload());
+    setErrorMessage('');
+    const result = await savePmQuickQuote({
+      id: quoteUuid || null,
+      projectRef,
+      projectName,
+      pitchingId,
+      projectId,
+      submitter: (staffName || user?.email || '').trim(),
+      items: lines.map((line) => ({
+        name: line.name,
+        spec: line.spec,
+        quantity: Number(line.quantity) || 0,
+        unit: line.unit,
+        unitPrice: Number(line.unitPrice) || 0,
+      })),
+    });
     setSaving(false);
     if (result.error || !result.id) {
-      setMessage(inquiryErrorMessage(result.error));
-      return null;
-    }
-    if (result.id !== inquiryId) {
-      const next = new URLSearchParams(params);
-      next.set('inquiry', result.id);
-      setParams(next, { replace: true });
-    }
-    setMessage('已儲存草稿。');
-    return result.id;
-  };
-
-  const send = async () => {
-    setSaving(true);
-    setMessage('');
-    const saved = await saveFurnitureInquiry(payload());
-    if (saved.error || !saved.id) {
-      setSaving(false);
-      setMessage(inquiryErrorMessage(saved.error));
+      const text = result.error
+        ? (result.error.message === 'need_items'
+          ? '至少要有一項有名稱的傢俬。'
+          : result.error.message === 'need_submitter'
+            ? '缺少提交者姓名，無法保存。'
+            : pmQuoteErrorMessage(result.error))
+        : '儲存沒有完成。';
+      setErrorMessage(text);
       return;
     }
-    const error = await sendFurnitureInquiry(saved.id);
-    setSaving(false);
-    if (error) {
-      setMessage(inquiryErrorMessage(error));
-      if (saved.id !== inquiryId) {
-        const next = new URLSearchParams(params);
-        next.set('inquiry', saved.id);
-        setParams(next, { replace: true });
-      }
-      return;
-    }
-    setStatus('sent');
-    if (saved.id !== inquiryId) {
+    if (result.id !== quoteUuid) {
       const next = new URLSearchParams(params);
-      next.set('inquiry', saved.id);
+      next.set('quote', result.id);
       setParams(next, { replace: true });
     }
-    setMessage('已送給 BWF。回覆的賣價會出現在每一列，不能在這裡改。');
+    if (result.quoteId) setSavedQuoteId(result.quoteId);
+    setMessage('已儲存。BWA PM 可以在報價預算揀選這張單的傢俬試算預算。');
   };
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
       <div className="mx-auto w-full max-w-none space-y-4 fds-page-padding">
         <section className="fds-page-header">
-          <h1 className="fds-page-title">
-            <Calculator className="h-5 w-5 text-primary" />
-            傢俬詢價
-          </h1>
-          <p className="fds-page-description">
-            從 BWA 工程或提案選一筆，或直接手填編號和名稱，再填傢俬項目送給 BWF。賣價由 BWF 回覆，這一頁只讀。PMS 沒有傢俬明細可以帶入。
-          </p>
-          <p className="mt-2 text-sm font-semibold">{inquiryStatusLabel(status)}</p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="fds-page-title">
+                <Calculator className="h-5 w-5 text-primary" />
+                快速報價
+              </h1>
+              <p className="fds-page-description">
+                BWF PM 為 BWA 的工程或提案建傢俬報價單：揀一筆 BWA 工程／提案（或手填編號名稱），逐項填傢俬和賣價。
+                BWA PM 之後在「報價預算」按同一個 pitching 揀選傢俬，即時試算需要多少預算。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to={PM_BUDGET_PATH}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-background px-3 text-sm font-semibold"
+              >
+                <CircleDollarSign className="mr-1.5 h-4 w-4" />
+                報價預算
+              </Link>
+              {quoteUuid && (
+                <Button type="button" variant="outline" onClick={newQuote}>
+                  開新報價單
+                </Button>
+              )}
+            </div>
+          </div>
         </section>
 
-        {loading && <p className="px-2 text-sm text-muted-foreground">載入詢價…</p>}
+        {loading && <p className="px-2 text-sm text-muted-foreground">載入報價單…</p>}
+        {errorMessage && <p className="px-2 text-sm text-destructive">{errorMessage}</p>}
         {!loading && (
           <section className="space-y-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
-            {!locked && (
-              <div className="relative">
-                <label className="text-sm" htmlFor="bwa-work-search">
-                  搜尋 BWA 工程或提案
-                  <input
-                    id="bwa-work-search"
-                    value={workQuery}
-                    role="combobox"
-                    aria-expanded={workOpen}
-                    aria-controls="bwa-work-list"
-                    autoComplete="off"
-                    placeholder="編號、名稱或客戶"
-                    onFocus={() => setWorkOpen(true)}
-                    onBlur={() => window.setTimeout(() => setWorkOpen(false), 150)}
-                    onChange={(event) => {
-                      setWorkQuery(event.target.value);
-                      setWorkOpen(true);
-                    }}
-                    className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3"
-                  />
-                </label>
-                {workOpen && (
-                  <ul
-                    id="bwa-work-list"
-                    role="listbox"
-                    className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-md"
-                  >
-                    {workLoading && <li className="px-3 py-2 text-sm text-muted-foreground">搜尋中…</li>}
-                    {!workLoading && workError && (
-                      <li className="px-3 py-2 text-sm text-muted-foreground">{workError}</li>
-                    )}
-                    {!workLoading && !workError && workOptions.length === 0 && (
-                      <li className="px-3 py-2 text-sm text-muted-foreground">
-                        沒有符合的工程或提案。可以直接手填下面的編號和名稱。
-                      </li>
-                    )}
-                    {!workLoading && !workError && workOptions.map((option) => (
-                      <li key={optionKey(option)}>
-                        <button
-                          type="button"
-                          role="option"
-                          className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-muted"
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            pickWork(option);
-                          }}
-                        >
-                          <span className="text-sm font-semibold">
-                            {workKindLabel(option.kind)} · {option.code || '無編號'}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {option.name || '無名稱'}
-                            {option.customer_name && option.customer_name !== option.name ? ` · ${option.customer_name}` : ''}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
+            <div className="relative">
+              <label className="text-sm" htmlFor="bwa-work-search">
+                搜尋 BWA 工程或提案
+                <input
+                  id="bwa-work-search"
+                  value={workQuery}
+                  role="combobox"
+                  aria-expanded={workOpen}
+                  aria-controls="bwa-work-list"
+                  autoComplete="off"
+                  placeholder="編號、名稱或客戶"
+                  onFocus={() => setWorkOpen(true)}
+                  onBlur={() => window.setTimeout(() => setWorkOpen(false), 150)}
+                  onChange={(event) => {
+                    setWorkQuery(event.target.value);
+                    setWorkOpen(true);
+                  }}
+                  className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3"
+                />
+              </label>
+              {workOpen && (
+                <ul
+                  id="bwa-work-list"
+                  role="listbox"
+                  className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-md"
+                >
+                  {workLoading && <li className="px-3 py-2 text-sm text-muted-foreground">搜尋中…</li>}
+                  {!workLoading && workError && (
+                    <li className="px-3 py-2 text-sm text-muted-foreground">{workError}</li>
+                  )}
+                  {!workLoading && !workError && workOptions.length === 0 && (
+                    <li className="px-3 py-2 text-sm text-muted-foreground">
+                      沒有符合的工程或提案。可以直接手填下面的編號和名稱。
+                    </li>
+                  )}
+                  {!workLoading && !workError && workOptions.map((option) => (
+                    <li key={optionKey(option)}>
+                      <button
+                        type="button"
+                        role="option"
+                        className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-muted"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          pickWork(option);
+                        }}
+                      >
+                        <span className="text-sm font-semibold">
+                          {workKindLabel(option.kind)} · {option.code || '無編號'}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {option.name || '無名稱'}
+                          {option.customer_name && option.customer_name !== option.name ? ` · ${option.customer_name}` : ''}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm">
                 工程編號
                 <input
                   value={projectRef}
-                  disabled={locked}
                   onChange={(event) => {
                     setProjectRef(event.target.value);
                     clearWorkLink();
                   }}
-                  className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 disabled:opacity-60"
+                  className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3"
                 />
               </label>
               <label className="text-sm">
                 工程名稱
                 <input
                   value={projectName}
-                  disabled={locked}
                   onChange={(event) => {
                     setProjectName(event.target.value);
                     clearWorkLink();
                   }}
-                  className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 disabled:opacity-60"
+                  className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3"
                 />
               </label>
             </div>
             {linkLabel(pitchingId, projectId) && (
               <p className="text-xs text-muted-foreground">{linkLabel(pitchingId, projectId)}。手改編號或名稱會改回手填。</p>
             )}
-            <label className="block text-sm">
-              備註
-              <textarea
-                value={note}
-                disabled={locked}
-                onChange={(event) => setNote(event.target.value)}
-                className="mt-1 min-h-[4.5rem] w-full rounded-lg border border-border bg-background px-3 py-2 disabled:opacity-60"
-              />
-            </label>
 
             <div className="space-y-3">
               {lines.map((line, index) => (
-                <div key={line.key} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1.4fr_1.4fr_5rem_5rem_7rem_auto]">
+                <div key={line.key} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1.4fr_1.4fr_5rem_5rem_7rem_7rem_auto]">
                   <label className="text-xs text-muted-foreground">
                     項目 {index + 1}
                     <input
                       aria-label={`項目 ${index + 1} 名稱`}
                       value={line.name}
-                      disabled={locked}
                       onChange={(event) => updateLine(line.key, { name: event.target.value })}
-                      className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground disabled:opacity-60"
+                      className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     />
                   </label>
                   <label className="text-xs text-muted-foreground">
@@ -355,9 +363,8 @@ export function PmQuickView() {
                     <input
                       aria-label={`項目 ${index + 1} 規格`}
                       value={line.spec}
-                      disabled={locked}
                       onChange={(event) => updateLine(line.key, { spec: event.target.value })}
-                      className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground disabled:opacity-60"
+                      className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     />
                   </label>
                   <label className="text-xs text-muted-foreground">
@@ -365,9 +372,9 @@ export function PmQuickView() {
                     <input
                       aria-label={`項目 ${index + 1} 數量`}
                       value={line.quantity}
-                      disabled={locked}
+                      inputMode="decimal"
                       onChange={(event) => updateLine(line.key, { quantity: event.target.value })}
-                      className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground disabled:opacity-60"
+                      className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     />
                   </label>
                   <label className="text-xs text-muted-foreground">
@@ -375,18 +382,27 @@ export function PmQuickView() {
                     <input
                       aria-label={`項目 ${index + 1} 單位`}
                       value={line.unit}
-                      disabled={locked}
                       onChange={(event) => updateLine(line.key, { unit: event.target.value })}
-                      className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground disabled:opacity-60"
+                      className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+                    />
+                  </label>
+                  <label className="text-xs text-muted-foreground">
+                    賣價 (HK$)
+                    <input
+                      aria-label={`項目 ${index + 1} 賣價`}
+                      value={line.unitPrice}
+                      inputMode="decimal"
+                      onChange={(event) => updateLine(line.key, { unitPrice: event.target.value })}
+                      className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     />
                   </label>
                   <div className="text-xs text-muted-foreground">
-                    BWF 賣價
+                    小計
                     <p className="mt-1 flex h-10 items-center text-sm font-semibold text-foreground">
-                      {money(line.returnedUnitPrice)}
+                      {formatHkMoney(lineSubtotal(line))}
                     </p>
                   </div>
-                  {!locked && lines.length > 1 && (
+                  {lines.length > 1 && (
                     <button
                       type="button"
                       className="self-end text-xs text-muted-foreground underline"
@@ -399,32 +415,20 @@ export function PmQuickView() {
               ))}
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {!locked && (
-                <Button type="button" variant="outline" onClick={() => setLines((current) => [...current, blankLine()])}>
-                  加一項
-                </Button>
-              )}
-              {!locked && (
-                <Button type="button" variant="outline" disabled={saving} onClick={() => void save()}>
-                  儲存草稿
-                </Button>
-              )}
-              {!locked && (
-                <Button type="button" disabled={saving} onClick={() => void send()}>
-                  送給 BWF
-                </Button>
-              )}
-              {inquiryId && (
-                <Link
-                  to={pmInquiryPath(PM_PRO_PDF_PATH, inquiryId)}
-                  className="inline-flex h-9 items-center rounded-lg border border-border px-3 text-sm font-semibold"
-                >
-                  <FileText className="mr-1.5 h-4 w-4" />
-                  說明
-                </Link>
-              )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => setLines((current) => [...current, blankLine()])}>
+                加一項
+              </Button>
+              <Button type="button" disabled={saving} onClick={() => void save()}>
+                {saving ? '儲存中…' : '儲存報價單'}
+              </Button>
+              <p className="ml-auto text-sm font-semibold">
+                總額 <span className="text-primary">{formatHkMoney(total)}</span>
+              </p>
             </div>
+            {savedQuoteId && (
+              <p className="text-xs text-muted-foreground">報價單號 {savedQuoteId}</p>
+            )}
             {message && <p className="text-sm text-muted-foreground">{message}</p>}
           </section>
         )}

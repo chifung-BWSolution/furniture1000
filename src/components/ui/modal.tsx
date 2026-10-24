@@ -240,6 +240,11 @@ export type ModalContentProps = Omit<
    */
   variant?: "card" | "bleed" | "fullscreen"
   headerClassName?: string
+  /**
+   * Overrides the body's default padding (`px-5 pb-5 sm:px-6 sm:pb-6`, plus
+   * `pt-5 sm:pt-6` when no header). tailwind-merge cannot make an unmodified
+   * `p-0` remove the `sm:` variants, so always pair them: `p-0 sm:p-0`.
+   */
   bodyClassName?: string
   footerClassName?: string
   /** Override the backdrop surface (lightboxes usually go darker). */

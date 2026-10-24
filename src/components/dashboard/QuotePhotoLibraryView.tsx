@@ -88,6 +88,9 @@ export function QuotePhotoLibraryView() {
     return labels;
   }, [assets]);
 
+  /** 內頁圖啟用時的徽章後綴：顯示插在正文第幾頁之後。 */
+  const contentBadge = (asset: QuotePhotoAsset): string => `・正文第 ${asset.pageNumber} 頁後`;
+
   const counts = useMemo(
     () => ({
       all: assets.length,
@@ -109,13 +112,13 @@ export function QuotePhotoLibraryView() {
   async function setPlacement(asset: QuotePhotoAsset, placement: QuotePhotoPlacement) {
     if (asset.placement === placement) return;
     setBusyId(asset.id);
-    const patch = { placement, ...(placement === 'content' ? { isActive: true } : {}) };
-    setAssets((prev) => prev.map((row) => (row.id === asset.id ? { ...row, ...patch } : row)));
+    // 切換位置時保留原本的啟用狀態：內頁／封面／封底都有各自的「插入 PDF」開關。
+    setAssets((prev) => prev.map((row) => (row.id === asset.id ? { ...row, placement } : row)));
     try {
-      await updateQuotePhotoPlacement(asset.id, patch);
+      await updateQuotePhotoPlacement(asset.id, { placement });
       toast.success(
         placement === 'content'
-          ? '已改為報價內頁圖片'
+          ? '已改為內頁圖片，可在報價排版選用或設為獨立整頁'
           : `已設為${QUOTE_PHOTO_PLACEMENT_LABELS[placement]}，每次出 PDF 自動插入`,
       );
     } catch (placementError) {
@@ -137,6 +140,19 @@ export function QuotePhotoLibraryView() {
     } finally {
       setBusyId(null);
     }
+  }
+
+  /** 內頁獨立整頁的插入頁數（插在正文第 N 頁之後）；離開輸入框才寫入。 */
+  function commitPageNumber(asset: QuotePhotoAsset, raw: string) {
+    const next = Math.max(1, Math.floor(Number(raw) || 1));
+    if (next === asset.pageNumber) return;
+    setAssets((prev) =>
+      prev.map((row) => (row.id === asset.id ? { ...row, pageNumber: next } : row)),
+    );
+    void updateQuotePhotoPlacement(asset.id, { pageNumber: next }).catch((pageError) => {
+      toast.error(quotePhotoErrorText(pageError));
+      void reload();
+    });
   }
 
   async function onFiles(list: FileList | null) {
@@ -240,7 +256,7 @@ export function QuotePhotoLibraryView() {
             圖片庫
           </h1>
           <p className="fds-page-description">
-            全公司共用一組可插入報價單的圖片；可以直接上載，也可以在報價編輯器的排版頁用 AI（Grok 4.7 或 Gemini 3.8）按描述生成參考圖。內容內頁的圖在報價編輯器排版，印在總價之後、訂單確認及交付細節之前；標為封面／封底的圖，每次產生 PDF 會自動插入第 1 頁起／最後一頁。
+            全公司共用一組可插入報價單的圖片；可以直接上載，也可以在報價編輯器的排版頁用 AI（Grok 4.7 或 Gemini 3.8）按描述生成參考圖。內容內頁的圖在報價編輯器排版，印在總價之後、訂單確認及交付細節之前；開啟「插入 PDF（獨立整頁）」並指定頁數後，每次產生 PDF 會自動插在正文第幾頁之後；標為封面／封底的圖，每次產生 PDF 會自動插入第 1 頁起／最後一頁。
             {canManage ? '上載、排序、插入位置及刪除限管理員。' : '你目前是唯讀，改動請找管理員。'}
           </p>
         </section>
@@ -351,8 +367,10 @@ export function QuotePhotoLibraryView() {
                       ? 'border-primary/50'
                       : asset.placement === 'back'
                         ? 'border-amber-400/60'
-                        : 'border-border/80',
-                    asset.placement !== 'content' && !asset.isActive ? 'opacity-60' : '',
+                        : asset.placement === 'content' && asset.isActive
+                          ? 'border-sky-400/60'
+                          : 'border-border/80',
+                    !asset.isActive ? 'opacity-60' : '',
                   )}
                 >
                   <button
@@ -369,15 +387,23 @@ export function QuotePhotoLibraryView() {
                     <span className="absolute left-2 top-2 rounded-full bg-slate-950/70 px-2 py-0.5 font-mono-data text-[10px] text-white">
                       {index + 1}
                     </span>
-                    {asset.placement !== 'content' ? (
+                    {asset.placement !== 'content' || asset.isActive ? (
                       <span
                         className={cn(
                           'absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-white',
-                          asset.placement === 'cover' ? 'bg-primary' : 'bg-amber-600',
+                          asset.placement === 'cover'
+                            ? 'bg-primary'
+                            : asset.placement === 'back'
+                              ? 'bg-amber-600'
+                              : 'bg-sky-600',
                         )}
                       >
-                        {QUOTE_PHOTO_PLACEMENT_LABELS[asset.placement]}
-                        {asset.isActive ? `・${pageLabels.get(asset.id) ?? ''}` : '・停用'}
+                        {asset.placement === 'content' ? '內頁' : QUOTE_PHOTO_PLACEMENT_LABELS[asset.placement]}
+                        {asset.isActive
+                          ? asset.placement === 'content'
+                            ? contentBadge(asset)
+                            : `・${pageLabels.get(asset.id) ?? ''}`
+                          : '・停用'}
                       </span>
                     ) : null}
                   </button>
@@ -419,17 +445,32 @@ export function QuotePhotoLibraryView() {
                             </button>
                           ))}
                         </div>
-                        {asset.placement !== 'content' ? (
-                          <label className="flex items-center justify-between text-[10px] text-muted-foreground">
-                            插入 PDF
-                            <Switch
-                              checked={asset.isActive}
-                              aria-label={`${asset.title} 插入 PDF`}
+                        {asset.placement === 'content' && asset.isActive ? (
+                          <label className="flex items-center justify-between gap-1 text-[10px] text-muted-foreground">
+                            插在正文第
+                            <input
+                              type="number"
+                              min={1}
+                              step={1}
+                              defaultValue={asset.pageNumber}
+                              key={`${asset.id}-${asset.pageNumber}`}
                               disabled={busyId !== null}
-                              onCheckedChange={(next) => void toggleActive(asset, next)}
+                              aria-label={`${asset.title} 插入頁數`}
+                              onBlur={(event) => commitPageNumber(asset, event.target.value)}
+                              className="h-7 w-12 rounded-md border border-border bg-background px-1 text-center font-mono-data text-[11px] text-foreground"
                             />
+                            頁後
                           </label>
                         ) : null}
+                        <label className="flex items-center justify-between text-[10px] text-muted-foreground">
+                          {asset.placement === 'content' ? '插入 PDF（獨立整頁）' : '插入 PDF'}
+                          <Switch
+                            checked={asset.isActive}
+                            aria-label={`${asset.title} 插入 PDF`}
+                            disabled={busyId !== null}
+                            onCheckedChange={(next) => void toggleActive(asset, next)}
+                          />
+                        </label>
                       </div>
                     ) : null}
 
@@ -541,7 +582,7 @@ export function QuotePhotoLibraryView() {
               {busyId !== null ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
               儲存
             </ModalButton>
-            <ModalButton variant="ghost" onClick={() => setRenaming(null)}>
+            <ModalButton variant="secondary" onClick={() => setRenaming(null)}>
               取消
             </ModalButton>
           </>
@@ -579,7 +620,7 @@ export function QuotePhotoLibraryView() {
               {deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1.5 h-4 w-4" />}
               刪除
             </ModalButton>
-            <ModalButton variant="ghost" onClick={() => setDeleteTarget(null)}>
+            <ModalButton variant="secondary" onClick={() => setDeleteTarget(null)}>
               取消
             </ModalButton>
           </>

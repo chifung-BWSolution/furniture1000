@@ -166,7 +166,7 @@ export function QuoteTrashView() {
         }
         footer={
           <>
-            <ModalButton variant="ghost" disabled={restoring} onClick={() => setPending(null)}>
+            <ModalButton variant="secondary" disabled={restoring} onClick={() => setPending(null)}>
               取消
             </ModalButton>
             <ModalButton variant="primary" disabled={restoring} onClick={() => void confirmRestore()}>

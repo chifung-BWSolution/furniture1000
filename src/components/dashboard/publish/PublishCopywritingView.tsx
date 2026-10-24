@@ -681,6 +681,7 @@ ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
         },
         body: JSON.stringify({
           model: DEFAULT_GEMINI_MODEL,
+          feature: 'publish_copywriting',
           contents: [{ parts: [{ text: prompt }] }],
         }),
       });
@@ -749,6 +750,7 @@ ${rawDesc}
         },
         body: JSON.stringify({
           model: DEFAULT_GEMINI_MODEL,
+          feature: 'publish_copywriting',
           contents: [{ parts: [{ text: prompt }] }],
         }),
       });
@@ -1531,7 +1533,7 @@ function ImageUploadDialog({ productId, onConfirm, onClose }: { productId: strin
           >
             <UploadCloud className="h-4 w-4" /> 從本地上傳
           </ModalButton>
-          <ModalButton variant="ghost" onClick={onClose}>
+          <ModalButton variant="secondary" onClick={onClose}>
             取消
           </ModalButton>
         </>

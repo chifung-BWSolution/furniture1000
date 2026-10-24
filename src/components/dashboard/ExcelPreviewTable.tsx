@@ -534,7 +534,7 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
               更換
             </ModalButton>
           ) : null}
-          <ModalButton variant="ghost" onClick={onClose}>
+          <ModalButton variant="secondary" onClick={onClose}>
             取消
           </ModalButton>
         </>
@@ -718,7 +718,7 @@ Do not add quotes, brackets, or extra formatting. Example: ABC-123 人體工學�
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   const fnUrl = `${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`;
   
-  const payload = JSON.stringify({ model: DEFAULT_GEMINI_MODEL, contents });
+  const payload = JSON.stringify({ model: DEFAULT_GEMINI_MODEL, feature: 'excel_ai_naming', contents });
   const payloadSizeKB = Math.round(payload.length / 1024);
   console.log(`[AI Name] Sending request: ${payloadSizeKB}KB payload to gemini-proxy (direct fetch, bypass relay)`);
 

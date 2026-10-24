@@ -2459,7 +2459,7 @@ export function ListedProductsView({
           title={`款式 — ${variantModal?.product.title ?? ''}`}
           description="產品款式詳情（唯讀模式）"
           footer={
-            <ModalButton variant="ghost" onClick={() => setVariantModal(null)}>
+            <ModalButton variant="secondary" onClick={() => setVariantModal(null)}>
               關閉
             </ModalButton>
           }
@@ -2531,7 +2531,7 @@ export function ListedProductsView({
                 <Trash2 className="h-4 w-4" />
                 是
               </ModalButton>
-              <ModalButton variant="ghost" onClick={() => setShowDeleteConfirm(false)}>
+              <ModalButton variant="secondary" onClick={() => setShowDeleteConfirm(false)}>
                 否
               </ModalButton>
             </>
@@ -2559,7 +2559,7 @@ export function ListedProductsView({
               <ModalButton variant="destructive" onClick={confirmDismiss}>
                 <Trash2 className="h-4 w-4" /> 是，移除
               </ModalButton>
-              <ModalButton variant="ghost" onClick={() => setDismissTarget(null)}>
+              <ModalButton variant="secondary" onClick={() => setDismissTarget(null)}>
                 否
               </ModalButton>
             </>
@@ -2591,7 +2591,7 @@ export function ListedProductsView({
               <ModalButton variant="destructive" onClick={handleBatchReject}>
                 <Ban className="h-4 w-4" /> 確認暫不考慮
               </ModalButton>
-              <ModalButton variant="ghost" onClick={() => setShowBatchRejectConfirm(false)}>
+              <ModalButton variant="secondary" onClick={() => setShowBatchRejectConfirm(false)}>
                 取消
               </ModalButton>
             </>
@@ -2627,7 +2627,7 @@ export function ListedProductsView({
                 {isApplyingPricing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
                 套用定價
               </ModalButton>
-              <ModalButton variant="ghost" onClick={() => setShowPricingDialog(false)}>
+              <ModalButton variant="secondary" onClick={() => setShowPricingDialog(false)}>
                 取消
               </ModalButton>
             </>

@@ -749,7 +749,7 @@ export function CustomerProductSearchView() {
         title="查詢車"
         description="查詢車只保留本機選擇；未有正式查詢紀錄前不會顯示「已送出」狀態。"
         footer={
-          <ModalButton variant="ghost" onClick={() => setShowCart(false)}>
+          <ModalButton variant="secondary" onClick={() => setShowCart(false)}>
             關閉
           </ModalButton>
         }

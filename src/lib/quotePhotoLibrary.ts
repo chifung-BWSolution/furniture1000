@@ -54,8 +54,16 @@ export type QuotePhotoAsset = {
   sizeBytes: number;
   /** 內容內頁（報價排版內）／封面（PDF 第 1 頁起）／封底（PDF 最後一頁）。 */
   placement: QuotePhotoPlacement;
-  /** 停用的封面／封底不會插入 PDF。 */
+  /**
+   * 插入 PDF 開關：封面／封底停用後不自動插入；
+   * 內頁停用後不自動插入獨立整頁（仍可在報價編輯器排版選用）。
+   */
   isActive: boolean;
+  /**
+   * 內頁圖啟用時：出 PDF 自動插在正文第 pageNumber 頁之後的獨立整頁，
+   * 超出正文頁數時排在正文最後一頁之後。封面／封底不用這個欄位。
+   */
+  pageNumber: number;
   /** true＝AI 生成的參考圖，介面與 PDF 都要標示「僅供設計參考」。 */
   isGenerated: boolean;
 };
@@ -77,6 +85,7 @@ type AssetRow = {
   sort_order: number | null;
   placement?: string | null;
   is_active?: boolean | null;
+  page_number?: number | null;
   is_generated?: boolean | null;
 };
 
@@ -168,11 +177,13 @@ function fromRow(row: AssetRow): QuotePhotoAsset | null {
     sizeBytes: typeof row.size_bytes === 'number' ? row.size_bytes : 0,
     placement,
     isActive: row.is_active !== false,
+    pageNumber: typeof row.page_number === 'number' && row.page_number >= 1 ? row.page_number : 1,
     isGenerated: row.is_generated === true,
   };
 }
 
-const ASSET_COLUMNS = 'id,title,object_path,mime_type,size_bytes,sort_order,placement,is_active,is_generated';
+const ASSET_COLUMNS =
+  'id,title,object_path,mime_type,size_bytes,sort_order,placement,is_active,page_number,is_generated';
 
 export async function listQuotePhotoAssets(): Promise<{
   assets: QuotePhotoAsset[];
@@ -274,14 +285,16 @@ const GENERATE_SLUGS = [
  * 生成結果 isGenerated = true，介面與 PDF 都會標示「僅供設計參考」。
  */
 export async function generateQuoteReferenceImage(input: {
+  purpose?: 'orthographic';
+  productId?: string;
   model: QuotePhotoGenerateModel;
-  prompt: string;
+  prompt?: string;
   aspectRatio: string;
   /** 產品圖的絕對 URL（product-images 公開 bucket），Edge function 直接抓圖。 */
   referenceUrls?: string[];
 }): Promise<QuotePhotoAsset> {
   const prompt = (input.prompt || '').replace(/\s+/g, ' ').trim();
-  if (!prompt) throw new Error('quote_photo_generate_invalid');
+  if ((!prompt && input.purpose !== 'orthographic') || (input.purpose === 'orthographic' && !input.productId)) throw new Error('quote_photo_generate_invalid');
   const { data: session } = await supabase.auth.getSession();
   const token = session.session?.access_token;
   if (!token) throw new Error('quote_photo_generate_permission_denied');
@@ -291,7 +304,7 @@ export async function generateQuoteReferenceImage(input: {
 
   for (const slug of GENERATE_SLUGS) {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 150_000);
+    const timer = window.setTimeout(() => controller.abort(), input.purpose === 'orthographic' ? 260_000 : 150_000);
     let response: Response;
     try {
       response = await fetch(`${base}/functions/v1/${slug}`, {
@@ -302,6 +315,8 @@ export async function generateQuoteReferenceImage(input: {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
+          purpose: input.purpose,
+          productId: input.productId,
           model: input.model,
           prompt,
           aspectRatio: input.aspectRatio,
@@ -348,6 +363,7 @@ export async function generateQuoteReferenceImage(input: {
       sizeBytes: typeof asset.sizeBytes === 'number' ? asset.sizeBytes : 0,
       placement,
       isActive: asset.isActive !== false,
+      pageNumber: 1,
       isGenerated: true,
     };
   }
@@ -378,19 +394,42 @@ export async function reorderQuotePhotoAssets(ids: string[]): Promise<void> {
   }
 }
 
-/** 設定這張圖插入 PDF 的位置（內容內頁／封面／封底）或啟用狀態。 */
+/** 設定這張圖插入 PDF 的位置（內容內頁／封面／封底）、啟用狀態或內頁插入頁數。 */
 export async function updateQuotePhotoPlacement(
   id: string,
-  input: { placement?: QuotePhotoPlacement; isActive?: boolean },
+  input: { placement?: QuotePhotoPlacement; isActive?: boolean; pageNumber?: number },
 ): Promise<void> {
   const patch: Record<string, unknown> = {};
   if (input.placement) patch.placement = input.placement;
   if (typeof input.isActive === 'boolean') patch.is_active = input.isActive;
+  if (typeof input.pageNumber === 'number' && Number.isFinite(input.pageNumber)) {
+    patch.page_number = Math.max(1, Math.floor(input.pageNumber));
+  }
   if (Object.keys(patch).length === 0) return;
   const { error } = await supabase.from('quote_photo_assets').update(patch).eq('id', id);
   if (error) {
     throw new Error(permissionDenied(error) ? 'quote_photo_permission_denied' : 'quote_photo_record_failed');
   }
+}
+
+/** 內頁圖設定成獨立整頁時的資料形狀（跟封面／封底同一種做法）。 */
+export type QuoteContentPage = QuotePhotoAsset & { placement: 'content' };
+
+/**
+ * 報價 PDF 要自動插入的內頁獨立整頁：只取啟用的 content 圖，
+ * 按指定的頁數（插在正文第幾頁之後）排，同頁數之內按圖片庫的 sort_order。
+ */
+export async function listQuoteContentPages(): Promise<QuoteContentPage[]> {
+  const { data, error } = await supabase
+    .from('quote_photo_assets')
+    .select(ASSET_COLUMNS)
+    .eq('placement', 'content')
+    .eq('is_active', true);
+  if (error) return [];
+  return ((data ?? []) as AssetRow[])
+    .map(fromRow)
+    .filter((asset): asset is QuoteContentPage => Boolean(asset) && asset.placement === 'content')
+    .sort((a, b) => a.pageNumber - b.pageNumber || a.sortOrder - b.sortOrder);
 }
 
 /**

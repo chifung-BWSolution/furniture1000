@@ -69,7 +69,7 @@ export function PublishModal({ open, onClose, onConfirm, products }: PublishModa
               ? `上傳 ${newProducts.length} 個產品到 Shopify`
               : '沒有產品可上傳'}
           </ModalButton>
-          <ModalButton variant="ghost" onClick={onClose}>
+          <ModalButton variant="secondary" onClick={onClose}>
             取消
           </ModalButton>
         </>

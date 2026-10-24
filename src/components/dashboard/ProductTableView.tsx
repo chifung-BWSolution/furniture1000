@@ -1130,7 +1130,7 @@ export const ProductTableView = memo(function ProductTableView({
                 <Check className="h-4 w-4" />
                 完成
               </ModalButton>
-              <ModalButton variant="ghost" onClick={() => setVariantModal(null)}>
+              <ModalButton variant="secondary" onClick={() => setVariantModal(null)}>
                 取消
               </ModalButton>
             </>
@@ -1301,7 +1301,7 @@ export const ProductTableView = memo(function ProductTableView({
               >
                 確認退回 ({selectedIds.size})
               </ModalButton>
-              <ModalButton variant="ghost" onClick={() => setShowRevertDialog(false)}>
+              <ModalButton variant="secondary" onClick={() => setShowRevertDialog(false)}>
                 取消
               </ModalButton>
             </>
@@ -1358,7 +1358,7 @@ export const ProductTableView = memo(function ProductTableView({
               <ModalButton variant="destructive" onClick={handleBatchDelete}>
                 是
               </ModalButton>
-              <ModalButton variant="ghost" onClick={() => setShowBatchDeleteModal(false)}>
+              <ModalButton variant="secondary" onClick={() => setShowBatchDeleteModal(false)}>
                 否
               </ModalButton>
             </>

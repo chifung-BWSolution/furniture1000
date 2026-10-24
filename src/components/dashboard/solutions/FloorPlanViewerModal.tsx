@@ -277,7 +277,7 @@ export function FloorPlanViewerModal({
         variant="bleed"
         size="full"
         style={{ width: '84vw', height: '84vh', maxWidth: '84vw', maxHeight: '84vh' }}
-        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0"
+        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0 sm:p-0"
         aria-label={`${title} 平面圖預覽`}
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">

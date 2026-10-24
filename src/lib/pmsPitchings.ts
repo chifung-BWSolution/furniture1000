@@ -25,8 +25,10 @@ export interface PmsPitchingListItem {
 }
 
 const EDGE_MAX = 150;
-/** Smaller than EDGE_MAX so CN/VPN does not fire several 150-row hops at once. */
-const FETCH_CHUNK = 40;
+/** Match EDGE_MAX so a full page arrives per hop; parallel waves bound CN/VPN latency. */
+const FETCH_CHUNK = 150;
+/** Max in-flight edge calls when chunking ids/codes (CN/VPN friendly). */
+const FETCH_CONCURRENCY = 4;
 const DEFAULT_SEARCH_LIMIT = 40;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -100,18 +102,24 @@ function listCacheKey(options: {
   });
 }
 
-async function fetchChunksSequential(
+/** Fetch chunks with bounded concurrency — sequential hops made the 報價單複製 picker crawl. */
+async function fetchChunksParallel(
   chunks: string[][],
   kind: 'ids' | 'codes',
 ): Promise<PmsPitchingListItem[]> {
   const parts: PmsPitchingListItem[] = [];
-  for (const chunk of chunks) {
-    const rows = await fetchPmsPitchings(
-      kind === 'ids'
-        ? { ids: chunk, limit: chunk.length }
-        : { codes: chunk, limit: chunk.length },
+  for (let i = 0; i < chunks.length; i += FETCH_CONCURRENCY) {
+    const wave = chunks.slice(i, i + FETCH_CONCURRENCY);
+    const results = await Promise.all(
+      wave.map((chunk) =>
+        fetchPmsPitchings(
+          kind === 'ids'
+            ? { ids: chunk, limit: chunk.length }
+            : { codes: chunk, limit: chunk.length },
+        ),
+      ),
     );
-    parts.push(...rows);
+    for (const rows of results) parts.push(...rows);
   }
   return parts;
 }
@@ -217,10 +225,12 @@ export async function fetchPmsPitchings(options?: {
     const cachedList = listCache.get(key);
     if (cachedList && isFresh(cachedList.at)) return cachedList.items;
 
-    // ids + codes: sequential then merge (edge accepts one filter mode at a time).
+    // ids + codes: edge accepts one filter mode at a time — run both in parallel and merge.
     if (ids.length > 0 && codes.length > 0) {
-      const byId = await fetchPmsPitchings({ ids, limit: ids.length });
-      const byCode = await fetchPmsPitchings({ codes, limit: codes.length });
+      const [byId, byCode] = await Promise.all([
+        fetchPmsPitchings({ ids, limit: ids.length }),
+        fetchPmsPitchings({ codes, limit: codes.length }),
+      ]);
       const map = new Map<string, PmsPitchingListItem>();
       for (const row of [...byId, ...byCode]) map.set(row.id, row);
       const merged = [...map.values()];
@@ -230,14 +240,14 @@ export async function fetchPmsPitchings(options?: {
     }
 
     if (ids.length > FETCH_CHUNK) {
-      const merged = await fetchChunksSequential(chunkList(ids, FETCH_CHUNK), 'ids');
+      const merged = await fetchChunksParallel(chunkList(ids, FETCH_CHUNK), 'ids');
       listCache.set(key, { at: Date.now(), items: merged });
       rememberPitchings(merged);
       return merged;
     }
 
     if (codes.length > FETCH_CHUNK) {
-      const merged = await fetchChunksSequential(chunkList(codes, FETCH_CHUNK), 'codes');
+      const merged = await fetchChunksParallel(chunkList(codes, FETCH_CHUNK), 'codes');
       listCache.set(key, { at: Date.now(), items: merged });
       rememberPitchings(merged);
       return merged;

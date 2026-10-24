@@ -111,7 +111,7 @@ function PhotoProjectCard({
       type="button"
       onClick={() => onOpenAlbum(project.id)}
       aria-label={`開啟 ${title} 完整相簿`}
-      className="flex min-h-0 min-w-0 flex-1 flex-col rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="flex min-h-0 min-w-0 flex-1 flex-col rounded-md pl-9 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       <div className="w-full min-w-0">
         <span
@@ -195,7 +195,7 @@ function PickBox({
 }) {
   return (
     <span
-      className="rounded-md border border-border bg-background/85 p-1 shadow-sm"
+      className="inline-flex items-center rounded-md border border-border bg-background/85 p-1 shadow-sm"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >

@@ -756,7 +756,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
               {isReverting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               確認退回 ({selected.size})
             </ModalButton>
-            <ModalButton variant="ghost" onClick={() => setShowRevertDialog(false)}>
+            <ModalButton variant="secondary" onClick={() => setShowRevertDialog(false)}>
               取消
             </ModalButton>
           </>

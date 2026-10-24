@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { Check, ChevronRight, ChevronLeft, Sparkles, Loader2, Search } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { QuotationDraftEditor } from '@/components/dashboard/QuotationDraftEditor';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -40,7 +40,6 @@ import {
 import { sortIndustryLabels } from '@/lib/clientIndustrySort';
 import {
   GROUPED_INDUSTRY_LABELS,
-  resolveIndustryGroups,
 } from '@/lib/clientIndustryGroups';
 import { PmsPitchingGate } from '@/components/dashboard/PmsPitchingGate';
 import { fetchLevel1CategoryOptions } from '@/lib/productCategoryOptions';
@@ -91,8 +90,6 @@ interface QuoteFormData {
 /** Fallback when not opened from a PMS pitching (no industry catalog loaded). */
 const FALLBACK_INDUSTRIES = GROUPED_INDUSTRY_LABELS;
 
-const OFFICE_FURNITURE_CATEGORY_LABEL = '辦公室傢俬類別';
-
 const WORK_PERIODS = [
   '即時 3-5天內 - 緊急',
   '7天內 - 加急',
@@ -101,12 +98,6 @@ const WORK_PERIODS = [
   '1-3個月內',
   '3-6個月內',
   '1年內',
-];
-
-const STEPS = [
-  { id: 1, label: '基本資訊' },
-  { id: 2, label: '傢俬類別' },
-  { id: 3, label: '生成報價單' },
 ];
 
 interface QuickQuoteViewProps {
@@ -315,6 +306,8 @@ export function QuickQuoteView({
     ),
   );
 
+  const pmsDefaultsPendingRef = useRef(false);
+
   // PMS SSO / deep-link prefill: /quote/quick?pmsPitchingId=... and/or pmsProjectId=...
   const applyPmsPrefillFromUrl = useCallback(() => {
     if (typeof window === 'undefined') return false;
@@ -398,20 +391,11 @@ export function QuickQuoteView({
     };
   }, []);
 
-  const industryGroups = useMemo(
-    () =>
-      resolveIndustryGroups(
-        industryOptions,
-        industrySearchQuery,
-        formData.clientIndustry,
-      ),
-    [industryOptions, industrySearchQuery, formData.clientIndustry],
-  );
-
   const resetToNewQuote = useCallback(() => {
     setCurrentStep(1);
     setIsQuotationReady(false);
     setLoadedQuoteData(null);
+    setQuoteLoadError(null);
     setCopyPayload(null);
     setFormData(DEFAULT_FORM_DATA());
     setSelectedPitchingLabel(null);
@@ -423,6 +407,7 @@ export function QuickQuoteView({
   }, [userEmail]);
 
   const handleSelectPitching = useCallback((item: PmsPitchingListItem) => {
+    setQuoteLoadError(null);
     setSelectedPitchingLabel(formatPmsPitchingLabel(item));
     pmsDefaultsLoadedForRef.current = null;
     setIsLoadingPmsDefaults(true);
@@ -497,7 +482,10 @@ export function QuickQuoteView({
 
     let cancelled = false;
     pmsDefaultsLoadedForRef.current = cacheKey;
-    if (needsPitchingDefaults) setIsLoadingPmsDefaults(true);
+    if (needsPitchingDefaults) {
+      pmsDefaultsPendingRef.current = true;
+      setIsLoadingPmsDefaults(true);
+    }
 
     (async () => {
       try {
@@ -556,6 +544,7 @@ export function QuickQuoteView({
         }
       } finally {
         if (!cancelled && needsPitchingDefaults) {
+          pmsDefaultsPendingRef.current = false;
           setIsLoadingPmsDefaults(false);
         }
       }
@@ -809,97 +798,40 @@ export function QuickQuoteView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onClearEditingQuote / loadedQuoteData read for guards only
   }, [editingQuoteId, editingQuoteUuid, editingQuoteVersion, userEmail, authLoading]);
 
-  const updateField = (field: keyof QuoteFormData, value: string | string[]) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: undefined }));
-    }
-  };
-
-  const toggleTag = (field: 'clientIndustry' | 'quotationType' | 'serviceScope', tag: string) => {
-    setFormData((prev) => {
-      const current = prev[field];
-      const updated = current.includes(tag)
-        ? current.filter((t) => t !== tag)
-        : [...current, tag];
-      return { ...prev, [field]: updated };
-    });
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: undefined }));
-    }
-  };
-
-  const validateStep1 = (): boolean => {
-    const newErrors: Partial<Record<keyof QuoteFormData, string>> = {};
-
-    if (!formData.projectManager.trim()) {
-      newErrors.projectManager = '請填寫項目經理姓名';
-    }
-    if (!formData.quoteId.trim()) {
-      newErrors.quoteId = '請先選擇 PMS Pitching（報價單號）';
-    }
-    if (!formData.clientName.trim()) {
-      newErrors.clientName = '請填寫公司名稱';
-    }
-    if (!formData.clientPhone.trim()) {
-      newErrors.clientPhone = '請填寫客戶電話';
-    }
-    if (formData.clientEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.clientEmail)) {
-      newErrors.clientEmail = '請輸入有效的電郵地址';
-    }
-    if (formData.clientIndustry.length === 0) {
-      newErrors.clientIndustry = '請選擇至少一個客戶產業';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const validateStep2 = (): boolean => {
-    const newErrors: Partial<Record<keyof QuoteFormData, string>> = {};
-
-    if (formData.serviceScope.length === 0) {
-      newErrors.serviceScope = `請選擇至少一個${OFFICE_FURNITURE_CATEGORY_LABEL}`;
-    }
-    if (!formData.validityDays.trim()) {
-      newErrors.validityDays = '請填寫有效期限';
-    } else if (!/^\d+$/.test(formData.validityDays.trim())) {
-      newErrors.validityDays = '請輸入有效數字';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleNext = async () => {
-    if (currentStep === 1 && validateStep1()) {
-      setCurrentStep(2);
-    } else if (currentStep === 2 && validateStep2()) {
-      const sourceUuid = readQuickQuoteCopyFrom(userEmail);
-      if (sourceUuid) {
-        setIsLoadingCopy(true);
-        try {
-          const payload = await loadQuoteCopyPayload(sourceUuid);
-          setCopyPayload(payload);
-          enterEditorStep();
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : '無法載入來源報價內容';
-          toast.error('複製失敗', { description: message });
-        } finally {
-          setIsLoadingCopy(false);
+  // Legacy wizard steps are retired. Resolve PMS defaults and any copy body
+  // before mounting the unified editor, whose header fields initialize once.
+  const preparingEditorRef = useRef(false);
+  useEffect(() => {
+    if (currentStep === 3 || pmsDefaultsPendingRef.current || isLoadingPmsDefaults || isLoadingQuote || isLoadingCopy || quoteLoadError) return;
+    if (editingQuoteId || loadedQuoteData) return;
+    if (!formData.pmsPitchingId && !formData.pmsProjectId) return;
+    if (!formData.quoteId.trim() || preparingEditorRef.current) return;
+    preparingEditorRef.current = true;
+    const prepare = async () => {
+      try {
+        const sourceUuid = readQuickQuoteCopyFrom(userEmail);
+        if (sourceUuid) {
+          setIsLoadingCopy(true);
+          setCopyPayload(await loadQuoteCopyPayload(sourceUuid));
         }
-      } else {
-        setCopyPayload(null);
         enterEditorStep();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '請重新選擇 Pitching';
+        setQuoteLoadError(message);
+        toast.error('無法開啟報價編輯', { description: message });
+      } finally {
+        preparingEditorRef.current = false;
+        setIsLoadingCopy(false);
       }
-    }
-  };
+    };
+    void prepare();
+  }, [currentStep, isLoadingPmsDefaults, isLoadingQuote, isLoadingCopy, quoteLoadError, editingQuoteId, loadedQuoteData, formData.pmsPitchingId, formData.pmsProjectId, formData.quoteId, enterEditorStep, userEmail]);
 
   // Full-page spinner only for the *first* load/copy. Never unmount editor
   // (or an open 提交審核 modal) on background re-fetch — that caused a black flash
   // and wiped in-progress wizard state when users later returned to step 1.
   const blockUiForInitialLoad =
-    (isLoadingQuote || isLoadingCopy) && !loadedQuoteData && currentStep !== 3;
+    (isLoadingQuote || isLoadingCopy || isLoadingPmsDefaults || Boolean(formData.pmsPitchingId || formData.pmsProjectId)) && !loadedQuoteData && !quoteLoadError && currentStep !== 3;
   if (blockUiForInitialLoad) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
@@ -931,7 +863,7 @@ export function QuickQuoteView({
           </p>
           <button
             type="button"
-            onClick={() => onClearEditingQuote?.()}
+            onClick={() => { onClearEditingQuote?.(); resetToNewQuote(); }}
             className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground"
           >
             返回報價單一覽
@@ -967,538 +899,22 @@ export function QuickQuoteView({
     <>
     <div className={cn('h-full bg-background', currentStep === 3 ? 'flex flex-col overflow-hidden' : 'overflow-y-auto fds-page-padding')}>
       <div className={cn('mx-auto', currentStep === 3 ? 'flex h-full min-h-0 w-full max-w-none flex-col' : 'w-full max-w-none')}>
-        {/* Header — step 3 chrome lives inside QuotationDraftEditor so it can stick */}
-        {currentStep !== 3 && (
-        <div className="mb-8">
-            <div className="grid grid-cols-1 items-start gap-y-3 sm:grid-cols-3">
-              {/* title | client info (above 傢俬類別 step) | empty */}
-              <div className="min-w-0">
-                <h1 className="fds-page-title">
-                  {copyFromUuid ? '複製報價單' : '建立新報價單'}
-                </h1>
-                <p className="fds-page-description">
-                  {copyFromUuid
-                    ? '確認新專案資料後，將複製原報價的產品內容與條款'
-                    : '確認並補齊專案資料後生成報價'}
-                </p>
-              </div>
-              {(formData.clientContactName.trim() ||
-                formData.clientPhone.trim()) && (
-                <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2 pt-1 sm:justify-start">
-                  <div>
-                    <div className="font-body text-[11px] text-muted-foreground">
-                      客戶名稱
-                    </div>
-                    <div className="mt-0.5 font-body text-sm font-semibold text-foreground">
-                      {formData.clientContactName.trim() || '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="font-body text-[11px] text-muted-foreground">
-                      客戶電話
-                    </div>
-                    <div className="mt-0.5 font-mono-data text-sm font-semibold text-foreground">
-                      {formData.clientPhone.trim() || '—'}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-        </div>
-        )}
-
-        {/* Stepper — draft editor has its own sticky stepper */}
-        {currentStep !== 3 && (
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            {STEPS.map((step, index) => {
-              const isDisabled = step.id === 3 && !isQuotationReady;
-              const isClickable = !isDisabled && step.id !== currentStep && (step.id < currentStep || (step.id === 3 && isQuotationReady));
-              return (
-              <div key={step.id} className="flex flex-1 items-center">
-                <div
-                  className={cn('flex items-center gap-3', isClickable && 'cursor-pointer')}
-                  onClick={() => {
-                    if (isClickable) setCurrentStep(step.id);
-                  }}
-                >
-                  <div
-                    className={cn(
-                      'flex h-9 w-9 items-center justify-center rounded-full border-2 text-sm font-semibold transition-all',
-                      isDisabled
-                        ? 'border-border/40 bg-muted/30 text-muted-foreground/40 cursor-not-allowed'
-                        : currentStep === step.id
-                        ? 'border-primary bg-primary text-primary-foreground shadow-lg shadow-primary/25'
-                        : currentStep > step.id
-                        ? 'border-emerald-500 bg-emerald-500 text-white'
-                        : 'border-border bg-card text-muted-foreground'
-                    )}
-                  >
-                    {currentStep > step.id ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      step.id
-                    )}
-                  </div>
-                  <span
-                    className={cn(
-                      'font-body text-sm font-medium whitespace-nowrap',
-                      isDisabled
-                        ? 'text-muted-foreground/40'
-                        : currentStep === step.id
-                        ? 'text-foreground'
-                        : 'text-muted-foreground'
-                    )}
-                  >
-                    {step.label}
-                  </span>
-                </div>
-                {index < STEPS.length - 1 && (
-                  <div
-                    className={cn(
-                      'mx-4 h-[2px] flex-1 rounded-full transition-colors',
-                      currentStep > step.id ? 'bg-emerald-500' : 'bg-border'
-                    )}
-                  />
-                )}
-              </div>
-              );
-            })}
-          </div>
-        </div>
-        )}
-
-        {/* Form Card - only for steps 1-2 */}
-        {currentStep < 3 && (
-        <div key={currentStep} className="tab-panel-in rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8">
-          {currentStep === 1 && (
-            <div
-              className={cn(
-                'space-y-6',
-                isLoadingPmsDefaults && 'pointer-events-none select-none',
-              )}
-              aria-busy={isLoadingPmsDefaults}
-            >
-              {/* Selected PMS Pitching (chosen on gate / deep-link) */}
-              <div className="flex items-start justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
-                <div className="min-w-0">
-                  <div className="font-body text-[11px] font-medium uppercase tracking-wide text-primary/80">
-                    PMS Pitching
-                  </div>
-                  <div className="mt-0.5 truncate font-mono-data text-sm font-semibold text-foreground">
-                    {selectedPitchingLabel ||
-                      [formData.quoteId || loadedQuoteData?.quoteId, formData.clientName]
-                        .filter(Boolean)
-                        .join(' · ') ||
-                      formData.pmsPitchingId ||
-                      '—'}
-                  </div>
-                </div>
-                {!editingQuoteId && !loadedQuoteData ? (
-                  <button
-                    type="button"
-                    onClick={handleChangePitching}
-                    disabled={isLoadingPmsDefaults}
-                    className="shrink-0 font-body text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
-                  >
-                    更換
-                  </button>
-                ) : null}
-              </div>
-
-              {isLoadingPmsDefaults && (
-                <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-primary">
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                  <span className="font-body text-sm font-medium">
-                    正在載入 PMS 資料…
-                  </span>
-                  <span className="font-body text-xs text-muted-foreground">
-                    完成前欄位暫鎖定，以免被自動覆寫
-                  </span>
-                </div>
-              )}
-
-              {/* Company (fixed) */}
-              <div>
-                <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                  選擇公司 <span className="text-red-500">*</span>
-                </label>
-                <div className="rounded-lg border border-border bg-muted/50 px-4 py-2.5 font-mono-data text-sm text-foreground">
-                  Branding Works Design Ltd
-                </div>
-              </div>
-
-              {/* Two column grid */}
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                {/* Project Manager */}
-                <div>
-                  <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                    項目經理姓名 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.projectManager}
-                    onChange={(e) => updateField('projectManager', e.target.value)}
-                    placeholder="您的姓名"
-                    disabled={isLoadingPmsDefaults}
-                    className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60',
-                      errors.projectManager ? 'border-red-500' : 'border-border'
-                    )}
-                  />
-                  {errors.projectManager && (
-                    <p className="mt-1 text-xs text-red-500">{errors.projectManager}</p>
-                  )}
-                </div>
-
-                {/* Client company */}
-                <div>
-                  <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                    公司名稱 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.clientName}
-                    onChange={(e) => updateField('clientName', e.target.value)}
-                    placeholder="客戶公司名稱"
-                    disabled={isLoadingPmsDefaults}
-                    className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60',
-                      errors.clientName ? 'border-red-500' : 'border-border'
-                    )}
-                  />
-                  {errors.clientName && (
-                    <p className="mt-1 text-xs text-red-500">{errors.clientName}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Contact person — defaults from PMS customers.customer_name */}
-              <div>
-                <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                  客戶名稱
-                </label>
-                <input
-                  type="text"
-                  value={formData.clientContactName}
-                  onChange={(e) => updateField('clientContactName', e.target.value)}
-                  placeholder="聯絡人姓名"
-                  disabled={isLoadingPmsDefaults}
-                  className="w-full rounded-lg border border-border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
-                />
-              </div>
-
-              {/* Pitching code — read-only 報價單號 from PMS */}
-              <div>
-                <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                  報價單號 <span className="text-red-500">*</span>
-                </label>
-                <div
-                  className={cn(
-                    'w-full rounded-lg border bg-muted/40 px-4 py-2.5 font-mono-data text-sm text-foreground',
-                    errors.quoteId ? 'border-red-500' : 'border-border',
-                    isLoadingPmsDefaults && 'opacity-60',
-                  )}
-                >
-                  {formData.quoteId || loadedQuoteData?.quoteId || '—'}
-                </div>
-                {errors.quoteId && (
-                  <p className="mt-1 text-xs text-red-500">{errors.quoteId}</p>
-                )}
-              </div>
-
-              {/* Client Phone & Email */}
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                <div>
-                  <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                    客戶電話 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="tel"
-                    value={formData.clientPhone}
-                    onChange={(e) => {
-                      // Allow only digits, spaces, and + for phone format
-                      const val = e.target.value.replace(/[^0-9+\s]/g, '');
-                      updateField('clientPhone', val);
-                    }}
-                    placeholder="+852 XXXX XXXX"
-                    disabled={isLoadingPmsDefaults}
-                    className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60',
-                      errors.clientPhone ? 'border-red-500' : 'border-border'
-                    )}
-                  />
-                  {errors.clientPhone && (
-                    <p className="mt-1 text-xs text-red-500">{errors.clientPhone}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                    客戶電郵
-                  </label>
-                  <input
-                    type="email"
-                    value={formData.clientEmail}
-                    onChange={(e) => updateField('clientEmail', e.target.value)}
-                    placeholder="client@example.com"
-                    disabled={isLoadingPmsDefaults}
-                    className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60',
-                      errors.clientEmail ? 'border-red-500' : 'border-border'
-                    )}
-                  />
-                  {errors.clientEmail && (
-                    <p className="mt-1 text-xs text-red-500">{errors.clientEmail}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Client Industry Tags — grouped catalog; PMS labels matched when available */}
-              <div>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <label className="font-body text-sm font-medium text-foreground">
-                    客戶產業 <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative w-full min-w-[200px] max-w-xs sm:w-64">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      type="search"
-                      value={industrySearchQuery}
-                      onChange={(e) => setIndustrySearchQuery(e.target.value)}
-                      placeholder="搜尋產業（中 / 英）"
-                      aria-label="搜尋客戶產業"
-                      disabled={isLoadingPmsDefaults}
-                      className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
-                    />
-                  </div>
-                </div>
-                {industryGroups.length === 0 ? (
-                  <p className="font-body text-sm text-muted-foreground">
-                    找不到符合「{industrySearchQuery.trim()}」的產業
-                  </p>
-                ) : (
-                  <div className="space-y-5">
-                    {industryGroups.map((group) => (
-                      <div key={group.title}>
-                        <h4 className="mb-2.5 font-body text-base font-semibold leading-snug text-foreground">
-                          {group.title}
-                        </h4>
-                        <div className="grid grid-cols-2 items-stretch gap-2 md:grid-cols-4">
-                          {group.options.map((industry) => (
-                            <button
-                              key={industry}
-                              type="button"
-                              onClick={() => toggleTag('clientIndustry', industry)}
-                              disabled={isLoadingPmsDefaults}
-                              className={cn(
-                                'flex h-full min-h-[4.25rem] w-full items-start justify-start rounded-md border px-3 py-2.5 text-left font-body text-[14px] font-medium leading-snug transition-all disabled:cursor-not-allowed disabled:opacity-60',
-                                formData.clientIndustry.includes(industry)
-                                  ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                                  : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground',
-                              )}
-                            >
-                              <span className="block w-full break-words text-left">{industry}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {pmsIndustryCatalog.length === 0 &&
-                  formData.clientIndustry.includes('其他') && (
-                  <input
-                    type="text"
-                    value={formData.clientIndustryOther}
-                    onChange={(e) => updateField('clientIndustryOther', e.target.value)}
-                    placeholder="請填寫產業"
-                    disabled={isLoadingPmsDefaults}
-                    className="mt-2 border-b border-border bg-transparent px-1 py-1 font-body text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none w-32 disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-                )}
-                {errors.clientIndustry && (
-                  <p className="mt-1.5 text-xs text-red-500">{errors.clientIndustry}</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {currentStep === 2 && (
-            <div className="space-y-6">
-              {/* Office furniture category */}
-              <div>
-                <div className="mb-3 flex items-baseline gap-2">
-                  <label className="font-body text-sm font-medium text-foreground">
-                    {OFFICE_FURNITURE_CATEGORY_LABEL} <span className="text-red-500">*</span>
-                  </label>
-                  <span className="ml-1 font-body text-xs text-muted-foreground">(可多選)</span>
-                </div>
-                {level1CategoriesLoading ? (
-                  <div className="flex items-center gap-2 py-6 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="font-body text-sm">載入產品分類…</span>
-                  </div>
-                ) : level1CategoryOptions.length === 0 ? (
-                  <p className="font-body text-sm text-muted-foreground">
-                    尚未設定產品分類，請至「設定 &gt; 產品分類」新增一級分類。
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                    {level1CategoryOptions.map((scope) => (
-                      <button
-                        key={scope}
-                        type="button"
-                        onClick={() => toggleTag('serviceScope', scope)}
-                        className={cn(
-                          'flex items-center justify-center rounded-xl border-2 px-4 py-4 font-body text-sm font-semibold transition-all',
-                          formData.serviceScope.includes(scope)
-                            ? 'border-foreground bg-foreground text-background shadow-lg'
-                            : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
-                        )}
-                      >
-                        {scope}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {errors.serviceScope && (
-                  <p className="mt-1.5 text-xs text-red-500">{errors.serviceScope}</p>
-                )}
-              </div>
-
-              {/* Work Period — rectangle pill single-select */}
-              <div>
-                <label className="mb-2 block font-body text-sm font-medium text-foreground">
-                  工期需求
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {WORK_PERIODS.map((period) => (
-                    <button
-                      key={period}
-                      type="button"
-                      onClick={() =>
-                        updateField(
-                          'workPeriod',
-                          formData.workPeriod === period ? '' : period,
-                        )
-                      }
-                      className={cn(
-                        'rounded-md border px-4 py-2.5 font-body text-sm font-medium transition-all',
-                        formData.workPeriod === period
-                          ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                          : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
-                      )}
-                    >
-                      {period}
-                    </button>
-                  ))}
-                </div>
-                {errors.workPeriod && (
-                  <p className="mt-1.5 text-xs text-red-500">{errors.workPeriod}</p>
-                )}
-              </div>
-
-              {/* Validity Period */}
-              <div>
-                <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                  報價單有效期限 (天) <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.validityDays}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/[^0-9]/g, '');
-                    updateField('validityDays', val);
-                  }}
-                  placeholder="30"
-                  className={cn(
-                    'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
-                    errors.validityDays ? 'border-red-500' : 'border-border'
-                  )}
-                />
-                {errors.validityDays && (
-                  <p className="mt-1 text-xs text-red-500">{errors.validityDays}</p>
-                )}
-              </div>
-
-              {/* Remarks */}
-              <div>
-                <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                  備註
-                </label>
-                <textarea
-                  value={formData.remarks}
-                  onChange={(e) => updateField('remarks', e.target.value)}
-                  placeholder="請輸入其他特殊需求或備註事項..."
-                  rows={4}
-                  className="w-full rounded-lg border border-border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Footer Actions - only show for steps 1-2 */}
-          <div className="mt-8 flex items-center justify-between border-t border-border pt-6">
-            <button
-              type="button"
-              disabled={currentStep === 1}
-              onClick={() => setCurrentStep((s) => Math.max(1, s - 1))}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-lg border px-5 py-2.5 font-body text-sm font-medium transition-colors',
-                currentStep === 1
-                  ? 'cursor-not-allowed border-border/50 text-muted-foreground/40'
-                  : 'border-border text-foreground hover:bg-accent'
-              )}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              上一步
-            </button>
-
-            {currentStep === 1 ? (
-              <button
-                type="button"
-                onClick={handleNext}
-                disabled={isLoadingPmsDefaults}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 font-body text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-primary disabled:active:scale-100"
-              >
-                {isLoadingPmsDefaults ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    載入 PMS 中…
-                  </>
-                ) : (
-                  <>
-                    下一步
-                    <ChevronRight className="h-4 w-4" />
-                  </>
-                )}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleNext}
-                className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-6 py-2.5 font-body text-sm font-semibold text-white shadow-md shadow-orange-500/25 transition-all hover:bg-orange-600 hover:shadow-lg hover:shadow-orange-500/30 active:scale-[0.98]"
-              >
-                <Sparkles className="h-4 w-4" />
-                開始傢俬報價
-              </button>
-            )}
-          </div>
-        </div>
-        )}
-
         {/* Step 3: Quotation Draft Editor (full width, outside the form card) */}
         {currentStep === 3 && (
           <div className="tab-panel-in flex min-h-0 flex-1 flex-col">
             <QuotationDraftEditor
               formData={formData}
+              onFormDataChange={(patch) => setFormData((prev) => ({ ...prev, ...patch }))}
+              industryOptions={industryOptions}
+              serviceScopeOptions={level1CategoryOptions}
+              workPeriodOptions={WORK_PERIODS}
               userEmail={userEmail}
               onOpenPdfPreview={setPdfPreviewData}
               initialCopyPayload={copyPayload}
               forceNewQuote={Boolean(copyFromUuid && copyPayload)}
               onBack={() => {
-                setCurrentStep(2);
+                onClearEditingQuote?.();
+                resetToNewQuote();
               }}
               onQuotePersisted={(result) => {
                 writeQuickQuoteCopyFrom(userEmail, null);

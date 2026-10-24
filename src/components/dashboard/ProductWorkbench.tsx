@@ -383,44 +383,14 @@ export function ProductWorkbench({
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f4f6fb] text-slate-900">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <div className={cn('grid items-start gap-x-4 gap-y-3', DETAIL_COLUMNS)}>
-          <div className="flex items-center">
+          <div className="mb-3 flex items-center">
             <button type="button" className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900" onClick={onClose}>
               <ChevronLeft className="mr-0.5 h-4 w-4" /> 返回列表
             </button>
           </div>
-          <aside className="row-span-2 flex h-full min-w-0 flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h1 className="text-[22px] font-semibold leading-snug tracking-tight">{names.primary}</h1>
-                {names.secondary && <p className="mt-1 text-sm text-slate-400">{names.secondary}</p>}
-              </div>
-              <div className="flex shrink-0 items-center gap-4">
-                <button
-                  type="button"
-                  className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(window.location.href).then(
-                      () => toast.success('已複製連結'),
-                      () => toast.error('複製失敗'),
-                    );
-                  }}
-                >
-                  <Share2 className="mr-1 h-3.5 w-3.5" /> 分享
-                </button>
-              </div>
-            </div>
-            <dl className="mt-5 grid grid-cols-[4.5rem_minmax(0,1fr)] gap-y-3 text-sm">
-              {specRows.map(([label, value]) => (
-                <div key={label} className="contents">
-                  <dt className="text-slate-400">{label}</dt>
-                  <dd className={cn('break-words text-slate-800', value === MISSING && 'text-slate-300')}>{value}</dd>
-                </div>
-              ))}
-            </dl>
-            <div className="mt-auto pt-5">{actions(() => setArOpen(true))}</div>
-          </aside>
-          <section className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+        <div className={cn('grid items-start gap-4', DETAIL_COLUMNS)}>
+          <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <section className="min-w-0 p-4">
             <div ref={stageRef} className="fds-product-stage flex gap-3">
               <div className="fds-stage-rail flex h-[420px] w-20 shrink-0 flex-col items-center gap-2 overflow-y-auto px-1 py-0.5">
                 {detail.images.map((src, index) => (
@@ -583,10 +553,7 @@ export function ProductWorkbench({
               </div>
             </div>
           </section>
-        </div>
-
-        <div className={cn('mt-4 grid items-start gap-4', DETAIL_COLUMNS)}>
-          <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
+          <section className="min-w-0 border-t border-slate-100 p-4">
             <div className="flex flex-wrap gap-4 border-b border-slate-100 text-sm">
               {(
                 [
@@ -624,6 +591,39 @@ export function ProductWorkbench({
             </div>
           </section>
 
+          </div>
+          <div className="min-w-0 space-y-4">
+          <aside className="flex min-w-0 flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-[22px] font-semibold leading-snug tracking-tight">{names.primary}</h1>
+                {names.secondary && <p className="mt-1 text-sm text-slate-400">{names.secondary}</p>}
+              </div>
+              <div className="flex shrink-0 items-center gap-4">
+                <button
+                  type="button"
+                  className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(window.location.href).then(
+                      () => toast.success('已複製連結'),
+                      () => toast.error('複製失敗'),
+                    );
+                  }}
+                >
+                  <Share2 className="mr-1 h-3.5 w-3.5" /> 分享
+                </button>
+              </div>
+            </div>
+            <dl className="mt-5 grid grid-cols-[4.5rem_minmax(0,1fr)] gap-y-3 text-sm">
+              {specRows.map(([label, value]) => (
+                <div key={label} className="contents">
+                  <dt className="text-slate-400">{label}</dt>
+                  <dd className={cn('break-words text-slate-800', value === MISSING && 'text-slate-300')}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-auto pt-5">{actions(() => setArOpen(true))}</div>
+          </aside>
           <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">同型號比較</h2>
@@ -730,6 +730,7 @@ export function ProductWorkbench({
               比較選中產品
             </Button>
           </section>
+          </div>
         </div>
       </div>
 

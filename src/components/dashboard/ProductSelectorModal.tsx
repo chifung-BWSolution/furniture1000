@@ -403,7 +403,7 @@ export function ProductSelectorModal({
           <ModalButton onClick={handleAdd}>
             確認{displaySelectedCount > 0 ? ` (${displaySelectedCount})` : ''}
           </ModalButton>
-          <ModalButton variant="ghost" onClick={onClose}>
+          <ModalButton variant="secondary" onClick={onClose}>
             取消
           </ModalButton>
         </>

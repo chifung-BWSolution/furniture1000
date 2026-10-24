@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { GripVertical, ImagePlus, Plus, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import {
   MAX_REMARKS_IMAGES,
   countRemarksImages,
@@ -74,6 +75,8 @@ function blockDropClass(
 }
 
 interface RemarksRichEditorProps {
+  singleLine?: boolean;
+  locale?: 'zh' | 'en';
   value: string;
   legacyImage?: string;
   onChange: (serialized: string) => void;
@@ -97,6 +100,8 @@ interface RemarksRichEditorProps {
 }
 
 export function RemarksRichEditor({
+  singleLine = false,
+  locale = 'zh',
   value,
   legacyImage,
   onChange,
@@ -315,6 +320,15 @@ export function RemarksRichEditor({
           ) : null}
           {block.type === "text" ? (
             <div className="min-w-0 flex-1">
+              {singleLine ? (
+                <Input
+                  value={block.content}
+                  placeholder={placeholder}
+                  onChange={(e) => updateTextBlock(block.id, e.target.value)}
+                  onPaste={handlePasteImage}
+                  className={cn('h-[34px] text-xs', textClassName)}
+                />
+              ) : (
               <textarea
                 value={block.content}
                 placeholder={placeholder}
@@ -330,6 +344,7 @@ export function RemarksRichEditor({
                   textClassName,
                 )}
               />
+              )}
             </div>
           ) : (
             <div className="group relative min-w-0 flex-1">
@@ -375,7 +390,7 @@ export function RemarksRichEditor({
               title="新增文字區塊"
             >
               <Plus className="h-2.5 w-2.5" />
-              文字
+              {locale === 'en' ? 'Text' : '文字'}
             </button>
             <button
               type="button"
@@ -385,14 +400,14 @@ export function RemarksRichEditor({
               title={`上傳圖片 (${imageCount}/${MAX_REMARKS_IMAGES})`}
             >
               <Upload className="h-2.5 w-2.5" />
-              圖片 {imageCount}/{MAX_REMARKS_IMAGES}
+              {locale === 'en' ? 'Images' : '圖片'} {imageCount}/{MAX_REMARKS_IMAGES}
             </button>
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={imageCount >= MAX_REMARKS_IMAGES}
               className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-xs text-primary/70 transition-colors hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
-              title="上傳或貼上圖片"
+              title={locale === 'en' ? 'Upload or paste image' : '上傳或貼上圖片'}
             >
               <ImagePlus className="h-2.5 w-2.5" />
             </button>

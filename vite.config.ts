@@ -59,6 +59,81 @@ export function resolveQuickLoginConfig(input: {
   };
 }
 
+/**
+ * PRD 功能描述頁面需要每份 Markdown 的最後修改日期。
+ * import.meta.glob(?raw) 拿不到 mtime，所以在 build/dev 時掃描檔案系統，
+ * 產生 { 相對路徑: "YYYY-MM-DD" } 的 virtual module 給 src/lib/prd-docs.ts 使用。
+ */
+function prdMtimePlugin(): Plugin {
+  const VIRTUAL_ID = "virtual:prd-mtimes";
+  const RESOLVED_ID = "\0" + VIRTUAL_ID;
+  const rootDir = path.resolve(__dirname);
+
+  function collectMtimes(): Record<string, string> {
+    const map: Record<string, string> = {};
+    const pad = (n: number) => String(n).padStart(2, "0");
+
+    const visit = (fullPath: string, relPath: string) => {
+      try {
+        const stat = fs.statSync(fullPath);
+        const date = `${stat.mtime.getFullYear()}-${pad(stat.mtime.getMonth() + 1)}-${pad(
+          stat.mtime.getDate(),
+        )}`;
+        map[relPath] = date;
+      } catch {
+        // stat 失敗（例如權限被攔）就不產生日期，讓 prd-docs.ts 退回解析文檔內容。
+      }
+    };
+
+    const walkDocs = (dir: string, prefix: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) walkDocs(full, rel);
+        else if (entry.name.toLowerCase().endsWith(".md")) visit(full, rel);
+      }
+    };
+
+    const docsDir = path.join(rootDir, "docs");
+    if (fs.existsSync(docsDir)) walkDocs(docsDir, "docs");
+    for (const name of ["CLAUDE.md", "README.md"]) {
+      const full = path.join(rootDir, name);
+      if (fs.existsSync(full)) visit(full, name);
+    }
+    return map;
+  }
+
+  const isPrdFile = (file: string) => {
+    const rel = path.relative(rootDir, file).replace(/\\/g, "/");
+    return (
+      rel === "CLAUDE.md" ||
+      rel === "README.md" ||
+      (rel.startsWith("docs/") && rel.toLowerCase().endsWith(".md"))
+    );
+  };
+
+  return {
+    name: "bwf-prd-mtimes",
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID;
+    },
+    load(id) {
+      if (id !== RESOLVED_ID) return;
+      const map = collectMtimes();
+      return `export default ${JSON.stringify(map)};`;
+    },
+    configureServer(server) {
+      // dev 期間修改 md 時，讓 virtual module 重新計算並整頁刷新。
+      server.watcher.on("change", (file) => {
+        if (!isPrdFile(file)) return;
+        const mod = server.moduleGraph.getModuleById(RESOLVED_ID);
+        if (mod) server.moduleGraph.invalidate(mod);
+        server.ws.send({ type: "full-reload" });
+      });
+    },
+  };
+}
+
 /** Emit public/version.json so clients can detect redeploys without forced reload. */
 function versionJsonPlugin(buildId: string, opts?: { writePublic?: boolean }): Plugin {
   const write = (outDir: string) => {
@@ -165,7 +240,11 @@ export default defineConfig(({ command, mode }) => {
     ],
     exclude: ["framer-motion"],
   },
-  plugins: [react(), versionJsonPlugin(appBuildId, { writePublic: command !== "serve" })],
+  plugins: [
+    react(),
+    prdMtimePlugin(),
+    versionJsonPlugin(appBuildId, { writePublic: command !== "serve" }),
+  ],
   resolve: {
     preserveSymlinks: true,
     alias: {

@@ -184,7 +184,7 @@ export function ProductModelPreviewModal({
             <RotateCcw className="mr-1.5 h-4 w-4" />
             重設視角
           </ModalButton>
-          <ModalButton variant="ghost" onClick={() => onOpenChange(false)}>
+          <ModalButton variant="secondary" onClick={() => onOpenChange(false)}>
             關閉
           </ModalButton>
         </>

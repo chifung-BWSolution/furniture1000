@@ -8,6 +8,7 @@ export const BWA_PM_BRAND = {
 } as const;
 
 export const PM_QUICK_PATH = '/fds/pm/quick';
+export const PM_BUDGET_PATH = '/fds/pm/budget';
 export const PM_PRO_PDF_PATH = '/fds/pm/pro-pdf';
 
 export function pmInquiryPath(path: string, inquiryId: string): string {

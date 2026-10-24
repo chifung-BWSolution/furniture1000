@@ -1,33 +1,153 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CircleDollarSign, FileText } from 'lucide-react';
-import { PM_PRO_PDF_PATH, PM_QUICK_PATH, pmInquiryPath } from '@/content/bwaPm';
+import { CircleDollarSign, Pencil } from 'lucide-react';
+import { PM_QUICK_PATH, pmInquiryPath } from '@/content/bwaPm';
 import {
-  inquiryErrorMessage,
-  inquiryStatusLabel,
-  listFurnitureInquiries,
-  type BwaInquirySummary,
-} from '@/lib/bwaFurnitureInquiry';
-import { formatListDate } from '@/lib/listTableUtils';
+  formatHkMoney,
+  getPmQuoteItems,
+  listPmQuotesForWork,
+  pmQuoteErrorMessage,
+  type PmQuoteItem,
+  type PmQuoteSummary,
+} from '@/lib/pmQuickQuote';
+import { searchBwaWorks, type BwaWorkOption } from '@/lib/bwaWorks';
+import { formatListDate, formatListMoney } from '@/lib/listTableUtils';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { EmptyState } from '@/components/ui/empty-state';
 
+function workKindLabel(kind: BwaWorkOption['kind']): string {
+  return kind === 'project' ? '工程' : '提案';
+}
+
+function optionKey(option: BwaWorkOption): string {
+  return `${option.kind}:${option.project_id || option.pitching_id || option.code}`;
+}
+
+function itemKey(quoteId: string, itemId: string): string {
+  return `${quoteId}:${itemId}`;
+}
+
+interface QuoteWithItems {
+  quote: PmQuoteSummary;
+  items: PmQuoteItem[];
+}
+
 export function PmBudgetView() {
-  const [rows, setRows] = useState<BwaInquirySummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [workQuery, setWorkQuery] = useState('');
+  const [workOptions, setWorkOptions] = useState<BwaWorkOption[]>([]);
+  const [workError, setWorkError] = useState('');
+  const [workOpen, setWorkOpen] = useState(false);
+  const [workLoading, setWorkLoading] = useState(false);
+  const [selectedWork, setSelectedWork] = useState<BwaWorkOption | null>(null);
+
+  const [quotes, setQuotes] = useState<QuoteWithItems[]>([]);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
+    if (!workOpen) return;
     let cancelled = false;
-    void listFurnitureInquiries().then((result) => {
-      if (cancelled) return;
-      setRows(result.rows);
-      setError(result.error ? inquiryErrorMessage(result.error) : '');
-      setLoading(false);
-    });
+    const timer = window.setTimeout(() => {
+      setWorkLoading(true);
+      void searchBwaWorks(workQuery).then((result) => {
+        if (cancelled) return;
+        setWorkOptions(result.items);
+        setWorkError(result.error);
+        setWorkLoading(false);
+      });
+    }, workQuery.trim() ? 250 : 0);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
+  }, [workQuery, workOpen]);
+
+  const loadQuotes = useCallback(async (work: BwaWorkOption) => {
+    setLoading(true);
+    setErrorMessage('');
+    const listResult = await listPmQuotesForWork({
+      pitchingId: work.pitching_id,
+      projectId: work.project_id,
+    });
+    if (listResult.error) {
+      setErrorMessage(pmQuoteErrorMessage(listResult.error));
+      setQuotes([]);
+      setLoading(false);
+      return;
+    }
+    const itemsResult = await getPmQuoteItems(listResult.rows.map((row) => row.id));
+    if (itemsResult.error) {
+      setErrorMessage(pmQuoteErrorMessage(itemsResult.error));
+      setQuotes([]);
+      setLoading(false);
+      return;
+    }
+    const withItems = listResult.rows.map((quote) => ({
+      quote,
+      items: itemsResult.itemsByQuote[quote.id] || [],
+    }));
+    setQuotes(withItems);
+    const nextSelected: Record<string, boolean> = {};
+    for (const entry of withItems) {
+      for (const item of entry.items) {
+        nextSelected[itemKey(entry.quote.id, item.id)] = true;
+      }
+    }
+    setSelected(nextSelected);
+    setLoading(false);
   }, []);
+
+  const pickWork = (option: BwaWorkOption) => {
+    setSelectedWork(option);
+    setWorkQuery('');
+    setWorkOpen(false);
+    void loadQuotes(option);
+  };
+
+  const clearWork = () => {
+    setSelectedWork(null);
+    setQuotes([]);
+    setSelected({});
+    setErrorMessage('');
+  };
+
+  const isSelected = (quoteId: string, itemId: string) =>
+    selected[itemKey(quoteId, itemId)] !== false;
+
+  const setSelectedAll = (entry: QuoteWithItems, value: boolean) => {
+    setSelected((current) => {
+      const next = { ...current };
+      for (const item of entry.items) {
+        next[itemKey(entry.quote.id, item.id)] = value;
+      }
+      return next;
+    });
+  };
+
+  const quoteSubtotal = (entry: QuoteWithItems) =>
+    entry.items.reduce(
+      (sum, item) => (isSelected(entry.quote.id, item.id) ? sum + item.quantity * item.unitPrice : sum),
+      0,
+    );
+
+  const { totalBudget, selectedCount, totalCount } = useMemo(() => {
+    let total = 0;
+    let chosen = 0;
+    let count = 0;
+    for (const entry of quotes) {
+      for (const item of entry.items) {
+        count += 1;
+        if (isSelected(entry.quote.id, item.id)) {
+          chosen += 1;
+          total += item.quantity * item.unitPrice;
+        }
+      }
+    }
+    return { totalBudget: total, selectedCount: chosen, totalCount: count };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotes, selected]);
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
@@ -37,72 +157,204 @@ export function PmBudgetView() {
             <div>
               <h1 className="fds-page-title">
                 <CircleDollarSign className="h-5 w-5 text-primary" />
-                向 BWF 詢價
+                報價預算
               </h1>
               <p className="fds-page-description">
-                把工程報價裡的傢俬項目送給 BWF 傢俬部。這裡只看 BWF 正式回覆的賣價，不含成本、廠家或毛利。
+                BWA PM 揀一筆工程或提案，列出該 pitching／項目下 BWF 建立的快速報價單，逐項勾選傢俬，
+                即時試算需要多少預算。只顯示 BWF 報價的賣價，不含成本、廠家或毛利。
               </p>
             </div>
             <Link
               to={PM_QUICK_PATH}
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground"
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-background px-3 text-sm font-semibold"
             >
-              新詢價
+              去快速報價
             </Link>
           </div>
         </section>
 
-        {loading && <p className="px-2 text-sm text-muted-foreground">載入詢價…</p>}
-        {error && <p className="px-2 text-sm text-destructive">{error}</p>}
-        {!loading && !error && rows.length === 0 && (
+        <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+          <div className="relative">
+            <label className="text-sm" htmlFor="budget-work-search">
+              揀選 BWA 工程或提案
+              <input
+                id="budget-work-search"
+                value={selectedWork ? `${workKindLabel(selectedWork.kind)} · ${selectedWork.code || '無編號'}${selectedWork.name ? ` · ${selectedWork.name}` : ''}` : workQuery}
+                role="combobox"
+                aria-expanded={workOpen}
+                aria-controls="budget-work-list"
+                autoComplete="off"
+                placeholder="編號、名稱或客戶"
+                onFocus={() => setWorkOpen(true)}
+                onBlur={() => window.setTimeout(() => setWorkOpen(false), 150)}
+                onChange={(event) => {
+                  setSelectedWork(null);
+                  setWorkQuery(event.target.value);
+                  setWorkOpen(true);
+                }}
+                className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3"
+              />
+            </label>
+            {workOpen && (
+              <ul
+                id="budget-work-list"
+                role="listbox"
+                className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-md"
+              >
+                {workLoading && <li className="px-3 py-2 text-sm text-muted-foreground">搜尋中…</li>}
+                {!workLoading && workError && (
+                  <li className="px-3 py-2 text-sm text-muted-foreground">{workError}</li>
+                )}
+                {!workLoading && !workError && workOptions.length === 0 && (
+                  <li className="px-3 py-2 text-sm text-muted-foreground">沒有符合的工程或提案。</li>
+                )}
+                {!workLoading && !workError && workOptions.map((option) => (
+                  <li key={optionKey(option)}>
+                    <button
+                      type="button"
+                      role="option"
+                      className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-muted"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        pickWork(option);
+                      }}
+                    >
+                      <span className="text-sm font-semibold">
+                        {workKindLabel(option.kind)} · {option.code || '無編號'}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {option.name || '無名稱'}
+                        {option.customer_name && option.customer_name !== option.name ? ` · ${option.customer_name}` : ''}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        {selectedWork && (
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/40 bg-primary/5 p-4">
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-bold">
+                {workKindLabel(selectedWork.kind)} · {selectedWork.code || '無編號'}
+              </h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {selectedWork.name || '無名稱'}
+                {selectedWork.customer_name && selectedWork.customer_name !== selectedWork.name
+                  ? ` · ${selectedWork.customer_name}`
+                  : ''}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">
+                已選 {selectedCount} / {totalCount} 項傢俬
+              </p>
+              <p className="text-lg font-bold text-primary">{formatHkMoney(totalBudget)}</p>
+            </div>
+            <Button type="button" variant="outline" onClick={() => void loadQuotes(selectedWork)}>
+              重新載入
+            </Button>
+          </section>
+        )}
+
+        {loading && <p className="px-2 text-sm text-muted-foreground">載入報價單…</p>}
+        {errorMessage && <p className="px-2 text-sm text-destructive">{errorMessage}</p>}
+        {selectedWork && !loading && quotes.length === 0 && (
           <EmptyState
-            title="還沒有詢價"
-            description="按上方的「新詢價」建立第一張詢價，這裡會列出預算與進度。"
+            title="這個 pitching／項目下還沒有快速報價單"
+            description="BWF PM 在「快速報價」揀選同一筆工程或提案建立報價單後，這裡會列出來試算預算。"
           />
         )}
 
         <div className="grid gap-3">
-          {rows.map((row) => (
-            <article key={row.id} className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-base font-bold">{row.bwa_project_name || '未命名工程'}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {row.bwa_project_ref || '無工程編號'}
-                    {row.bwa_project_id ? ' · 已連 BWA 工程' : ''}
-                    {!row.bwa_project_id && row.bwa_pitching_id ? ' · 已連 BWA 提案' : ''}
-                    {' · '}
-                    {row.item_count} 項傢俬
-                    {' · '}
-                    已回覆賣價 {row.returned_count} 項
-                  </p>
+          {quotes.map((entry) => {
+            const allSelected = entry.items.length > 0 && entry.items.every((item) => isSelected(entry.quote.id, item.id));
+            return (
+              <article key={entry.quote.id} className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-base font-bold">
+                      {entry.quote.bwaProjectName || '未命名工程'}
+                    </h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {entry.quote.quoteId}
+                      {entry.quote.bwaProjectRef ? ` · ${entry.quote.bwaProjectRef}` : ''}
+                      {' · '}
+                      {entry.quote.submitter || '未知提交者'}
+                      {entry.quote.createdAt ? ` · ${formatListDate(entry.quote.createdAt)}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm font-semibold text-primary">{formatHkMoney(quoteSubtotal(entry))}</p>
+                    <Link
+                      to={pmInquiryPath(PM_QUICK_PATH, entry.quote.id)}
+                      className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-sm font-semibold"
+                    >
+                      <Pencil className="mr-1.5 h-4 w-4" />
+                      編輯
+                    </Link>
+                  </div>
                 </div>
-                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold">
-                  {inquiryStatusLabel(row.status)}
-                </span>
-              </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                建立 {formatListDate(row.created_at)}
-                {row.sent_at ? ` · 送出 ${formatListDate(row.sent_at)}` : ''}
-                {row.replied_at ? ` · 回覆 ${formatListDate(row.replied_at)}` : ''}
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Link
-                  to={pmInquiryPath(PM_QUICK_PATH, row.id)}
-                  className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground"
-                >
-                  查看項目
-                </Link>
-                <Link
-                  to={pmInquiryPath(PM_PRO_PDF_PATH, row.id)}
-                  className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-sm font-semibold"
-                >
-                  <FileText className="mr-1.5 h-4 w-4" />
-                  說明
-                </Link>
-              </div>
-            </article>
-          ))}
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                        <th className="w-10 py-2">
+                          <Checkbox
+                            aria-label="全選這張報價單的傢俬"
+                            checked={allSelected}
+                            onCheckedChange={(checked) => setSelectedAll(entry, checked === true)}
+                          />
+                        </th>
+                        <th className="py-2 font-medium">傢俬</th>
+                        <th className="py-2 font-medium">規格</th>
+                        <th className="py-2 text-right font-medium">數量</th>
+                        <th className="py-2 font-medium">單位</th>
+                        <th className="py-2 text-right font-medium">賣價</th>
+                        <th className="py-2 text-right font-medium">小計</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entry.items.map((item) => {
+                        const checked = isSelected(entry.quote.id, item.id);
+                        return (
+                          <tr key={item.id} className="border-b border-border/60 last:border-0">
+                            <td className="py-2">
+                              <Checkbox
+                                aria-label={`揀選 ${item.name || '項目'}`}
+                                checked={checked}
+                                onCheckedChange={(value) => setSelected((current) => ({
+                                  ...current,
+                                  [itemKey(entry.quote.id, item.id)]: value === true,
+                                }))}
+                              />
+                            </td>
+                            <td className="py-2 font-medium">{item.name || '—'}</td>
+                            <td className="py-2 text-muted-foreground">{item.spec || '—'}</td>
+                            <td className="py-2 text-right">{formatListMoney(item.quantity)}</td>
+                            <td className="py-2">{item.unit || '—'}</td>
+                            <td className="py-2 text-right">{formatHkMoney(item.unitPrice)}</td>
+                            <td className="py-2 text-right font-semibold">
+                              {checked ? formatHkMoney(item.quantity * item.unitPrice) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {entry.items.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-3 text-center text-sm text-muted-foreground">
+                            這張報價單沒有傢俬項目。
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </div>
     </div>

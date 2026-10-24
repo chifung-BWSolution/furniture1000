@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Check, ChevronRight, CloudUpload, Images, Info, Loader2, RefreshCw } from 'lucide-react';
+import { Box, Info, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -7,18 +7,14 @@ import { LoadingImage } from '@/components/ui/loading-image';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import { Progress } from '@/components/ui/progress';
 import { fetchProductImage, fetchTripoJob, prepareTripoImage, requestTripoModel, tripoActive, tripoErrorLabel, wakeModelWorker, type TripoJob } from '@/lib/tripoModels';
-import { cn } from '@/lib/utils';
 
-export function TripoModelTrial({ productId, title, images, onComplete, disabled }: {
-  productId: string; title: string; images?: string[]; onComplete: () => void; disabled?: boolean;
+export function TripoModelTrial({ productId, title, prepareOrthographic, onComplete, disabled }: {
+  productId: string; title: string; prepareOrthographic: () => Promise<{ url: string }>; onComplete: () => void; disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [image, setImage] = useState<Blob | null>(null);
-  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [preview, setPreview] = useState('');
   const [confirmed, setConfirmed] = useState(false);
-  const [showAllImages, setShowAllImages] = useState(false);
-  const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadingImage, setLoadingImage] = useState(false);
   const [error, setError] = useState('');
@@ -27,10 +23,8 @@ export function TripoModelTrial({ productId, title, images, onComplete, disabled
   const completed = useRef<string | null>(null);
   const completeRef = useRef(onComplete);
   completeRef.current = onComplete;
-  const input = useRef<HTMLInputElement>(null);
   const active = tripoActive(job);
   const percent = Math.round((job?.progress ?? 0) * 100);
-  const existingImages = Array.from(new Set((images ?? []).filter(url => /^https?:\/\//i.test(url)))).slice(0, 8);
 
   useEffect(() => {
     if (!image) { setPreview(''); return; }
@@ -75,35 +69,17 @@ export function TripoModelTrial({ productId, title, images, onComplete, disabled
     }
   }, [job]);
 
-  const chooseFile = async (file: File) => {
+  const loadOrthographic = async () => {
+    if (busy || loadingImage || active) return;
     setLoadingImage(true);
     setError('');
     setImage(null);
-    setSourceUrl(null);
-    setConfirmed(false);
-    requestId.current = null;
-    try { setImage(await prepareTripoImage(file)); }
-    catch (err) { setError(err instanceof Error ? err.message : '無法讀取圖片'); }
-    finally { setLoadingImage(false); }
-  };
-
-  /** Reuse one of the product's own photos instead of asking for a new upload. */
-  const chooseExisting = async (url: string) => {
-    if (busy || loadingImage) return;
-    if (sourceUrl === url) {
-      setImage(null); setSourceUrl(null); setConfirmed(false); requestId.current = null; setError('');
-      return;
-    }
-    setLoadingImage(true);
-    setError('');
-    setImage(null);
-    setSourceUrl(null);
     setConfirmed(false);
     requestId.current = null;
     try {
-      setImage(await prepareTripoImage(await fetchProductImage(url)));
-      setSourceUrl(url);
-    } catch (err) { setError(err instanceof Error ? err.message : '無法讀取產品原圖'); }
+      const drawing = await prepareOrthographic();
+      setImage(await prepareTripoImage(await fetchProductImage(drawing.url)));
+    } catch (err) { setError(err instanceof Error ? err.message : '無法準備三視圖'); }
     finally { setLoadingImage(false); }
   };
 
@@ -133,7 +109,7 @@ export function TripoModelTrial({ productId, title, images, onComplete, disabled
   return (
     <>
       <Button size="sm" variant="outline" className="h-10 shrink-0 whitespace-nowrap rounded-lg" disabled={disabled || busy || loadingImage} onClick={() => {
-        setOpen(true); setError(''); setConfirmed(false); setImage(null); setSourceUrl(null); setShowAllImages(false); setDragging(false); requestId.current = null;
+        setOpen(true); setError(''); setConfirmed(false); requestId.current = null;
       }}>
         {active ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Box className="mr-1 h-3.5 w-3.5" />}
         Tripo 生成
@@ -148,7 +124,7 @@ export function TripoModelTrial({ productId, title, images, onComplete, disabled
         footerClassName="px-6 py-4 sm:px-9 sm:py-5"
         footer={active ? (
           <>
-            <ModalButton variant="ghost" onClick={() => setOpen(false)}>關閉</ModalButton>
+            <ModalButton variant="secondary" onClick={() => setOpen(false)}>關閉</ModalButton>
             <ModalButton onClick={() => {
               setOpen(false);
               toast.success(`Tripo 已在後台繼續生成（${percent}%），完成後會加入此產品的模型庫`);
@@ -156,7 +132,7 @@ export function TripoModelTrial({ productId, title, images, onComplete, disabled
           </>
         ) : (
           <>
-            <ModalButton variant="ghost" disabled={busy || loadingImage} onClick={() => setOpen(false)}>{job ? '關閉' : '取消'}</ModalButton>
+            <ModalButton variant="secondary" disabled={busy || loadingImage} onClick={() => setOpen(false)}>{job ? '關閉' : '取消'}</ModalButton>
             <ModalButton disabled={!image || !confirmed || busy || loadingImage} onClick={() => void submit()}>{busy ? '處理中…' : '確認並使用 API 點數生成'}</ModalButton>
           </>
         )}>
@@ -180,117 +156,24 @@ export function TripoModelTrial({ productId, title, images, onComplete, disabled
           ) : (
             <>
               <p className="text-[15px] leading-7 text-muted-foreground">
-                請上傳清晰的產品圖片，且只包含一件傢俬。若原圖有多張桌子在同一張圖片中，請先準備單張桌子的參考圖；若缺少角度，AI 會自動推測並補齊。
+                先根據 2–3 張產品圖與產品描述生成或沿用三視圖，再將下方預覽的三視圖送到 Tripo。產品原圖及情境圖不會直接送到 Tripo。
               </p>
-
-              <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="單件傢俬參考圖" onChange={event => {
-                const file = event.target.files?.[0]; event.target.value = ''; if (file) void chooseFile(file);
-              }} />
-
-              <div
-                role="button"
-                tabIndex={0}
-                aria-label="上載單件傢俬參考圖"
-                aria-disabled={busy || loadingImage}
-                onClick={() => { if (!busy && !loadingImage) input.current?.click(); }}
-                onKeyDown={event => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  if (!busy && !loadingImage) input.current?.click();
-                }}
-                onDragOver={event => {
-                  event.preventDefault();
-                  if (!busy && !loadingImage) setDragging(true);
-                }}
-                onDragLeave={event => {
-                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-                  setDragging(false);
-                }}
-                onDrop={event => {
-                  event.preventDefault();
-                  setDragging(false);
-                  if (busy || loadingImage) return;
-                  const file = event.dataTransfer.files?.[0];
-                  if (file) void chooseFile(file);
-                }}
-                className={cn(
-                  'flex min-h-[208px] cursor-pointer flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed px-6 py-8 text-center outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40',
-                  dragging ? 'border-primary bg-primary/10' : 'border-primary/35 bg-primary/[0.04] hover:border-primary/55 hover:bg-primary/[0.07]',
-                  (busy || loadingImage) && 'pointer-events-none opacity-70',
-                )}
-              >
-                {loadingImage ? (
-                  <>
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <span className="text-sm text-muted-foreground">處理參考圖…</span>
-                  </>
-                ) : preview ? (
-                  <>
-                    <LoadingImage src={preview} alt="即將送到 Tripo 的單件參考圖" className="max-h-44 w-auto max-w-full rounded-lg" imgClassName="object-contain shadow-sm" />
-                    <span className="text-[13px] font-medium text-primary">點擊更換參考圖</span>
-                  </>
-                ) : (
-                  <>
-                    <CloudUpload className="h-12 w-12 text-primary" strokeWidth={1.5} />
-                    <span className="text-lg font-bold text-foreground">拖拽圖片到此處</span>
-                    <span className="text-[15px] text-muted-foreground">
-                      或 <span className="font-semibold text-primary underline underline-offset-4">點擊上傳</span>
-                    </span>
-                    <span className="text-[13px] text-muted-foreground">支援 JPG / PNG，建議清晰單件產品圖</span>
-                  </>
-                )}
+              <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+                <Button type="button" variant="outline" disabled={busy || loadingImage} onClick={() => void loadOrthographic()}>
+                  {loadingImage && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {loadingImage ? '正在準備三視圖…' : preview ? '重新讀取三視圖' : '準備三視圖'}
+                </Button>
+                {!preview && <p className="text-sm leading-6 text-muted-foreground">優先沿用已生成的三視圖；沒有時會使用 Grok 分析及 Gemini 生圖。此步尚未提交 Tripo 任務。</p>}
+                {preview && <>
+                  <p className="text-sm font-medium">即將送到 Tripo 的三視圖</p>
+                  <LoadingImage src={preview} alt="即將送到 Tripo 的同一件產品三視圖" className="max-h-80 w-auto max-w-full rounded-lg bg-white" imgClassName="object-contain" />
+                  <p className="text-xs leading-5 text-muted-foreground">三個視角代表同一件產品。AI 推測的結構及尺寸仍需核對。</p>
+                </>}
               </div>
-
-              {existingImages.length > 0 && (
-                <section className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h3 className="text-[15px] font-semibold text-foreground">或選擇現有產品原圖</h3>
-                    {existingImages.length > 4 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowAllImages(value => !value)}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary/[0.07] px-3 text-[13px] font-semibold text-primary transition-colors hover:bg-primary/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                      >
-                        <Images className="h-4 w-4" />
-                        {showAllImages ? '收起產品圖庫' : '從產品圖庫選擇'}
-                        <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', showAllImages && 'rotate-90')} />
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {(showAllImages ? existingImages : existingImages.slice(0, 4)).map((url, index) => {
-                      const selected = sourceUrl === url;
-                      return (
-                        <button
-                          key={url}
-                          type="button"
-                          disabled={busy || loadingImage}
-                          aria-pressed={selected}
-                          aria-label={`使用第 ${index + 1} 張產品原圖`}
-                          title="使用這張產品原圖"
-                          onClick={() => void chooseExisting(url)}
-                          className={cn(
-                            'relative aspect-[4/3] overflow-hidden rounded-xl border bg-muted/40 transition',
-                            selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/50',
-                            (busy || loadingImage) && 'opacity-60',
-                          )}
-                        >
-                          <LoadingImage src={url} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                          {selected && (
-                            <span className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
-                              <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-              )}
 
               <label className="flex cursor-pointer items-start gap-3 text-[15px] leading-6 text-foreground">
                 <Checkbox className="mt-0.5 h-[18px] w-[18px] shrink-0 rounded-[5px]" checked={confirmed} disabled={!image || busy || loadingImage} onCheckedChange={value => setConfirmed(value === true)} />
-                <span>我確認參考圖只包含要生成的單件傢俬，並同意本次使用 Tripo API 點數。</span>
+                <span>我已核對三視圖為同一件傢俬的不同視角，並同意本次使用 Tripo API 點數。</span>
               </label>
 
               <div className="flex gap-3 rounded-xl bg-primary/[0.05] px-4 py-3.5">

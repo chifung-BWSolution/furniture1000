@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { logAiUsage } from "../_shared/usageLog.ts";
 
 /**
  * Image search (F-AI-006). Embeds the uploaded picture with gemini-embedding-2
@@ -40,6 +41,12 @@ async function embedImage(apiKey: string, base64: string, mime: string): Promise
   if (!res.ok) {
     throw new Error(body?.error?.message || `embed HTTP ${res.status}`);
   }
+  // 用量記錄（best-effort）：embedContent 不回 token，記一次呼叫
+  await logAiUsage({
+    source: "search-by-image",
+    model: MODEL,
+    meta: { kind: "embedding", dim: DIM },
+  });
   const values = body?.embedding?.values;
   if (!Array.isArray(values) || values.length !== DIM) {
     throw new Error(`embedding_dimension ${values?.length ?? 0}`);

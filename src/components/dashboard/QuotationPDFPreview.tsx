@@ -531,7 +531,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
         /* `bleed` centres its body; the PDF surface has to fill the whole
            modal, otherwise the viewer collapses to the 300px intrinsic width
            of a canvas/iframe and the A4 page cannot be read. */
-        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0"
+        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0 sm:p-0"
         style={{ height: '92vh', width: '90vw' }}
       >
         {/* Modal Header */}

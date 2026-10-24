@@ -95,6 +95,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-admin-settings', path: `${FDS_BASE}/settings/system` },
   { view: 'fds2-admin-prd', path: `${FDS_BASE}/settings/prd` },
   { view: 'fds2-admin-command-logs', path: `${FDS_BASE}/settings/daily-command-logs` },
+  { view: 'fds2-admin-usage', path: `${FDS_BASE}/settings/usage` },
   { view: 'fds2-admin-dev-cost', path: `${FDS_BASE}/settings/development-cost` },
   { view: 'fds2-admin-email', path: `${FDS_BASE}/settings/email` },
   { view: 'fds2-customer-quotes', path: `${FDS_BASE}/customer/quote-schemes` },

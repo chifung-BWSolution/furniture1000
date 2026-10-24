@@ -440,6 +440,7 @@ async function analyzeImageWithAI(
     : '\n\nPRODUCT_CATEGORY — set "product_category" to null. Do not invent a category.';
   const edgeFunctionPayload = {
     model: DEFAULT_GEMINI_MODEL,
+    feature: 'ai_processor',
     contents: [{ parts: [{ text: VISION_ANALYSIS_PROMPT + categoryPrompt }, ...imageParts] }],
   };
 

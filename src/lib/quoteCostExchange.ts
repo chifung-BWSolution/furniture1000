@@ -8,27 +8,27 @@ export function exchangeRateInputDisplay(
   return String(rate);
 }
 
-/** Sanitize exchange-rate text input: digits and one decimal point, max 3 decimal places. */
+/** Sanitize exchange-rate text input: digits and one decimal point, max 2 decimal places. */
 export function sanitizeExchangeRateInput(raw: string): string {
   let s = raw.replace(/[^\d.]/g, "");
   const dotIdx = s.indexOf(".");
   if (dotIdx !== -1) {
     s = s.slice(0, dotIdx + 1) + s.slice(dotIdx + 1).replace(/\./g, "");
     const [whole, frac = ""] = s.split(".");
-    if (frac.length > 3) {
-      s = `${whole}.${frac.slice(0, 3)}`;
+    if (frac.length > 2) {
+      s = `${whole}.${frac.slice(0, 2)}`;
     }
   }
   return s;
 }
 
-/** Parse sanitized exchange-rate text to a number (3 dp) or null when empty/invalid. */
+/** Parse sanitized exchange-rate text to a number (2 dp) or null when empty/invalid. */
 export function parseExchangeRateValue(raw: string): number | null {
   const trimmed = raw.trim();
   if (trimmed === "" || trimmed === ".") return null;
   const n = parseFloat(trimmed);
   if (Number.isNaN(n)) return null;
-  return Math.round(n * 1000) / 1000;
+  return Math.round(n * 100) / 100;
 }
 
 /** CNY cost × exchange rate, stored with max 3 decimal places. */

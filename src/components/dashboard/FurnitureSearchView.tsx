@@ -33,6 +33,7 @@ import type { SourcePageRequest } from '@/lib/sourcePage';
 import { fetchEmbeddingStatus, searchByImage, startImageIndex, type EmbeddingStatus } from '@/lib/imageSearch';
 import { supabase } from '@/lib/supabase';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
+import { generateQuoteReferenceImage } from '@/lib/quotePhotoLibrary';
 import { buildFurnitureGlb } from '@/lib/furnitureGlb';
 import { buildFurnitureFbx } from '@/lib/furnitureFbx';
 import { ProductWorkbench } from '@/components/dashboard/ProductWorkbench';
@@ -1214,6 +1215,7 @@ type ImageAnalysis = {
 };
 
 type AnalysisRequest = {
+  inferred_reference?: { image_base64: string; mime_type: string };
   product_scope?: ProductScopeChoice['scope'];
   product_count?: number;
   mode?: 'classify' | 'parts';
@@ -1309,15 +1311,16 @@ type ProgressFlow = 'prepare' | 'generate';
 /** Stepper inside the progress dialog: the real stages of each run, keyed by progress label. */
 const PROGRESS_FLOW: Record<ProgressFlow, { steps: string[]; hints: string[]; index: Record<string, number> }> = {
   prepare: {
-    steps: ['讀取產品資料', '辨認產品圖', '整理結構'],
-    hints: ['正在讀取產品資料，請稍候…', 'AI 正在分析圖片，請稍候…', '正在整理結構，請稍候…'],
+    steps: ['讀取產品資料', '生成三視圖', '辨認產品結構', '整理結構'],
+    hints: ['正在讀取產品資料，請稍候…', '正在根據產品圖與描述生成三視圖，請稍候…', '正在對照原圖與三視圖分析結構，請稍候…', '正在整理結構，請稍候…'],
     index: {
       '準備生成 SU': 0,
       '準備生成 3D': 0,
       '檢查 SU 生成環境': 0,
-      '辨認產品圖': 1,
-      '整理結構': 2,
-      '結構已辨認': 2,
+      '辨認產品圖': 2,
+      '生成 AI 三視圖': 1,
+      '整理結構': 3,
+      '結構已辨認': 3,
     },
   },
   generate: {
@@ -1447,7 +1450,12 @@ function ProductModelsSection({
   const [reload, setReload] = useState(0);
   const [filesError, setFilesError] = useState(false);
   const [draft, setDraft] = useState<ModelDraft | null>(null);
+  const drawingCache = useRef<{ key: string; url: string; image: { image_base64: string; mime_type: string } } | null>(null);
+  const drawingAsset = useRef<{ key: string; url: string } | null>(null);
+  const drawingPending = useRef<Promise<{ key: string; url: string; image: { image_base64: string; mime_type: string } }> | null>(null);
   const [reuse, setReuse] = useState<{ target: 'su' | '3d'; files: ProductModelFile[] } | null>(null);
+  /** 進度 Modal 內的沿用詢問：之前生成過三視圖時，先在同一個 Modal 問沿用還是重畫。 */
+  const [drawingAsk, setDrawingAsk] = useState<{ url: string; resolve: (regenerate: boolean) => void } | null>(null);
   const [previewFile, setPreviewFile] = useState<ProductModelFile | null>(null);
   const [skp, setSkp] = useState<SkpStatus | null>(null);
   const [skpModelId, setSkpModelId] = useState<string | null>(null);
@@ -1462,7 +1470,7 @@ function ProductModelsSection({
   const [scopeRequest, setScopeRequest] = useState<{ target: 'su' | '3d' | 'parts'; detection: ProductCountDetection } | null>(null);
   const [photoRequest, setPhotoRequest] = useState<{ target: 'su' | '3d' | 'parts'; message: string } | null>(null);
   const modelPhotos: (string | File)[] = [...extraPhotos, ...new Set((product.images ?? []).filter(src => /^https?:\/\//i.test(src)))];
-  useEffect(() => { setExtraPhotos([]); setDraft(null); setPhotoRequest(null); }, [productId]);
+  useEffect(() => { setExtraPhotos([]); setDraft(null); setPhotoRequest(null); setDrawingAsk(null); }, [productId]);
   useEffect(() => { setScopeChoice(undefined); setScopeRequest(null); }, [productId, extraPhotos, product.images]);
   const [genProgress, setGenProgress] = useState<{ percent: number; label: string } | null>(null);
   const skpRequirements = useSkpRequirements();
@@ -1608,6 +1616,77 @@ function ProductModelsSection({
   const existingFor = (target: 'su' | '3d') =>
     (files ?? []).filter((file) => (target === 'su' ? file.format === 'skp' : file.format === 'glb' || file.format === 'fbx'));
 
+  /** Identity of the current reference set: the same inputs reuse the paid drawing. */
+  const drawingKey = useMemo(
+    () => JSON.stringify([productId, product.description, product.images, extraPhotos.map(file => [file.name, file.size, file.lastModified])]),
+    [productId, product.description, product.images, extraPhotos],
+  );
+
+  /** The last successful drawing for the current reference set, from either cache layer. */
+  const cachedOrthographic = (): { key: string; url: string } | null => {
+    if (drawingCache.current?.key === drawingKey) return drawingCache.current;
+    if (drawingAsset.current?.key === drawingKey) return drawingAsset.current;
+    try {
+      const cached = JSON.parse(sessionStorage.getItem(`fds-orthographic-v1:${productId}`) ?? 'null');
+      if (cached?.key === drawingKey && typeof cached.url === 'string' && cached.url.startsWith(`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/quote-photos/`)) return cached;
+    } catch { /* Storage may be unavailable. */ }
+    return null;
+  };
+
+  const buildDrawing = async (force = false) => {
+    if (!force && drawingCache.current?.key === drawingKey) return drawingCache.current;
+    // Keep a successful paid drawing across modal closes and development refreshes.
+    const cacheName = `fds-orthographic-v1:${productId}`;
+    if (force) {
+      // 重新生成：放棄上一張付費三視圖，按目前的參考圖重畫。
+      drawingAsset.current = null;
+      try { sessionStorage.removeItem(cacheName); } catch { /* Ignore. */ }
+    } else {
+      try {
+        const cached = JSON.parse(sessionStorage.getItem(cacheName) ?? 'null');
+        if (cached?.key === drawingKey && typeof cached.url === 'string' && cached.url.startsWith(`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/quote-photos/`)) drawingAsset.current = cached;
+      } catch { /* Storage may be unavailable; the in-memory cache still works. */ }
+    }
+    const encoded: string[] = [];
+    for (const photo of modelPhotos) {
+      try {
+        const response = typeof photo === 'string' ? await fetch(photo) : null;
+        if (response && !response.ok) continue;
+        const blob = photo instanceof File ? photo : await response!.blob();
+        const image = await fileToJpeg(new File([blob], 'reference.jpg', { type: blob.type }));
+        if (!encoded.includes(image)) encoded.push(image);
+        if (encoded.length === 3) break;
+      } catch { /* Try the next product photo. */ }
+    }
+    if (encoded.length < 2) throw Object.assign(new Error('三視圖需要最少 2 張可讀取的不同產品圖'), { code: 'reference_images_required' });
+    const session = await supabase.auth.getSession();
+    if (!session.data.session) throw new Error('請先登入');
+    const referenceUrls: string[] = [];
+    for (const image of encoded) {
+      const bytes = Uint8Array.from(atob(image), ch => ch.charCodeAt(0));
+      const path = `orthographic-inputs/${session.data.session.user.id}/${crypto.randomUUID()}.jpg`;
+      const uploaded = await supabase.storage.from('product-images').upload(path, bytes, { contentType: 'image/jpeg' });
+      if (uploaded.error) throw new Error(uploaded.error.message);
+      referenceUrls.push(supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl);
+    }
+    const asset = !force && drawingAsset.current?.key === drawingKey ? drawingAsset.current : await generateQuoteReferenceImage({ purpose: 'orthographic', productId, model: 'gemini', aspectRatio: '4:3', referenceUrls });
+    drawingAsset.current = { key: drawingKey, url: asset.url };
+    try { sessionStorage.setItem(cacheName, JSON.stringify(drawingAsset.current)); } catch { /* Optional cache. */ }
+    const response = await fetch(asset.url);
+    if (!response.ok) throw new Error('三視圖已生成，但暫時無法讀取；請稍後再試');
+    const blob = await response.blob();
+    const drawing = { key: drawingKey, url: asset.url, image: { image_base64: await fileToJpeg(new File([blob], 'inferred.jpg', { type: blob.type })), mime_type: 'image/jpeg' } };
+    drawingCache.current = drawing;
+    return drawing;
+  };
+
+  const ensureDrawing = async (force = false) => {
+    if (drawingPending.current && !force) return drawingPending.current;
+    drawingPending.current = buildDrawing(force);
+    try { return await drawingPending.current; }
+    finally { drawingPending.current = null; }
+  };
+
   /** T-806: look for uploaded or earlier generated files before any AI call. */
   const start = (target: 'su' | '3d', force = false) => {
     if (filesError) {
@@ -1665,11 +1744,25 @@ function ProductModelsSection({
       let structure: StructureEvidence | undefined;
       let dimensionEstimates: DimensionEstimate[] = [];
       const photos = modelPhotos;
+      showProgress(26, '生成 AI 三視圖'); // step 2 of 4: keep the % inside this step's 25–50 band
+      let regenerate = false;
+      const cached = cachedOrthographic();
+      if (cached?.url) {
+        // 之前生成過三視圖：凍結進度，在同一個進度 Modal 內先問沿用還是重畫。
+        stopCreep();
+        regenerate = await new Promise<boolean>((resolve) => {
+          setDrawingAsk({ url: cached.url, resolve });
+        });
+        setDrawingAsk(null);
+      }
+      creepToward(45);
+      const drawing = await ensureDrawing(regenerate);
       if (photos.length > 0) {
-        showProgress(24, '辨認產品圖');
+        showProgress(52, '辨認產品圖'); // step 3 of 4: % must match the stepper (50–75 band)
         creepToward(70);
         try {
           const guess = await analyzeProductImages(photos, {
+            inferred_reference: drawing.image,
             product_scope: choice?.scope,
             product_count: choice?.count,
             title: [product.model, product.title].filter(Boolean).join(' '),
@@ -1751,6 +1844,7 @@ function ProductModelsSection({
         height_mm: height,
       };
       setDraft({
+        orthographicUrl: drawing.url,
         structure,
         target,
         kind,
@@ -1819,7 +1913,9 @@ function ProductModelsSection({
     const size = (value: string) => (Number(value) > 0 ? Number(value) : null);
     setPartsBusy(true);
     try {
+      const drawing = await ensureDrawing();
       const result = await analyzeProductImages(photos, {
+        inferred_reference: drawing.image,
         product_scope: choice?.scope,
         product_count: choice?.count,
         mode: 'parts',
@@ -1838,6 +1934,7 @@ function ProductModelsSection({
       const missing = (['width', 'depth', 'height'] as SizeAxis[]).filter((axis) => !(Number(draft[axis]) > 0));
       const partsSize = customPartsSize(parts);
       updateDraft({
+        orthographicUrl: drawing.url,
         parts,
         ...(hasStructureEvidence(result?.structure) ? { structure: result.structure } : {}),
         notes: result?.structure_notes ?? draft.notes,
@@ -1991,7 +2088,7 @@ function ProductModelsSection({
         const base = (product.model || product.sku || model.label).replace(/[^\w.\-\u3400-\u9fff]+/g, '_').slice(0, 80);
         const problems: string[] = [];
         let done = 0;
-        showProgress(55, '寫出 GLB');
+        showProgress(70, '寫出 GLB'); // step 3 of 3: % must match the stepper (66–100 band)
         try {
           await registerGeneratedFile(id, buildFurnitureGlb(model), `${base}.glb`, 'glb');
           done += 1;
@@ -2038,11 +2135,13 @@ function ProductModelsSection({
         : progressFlowConfig.index[shownProgress.label] ?? 0
       : 0,
   };
-  const progressHint = !shownProgress
-    ? ''
-    : shownProgress.percent >= 100
-      ? '已完成'
-      : progressFlowConfig.hints[progressFlowConfig.index[shownProgress.label] ?? 0] ?? '正在處理，請稍候…';
+  const progressHint = drawingAsk
+    ? '這件產品之前已生成過三視圖，可沿用直接辨識結構，省時又省一次 AI 繪圖；重新生成會按目前參考圖重畫一張。'
+    : !shownProgress
+      ? ''
+      : shownProgress.percent >= 100
+        ? '已完成'
+        : progressFlowConfig.hints[progressFlowConfig.index[shownProgress.label] ?? 0] ?? '正在處理，請稍候…';
   const commitModelUpload = () => {
     const pending = pendingModel;
     if (!pending) return;
@@ -2135,7 +2234,7 @@ function ProductModelsSection({
             {busy === '3d' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
             生成 3D
           </Button>
-          {canManage && <TripoModelTrial key={productId} productId={productId} title={product.title} images={product.images} disabled={busy != null} onComplete={() => { setReload(n => n + 1); onChanged(); }} />}
+          {canManage && <TripoModelTrial key={productId} productId={productId} title={product.title} prepareOrthographic={ensureDrawing} disabled={busy != null} onComplete={() => { setReload(n => n + 1); onChanged(); }} />}
           {workbench ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -2207,7 +2306,7 @@ function ProductModelsSection({
             if (target === 'parts') { setConfirmShown(true); void loadParts(); }
             else void prepare(target);
           }}>繼續生成</ModalButton>
-          <ModalButton variant="ghost" onClick={() => setPhotoRequest(null)}>取消</ModalButton>
+          <ModalButton variant="secondary" onClick={() => setPhotoRequest(null)}>取消</ModalButton>
         </>}
       >
         <div className="space-y-3 text-sm">
@@ -2234,13 +2333,13 @@ function ProductModelsSection({
         footer={
           <>
             <ModalButton
-              variant="secondary"
+              variant="primary"
               disabled={busy != null}
               onClick={() => { if (reuse) start(reuse.target, true); }}
             >
               仍要重新生成
             </ModalButton>
-            <ModalButton variant="ghost" onClick={() => setReuse(null)}>
+            <ModalButton variant="secondary" onClick={() => setReuse(null)}>
               關閉
             </ModalButton>
           </>
@@ -2268,7 +2367,7 @@ function ProductModelsSection({
                 下載
               </button>
             </li>
-          ))}
+          )          )}
         </ul>
       </Modal>
       <Modal
@@ -2276,26 +2375,57 @@ function ProductModelsSection({
         onOpenChange={() => { /* a running job cannot be dismissed */ }}
         size="2xl"
         hideClose
-        icon={shownProgress ? (
+        icon={drawingAsk ? (
+          <Box className="h-6 w-6" />
+        ) : shownProgress ? (
           <ProgressRing percent={shownProgress.percent}>
             <Box className="h-7 w-7" strokeWidth={1.6} />
           </ProgressRing>
         ) : null}
-        title={shownProgress?.label}
+        title={drawingAsk ? '已生成過三視圖' : shownProgress?.label}
         description={shownProgress ? <span className="text-[15px]">{progressHint}</span> : undefined}
-        headerAside={shownProgress ? (
+        headerAside={drawingAsk ? null : shownProgress ? (
           <span className="text-[28px] font-semibold leading-none tabular-nums text-primary">{shownProgress.percent}%</span>
         ) : null}
         headerClassName="px-6 pt-6 pb-5 sm:px-8 sm:pt-8 sm:pb-6"
         bodyClassName="px-6 pb-7 sm:px-8 sm:pb-8"
         style={workbench ? WORKBENCH_TONE : undefined}
       >
-        {shownProgress && (
+        {drawingAsk ? (
+          <div className="space-y-5">
+            <figure className="relative overflow-hidden rounded-xl border border-border bg-muted/40">
+              <LoadingImage
+                src={drawingAsk.url}
+                hd
+                alt="上次生成的三視圖"
+                className="h-64 w-full object-contain animate-in fade-in zoom-in-95 duration-500"
+              />
+              <figcaption className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-primary/90 px-2.5 py-1 text-[11px] font-semibold text-primary-foreground shadow-sm duration-500 animate-in fade-in slide-in-from-left-2">
+                <Check className="h-3 w-3" strokeWidth={3} />
+                上次生成的三視圖
+              </figcaption>
+            </figure>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <ModalButton
+                variant="primary"
+                onClick={() => drawingAsk.resolve(false)}
+              >
+                沿用三視圖生成
+              </ModalButton>
+              <ModalButton
+                variant="secondary"
+                onClick={() => drawingAsk.resolve(true)}
+              >
+                重新生成三視圖
+              </ModalButton>
+            </div>
+          </div>
+        ) : shownProgress ? (
           <div className="space-y-6">
             <Progress value={shownProgress.percent} className="h-2" />
             <ProgressSteps steps={progressView.steps} current={progressView.current} />
           </div>
-        )}
+        ) : null}
       </Modal>
       <ModalRoot
         open={!skpRequirements.open && confirmShown && draft != null}
@@ -2308,7 +2438,7 @@ function ProductModelsSection({
         <ModalContent
           className="flex h-[min(820px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] max-w-[min(1080px,calc(100vw-1.5rem))] flex-col gap-0 p-0"
           hideClose
-          bodyClassName="p-0 overflow-visible"
+          bodyClassName="p-0 sm:p-0 overflow-visible"
           style={workbench ? WORKBENCH_TONE : undefined}
           onInteractOutside={(event) => { if (busy != null || partsBusy) event.preventDefault(); }}
           onEscapeKeyDown={(event) => { if (busy != null || partsBusy) event.preventDefault(); }}

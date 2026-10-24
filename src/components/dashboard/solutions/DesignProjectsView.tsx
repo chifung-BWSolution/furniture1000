@@ -3735,7 +3735,7 @@ export function DesignProjectsView() {
         footer={
           <>
             <ModalButton onClick={confirmDivisionModal}>確定</ModalButton>
-            <ModalButton variant="ghost" onClick={() => setDivisionModalZoneId(null)}>
+            <ModalButton variant="secondary" onClick={() => setDivisionModalZoneId(null)}>
               取消
             </ModalButton>
           </>

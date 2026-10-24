@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { logAiUsage } from "../_shared/usageLog.ts";
 
 /**
  * Reads furniture photos (two to six distinct views of one product).
@@ -205,36 +206,53 @@ function json(body: unknown, status = 200) {
 
 class GrokError extends Error {}
 
+const GROK_TIMEOUT_MS = 180_000;
+const GROK_ATTEMPTS = 2;
+
 async function askGrok<T>(apiKey: string, system: string, prompt: string, images: InlineImage[], schema: unknown): Promise<T> {
   let res: Response;
-  try {
-    res = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        reasoning_effort: "low",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: [
-            ...images.map((image) => ({ type: "image_url", image_url: {
-              url: `data:${image.mime_type};base64,${image.data}`, detail: "high",
-            } })),
-            { type: "text", text: prompt },
-          ] },
-        ],
-        response_format: { type: "json_schema", json_schema: { name: "furniture_analysis", schema } },
-      }),
-      signal: AbortSignal.timeout(120_000),
-    });
-  } catch {
-    throw new GrokError("Grok 圖片分析連線失敗或逾時，請重試");
+  for (let attempt = 1; ; attempt++) {
+    try {
+      res = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          reasoning_effort: "low",
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: [
+              ...images.map((image) => ({ type: "image_url", image_url: {
+                url: `data:${image.mime_type};base64,${image.data}`, detail: "high",
+              } })),
+              { type: "text", text: prompt },
+            ] },
+          ],
+          response_format: { type: "json_schema", json_schema: { name: "furniture_analysis", schema } },
+        }),
+        signal: AbortSignal.timeout(GROK_TIMEOUT_MS),
+      });
+      break;
+    } catch {
+      if (attempt >= GROK_ATTEMPTS) throw new GrokError("Grok 圖片分析連線失敗或逾時，請重試");
+      // Transient network drop or the per-attempt timeout: retry once after a short backoff.
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
   }
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
     console.error("Furniture analysis Grok request failed", res.status);
     throw new GrokError(`Grok 圖片分析失敗（HTTP ${res.status}）`);
   }
+  // 用量記錄（best-effort）：xAI chat 回 usage { prompt_tokens, completion_tokens, total_tokens }
+  const usage = payload?.usage as { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown } | undefined;
+  await logAiUsage({
+    source: "generate-furniture-model",
+    promptTokens: usage?.prompt_tokens,
+    outputTokens: usage?.completion_tokens,
+    totalTokens: usage?.total_tokens,
+    meta: { model: MODEL },
+  });
   const message = payload?.choices?.[0]?.message;
   if (message?.refusal) throw new GrokError("Grok 無法分析這組產品圖，請換一張產品圖");
   const text = message?.content ?? "";
@@ -331,6 +349,8 @@ Deno.serve(async (req: Request) => {
 
   let body: ImageInput & {
     images?: ImageInput[];
+    /** AI drawing is auxiliary; it never counts as an independent product photograph. */
+    inferred_reference?: ImageInput;
     mode?: string;
     product_scope?: 'single' | 'arrangement';
     product_count?: number;
@@ -364,6 +384,8 @@ Deno.serve(async (req: Request) => {
     }
   }
   if (images.length < MIN_IMAGES) return json({ error: "最少需要 2 張不同圖片，重複圖片不計算，請補充側面或背面照片" }, 400);
+  const inferred = body.inferred_reference ? inlineImage(body.inferred_reference) : null;
+  if (typeof inferred === 'string') return json({ error: inferred }, 400);
   const title = typeof body.title === "string" ? body.title : "";
 
   try {
@@ -377,7 +399,9 @@ Deno.serve(async (req: Request) => {
     const scope = body.product_scope === 'arrangement'
       ? `The user explicitly confirmed a GROUP of ${body.product_count} separate identical products. This overrides default single-item isolation rules, including desks. Model the entire arrangement as seen, preserving each individual product and its spacing. Each part MUST include product_index, a zero-based integer from 0 to ${body.product_count! - 1}; every product must have its own parts. Overall dimensions refer to the group. Do not merge separate feet or omit repeated units.`
       : `The user requests exactly ONE matching product, even when several identical products appear together. Never model the whole arrangement. Catalogue dimensions may describe the whole arrangement; infer single-item size unless mode is parts, whose supplied dimensions are user-confirmed.`;
-    const extraction = await extractParts(apiKey, images, { width_mm: positive(body.width_mm), depth_mm: positive(body.depth_mm), height_mm: positive(body.height_mm) }, title, scope, body.product_scope === 'arrangement');
+    if (inferred) images.push(inferred);
+    const drawingScope = inferred ? `${scope} The LAST image is an AI-INFERRED orthographic sheet, NOT an independent photograph or measured drawing. It shows multiple views of ONE unit, not multiple products. Use it only as auxiliary layout guidance. ORIGINAL product photographs take priority for geometry, part counts, bends, voids, and connections. Do not copy any AI-invented supports or panels. Uncertainties in the original photos remain uncertainties even if the AI sheet fills them in. For a confirmed group, the sheet is only a single-unit reference; retain the confirmed group count.` : scope;
+    const extraction = await extractParts(apiKey, images, { width_mm: positive(body.width_mm), depth_mm: positive(body.depth_mm), height_mm: positive(body.height_mm) }, title, drawingScope, body.product_scope === 'arrangement');
     if (body.product_scope === 'arrangement') {
       const indexes = extraction.parts.map(part => (part as {product_index?:number}).product_index);
       if (indexes.some(n => !Number.isInteger(n) || n! < 0 || n! >= body.product_count!) || new Set(indexes).size !== body.product_count) throw new GrokError('拆出的產品數量與確認的整組數量不符，請重新辨認');
@@ -409,7 +433,7 @@ Deno.serve(async (req: Request) => {
       structure_notes?: string;
       reason?: string;
       dimension_estimates?: { view?: string; width_mm?: number; depth_mm?: number; height_mm?: number }[];
-    }>(apiKey, CLASSIFY_PROMPT, [title ? `Product name: ${title.slice(0, 200)}.` : "", `Reference catalogue dimensions (may describe the whole arrangement): width=${positive(body.width_mm) ?? "unknown"}, depth=${positive(body.depth_mm) ?? "unknown"}, height=${positive(body.height_mm) ?? "unknown"} mm.`, "Return the furniture kind, SINGLE-item size, source_dimensions_scope, and the structure fields that apply."].join(" "), images, CLASSIFY_SCHEMA);
+    }>(apiKey, CLASSIFY_PROMPT, [drawingScope, title ? `Product name: ${title.slice(0, 200)}.` : "", `Reference catalogue dimensions (may describe the whole arrangement): width=${positive(body.width_mm) ?? "unknown"}, depth=${positive(body.depth_mm) ?? "unknown"}, height=${positive(body.height_mm) ?? "unknown"} mm.`, "Return the furniture kind, SINGLE-item size, source_dimensions_scope, and the structure fields that apply."].join(" "), images, CLASSIFY_SCHEMA);
 
     const dimension_estimates = dimensionEstimatesFrom(parsed.dimension_estimates);
 

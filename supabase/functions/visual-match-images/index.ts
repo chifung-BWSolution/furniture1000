@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
+import { logAiUsage } from "../_shared/usageLog.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -389,6 +390,13 @@ async function callGemini(
     }
 
     const data = await response.json();
+    await logAiUsage({
+      source: "visual-match-images",
+      model: modelName,
+      promptTokens: data?.usageMetadata?.promptTokenCount,
+      outputTokens: data?.usageMetadata?.candidatesTokenCount,
+      totalTokens: data?.usageMetadata?.totalTokenCount,
+    });
     const text =
       data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 

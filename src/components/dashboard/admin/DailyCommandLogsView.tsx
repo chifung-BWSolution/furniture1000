@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import {
-  AlertCircle, Clock, Coins, Download, ListChecks, RefreshCw, ScrollText, Search, Trash2, Users,
+  AlertCircle, Download, ListChecks, RefreshCw, ScrollText, Search, Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,6 +36,19 @@ const statusLabels: Record<CommandLogStatus, string> = {
   cancelled: '取消',
 };
 
+const statusVariants: Record<CommandLogStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  running: 'default',
+  completed: 'secondary',
+  failed: 'destructive',
+  cancelled: 'outline',
+};
+
+const percentFormat = new Intl.NumberFormat('zh-HK', { style: 'percent', maximumFractionDigits: 1 });
+
+function safeDivide(numerator: number, denominator: number) {
+  return denominator > 0 ? numerator / denominator : 0;
+}
+
 function formatHkDateTime(value: string | null) {
   if (!value) return '—';
   const date = new Date(value);
@@ -51,9 +64,9 @@ function formatHkDateTime(value: string | null) {
 function Stat({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="mt-1 font-display text-2xl font-bold">{value}</p>
-      <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
+      <p className="text-xs font-medium leading-4 text-muted-foreground">{label}</p>
+      <p className="mt-1 text-2xl font-bold leading-8 tracking-tight tabular-nums">{value}</p>
+      <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{hint}</p>
     </div>
   );
 }
@@ -113,6 +126,64 @@ export function DailyCommandLogsView() {
   const totalPages = Math.max(1, Math.ceil(total / COMMAND_LOG_PAGE_SIZE));
   const summary = analytics?.summary;
 
+  // 對照 QMS qms_dev_command_logs_analytics：完成率 30%、每小時完成量 25%、完成時間效率 20%、Credit 效率 15%、低失敗率 10%（min-max normalize 後 0–100）。
+  const developerPerformance = useMemo(() => {
+    const base = (analytics?.developers ?? []).map((d) => {
+      const total = d.totalCommands || 0;
+      const completed = d.completedCount || 0;
+      const duration = d.totalDurationSeconds || 0;
+      return {
+        email: d.developerEmail,
+        name: d.developerName,
+        total,
+        completed,
+        failed: d.failedCount || 0,
+        completionRate: safeDivide(completed, total),
+        avgCompletionSeconds: completed > 0 ? duration / completed : null,
+        completionsPerHour: safeDivide(completed * 3600, duration),
+        avgCreditPerCommand: safeDivide(d.totalCredits || 0, total),
+        dailyAvgSeconds: safeDivide(duration, d.activeDays || 0),
+        totalCredits: d.totalCredits || 0,
+        totalCostUsd: d.totalCostUsd || 0,
+        score: 0,
+        rank: 0,
+      };
+    });
+    const bounds = (get: (r: (typeof base)[number]) => number | null) => {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (const row of base) {
+        const value = get(row);
+        if (value === null) continue;
+        lo = Math.min(lo, value);
+        hi = Math.max(hi, value);
+      }
+      if (lo === Infinity) return null;
+      return { lo, hi } as const;
+    };
+    const normalized = (value: number, range: ReturnType<typeof bounds>, inverted: boolean) => {
+      if (!range || range.lo === range.hi) return 100;
+      const pct = ((value - range.lo) / (range.hi - range.lo)) * 100;
+      return inverted ? 100 - pct : pct;
+    };
+    const cr = bounds((r) => r.completionRate);
+    const cph = bounds((r) => r.completionsPerHour);
+    const act = bounds((r) => r.avgCompletionSeconds);
+    const acpc = bounds((r) => r.avgCreditPerCommand);
+    const fr = bounds((r) => safeDivide(r.failed, r.total));
+    for (const row of base) {
+      const sCr = normalized(row.completionRate, cr, false);
+      const sCph = normalized(row.completionsPerHour, cph, false);
+      const sAct = row.avgCompletionSeconds === null ? 0 : normalized(row.avgCompletionSeconds, act, true);
+      const sAcpc = normalized(row.avgCreditPerCommand, acpc, true);
+      const sFr = normalized(safeDivide(row.failed, row.total), fr, true);
+      row.score = Math.round(Math.max(0, Math.min(100, 0.3 * sCr + 0.25 * sCph + 0.2 * sAct + 0.15 * sAcpc + 0.1 * sFr)) * 10) / 10;
+    }
+    base.sort((a, b) => b.score - a.score || b.completed - a.completed);
+    base.forEach((row, index) => { row.rank = index + 1; });
+    return base;
+  }, [analytics]);
+
   const updateFilter = (patch: Partial<CommandLogFilters>) => {
     if (!('search' in patch)) setPage(1);
     setFilters((prev) => ({ ...prev, ...patch }));
@@ -126,15 +197,17 @@ export function DailyCommandLogsView() {
         日期: row.businessDate,
         程式員: row.developerName,
         電郵: row.developerEmail,
-        指令: row.instructionText,
-        狀態: statusLabels[row.status],
-        開始: formatHkDateTime(row.startedAt),
-        完成: formatHkDateTime(row.completedAt),
+        指令字眼: row.instructionText,
+        開始時間: formatHkDateTime(row.startedAt),
+        完成時間: formatHkDateTime(row.completedAt),
         所需時間: formatDuration(row.durationSeconds),
         模型: row.model ?? '',
         Credit: row.creditsUsed ?? '',
-        成本USD: row.costUsd ?? '',
+        '成本(USD)': row.costUsd ?? '',
+        狀態: statusLabels[row.status],
         結果: row.resultSummary ?? '',
+        失敗原因: row.failureReason ?? '',
+        工作編號: row.taskReference ?? '',
       })));
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, sheet, '指令明細');
@@ -165,7 +238,7 @@ export function DailyCommandLogsView() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-none flex-col gap-5 fds-page-padding">
+    <div className="mx-auto flex h-full w-full max-w-none flex-col gap-5 overflow-y-auto fds-page-padding">
       <header className="fds-page-header flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div>
@@ -234,34 +307,47 @@ export function DailyCommandLogsView() {
 
           <TabsContent value="detail" className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] text-left text-sm">
+              <table className="w-full min-w-[1400px] table-fixed text-left text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-3">程式員</th>
-                    <th className="px-3 py-3">指令</th>
-                    <th className="px-3 py-3">狀態</th>
-                    <th className="px-3 py-3">時間</th>
-                    <th className="px-3 py-3">成本</th>
+                    <th className="w-28 px-4 py-3">日期</th>
+                    <th className="w-44 px-3 py-3">程式員</th>
+                    <th className="w-72 px-3 py-3">指令字眼</th>
+                    <th className="w-36 px-3 py-3">開始時間</th>
+                    <th className="w-36 px-3 py-3">完成時間</th>
+                    <th className="w-24 px-3 py-3 text-right">所需時間</th>
+                    <th className="w-32 px-3 py-3">模型</th>
+                    <th className="w-20 px-3 py-3 text-right">Credit</th>
+                    <th className="w-24 px-3 py-3 text-right">成本(USD)</th>
+                    <th className="w-24 px-3 py-3">狀態</th>
+                    <th className="w-20 px-3 py-3 text-right">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {loading ? (
-                    <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">正在載入…</td></tr>
+                    <tr><td colSpan={11} className="px-4 py-8 text-center text-muted-foreground">正在載入…</td></tr>
                   ) : rows.length === 0 ? (
-                    <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">這個範圍還沒有指令記錄</td></tr>
+                    <tr><td colSpan={11} className="px-4 py-8 text-center text-muted-foreground">這個範圍還沒有指令記錄</td></tr>
                   ) : rows.map((row) => (
                     <tr key={row.id} className="cursor-pointer hover:bg-muted/40" onClick={() => setSelected(row)}>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{row.businessDate}</td>
+                      <td className="px-3 py-3">
                         <p className="font-semibold">{row.developerName}</p>
-                        <p className="text-[11px] text-muted-foreground">{row.businessDate}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">{row.developerEmail}</p>
                       </td>
-                      <td className="max-w-md px-3 py-3">
-                        <p className="line-clamp-2">{row.instructionText}</p>
-                        <p className="mt-1 text-[11px] text-muted-foreground">{row.model ?? '未標示模型'}</p>
+                      <td className="px-3 py-3">
+                        <p className="line-clamp-2" title={row.instructionText}>{row.instructionText || '（無指令字眼）'}</p>
                       </td>
-                      <td className="px-3 py-3"><Badge variant="secondary">{statusLabels[row.status]}</Badge></td>
-                      <td className="px-3 py-3 text-xs">{formatDuration(row.durationSeconds)}</td>
-                      <td className="px-3 py-3 text-xs">{formatUsd(row.costUsd)}</td>
+                      <td className="px-3 py-3 text-xs">{formatHkDateTime(row.startedAt)}</td>
+                      <td className="px-3 py-3 text-xs">{formatHkDateTime(row.completedAt)}</td>
+                      <td className="px-3 py-3 text-right text-xs">{formatDuration(row.durationSeconds)}</td>
+                      <td className="px-3 py-3 text-xs">{row.model || '—'}</td>
+                      <td className="px-3 py-3 text-right text-xs tabular-nums">{formatNumber(row.creditsUsed)}</td>
+                      <td className="px-3 py-3 text-right text-xs tabular-nums">{formatUsd(row.costUsd)}</td>
+                      <td className="px-3 py-3"><Badge variant={statusVariants[row.status]}>{statusLabels[row.status]}</Badge></td>
+                      <td className="px-3 py-3 text-right">
+                        <Button type="button" size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setSelected(row); }}>查看</Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -278,62 +364,99 @@ export function DailyCommandLogsView() {
           </TabsContent>
 
           <TabsContent value="daily" className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-muted/50 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3">日期</th>
-                  <th className="px-3 py-3">程式員</th>
-                  <th className="px-3 py-3">指令</th>
-                  <th className="px-3 py-3">完成</th>
-                  <th className="px-3 py-3">工時</th>
-                  <th className="px-3 py-3">USD</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {(analytics?.daily ?? []).length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">沒有每日統計</td></tr>
-                ) : analytics?.daily.map((row) => (
-                  <tr key={`${row.businessDate}-${row.developerEmail}`}>
-                    <td className="px-4 py-3">{row.businessDate}</td>
-                    <td className="px-3 py-3">{row.developerName}</td>
-                    <td className="px-3 py-3">{row.totalCommands}</td>
-                    <td className="px-3 py-3">{row.completedCount}</td>
-                    <td className="px-3 py-3">{formatDuration(row.totalDurationSeconds)}</td>
-                    <td className="px-3 py-3">{formatUsd(row.totalCostUsd)}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1380px] table-fixed text-left text-sm">
+                <thead className="bg-muted/50 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="w-28 px-4 py-3">日期</th>
+                    <th className="w-48 px-3 py-3">程式員</th>
+                    <th className="w-24 px-3 py-3 text-right">指令總數</th>
+                    <th className="w-20 px-3 py-3 text-right">完成</th>
+                    <th className="w-20 px-3 py-3 text-right">失敗</th>
+                    <th className="w-24 px-3 py-3 text-right">完成率</th>
+                    <th className="w-28 px-3 py-3 text-right">每日 Credit</th>
+                    <th className="w-28 px-3 py-3 text-right">每日成本(USD)</th>
+                    <th className="w-32 px-3 py-3 text-right">每日總時間</th>
+                    <th className="w-32 px-3 py-3 text-right">平均完成時間</th>
+                    <th className="w-32 px-3 py-3 text-right">每小時完成量</th>
+                    <th className="w-32 px-3 py-3 text-right">平均每條 Credit</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {(analytics?.daily ?? []).length === 0 ? (
+                    <tr><td colSpan={12} className="px-4 py-8 text-center text-muted-foreground">沒有每日統計</td></tr>
+                  ) : analytics?.daily.map((row) => (
+                    <tr key={`${row.businessDate}-${row.developerEmail}`}>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{row.businessDate}</td>
+                      <td className="px-3 py-3">
+                        <p className="font-semibold">{row.developerName}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">{row.developerEmail}</p>
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums">{row.totalCommands}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{row.completedCount}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{row.failedCount}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{percentFormat.format(safeDivide(row.completedCount, row.totalCommands))}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatNumber(row.totalCredits)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatUsd(row.totalCostUsd)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatDuration(row.totalDurationSeconds)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatDuration(row.completedCount > 0 ? Math.round(safeDivide(row.totalDurationSeconds, row.completedCount)) : null)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatNumber(safeDivide(row.completedCount * 3600, row.totalDurationSeconds))}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatNumber(safeDivide(row.totalCredits, row.totalCommands))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </TabsContent>
 
           <TabsContent value="performance" className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-muted/50 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3"><Users className="mr-1 inline h-3.5 w-3.5" />程式員</th>
-                  <th className="px-3 py-3">完成 / 總數</th>
-                  <th className="px-3 py-3"><Clock className="mr-1 inline h-3.5 w-3.5" />工時</th>
-                  <th className="px-3 py-3"><Coins className="mr-1 inline h-3.5 w-3.5" />Credit</th>
-                  <th className="px-3 py-3">活躍日</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {(analytics?.developers ?? []).length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">沒有程式員統計</td></tr>
-                ) : analytics?.developers.map((row, index) => (
-                  <tr key={row.developerEmail}>
-                    <td className="px-4 py-3">
-                      <p className="font-semibold">{index + 1}. {row.developerName}</p>
-                      <p className="text-[11px] text-muted-foreground">{row.developerEmail}</p>
-                    </td>
-                    <td className="px-3 py-3">{row.completedCount} / {row.totalCommands}</td>
-                    <td className="px-3 py-3">{formatDuration(row.totalDurationSeconds)}</td>
-                    <td className="px-3 py-3">{formatNumber(row.totalCredits)}</td>
-                    <td className="px-3 py-3">{row.activeDays}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1580px] table-fixed text-left text-sm">
+                <thead className="bg-muted/50 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="w-16 px-4 py-3">排名</th>
+                    <th className="w-48 px-3 py-3">程式員</th>
+                    <th className="w-24 px-3 py-3 text-right">完成指令數</th>
+                    <th className="w-24 px-3 py-3 text-right">完成率</th>
+                    <th className="w-32 px-3 py-3 text-right">平均完成時間</th>
+                    <th className="w-36 px-3 py-3 text-right">每日平均工作時間</th>
+                    <th className="w-24 px-3 py-3 text-right">總 Credit</th>
+                    <th className="w-28 px-3 py-3 text-right">總成本(USD)</th>
+                    <th className="w-32 px-3 py-3 text-right">每條平均 Credit</th>
+                    <th className="w-36 px-3 py-3 text-right">每小時完成指令數</th>
+                    <th className="w-24 px-3 py-3 text-right">失敗次數</th>
+                    <th className="w-32 px-3 py-3 text-right">工作表現分數</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {developerPerformance.length === 0 ? (
+                    <tr><td colSpan={12} className="px-4 py-8 text-center text-muted-foreground">沒有程式員統計</td></tr>
+                  ) : developerPerformance.map((row) => (
+                    <tr key={row.email}>
+                      <td className="px-4 py-3">
+                        <span className={`inline-grid h-7 w-7 place-items-center rounded-full text-xs font-bold ${row.rank === 1 ? 'bg-amber-100 text-amber-700' : 'bg-muted text-muted-foreground'}`}>{row.rank}</span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <p className="font-semibold">{row.name}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">{row.email}</p>
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums">{row.completed} / {row.total}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{percentFormat.format(row.completionRate)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatDuration(row.avgCompletionSeconds === null ? null : Math.round(row.avgCompletionSeconds))}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatDuration(Math.round(row.dailyAvgSeconds))}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatNumber(row.totalCredits)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatUsd(row.totalCostUsd)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatNumber(row.avgCreditPerCommand)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{formatNumber(row.completionsPerHour)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{row.failed}</td>
+                      <td className="px-3 py-3 text-right">
+                        <Badge variant={row.score >= 80 ? 'default' : row.score >= 50 ? 'secondary' : 'outline'}>{row.score.toFixed(1)}</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </TabsContent>
         </Tabs>
       )}
@@ -352,7 +475,7 @@ export function DailyCommandLogsView() {
                 <Trash2 className="h-4 w-4" />
                 刪除
               </ModalButton>
-              <ModalButton variant="ghost" onClick={() => setSelected(null)}>
+              <ModalButton variant="secondary" onClick={() => setSelected(null)}>
                 關閉
               </ModalButton>
             </>
@@ -369,8 +492,17 @@ export function DailyCommandLogsView() {
             <Detail label="模型" value={selected.model ?? '—'} />
             <Detail label="Credit" value={formatNumber(selected.creditsUsed)} />
             <Detail label="成本 (USD)" value={formatUsd(selected.costUsd)} />
+            <Detail
+              label="Token 用量"
+              value={
+                selected.inputTokens === null && selected.outputTokens === null
+                  ? '—'
+                  : `輸入 ${formatNumber(selected.inputTokens)}（快取 ${formatNumber(selected.cachedInputTokens)}）／輸出 ${formatNumber(selected.outputTokens)}`
+              }
+            />
             <Detail label="結果" value={selected.resultSummary ?? '—'} />
             <Detail label="失敗原因" value={selected.failureReason ?? '—'} />
+            <Detail label="工作編號" value={selected.taskReference ?? '—'} />
           </dl>
         )}
       </Modal>

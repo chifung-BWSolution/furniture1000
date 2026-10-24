@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
+import { decodeJwtUser, logAiUsage } from "../_shared/usageLog.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -118,6 +119,18 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log("[gemini-proxy] Successfully got response from Gemini API");
+
+    // 用量記錄（best-effort，失敗不影響回應）
+    const usageMeta = (geminiData as any)?.usageMetadata ?? {};
+    await logAiUsage({
+      source: "gemini-proxy",
+      feature: typeof body.feature === "string" ? body.feature : null,
+      model: modelName,
+      ...decodeJwtUser(req),
+      promptTokens: usageMeta.promptTokenCount,
+      outputTokens: usageMeta.candidatesTokenCount,
+      totalTokens: usageMeta.totalTokenCount,
+    });
 
     return new Response(JSON.stringify(geminiData), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

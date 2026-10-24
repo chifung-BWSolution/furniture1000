@@ -907,7 +907,7 @@ export function QuotePhotoLayoutEditor({
       /* fullscreen 預設是透明底白字（給燈箱用）；排版編輯器要正常白色頁面。 */
       className="bg-background text-foreground"
       headerClassName="border-b border-border/80 bg-background text-foreground"
-      bodyClassName="p-0"
+      bodyClassName="p-0 sm:p-0"
     >
       <div className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-muted/30 p-4 lg:overflow-hidden">

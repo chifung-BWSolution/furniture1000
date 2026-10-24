@@ -70,6 +70,17 @@ export interface QuotationPDFData {
     placement: 'cover' | 'back';
     url: string;
   }[];
+  /**
+   * 圖片庫設定為「內頁獨立整頁」的圖片：每張各佔一整頁 A4，
+   * 插在正文第 pageNumber 頁之後（超出正文頁數時排在正文最後一頁之後）。
+   * 跟封面／封底一樣是圖片庫的全域設定，不寫進 project_data。
+   */
+  quoteContentPages?: {
+    id: string;
+    title: string;
+    url: string;
+    pageNumber: number;
+  }[];
   termsContent?: {
     transport?: string;
     extraFees?: string;

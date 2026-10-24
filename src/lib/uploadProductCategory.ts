@@ -54,6 +54,7 @@ export async function classifyProductsByExistingCategories(
         },
         body: JSON.stringify({
           model: DEFAULT_GEMINI_MODEL,
+          feature: 'upload_category',
           contents: [{ parts: [{ text: prompt }] }],
         }),
       });

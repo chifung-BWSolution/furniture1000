@@ -1,10 +1,13 @@
 /**
  * Read-only catalog for 系統設定 → PRD功能描述.
- * Markdown ships with the app via Vite glob (docs/prd, docs, CLAUDE.md, README.md).
+ * 只收錄 docs/prd 下的正式需求文件（audits/trial/CLAUDE.md/README.md 留在 repo，不在此頁顯示）。
+ * 日期取檔案修改日期（mtime），由 vite.config.ts 的 prdMtimePlugin 在
+ * build/dev 時掃描檔案系統產生 virtual:prd-mtimes；掃不到才退回解析文檔內容/路徑。
  */
+import prdMtimes from 'virtual:prd-mtimes';
 
 const eagerModules = import.meta.glob(
-  ['/docs/**/*.md', '/CLAUDE.md', '/README.md'],
+  '/docs/prd/**/*.md',
   { query: '?raw', import: 'default', eager: true },
 ) as Record<string, string>;
 
@@ -60,8 +63,10 @@ function dateFromContent(content: string) {
   return null;
 }
 
-function groupFor(path: string): PrdDocGroup {
-  return path.replace(/^\//, '').startsWith('docs/prd/') ? '逐頁功能描述' : '系統 PRD';
+function groupFor(path: string) {
+  // docs/prd 內：FDS 版本規格與 overview 屬「系統 PRD」，其餘（頁面級功能 PRD）屬「逐頁功能描述」。
+  const file = path.split('/').pop() ?? '';
+  return /^(FDS-|furniture-1000)/i.test(file) ? '系統 PRD' : '逐頁功能描述';
 }
 
 function buildDoc(path: string, content: string): PrdDoc {
@@ -74,7 +79,7 @@ function buildDoc(path: string, content: string): PrdDoc {
     slug: file.replace(/\.md$/i, ''),
     title: titleFromPath(clean),
     group: groupFor(clean),
-    date: dateFromContent(content) ?? dateFromPath(clean),
+    date: prdMtimes[clean] ?? dateFromContent(content) ?? dateFromPath(clean),
     content,
   };
 }

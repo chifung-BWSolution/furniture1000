@@ -231,9 +231,6 @@ const PmQuickView = lazy(() =>
 const ProPdfView = lazy(() =>
   import("./ProPdfView").then((mod) => ({ default: mod.ProPdfView }))
 );
-const FactorySalesView = lazy(() =>
-  import("./FactorySalesView").then((mod) => ({ default: mod.FactorySalesView }))
-);
 const QuoteFormatView = lazy(() =>
   import("./QuoteFormatView").then((mod) => ({ default: mod.QuoteFormatView }))
 );
@@ -257,6 +254,9 @@ const FactoryZonesView = lazy(() =>
 );
 const FactoryLoginView = lazy(() =>
   import("./FactoryLoginView").then((mod) => ({ default: mod.FactoryLoginView }))
+);
+const UsageStatsView = lazy(() =>
+  import("./admin/UsageStatsView").then((mod) => ({ default: mod.UsageStatsView }))
 );
 
 // Views that fetch their own data independently of the app store's product
@@ -305,6 +305,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-quote-format",
   "fds2-quote-photos",
   "fds2-admin-email",
+  "fds2-admin-usage",
   "fds2-cases-orders",
   "fds2-cases-photos",
   "fds2-cases-clients",
@@ -1056,6 +1057,7 @@ function AppShellContent() {
     }
     if (store.currentView === 'fds2-admin-prd') return <PrdDescriptionsView />;
     if (store.currentView === 'fds2-admin-command-logs') return <DailyCommandLogsView />;
+    if (store.currentView === 'fds2-admin-usage') return <UsageStatsView />;
     if (store.currentView === 'fds2-admin-dev-cost') return <DevelopmentCostView />;
     if (store.currentView === 'fds2-products-ai-review') {
       return (
@@ -1076,7 +1078,7 @@ function AppShellContent() {
     if (store.currentView === 'fds2-pm-budget') return <PmBudgetView />;
     if (store.currentView === 'fds2-pm-quick') return <PmQuickView />;
     if (store.currentView === 'fds2-pm-pro-pdf') return <ProPdfView />;
-    if (store.currentView === 'fds2-factory-sales') return <FactorySalesView />;
+    if (store.currentView === 'fds2-factory-sales') return <FactoryReportView />;
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;
     if (store.currentView === 'fds2-quote-photos') return <QuotePhotoLibraryView />;
     if (store.currentView === 'fds2-admin-email') return <EmailNotificationsView />;

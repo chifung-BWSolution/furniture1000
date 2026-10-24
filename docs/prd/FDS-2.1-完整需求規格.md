@@ -33,12 +33,14 @@
 
 **提案（最小模型）**：BWA PM 從 BWA 工程報價抽出傢俬項目，寫成一張詢價送給 BWF，並只讀 BWF 正式回覆的賣價。
 
-**兩個入口的分工（2026-10-23 釐清）**：
+**兩個入口的分工（2026-10-23 釐清，2026-10-24 開發）**：
 
 | 入口 | 使用者 | 定義 |
 |---|---|---|
 | 快速報價（`fds2-pm-quick`） | **BWF PM** | BWF PM 進來建立報價單給 BWA 的 PM；報價單可關聯 BWA 的 pitching 與項目（`bwa_pitching_id`／`bwa_project_id`） |
 | 報價預算（`fds2-pm-budget`） | **BWA PM** | BWA PM 進來選對應 pitching 下具體報價單裡的傢俬項目，即時試算該工程／提案需要多少預算 |
+
+**實作（2026-10-24）**：不另建詢價表，沿用 `bwf_quote`／`bwf_quote_item`／`save_bwf_quote_items`（RLS allow-all，BWA 與 BWF 同用 `pm` 角色）。migration `20261024100000_fds21_bwa_quote_link` 給 `bwf_quote` 加 `bwa_pitching_id`／`bwa_project_id`／`bwa_project_ref`／`bwa_project_name`。快速報價單以 `status='快速報價'`＋`bwa_*` 有值為標記；規格存 `bwf_quote_item.remarks`。工程來源沿用 `fetch-bwa-works`。
 
 | 表／函式 | 用途 |
 |---|---|
@@ -659,8 +661,8 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 | 設計師選傢俬 → SU模型 | `fds2-designer-su` | 待開發 | D-5／**F-AI-008** |
 | 設計師選傢俬 → 3D模型 | `fds2-designer-3d` | 待開發 | D-6／**F-AI-008** |
 | PM報價 → 專業說明 PDF | `fds2-pm-pro-pdf` | 已接上，只列詢價項目與 BWF 回覆賣價 | R5.2／§1.1.1 |
-| PM報價 → 快速報價 | `fds2-pm-quick` | 已接上，BWF PM 建報價單給 BWA PM，可關聯 BWA pitching／項目 | R5.1／§1.1.1 |
-| PM報價 → 報價預算 | `fds2-pm-budget` | 已接上，BWA PM 選 pitching 下報價單的傢俬，快速試算預算 | R5.1／§1.1.1 |
+| PM報價 → 快速報價 | `fds2-pm-quick` | 已開發（2026-10-24），BWF PM 建 `bwf_quote`（status 快速報價）關聯 BWA pitching／項目 | R5.1／§1.1.1 |
+| PM報價 → 報價預算 | `fds2-pm-budget` | 已開發（2026-10-24），BWA PM 揀 pitching 下報價單勾傢俬即時試算預算 | R5.1／§1.1.1 |
 | 系統設定 → 電郵通知 | `fds2-admin-email` | 待開發 | R6.5 |
 | **新增：AI 解析／審核** | 建議新 view（如 `fds2-products-ai-review`） | 新增 | F-AI-002/003 |
 | **新增：供應商報價比較** | 建議新 view | 新增 | F-AI-007 |

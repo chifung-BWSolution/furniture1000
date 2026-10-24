@@ -554,7 +554,7 @@ export function CategoryManagementView() {
             <ModalButton onClick={confirmImport}>
               <Check className="h-4 w-4" /> 確認導入
             </ModalButton>
-            <ModalButton variant="ghost" onClick={() => setPendingImport(null)}>
+            <ModalButton variant="secondary" onClick={() => setPendingImport(null)}>
               取消
             </ModalButton>
           </>

@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
+import { logAiUsage } from "../_shared/usageLog.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -411,6 +412,18 @@ async function callGemini(
       // deno-lint-ignore no-explicit-any
       const candidates = (geminiData as any)?.candidates;
       const responseText = candidates?.[0]?.content?.parts?.[0]?.text;
+
+      // 用量記錄（best-effort；放在 ok 檢查之後，只記成功呼叫）
+      // deno-lint-ignore no-explicit-any
+      const usageMeta = (geminiData as any)?.usageMetadata ?? {};
+      await logAiUsage({
+        source: "gemini-pdf-catalog",
+        model: modelName,
+        promptTokens: usageMeta.promptTokenCount,
+        outputTokens: usageMeta.candidatesTokenCount,
+        totalTokens: usageMeta.totalTokenCount,
+        meta: { chunk: chunkLabel },
+      });
 
       if (!responseText) {
         const finishReason = candidates?.[0]?.finishReason || "unknown";

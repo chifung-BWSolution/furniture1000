@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { logAiUsage } from "../_shared/usageLog.ts";
 
 /**
  * Indexes product photos (and a short text description) into search_embeddings.
@@ -106,7 +107,7 @@ async function indexOne(admin: SupabaseClient, apiKey: string, row: {
   model?: string | null;
   material?: string | null;
   color?: string | null;
-}): Promise<void> {
+}, onEmbed?: () => void): Promise<void> {
   const loaded = await loadImage(row.image_url);
   const bytes = loaded.bytes;
   if (bytes.byteLength < 32 || bytes.byteLength > 2_000_000) throw new Error("image_size");
@@ -114,6 +115,7 @@ async function indexOne(admin: SupabaseClient, apiKey: string, row: {
   const imageValues = await embed(apiKey, [{
     inline_data: { mime_type: loaded.mime, data: bytesToBase64(bytes) },
   }]);
+  onEmbed?.();
   const { error: imageErr } = await admin.rpc("fds_upsert_embedding", {
     p_entity_id: row.id,
     p_modality: "image",
@@ -126,6 +128,7 @@ async function indexOne(admin: SupabaseClient, apiKey: string, row: {
   const text = [row.title, row.model, row.material, row.color].filter(Boolean).join(" ").slice(0, 500);
   if (text) {
     const textValues = await embed(apiKey, [{ text }]);
+    onEmbed?.();
     const { error: textErr } = await admin.rpc("fds_upsert_embedding", {
       p_entity_id: row.id,
       p_modality: "text",
@@ -164,10 +167,11 @@ Deno.serve(async (req: Request) => {
   }>;
 
   let indexed = 0;
+  let embedCalls = 0;
   const failed: { id: string; error: string }[] = [];
   for (const row of rows) {
     try {
-      await indexOne(admin, apiKey, row);
+      await indexOne(admin, apiKey, row, () => { embedCalls += 1; });
       indexed += 1;
     } catch (err) {
       failed.push({ id: row.id, error: err instanceof Error ? err.message : String(err) });
@@ -183,6 +187,13 @@ Deno.serve(async (req: Request) => {
       }
     }
   }
+
+  // 用量記錄（best-effort）：embedContent 不回 token，每次執行記一筆彙總（嵌入次數）
+  await logAiUsage({
+    source: "embed-products",
+    model: MODEL,
+    meta: { kind: "embedding", embed_calls: embedCalls, indexed, failed: failed.length },
+  });
 
   return json({ indexed, failed, remaining: rows.length === BATCH });
 });

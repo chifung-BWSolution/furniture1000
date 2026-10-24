@@ -92,3 +92,12 @@ const invalidCount=await analyze({product_scope:'arrangement',product_count:1},[
 assert.equal(invalidCount.status,400);
 assert.equal(requests.length,0);
 console.log('PASS: repeated-product confirmation, uncertain scenes, no summing across views, explicit single/group scope, and group instance counts');
+const inferred = await analyze({ mode: 'parts', inferred_reference: { image_base64: 'DDDD', mime_type: 'image/jpeg' } }, [{ parts: [defaultPart] }], true);
+assert.equal(inferred.status, 200);
+assert.equal(requests[0].messages[1].content.filter(part => part.type === 'image_url').length, 4);
+assert.match(requests[0].messages[1].content.at(-1).text, /AI-INFERRED/);
+assert.match(requests[0].messages[1].content.at(-1).text, /ORIGINAL product photographs take priority/);
+const onlyOne = await analyze({ images: [{ image_base64: 'AAAA' }], inferred_reference: { image_base64: 'DDDD' } }, [], true);
+assert.equal(onlyOne.status, 400, 'Inferred drawing cannot replace the second original photograph');
+assert.equal(requests.length, 0);
+console.log('PASS: inferred sheet reaches extraction with provenance and never satisfies the original photograph minimum');

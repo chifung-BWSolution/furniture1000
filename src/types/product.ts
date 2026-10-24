@@ -204,6 +204,7 @@ export type ViewType =
   | 'fds2-admin-settings'
   | 'fds2-admin-prd'
   | 'fds2-admin-command-logs'
+  | 'fds2-admin-usage'
   | 'fds2-admin-dev-cost'
   | 'fds2-admin-email'
   | 'fds2-customer-quotes'

@@ -626,7 +626,7 @@ export function PublishedProductDetailModal({
         variant="bleed"
         size="full"
         className="bg-background"
-        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0"
+        bodyClassName="flex flex-col items-stretch justify-start overflow-hidden p-0 sm:p-0"
         style={{ width: '1200px', height: '800px', maxWidth: '96vw', maxHeight: '96vh' }}
       >
         {/* Header */}
@@ -1255,7 +1255,7 @@ function VariantImagePickerModal({
               查看目前選中圖片原尺寸
             </ModalButton>
           ) : null}
-          <ModalButton variant="ghost" onClick={onClose}>
+          <ModalButton variant="secondary" onClick={onClose}>
             取消
           </ModalButton>
         </>

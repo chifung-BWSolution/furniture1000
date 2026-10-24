@@ -13,6 +13,19 @@ export const DEFAULT_COMPANY_WEBSITE = 'https://www.bwoffice.asia/';
 
 export const QUOTE_UI = {
   zh: {
+    editorTitle: '報價單草稿編輯',
+    currentVersion: '目前版本',
+    nextReviewVersion: '送出新版本審核',
+    basicInfo: '基本資料',
+    feesAndTotal: '費用與總價',
+    quotePhotos: '報價單圖片',
+    versionAndOutput: '版本與輸出',
+    back: '返回',
+    selectFactory: '選擇廠家',
+    searchFactory: '搜尋廠家…',
+    noFactory: '沒有找到廠家',
+    loading: '載入中…',
+    productNamePlaceholder: '產品名稱',
     previewPdf: '預覽 PDF',
     generateQrLink: '生成QR Code 及連結',
     confirm: '確認',
@@ -67,6 +80,8 @@ export const QUOTE_UI = {
     unifyExchangeRateApplied: '統一匯率',
     unifyRateHint: '輸入匯率，一次套用到所有產品列（成本價與 HKD 金額會同步重算）。',
     unifyRateScope: '將套用到 {n} 個產品列',
+    unifyRateTodayLoaded: '已預載今日匯率（CNY¥ → HKD$，自動抓取）',
+    unifyRateTodayLoading: '正在抓取今日匯率…',
     hkdCost: 'HKD$成本價',
     /** Value-added service row — user-entered HKD cost (feeds GP Cost). */
     hkdCostAmount: 'HKD$成本',
@@ -103,6 +118,19 @@ export const QUOTE_UI = {
     deliveryAddressPlaceholder: '請輸入送貨地址',
   },
   en: {
+    editorTitle: 'Quotation Draft Editor',
+    currentVersion: 'Current version',
+    nextReviewVersion: 'Next review version',
+    basicInfo: 'Basic Information',
+    feesAndTotal: 'Fees & Total',
+    quotePhotos: 'Quotation Images',
+    versionAndOutput: 'Versions & Output',
+    back: 'Back',
+    selectFactory: 'Select supplier',
+    searchFactory: 'Search suppliers…',
+    noFactory: 'No suppliers found',
+    loading: 'Loading…',
+    productNamePlaceholder: 'Product name',
     previewPdf: 'Preview PDF',
     generateQrLink: 'Generate QR & Link',
     confirm: 'Confirm',
@@ -159,6 +187,8 @@ export const QUOTE_UI = {
     unifyRateHint:
       'Enter the exchange rate to apply to every product row (cost and HKD amounts are recalculated).',
     unifyRateScope: 'Applies to {n} product rows',
+    unifyRateTodayLoaded: "Pre-filled with today's rate (CNY¥ → HKD$, auto-fetched)",
+    unifyRateTodayLoading: "Fetching today's rate…",
     hkdCost: 'HKD$ Cost Price',
     hkdCostAmount: 'HKD$ Cost',
     unit: 'Unit',
@@ -359,4 +389,11 @@ export function formatQuoteDisplayDate(
     month: 'numeric',
     day: 'numeric',
   });
+}
+
+/** Display-only localization; switching languages never rewrites stored units. */
+export function quoteUnitLabel(value: string | undefined, locale: QuoteLocale): string {
+  if (locale !== 'en' || !value) return value || '';
+  const units: Record<string, string> = { '張': 'pc', '個': 'pc', '件': 'pc', '隻': 'pc', '把': 'pc', '支': 'pc', '套': 'set', '組': 'set', '米': 'm', '平方米': 'm²', '平方呎': 'sq ft', '項': 'item', '次': 'time' };
+  return units[value.trim()] || value;
 }

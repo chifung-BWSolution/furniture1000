@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
+  AlertTriangle,
   Box,
   FileText,
   Info,
@@ -22,6 +23,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { LoadingImage } from '@/components/ui/loading-image';
+import { ImageLightbox } from '@/components/ui/image-lightbox';
 import type { DimensionEstimate } from '@/lib/dimensionConflicts';
 import {
   FURNITURE_GROUPS,
@@ -82,6 +85,7 @@ function countLabel(kind: FurnitureKind | null, field: StyleField): string {
 const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓', sweep: '路徑件' };
 
 export type StructureDraft = {
+  orthographicUrl?: string;
   structure?: import('@/lib/furnitureStructure').StructureEvidence;
   target: 'su' | '3d';
   kind: FurnitureKind | null;
@@ -419,6 +423,7 @@ export function StructureConfirmForm({
   validationErrors?: string[];
 }) {
   const kind = draft.kind;
+  const [drawingOpen, setDrawingOpen] = useState(false);
   const fields = kind ? STYLE_FIELDS[kind] : [];
   const showTop = Boolean(shownStyle && fields.includes('top'));
   const showLegs = Boolean(shownStyle && fields.includes('legs'));
@@ -637,7 +642,6 @@ export function StructureConfirmForm({
               </section>
             )}
 
-            {validationErrors.length > 0 && <section className="mt-4 text-sm text-destructive" role="alert"><p>結構校驗未通過，請補圖或修正部件：</p><ul className="list-disc pl-5">{validationErrors.map(message => <li key={message}>{message}</li>)}</ul></section>}
             {showParts && (
               <section className="mt-4">
                 <SectionHeading index={partsNo} icon={Box} title="部件清單" />
@@ -705,6 +709,16 @@ export function StructureConfirmForm({
                   <Sparkles className="mt-1 h-3.5 w-3.5 shrink-0 text-[#5b4dff]" />
                   <span>{draft.notes ?? (draft.styleSource === 'image' ? '已依產品圖判斷結構，可在上方改選。' : '可在上方改選類型、尺寸與結構。')}</span>
                 </p>
+                {draft.orthographicUrl && (
+                  <div className="mt-4 border-t border-slate-200 pt-4">
+                    <h3 className="text-[13px] font-semibold text-slate-900">三視圖（AI 推測）</h3>
+                    <p className="my-2 text-xs leading-5 text-slate-500">根據產品圖與描述生成，已連同原圖用於部件分析；隱藏結構及尺寸仍需核對。點擊圖片放大。</p>
+                    <button type="button" className="block w-full overflow-hidden rounded-xl border border-slate-200 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="放大 AI 三視圖" onClick={() => setDrawingOpen(true)}>
+                      <LoadingImage src={draft.orthographicUrl} alt="AI 推測正面、右側及俯視圖" className="aspect-[4/3] w-full" imgClassName="object-contain" />
+                    </button>
+                    <ImageLightbox open={drawingOpen} onClose={() => setDrawingOpen(false)} images={[draft.orthographicUrl]} title="三視圖（AI 推測）" thumbWidth={320} />
+                  </div>
+                )}
               </section>
             )}
           </div>
@@ -720,6 +734,22 @@ export function StructureConfirmForm({
               </div>
             </div>
             <StudioPreview model={preview} />
+            {validationErrors.length > 0 && (
+              <div
+                className="mt-2.5 shrink-0 rounded-xl border border-red-400 bg-red-50 px-3.5 py-2.5"
+                role="alert"
+              >
+                <p className="flex items-center gap-1.5 text-[13px] font-semibold text-red-700">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />
+                  結構校驗未通過，請補圖或修正部件：
+                </p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] leading-relaxed text-red-600">
+                  {validationErrors.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500">
               <MousePointer2 className="h-3.5 w-3.5" />
               拖曳旋轉，右鍵或 Shift 拖曳平移

@@ -995,7 +995,7 @@ export function ProductDetailModal({
             hideClose
             size="5xl"
             className="max-h-[88vh]"
-            bodyClassName="min-h-0 flex-1 overflow-y-auto p-0"
+            bodyClassName="min-h-0 flex-1 overflow-y-auto p-0 sm:p-0"
           >
             {/* Top Bar */}
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/95 px-6 py-4 backdrop-blur-sm">
