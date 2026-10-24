@@ -210,7 +210,7 @@ export async function fetchCaseShowcase(
   const projectCols =
     action === "cases-photos"
       ? "id, project_code, project_name, status, real_customer_display_name, main_pm_id, main_designer_id, n_financial_year_id, completion_photos, handover_date, modified_date, site_address"
-      : "id, project_code, project_name, main_pm_id";
+      : "id, project_code, project_name, main_pm_id, completion_photos";
   const projects =
     visible === null
       ? await all(() => db.from("bwf_projects").select(projectCols))
@@ -306,6 +306,7 @@ export async function fetchCaseShowcase(
           project_code: p?.project_code,
           project_name: p?.project_name,
           pm_name: names.get(p?.main_pm_id) || null,
+          completion_photos: p?.completion_photos ?? null,
           product_name: productNames.get(o.product_id) || null,
           product_type:
             productTypeById.get(productsById.get(o.product_id)?.product_types_id) || null,

@@ -8,6 +8,7 @@
  */
 
 import { ensureQuotationPdfModule } from '@/components/dashboard/QuotationPDFPreview';
+import { safeCaseDate } from '@/lib/caseShowcasePublish';
 import type { CaseExportItem } from '@/lib/caseExport';
 
 const MAX_PHOTOS_PER_PROJECT = 6;
@@ -59,11 +60,30 @@ export async function buildCaseShowcasePdf(
   const photoItems = items.filter(
     (item) => item.kind === 'photo' && (item.photos || []).some((p) => p.include),
   );
+  const orderItems = items.filter(
+    (item) => item.kind === 'order' && item.orders?.length,
+  );
+  const orderPhotoItems = orderItems.filter((item) =>
+    (item.photos || []).some((p) => p.include),
+  );
   const brandItems = items.filter((item) => item.kind === 'brand' && item.brand);
 
   onProgress?.('下載完工相片…');
   const photoAlbums = await Promise.all(
     photoItems.map(async (item) => ({
+      item,
+      photos: (
+        await fetchAllForPdf(
+          (item.photos || [])
+            .filter((p) => p.include)
+            .slice(0, MAX_PHOTOS_PER_PROJECT)
+            .map((p) => p.url),
+        )
+      ).filter((url): url is string => Boolean(url)),
+    })),
+  );
+  const orderAlbums = await Promise.all(
+    orderPhotoItems.map(async (item) => ({
       item,
       photos: (
         await fetchAllForPdf(
@@ -166,22 +186,34 @@ export async function buildCaseShowcasePdf(
       borderRadius: 4,
       backgroundColor: '#f5f5f4',
     },
-    orderRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 4,
-      marginTop: 4,
-      marginBottom: 4,
-    },
-    orderChip: {
-      fontSize: 9,
-      color: '#44403c',
+    table: {
+      marginTop: 6,
       borderWidth: 1,
       borderColor: '#e7e5e4',
       borderRadius: 4,
-      paddingVertical: 3,
-      paddingHorizontal: 6,
-      marginRight: 4,
+      overflow: 'hidden',
+    },
+    tableRow: {
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+      borderBottomColor: '#f0efee',
+    },
+    tableHeaderRow: {
+      flexDirection: 'row',
+      backgroundColor: '#f5f5f4',
+    },
+    tableHeaderText: {
+      fontSize: 8.5,
+      fontWeight: 700,
+      color: '#57534e',
+      paddingVertical: 4,
+      paddingHorizontal: 5,
+    },
+    tableCellText: {
+      fontSize: 8.5,
+      color: '#44403c',
+      paddingVertical: 4,
+      paddingHorizontal: 5,
     },
   });
 
@@ -243,33 +275,87 @@ export async function buildCaseShowcasePdf(
     }
   }
 
-  // 訂單數據摘要案例
-  for (const item of items) {
-    if (item.kind !== 'order' || !item.orders?.length) continue;
-    const quantities = item.orders
+  // 訂單數據案例：產品明細表＋完工相片
+  for (const item of orderItems) {
+    const quantities = item.orders!
       .map((o) => o.quantity)
       .filter((q): q is number => q !== null);
     const totalQuantity = quantities.length
       ? quantities.reduce((sum, n) => sum + n, 0)
       : null;
+    const album = orderAlbums.find((a) => a.item.key === item.key);
+    const productCols = [
+      { key: 'name', label: '產品', width: '34%' },
+      { key: 'type', label: '類型', width: '15%' },
+      { key: 'qty', label: '數量', width: '8%' },
+      { key: 'status', label: '訂單狀態', width: '17%' },
+      { key: 'arrival', label: '預計到場', width: '13%' },
+      { key: 'install', label: '預計安裝', width: '13%' },
+    ];
     elements.push(
       <View key={`order-${item.key}`} wrap={false}>
         <Text style={styles.caseTitle}>{item.title}</Text>
         {item.note ? <Text style={styles.caseNote}>{item.note}</Text> : null}
-        {item.showPm && item.orders[0]?.pm_name ? (
-          <Text style={styles.casePm}>PM：{item.orders[0].pm_name}</Text>
+        {item.showPm && item.orders![0]?.pm_name ? (
+          <Text style={styles.casePm}>PM：{item.orders![0].pm_name}</Text>
         ) : null}
         <Text style={styles.caseStats}>
-          產品 {item.orders.length} 項
+          產品 {item.orders!.length} 項
           {totalQuantity !== null ? `　·　總數量 ${totalQuantity}` : ''}
         </Text>
-        <View style={styles.orderRow} wrap>
-          {item.orders.slice(0, 8).map((o) => (
-            <Text key={o.id} style={styles.orderChip}>
-              {[o.product_name || '未指定產品', o.status].filter(Boolean).join(' · ')}
-            </Text>
+        <View style={styles.table}>
+          <View style={[styles.tableHeaderRow, styles.tableRow]}>
+            {productCols.map((col) => (
+              <Text
+                key={col.key}
+                style={[styles.tableHeaderText, { width: col.width }]}
+              >
+                {col.label}
+              </Text>
+            ))}
+          </View>
+          {item.orders!.map((o, index) => (
+            <View
+              key={o.id}
+              style={[
+                styles.tableRow,
+                index === item.orders!.length - 1
+                  ? { borderBottomWidth: 0 }
+                  : null,
+              ]}
+            >
+              <Text style={[styles.tableCellText, { width: '34%' }]}>
+                {o.product_name || '—'}
+              </Text>
+              <Text style={[styles.tableCellText, { width: '15%' }]}>
+                {o.product_type || '—'}
+              </Text>
+              <Text style={[styles.tableCellText, { width: '8%' }]}>
+                {o.quantity ?? '—'}
+              </Text>
+              <Text style={[styles.tableCellText, { width: '17%' }]}>
+                {o.status || '—'}
+              </Text>
+              <Text style={[styles.tableCellText, { width: '13%' }]}>
+                {safeCaseDate(o.est_delivery_date) || '—'}
+              </Text>
+              <Text style={[styles.tableCellText, { width: '13%' }]}>
+                {safeCaseDate(o.est_installation_date) || '—'}
+              </Text>
+            </View>
           ))}
         </View>
+        {album && album.photos.length ? (
+          <View style={styles.photoGrid} wrap>
+            {album.photos.map((src, index) => (
+              <Image
+                key={`${item.key}-${index}`}
+                style={styles.photo}
+                src={src}
+              />
+            ))}
+          </View>
+        ) : null}
       </View>,
     );
   }

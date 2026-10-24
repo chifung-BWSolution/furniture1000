@@ -7,6 +7,8 @@ export interface CaseOrder {
   project_code: string | null;
   project_name: string | null;
   pm_name: string | null;
+  /** 專案完工相片（對外材料，導出／發布用；舊版 edge function 無此欄位回 undefined）。 */
+  completion_photos?: string | null;
   product_name: string | null;
   factory_name: string | null;
   quantity: number | null;

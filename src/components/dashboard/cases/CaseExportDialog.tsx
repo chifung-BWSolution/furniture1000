@@ -147,7 +147,11 @@ export function CaseExportDialog({
             </div>
             <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
               {item.kind === 'order' && (
-                <span>訂單數據 · {item.orders?.length || 0} 個產品項目</span>
+                <span>
+                  訂單數據 · {item.orders?.length || 0} 個產品項目
+                  {(item.photos || []).length > 0 &&
+                    ` · ${(item.photos || []).filter((p) => p.include).length} 張相片入選`}
+                </span>
               )}
               {item.kind === 'photo' && (
                 <span>完工相片 · {(item.photos || []).filter((p) => p.include).length} 張入選</span>
@@ -164,7 +168,7 @@ export function CaseExportDialog({
                 </label>
               )}
             </div>
-            {item.kind === 'photo' && (item.photos || []).length > 0 && (
+            {(item.photos || []).length > 0 && (
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
                 {item.photos!.map((photo) => (
                   <label

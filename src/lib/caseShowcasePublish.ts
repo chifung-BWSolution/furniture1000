@@ -65,10 +65,14 @@ export function buildExportItem(
     return {
       key,
       kind,
-      title: orders[0]?.project_code || orders[0]?.project_name || '未命名項目',
+      title: orders[0]?.project_name || orders[0]?.project_code || '未命名項目',
       note: '',
       showPm: false,
       orders,
+      photos: photoUrls(orders[0]?.completion_photos).map((url) => ({
+        url,
+        include: true,
+      })),
     };
   }
   if (kind === 'photo') {
@@ -76,7 +80,7 @@ export function buildExportItem(
     return {
       key,
       kind,
-      title: project.project_code || project.project_name || '未命名項目',
+      title: project.project_name || project.project_code || '未命名項目',
       note: '',
       showPm: false,
       photoProject: project,
@@ -163,12 +167,15 @@ export function buildPublishPayload(items: CaseExportItem[]): CasePublishPayload
       const quantities = item.orders
         .map((o) => o.quantity)
         .filter((q): q is number => q !== null);
+      const photos = (item.photos || [])
+        .filter((p) => p.include)
+        .map((p) => p.url);
       cases.push({
         kind: 'order',
         title: item.title,
         note: item.note,
-        cover: null,
-        photos: [],
+        cover: photos[0] || null,
+        photos,
         pmName: item.showPm ? item.orders[0]?.pm_name || null : null,
         productCount: item.orders.length,
         totalQuantity: quantities.length
