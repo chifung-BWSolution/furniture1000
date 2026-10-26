@@ -20,11 +20,13 @@ import {
   RefreshCw,
   X,
   ChevronRight,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, useReducedMotion } from 'framer-motion';
 import { loadManufacturerDirectory, type DirectoryFactory } from '@/lib/manufacturerDirectory';
-import { catalogStatusLabel, listCatalogRows, supplierDocTypeLabel, type SupplierDocType } from '@/lib/supplierCatalog';
+import { catalogStatusLabel, listCatalogRows, openSupplierCatalog, supplierDocTypeLabel, type SupplierDocType } from '@/lib/supplierCatalog';
+import { canManageSupplierDocuments, enqueueSupplierDocumentParse } from '@/lib/supplierDocuments';
 import { FactoryCatalogPanel } from '@/components/dashboard/FactoryCatalogPanel';
 import {
   Select,
@@ -72,14 +74,87 @@ function uploadYear(createdAt: string | null | undefined, documentYear: number |
   return documentYear ?? null;
 }
 
+type CatalogFileRef = {
+  id: string;
+  storagePath: string;
+  year: number | null;
+  status: string;
+  createdAt: string;
+};
+
 type CatalogSummary = {
   hasCatalog: boolean;
   hasPriceList: boolean;
   catalogYear: number | null;
   priceListYear: number | null;
+  catalogFile: CatalogFileRef | null;
+  priceListFile: CatalogFileRef | null;
   status: string | null;
   categories: string[];
 };
+
+function preferFile(current: CatalogFileRef | null, next: CatalogFileRef): CatalogFileRef {
+  if (!current) return next;
+  const yearDiff = (next.year ?? -1) - (current.year ?? -1);
+  if (yearDiff !== 0) return yearDiff > 0 ? next : current;
+  return next.createdAt > current.createdAt ? next : current;
+}
+
+function DocumentYearCell({
+  file,
+  year,
+  queueingId,
+  canQueue,
+  onOpen,
+  onQueue,
+}: {
+  file: CatalogFileRef | null;
+  year: number | null | undefined;
+  queueingId: string | null;
+  canQueue: boolean;
+  onOpen: (storagePath: string) => void;
+  onQueue: (file: CatalogFileRef) => void;
+}) {
+  const shownYear = file?.year ?? year;
+  if (!file?.storagePath) {
+    return (
+      <span className={cn('font-mono-data text-[11px]', shownYear ? 'text-foreground' : 'text-muted-foreground')}>
+        {uploadYearLabel(shownYear)}
+      </span>
+    );
+  }
+  const parsing = file.status === 'processing';
+  const busy = queueingId === file.id;
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <button
+        type="button"
+        className="font-body text-[11px] text-primary underline-offset-2 hover:underline"
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen(file.storagePath);
+        }}
+      >
+        打開
+      </button>
+      <span className="font-mono-data text-[11px] text-foreground">{shownYear ? String(shownYear) : '—'}</span>
+      {canQueue ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-6 px-1.5 text-[10px]"
+          disabled={parsing || busy}
+          onClick={(event) => {
+            event.stopPropagation();
+            onQueue(file);
+          }}
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : parsing ? '解析中' : '排入解析'}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 function formatJoinDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -100,6 +175,8 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'missing-catalog' | 'missing-price-list'>('all');
   const [catalogByFactory, setCatalogByFactory] = useState<Record<string, CatalogSummary>>({});
   const [uploadTarget, setUploadTarget] = useState<{ factory: FactoryRecord; docType: SupplierDocType } | null>(null);
+  const [canQueueParse, setCanQueueParse] = useState(false);
+  const [queueingId, setQueueingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async (force = false) => {
     setIsLoading(true);
@@ -126,20 +203,34 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
             hasPriceList: false,
             catalogYear: null,
             priceListYear: null,
+            catalogFile: null,
+            priceListFile: null,
             status: null,
             categories: [],
           };
           const year = uploadYear(row.created_at, row.document_year);
-          if (row.doc_type === 'price_list') {
+          const file: CatalogFileRef | null = row.storage_path
+            ? {
+                id: row.id,
+                storagePath: row.storage_path,
+                year,
+                status: row.processing_status,
+                createdAt: row.created_at,
+              }
+            : null;
+          const isPriceList = row.doc_type === 'price_list' || row.doc_type === 'quote';
+          if (isPriceList) {
             current.hasPriceList = true;
             if (year != null && (current.priceListYear == null || year > current.priceListYear)) {
               current.priceListYear = year;
             }
+            if (file) current.priceListFile = preferFile(current.priceListFile, file);
           } else {
             current.hasCatalog = true;
             if (year != null && (current.catalogYear == null || year > current.catalogYear)) {
               current.catalogYear = year;
             }
+            if (file) current.catalogFile = preferFile(current.catalogFile, file);
           }
           current.categories = [...new Set([...current.categories, ...(row.product_categories || [])])];
           if ((statusRank[row.processing_status] ?? 0) > (statusRank[current.status ?? ''] ?? 0)) {
@@ -151,6 +242,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
       } catch (catalogError) {
         console.error('[ManufacturerDirectory] Catalog summary failed:', catalogError);
       }
+      setCanQueueParse(await canManageSupplierDocuments().catch(() => false));
     } catch (err) {
       console.error('[ManufacturerDirectory] Failed to load manufacturers:', err);
       toast.error('廠家目錄載入失敗，請重試');
@@ -214,6 +306,41 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
     setUploadTarget({ factory, docType });
   };
 
+  const openFile = (storagePath: string) => {
+    void openSupplierCatalog(storagePath).catch((error: unknown) => {
+      toast.error(error instanceof Error ? error.message : '無法打開文件');
+    });
+  };
+
+  const queueParse = (file: CatalogFileRef) => {
+    setQueueingId(file.id);
+    void enqueueSupplierDocumentParse(file.id)
+      .then(() => {
+        toast.success('已排入解析任務');
+        setCatalogByFactory((current) => {
+          const next: Record<string, CatalogSummary> = {};
+          for (const [factoryId, summary] of Object.entries(current)) {
+            const patch = (target: CatalogFileRef | null) => (
+              target?.id === file.id ? { ...target, status: 'processing' } : target
+            );
+            next[factoryId] = {
+              ...summary,
+              catalogFile: patch(summary.catalogFile),
+              priceListFile: patch(summary.priceListFile),
+              status: summary.catalogFile?.id === file.id || summary.priceListFile?.id === file.id
+                ? 'processing'
+                : summary.status,
+            };
+          }
+          return next;
+        });
+      })
+      .catch((error: unknown) => {
+        toast.error(error instanceof Error ? error.message : '未能排入解析任務');
+      })
+      .finally(() => setQueueingId(null));
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col fds-page-padding">
       <div className="fds-page-header mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -221,7 +348,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
           <div>
             <h1 className="fds-page-title"><BookOpen className="h-5 w-5 text-primary" />廠家目錄</h1>
             <p className="fds-page-description">
-              類型為傢私或材料 · 今年報價代表本年報價單有此廠家 · 圖冊／報價單 PDF 顯示上傳年份 · {factories.length} records
+              類型為傢私或材料 · 今年報價代表本年報價單有此廠家 · 已上傳的圖冊／報價單可打開，年份在連結下面 · {factories.length} records
             </p>
           </div>
         </div>
@@ -290,10 +417,10 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                 <TableHead className="font-display text-xs font-semibold w-[88px]">
                   今年報價
                 </TableHead>
-                <TableHead className="font-display text-xs font-semibold w-[80px]">
+                <TableHead className="font-display text-xs font-semibold w-[112px]">
                   圖冊
                 </TableHead>
-                <TableHead className="font-display text-xs font-semibold w-[96px]">
+                <TableHead className="font-display text-xs font-semibold w-[112px]">
                   報價單PDF
                 </TableHead>
                 <TableHead className="font-display text-xs font-semibold w-[90px]">
@@ -381,14 +508,24 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <span className={cn('font-mono-data text-[11px]', catalogYear ? 'text-foreground' : 'text-muted-foreground')}>
-                      {uploadYearLabel(catalogYear)}
-                    </span>
+                    <DocumentYearCell
+                      file={catalog?.catalogFile ?? null}
+                      year={catalogYear}
+                      queueingId={queueingId}
+                      canQueue={canQueueParse}
+                      onOpen={openFile}
+                      onQueue={queueParse}
+                    />
                   </TableCell>
                   <TableCell>
-                    <span className={cn('font-mono-data text-[11px]', quoteYear ? 'text-foreground' : 'text-muted-foreground')}>
-                      {uploadYearLabel(quoteYear)}
-                    </span>
+                    <DocumentYearCell
+                      file={catalog?.priceListFile ?? null}
+                      year={quoteYear}
+                      queueingId={queueingId}
+                      canQueue={canQueueParse}
+                      onOpen={openFile}
+                      onQueue={queueParse}
+                    />
                   </TableCell>
                   <TableCell>
                     <span className="font-body text-xs text-muted-foreground">
