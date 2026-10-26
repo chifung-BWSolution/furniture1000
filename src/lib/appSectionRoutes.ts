@@ -64,7 +64,6 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-quote-factories', path: `${FDS_BASE}/factories` },
   { view: 'fds2-quote-quick', path: `${FDS_BASE}/quote/quick` },
   { view: 'fds2-quote-common', path: `${FDS_BASE}/quote/common` },
-  { view: 'fds2-quote-report', path: `${FDS_BASE}/quote/report` },
   { view: 'fds2-quote-list', path: `${FDS_BASE}/quote/list` },
   { view: 'fds2-quote-large', path: `${FDS_BASE}/quote/large` },
   { view: 'fds2-quote-trash', path: `${FDS_BASE}/quote/trash` },
@@ -81,6 +80,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-products-ai-review', path: `${FDS_BASE}/products/ai-review` },
   { view: 'fds2-products-pending', path: `${FDS_BASE}/products/pending` },
   { view: 'fds2-products-catalog', path: `${FDS_BASE}/products/catalog` },
+  { view: 'fds2-quote-report', path: `${FDS_BASE}/products/report` },
   { view: 'fds2-publish-copy', path: `${FDS_BASE}/publish/copywriting` },
   { view: 'fds2-publish-price', path: `${FDS_BASE}/publish/price` },
   { view: 'fds2-publish-check', path: `${FDS_BASE}/publish/check` },
@@ -232,6 +232,9 @@ export function appViewFromPath(pathname: string): ViewType | null {
   if (path === `${SETTINGS_BASE}/upload-product-log`) {
     return 'upload-product-log';
   }
+
+  // 產品報告已從傢俬報價移到產品管理，舊連結仍開啟同一頁。
+  if (path === `${FDS_BASE}/quote/report`) return 'fds2-quote-report';
 
   // Retired directory / PDF menus all open 廠家目錄.
   if (
