@@ -83,6 +83,14 @@ function uploadYearLabel(year: number | null | undefined, hasDocument = false): 
   return year ? String(year) : hasDocument ? '年份未填' : '未上傳';
 }
 
+function shanghaiYearOf(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const year = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric' }).format(date));
+  return Number.isInteger(year) ? year : null;
+}
+
 type CatalogFileRef = {
   id: string;
   storagePath: string;
@@ -111,34 +119,42 @@ function preferFile(current: CatalogFileRef | null, next: CatalogFileRef): Catal
 
 function DocumentYearCell({
   file,
-  year,
+  documentYear,
+  uploadYear,
   onOpen,
 }: {
   file: CatalogFileRef | null;
-  year: number | null | undefined;
+  documentYear: number | null | undefined;
+  uploadYear: number | null | undefined;
   onOpen: (storagePath: string) => void;
 }) {
-  const shownYear = file?.year ?? year;
-  if (!file?.storagePath) {
-    return (
-      <span className={cn('font-mono-data text-[11px]', shownYear ? 'text-foreground' : 'text-muted-foreground')}>
-        {uploadYearLabel(shownYear, Boolean(file))}
-      </span>
-    );
+  const linkedYear = file?.year ?? documentYear ?? null;
+  const uploadedYear = shanghaiYearOf(file?.createdAt) ?? uploadYear ?? null;
+  const canOpen = Boolean(file?.storagePath);
+  if (!canOpen && linkedYear == null && uploadedYear == null) {
+    return <span className="font-mono-data text-[11px] text-muted-foreground">未上傳</span>;
   }
   return (
-    <div className="flex flex-col items-start gap-1">
-      <button
-        type="button"
-        className="font-body text-[11px] text-primary underline-offset-2 hover:underline"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen(file.storagePath);
-        }}
-      >
-        打開
-      </button>
-      <span className="font-mono-data text-[11px] text-foreground">{shownYear ? String(shownYear) : '—'}</span>
+    <div className="flex flex-col items-start gap-0.5">
+      {canOpen ? (
+        <button
+          type="button"
+          className="font-mono-data text-[11px] text-primary underline underline-offset-2 hover:text-primary/80"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen(file!.storagePath);
+          }}
+        >
+          {linkedYear != null ? String(linkedYear) : '查看'}
+        </button>
+      ) : (
+        <span className={cn('font-mono-data text-[11px]', linkedYear != null ? 'text-foreground' : 'text-muted-foreground')}>
+          {uploadYearLabel(linkedYear, Boolean(file))}
+        </span>
+      )}
+      {uploadedYear != null ? (
+        <span className="font-mono-data text-[10px] text-muted-foreground">上傳 {uploadedYear}</span>
+      ) : null}
     </div>
   );
 }
@@ -513,8 +529,6 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                   no longer match are now removed straight away. */}
               {visibleFactories.map((factory, index) => {
                 const catalog = catalogByFactory[factory.id];
-                const catalogYear = shownCatalogYear(factory, catalog);
-                const quoteYear = shownQuoteYear(factory, catalog);
                 return (
                 <motion.tr
                   key={factory.id}
@@ -566,14 +580,16 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                   <TableCell>
                     <DocumentYearCell
                       file={catalog?.catalogFile ?? null}
-                      year={catalogYear}
+                      documentYear={catalog?.hasCatalog ? catalog.catalogYear : null}
+                      uploadYear={factory.catalog_year}
                       onOpen={openFile}
                     />
                   </TableCell>
                   <TableCell>
                     <DocumentYearCell
                       file={catalog?.priceListFile ?? null}
-                      year={quoteYear}
+                      documentYear={catalog?.hasPriceList ? catalog.priceListYear : null}
+                      uploadYear={factory.quote_pdf_year}
                       onOpen={openFile}
                     />
                   </TableCell>
