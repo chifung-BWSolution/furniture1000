@@ -63,20 +63,21 @@ export function CaseExportDialog({
   const exportPdf = async () => {
     setBusy('pdf');
     try {
-      const { blob, failedImageCount, requestedPhotoCount } = await buildCaseShowcasePdf(
-        items,
-        (message) => setBusy(message),
-      );
-      if (requestedPhotoCount > 0 && failedImageCount >= requestedPhotoCount) {
+      const { blob, failedPhotoCount, failedLogoCount, requestedPhotoCount } =
+        await buildCaseShowcasePdf(items, (message) => setBusy(message));
+      if (requestedPhotoCount > 0 && failedPhotoCount >= requestedPhotoCount) {
         toast.error(
-          `匯出失敗：${failedImageCount} 張入選相片／Logo 全部無法載入，請檢查連結後重試`,
+          `匯出失敗：${failedPhotoCount} 張入選相片全部無法載入，請檢查連結後重試`,
         );
         return;
       }
       downloadBlob(blob, `成功案例集-${new Date().toISOString().slice(0, 10)}.pdf`);
-      if (failedImageCount > 0) {
+      if (failedPhotoCount > 0 || failedLogoCount > 0) {
+        const parts: string[] = [];
+        if (failedPhotoCount > 0) parts.push(`${failedPhotoCount} 張相片`);
+        if (failedLogoCount > 0) parts.push(`${failedLogoCount} 個客戶 Logo`);
         toast.warning(
-          `已匯出 PDF，但有 ${failedImageCount} 張相片／Logo 載入失敗（已跳過），請檢查後重試`,
+          `已匯出 PDF，但有 ${parts.join('及')} 載入失敗（已跳過），請檢查後重試`,
         );
       } else {
         toast.success('已匯出成功案例集 PDF');

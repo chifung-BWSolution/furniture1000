@@ -47,15 +47,17 @@ async function fetchAllForPdf(urls: string[]): Promise<(string | null)[]> {
 
 export type CaseShowcasePdfResult = {
   blob: Blob;
-  /** 入選但抓取／解碼失敗的相片／Logo 數量（AC-004-6）。 */
-  failedImageCount: number;
+  /** 入選相片抓取／解碼失敗數（AC-004-6「全部失敗」門檻僅看此欄）。 */
+  failedPhotoCount: number;
+  /** 客戶 Logo 抓取／解碼失敗數（不計入全部相片失敗門檻）。 */
+  failedLogoCount: number;
   /** 入選相片總數（含失敗）。 */
   requestedPhotoCount: number;
 };
 
 /**
  * 生成案例集 PDF。
- * 相片／Logo 抓取失敗會計入 failedImageCount；呼叫端必須據此提示，不得只報成功。
+ * 相片與 Logo 失敗分開計數；呼叫端必須據此提示，不得只報成功。
  * 入選相片全部寫入（不靜默截斷；AC-004-3）。
  */
 export async function buildCaseShowcasePdf(
@@ -77,14 +79,15 @@ export async function buildCaseShowcasePdf(
   const brandItems = items.filter((item) => item.kind === 'brand' && item.brand);
 
   onProgress?.('下載完工相片…');
-  let failedImageCount = 0;
+  let failedPhotoCount = 0;
+  let failedLogoCount = 0;
   let requestedPhotoCount = 0;
   const fetchIncludedPhotos = async (item: CaseExportItem) => {
     const urls = (item.photos || []).filter((p) => p.include).map((p) => p.url);
     requestedPhotoCount += urls.length;
     const fetched = await fetchAllForPdf(urls);
     const photos = fetched.filter((url): url is string => Boolean(url));
-    failedImageCount += fetched.length - photos.length;
+    failedPhotoCount += fetched.length - photos.length;
     return photos;
   };
   const photoAlbums = await Promise.all(
@@ -106,7 +109,7 @@ export async function buildCaseShowcasePdf(
       const logoUrl = item.brand!.branding_icon || '';
       if (!logoUrl) return { item, logo: null as string | null };
       const logo = await fetchImageForPdf(logoUrl);
-      if (!logo) failedImageCount += 1;
+      if (!logo) failedLogoCount += 1;
       return { item, logo };
     }),
   );
@@ -385,7 +388,7 @@ export async function buildCaseShowcasePdf(
   );
 
   const blob = await P.pdf(doc).toBlob();
-  return { blob, failedImageCount, requestedPhotoCount };
+  return { blob, failedPhotoCount, failedLogoCount, requestedPhotoCount };
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
