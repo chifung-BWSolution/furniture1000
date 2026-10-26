@@ -100,4 +100,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\sync-product-category-pms\index.ts') `
   -Name 'sync-product-category-pms'
 
+Deploy-Function `
+  -Slug 'supabase-functions-process-supplier-catalogs' `
+  -FilePath (Join-Path $root 'supabase\functions\process-supplier-catalogs\index.ts') `
+  -Name 'process-supplier-catalogs'
+
 Write-Host 'All functions deployed successfully.'

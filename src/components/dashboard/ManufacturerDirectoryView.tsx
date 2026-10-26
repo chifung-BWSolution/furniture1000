@@ -24,6 +24,14 @@ import {
 import { toast } from 'sonner';
 import { useAppStore } from '@/hooks/use-app-store';
 import { motion, AnimatePresence } from 'framer-motion';
+import { catalogStatusLabel, listCatalogRows } from '@/lib/supplierCatalog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface FactoryRecord {
   id: string;
@@ -47,6 +55,10 @@ export function ManufacturerDirectoryView() {
   const [factories, setFactories] = useState<FactoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [catalogFilter, setCatalogFilter] = useState<'all' | 'missing' | 'uploaded'>('all');
+  const [catalogByFactory, setCatalogByFactory] = useState<
+    Record<string, { latestYear: number | null; status: string | null; categories: string[] }>
+  >({});
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -73,6 +85,33 @@ export function ManufacturerDirectoryView() {
       if (data) {
         setFactories(data.factories || []);
       }
+      try {
+        const catalogs = await listCatalogRows();
+        const statusRank: Record<string, number> = {
+          processing: 5,
+          pending: 4,
+          failed: 3,
+          review_required: 2,
+          completed: 1,
+        };
+        const summary: Record<string, { latestYear: number | null; status: string | null; categories: string[] }> = {};
+        for (const row of catalogs) {
+          const factoryId = row.factory_id;
+          if (!factoryId) continue;
+          const current = summary[factoryId] ?? { latestYear: null, status: null, categories: [] };
+          if (row.document_year != null && (current.latestYear == null || row.document_year > current.latestYear)) {
+            current.latestYear = row.document_year;
+          }
+          current.categories = [...new Set([...current.categories, ...(row.product_categories || [])])];
+          if ((statusRank[row.processing_status] ?? 0) > (statusRank[current.status ?? ''] ?? 0)) {
+            current.status = row.processing_status;
+          }
+          summary[factoryId] = current;
+        }
+        setCatalogByFactory(summary);
+      } catch (catalogError) {
+        console.error('[ManufacturerDirectory] Catalog summary failed:', catalogError);
+      }
     } catch (err) {
       console.error('[ManufacturerDirectory] Network error:', err);
       toast.error('Network error fetching manufacturer data');
@@ -86,17 +125,22 @@ export function ManufacturerDirectoryView() {
   }, [fetchData]);
 
   const filteredFactories = useMemo(() => {
-    if (!searchQuery.trim()) return factories;
-    const q = searchQuery.toLowerCase();
-    return factories.filter(
-      (f) =>
-        f.display_name?.toLowerCase().includes(q) ||
-        f.factory_code?.toLowerCase().includes(q) ||
-        f.contact_person?.toLowerCase().includes(q) ||
-        f.phone?.toLowerCase().includes(q) ||
-        f.location?.toLowerCase().includes(q)
-    );
-  }, [factories, searchQuery]);
+    const q = searchQuery.trim().toLowerCase();
+    return factories.filter((factory) => {
+      const catalog = catalogByFactory[factory.id];
+      if (catalogFilter === 'missing' && catalog) return false;
+      if (catalogFilter === 'uploaded' && !catalog) return false;
+      if (!q) return true;
+      return (
+        factory.display_name?.toLowerCase().includes(q) ||
+        factory.factory_code?.toLowerCase().includes(q) ||
+        factory.contact_person?.toLowerCase().includes(q) ||
+        factory.phone?.toLowerCase().includes(q) ||
+        factory.location?.toLowerCase().includes(q) ||
+        catalog?.categories.some((category) => category.toLowerCase().includes(q))
+      );
+    });
+  }, [factories, searchQuery, catalogFilter, catalogByFactory]);
 
   const handleViewDetail = (factory: FactoryRecord) => {
     const slug = factory.factory_code || factory.id;
@@ -148,6 +192,16 @@ export function ManufacturerDirectoryView() {
             </button>
           )}
         </div>
+        <Select value={catalogFilter} onValueChange={(value) => setCatalogFilter(value as 'all' | 'missing' | 'uploaded')}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="圖冊" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部廠家</SelectItem>
+            <SelectItem value="missing">未有圖冊</SelectItem>
+            <SelectItem value="uploaded">已有圖冊</SelectItem>
+          </SelectContent>
+        </Select>
         <Badge variant="secondary" className="font-mono-data text-xs">
           {filteredFactories.length} / {factories.length}
         </Badge>
@@ -166,6 +220,15 @@ export function ManufacturerDirectoryView() {
               <TableRow className="hover:bg-transparent">
                 <TableHead className="font-display text-xs font-semibold min-w-[180px]">
                   廠家名稱
+                </TableHead>
+                <TableHead className="font-display text-xs font-semibold w-[80px]">
+                  圖冊
+                </TableHead>
+                <TableHead className="font-display text-xs font-semibold w-[80px]">
+                  年份
+                </TableHead>
+                <TableHead className="font-display text-xs font-semibold w-[90px]">
+                  解析
                 </TableHead>
                 <TableHead className="font-display text-xs font-semibold w-[90px]">
                   廠家代號
@@ -207,6 +270,21 @@ export function ManufacturerDirectoryView() {
                         <Factory className="h-4 w-4 shrink-0 text-muted-foreground" />
                         {factory.display_name}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-body text-xs text-muted-foreground">
+                        {catalogByFactory[factory.id] ? '有' : '未有'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono-data text-xs text-muted-foreground">
+                        {catalogByFactory[factory.id]?.latestYear ?? '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-body text-xs text-muted-foreground">
+                        {catalogStatusLabel(catalogByFactory[factory.id]?.status)}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="font-mono-data text-[10px]">
@@ -258,7 +336,7 @@ export function ManufacturerDirectoryView() {
 
               {filteredFactories.length === 0 && !isLoading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-32 text-center">
+                  <TableCell colSpan={11} className="h-32 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <Search className="h-8 w-8 opacity-30" />
                       <p className="font-body text-sm">沒有找到匹配的廠家</p>
