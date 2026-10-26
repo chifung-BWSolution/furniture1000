@@ -209,14 +209,20 @@ Deno.serve(async (req: Request) => {
 
         // ── 5. Update SHOPIFY_ACCESS_TOKEN Edge Function secret ────────
         let secretUpdateResult: Record<string, unknown> = { updated: false };
-        try {
+        // Management API authenticates with an account PAT/OAuth access token,
+        // never with the project's Data API service-role key.
+        const managementToken = Deno.env.get("MANAGEMENT_API_ACCESS_TOKEN")?.trim();
+        if (!managementToken) {
+          secretUpdateResult = { updated: false, error: "Missing MANAGEMENT_API_ACCESS_TOKEN" };
+          console.warn("[refresh-shopify-token] ⚠️ Secret sync requires MANAGEMENT_API_ACCESS_TOKEN");
+        } else try {
           const mgmtRes = await fetch(
             `https://api.supabase.com/v1/projects/${projectRef}/secrets`,
             {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${supabaseServiceKey}`,
+                Authorization: `Bearer ${managementToken}`,
               },
               body: JSON.stringify([{ name: "SHOPIFY_ACCESS_TOKEN", value: newAccessToken }]),
             }
