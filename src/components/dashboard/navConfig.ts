@@ -6,6 +6,7 @@ import {
   Building2, BarChart2, Map, LogIn, Mail, FolderTree, History,
   UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film,
   Briefcase, Phone, Landmark, Heart, Combine, Presentation,
+  UserPlus, CheckCircle2,
   type LucideIcon,
 } from 'lucide-react';
 import { type PrimarySection, type ViewType } from '@/types/product';
@@ -82,6 +83,10 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-quote-report', label: '產品報告', icon: BarChart2 },
       { view: 'fds2-quote-list', label: '報價一覽', icon: ClipboardList },
       { view: 'fds2-quote-large', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
+      { view: 'solution-project-list', label: '方案列表', icon: Map },
+      { view: 'design-projects', label: '設計專案', icon: LayoutDashboard },
+      { view: 'invite-clients', label: '邀請客戶', icon: UserPlus },
+      { view: 'confirmed-projects', label: '已確定方案', icon: CheckCircle2 },
       { view: 'fds2-quote-trash', label: '報價回收桶', icon: Trash2, pinned: true },
       { view: 'fds2-quote-format', label: '報價單格式設定', icon: FileText },
       { view: 'fds2-quote-photos', label: '圖片庫', icon: Images },
@@ -276,6 +281,25 @@ export function isImplementedLegacyView(view: ViewType): boolean {
   return PRIMARY_SITEMAP_BY_LEGACY[view] != null;
 }
 
+/** main 的傢俬方案頁，掛在傢俬報價選單。PM 仍可開這些頁（其餘報價頁維持封鎖）。 */
+const SOLUTION_PAGES_IN_QUOTE: readonly ViewType[] = [
+  'solution-project-list',
+  'design-projects',
+  'invite-clients',
+  'confirmed-projects',
+];
+
+export function isSolutionPageInQuote(view: ViewType): boolean {
+  return SOLUTION_PAGES_IN_QUOTE.includes(view);
+}
+
+export function isPmBlockedQuoteView(view: ViewType): boolean {
+  if (isSolutionPageInQuote(view)) return false;
+  const linked = implementedPage(view);
+  if (linked && isSolutionPageInQuote(linked)) return false;
+  return findSection(view) === 'quote' || (linked != null && findSection(linked) === 'quote');
+}
+
 export function navItemIsActive(itemView: ViewType, currentView: ViewType): boolean {
   if (itemView === currentView) return true;
   const legacy = implementedPage(itemView);
@@ -301,6 +325,8 @@ export function filterNavChildren(
     quoteShareGuest?: boolean;
     /** @deprecated use quoteShareGuest — previously locked to 報價方案 only */
     quoteShareOnly?: boolean;
+    /** PM 的傢俬報價只留方案頁，其餘報價頁維持不顯示。 */
+    pm?: boolean;
   },
 ): SecondaryItem[] {
   let list = isAdmin ? children : children.filter((c) => !c.adminOnly);
@@ -309,7 +335,12 @@ export function filterNavChildren(
   } else if (opts?.quoteShareGuest) {
     list = list.filter((c) => c.view !== 'customer-org-account' && c.view !== 'fds2-customer-org');
   }
-  return list.filter((child) => !child.pinned);
+  list = list.filter((child) => !child.pinned);
+  if (opts?.pm) {
+    const solutionPages = list.filter((c) => isSolutionPageInQuote(c.view));
+    if (solutionPages.length > 0) list = solutionPages;
+  }
+  return list;
 }
 
 export function getFirstVisibleView(
@@ -318,6 +349,7 @@ export function getFirstVisibleView(
   opts?: {
     quoteShareGuest?: boolean;
     quoteShareOnly?: boolean;
+    pm?: boolean;
   },
 ): ViewType | undefined {
   return filterNavChildren(getSection(sectionId).children, isAdmin, opts)[0]?.view;

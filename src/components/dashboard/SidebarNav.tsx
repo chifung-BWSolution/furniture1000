@@ -28,6 +28,8 @@ interface SidebarNavProps {
    * show 客戶專區 pages except「機構採購帳號」.
    */
   quoteShareGuest?: boolean;
+  /** PM only sees the 傢俬方案 pages inside 傢俬報價. */
+  pm?: boolean;
 }
 
 function useTrashCount(enabled: boolean): number {
@@ -66,6 +68,7 @@ export function SidebarNav({
   onCollapseChange,
   isAdmin = false,
   quoteShareGuest = false,
+  pm = false,
 }: SidebarNavProps) {
   const isCollapsed = isCollapsedProp;
   const setIsCollapsed = (val: boolean) => onCollapseChange?.(val);
@@ -73,9 +76,11 @@ export function SidebarNav({
   const section = getSection(activeSection);
   const scrollChildren = filterNavChildren(section.children, isAdmin, {
     quoteShareGuest,
+    pm,
   });
   const pinnedChildren = section.children.filter((child) => {
     if (!child.pinned) return false;
+    if (pm && activeSection === 'quote') return false;
     if (!isAdmin && child.adminOnly) return false;
     if (
       quoteShareGuest &&

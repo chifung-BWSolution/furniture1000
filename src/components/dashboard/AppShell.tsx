@@ -68,7 +68,7 @@ import { PublishModal } from "./PublishModal";
 import { FurnitureGroupCheckView } from "./publish/FurnitureGroupCheckView";
 import { ReadyToPublishView } from "./publish/ReadyToPublishView";
 import { Construction, WifiOff, RefreshCw } from "lucide-react";
-import { findSection, isAdminOnlyView, getFirstVisibleView, getViewMeta, isSitemapPlaceholderView, implementedPage, isImplementedLegacyView } from "./navConfig";
+import { findSection, isAdminOnlyView, getFirstVisibleView, getViewMeta, isSitemapPlaceholderView, implementedPage, isImplementedLegacyView, isSolutionPageInQuote, isPmBlockedQuoteView } from "./navConfig";
 import { PlannedPage } from "./PlannedPage";
 import { type PrimarySection, type ViewType } from "@/types/product";
 import { addToCatalog } from "@/lib/catalogStore";
@@ -556,7 +556,8 @@ function AppShellContent() {
       store.currentView !== 'factory-detail' &&
       !isSitemapPlaceholderView(store.currentView) &&
       !isImplementedLegacyView(store.currentView) &&
-      !implementedPage(store.currentView)
+      !implementedPage(store.currentView) &&
+      !isSolutionPageInQuote(store.currentView)
     ) {
       store.setCurrentView('dashboard');
     }
@@ -572,7 +573,7 @@ function AppShellContent() {
     if (!roleLoading && !clientOnly && !isAdmin && isAdminOnlyView(store.currentView)) {
       store.setCurrentView('fds2-admin-shopify');
     }
-    if (!roleLoading && profileRole === 'pm' && findSection(store.currentView) === 'quote') {
+    if (!roleLoading && profileRole === 'pm' && isPmBlockedQuoteView(store.currentView)) {
       store.setCurrentView('fds2-pm-budget');
     }
   }, [
@@ -808,7 +809,7 @@ function AppShellContent() {
     if (!isAppSectionPath(location.pathname) && location.pathname !== '/') return;
     const view = appViewFromPath(location.pathname);
     if (!view) return;
-    if (!roleLoading && profileRole === 'pm' && findSection(view) === 'quote') {
+    if (!roleLoading && profileRole === 'pm' && isPmBlockedQuoteView(view)) {
       if (store.currentView !== 'fds2-pm-budget') store.setCurrentView('fds2-pm-budget');
       return;
     }
@@ -1052,7 +1053,7 @@ function AppShellContent() {
   const contentView = implementedPage(store.currentView) ?? store.currentView;
 
   const renderView = () => {
-    if (!roleLoading && profileRole === 'pm' && findSection(store.currentView) === 'quote') {
+    if (!roleLoading && profileRole === 'pm' && isPmBlockedQuoteView(store.currentView)) {
       return <PmBudgetView />;
     }
     if (store.currentView === 'fds2-admin-prd') return <PrdDescriptionsView />;
@@ -1367,7 +1368,7 @@ function AppShellContent() {
     if (!roleLoading && !isAdmin && (isAdminOnlyView(view) || (linked != null && isAdminOnlyView(linked)))) {
       return;
     }
-    if (!roleLoading && profileRole === 'pm' && (findSection(view) === 'quote' || (linked != null && findSection(linked) === 'quote'))) {
+    if (!roleLoading && profileRole === 'pm' && isPmBlockedQuoteView(view)) {
       return;
     }
 
@@ -1497,6 +1498,7 @@ function AppShellContent() {
     }
     const target = getFirstVisibleView(section, isAdmin, {
       quoteShareGuest: quoteShareGuestActive,
+      pm: profileRole === 'pm',
     });
     if (target) handleViewChange(target);
   };
@@ -1519,7 +1521,6 @@ function AppShellContent() {
         onSectionChange={handleSectionChange}
         isConnected={store.settings.isConnected}
         clientOnly={clientOnly}
-        hiddenSections={profileRole === 'pm' ? ['quote'] : undefined}
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -1535,6 +1536,7 @@ function AppShellContent() {
             onCollapseChange={setSidebarCollapsed}
             isAdmin={isAdmin}
             quoteShareGuest={quoteShareGuestActive}
+            pm={profileRole === 'pm'}
           />
         ) : null}
 
@@ -1574,6 +1576,7 @@ function AppShellContent() {
                   onCollapseChange={() => setMobileNavOpen(false)}
                   isAdmin={isAdmin}
                   quoteShareGuest={quoteShareGuestActive}
+                  pm={profileRole === 'pm'}
                 />
               </motion.div>
             </motion.div>
