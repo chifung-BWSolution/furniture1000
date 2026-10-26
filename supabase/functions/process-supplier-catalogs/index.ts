@@ -3,7 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-worker-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -45,7 +45,16 @@ function isServiceRole(req: Request): boolean {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders, status: 200 });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  if (!isServiceRole(req)) return json({ error: "Unauthorized" }, 401);
+  if (!isServiceRole(req)) {
+    const secret = req.headers.get("x-worker-secret");
+    if (!secret) return json({ error: "Unauthorized" }, 401);
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    );
+    const { data, error } = await admin.rpc("fds_worker_verify_secret", { p_secret: secret });
+    if (error || data !== true) return json({ error: "Unauthorized" }, 401);
+  }
 
   const now = new Date();
   if (!isCatalogParseWindow(now)) {
