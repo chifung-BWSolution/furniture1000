@@ -208,12 +208,12 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
           currency: currency === NO_CURRENCY ? null : currency,
         });
         if (res.splitMode === 'worker') {
-          toast.success(`${file.name} 已保存，改由伺服器拆檔後解析`);
+          toast.success(`${file.name} 已保存，等待夜間排程拆檔及解析`);
           created += 1;
         } else if ((res.partCount ?? 0) > 0) {
           toast.success(res.duplicate
             ? `${file.name} 已存在，共 ${res.partCount} 段`
-            : `${file.name} 已拆成 ${res.partCount} 段並開始解析`);
+            : `${file.name} 已拆成 ${res.partCount} 段並排隊解析`);
           if (!res.duplicate) created += 1;
         } else if (res.duplicate) {
           toast.message(`${file.name} 已存在，未重複建立`);
@@ -310,7 +310,7 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
 
       {docs.length === 0 && !loading ? (
         <p className="py-3 text-center font-body text-[11px] text-muted-foreground">
-          {listOnly ? '尚未上載 PDF。從上方加入文件後，可在這裡下載原檔及查看解析狀態。' : '尚未上載 PDF。上載後會保存原檔並排隊解析。'}
+          {listOnly ? '尚未上載 PDF。從上方加入文件後，可在這裡下載原檔及查看解析狀態。' : '尚未上載 PDF。上載後保存原檔並排隊；每天 23:00–翌日 09:00（上海時間）解析。'}
         </p>
       ) : (
         <ul className="divide-y divide-border">
@@ -331,7 +331,7 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono-data text-[10px] text-muted-foreground">
                   <span>{formatTime(doc.created_at)}</span>
                   {!factoryId && !factoryName && doc.factory_name && <span>{doc.factory_name}</span>}
-                  <span>{doc.doc_type === 'catalog' ? '目錄' : '報價單'}</span>
+                  <span>{doc.doc_type === 'certificate' ? '證書' : doc.doc_type === 'catalog' ? '目錄' : '報價單'}</span>
                   <span>{formatSize(doc.file_size)}</span>
                   <span>{doc.page_count != null ? `${doc.page_count} 頁` : '頁數未知'}</span>
                   {partLabel && <span>{partLabel}</span>}
@@ -381,16 +381,16 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
                     >
                       <Ban className="h-3 w-3" />取消
                     </Button>
-                  ) : (
+                  ) : doc.doc_type === 'certificate' ? null : (
                     <Button
                       variant="outline"
                       size="sm"
                       className="h-6 gap-1 px-2 text-[10px]"
                       disabled={busy}
-                      onClick={() => void runAction(doc.id, () => enqueueSupplierDocumentParse(doc.id), '已排隊解析')}
+                      onClick={() => void runAction(doc.id, () => enqueueSupplierDocumentParse(doc.id), '已排隊，等待夜間解析')}
                     >
                       {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : job ? <RotateCcw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-                      {job ? '重新解析' : '開始解析'}
+                      {job ? '重新排隊解析' : '排隊解析'}
                     </Button>
                   )}
                   {job && jobResultText(job) && (

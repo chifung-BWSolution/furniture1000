@@ -87,7 +87,8 @@ const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', c
 export type StructureDraft = {
   orthographicUrl?: string;
   structure?: import('@/lib/furnitureStructure').StructureEvidence;
-  target: 'su' | '3d';
+  /** 目標格式（見 FDS-06）：SKP 給設計師的 SU，FBX 給其他 3D 軟件。 */
+  target: 'skp' | 'fbx';
   kind: FurnitureKind | null;
   width: string;
   depth: string;
@@ -434,7 +435,7 @@ export function StructureConfirmForm({
   const showParts = kind === 'custom';
   const showNotes = kind != null;
   const structureWord = showTop ? '桌面結構' : '結構';
-  const outputName = draft.target === 'su' ? 'SU' : '3D';
+  const outputName = draft.target === 'skp' ? 'SKP' : 'FBX';
   const hasDimensionConflicts = (draft.dimensionConflicts?.length ?? 0) > 0;
 
   let step = 0;
@@ -762,8 +763,8 @@ export function StructureConfirmForm({
         <p className="flex min-w-0 items-start gap-2 text-xs leading-5 text-slate-500">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
           <span>
-            {draft.target === 'su'
-              ? '生成的 SU 模型可在「下載模型」中取得，並支援後續 3D 編輯。'
+            {draft.target === 'skp'
+              ? '生成的 SKP 模型可在「下載模型」中取得，並支援後續 3D 編輯。'
               : '生成的 GLB 與 FBX 可在「下載模型」中取得。'}
           </span>
         </p>

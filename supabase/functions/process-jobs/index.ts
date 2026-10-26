@@ -1,3 +1,4 @@
+import { documentParseWindowOpen, requireDocumentParseWindow, ParseWindowClosed } from "./parseWindow.mjs";
 import { runTripoJob, TripoStop } from "./tripo.ts";
 import { wakePdfSplitter } from "./pdfSplitWake.mjs";
 import { extractPagesPdf, planStructureUnits, unitImagePages } from "./structureUnits.mjs";
@@ -170,7 +171,10 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
       results[i] = await fn(items[i]);
     }
   });
-  await Promise.all(workers);
+  // Let in-flight OCR finish before saving a pause checkpoint.
+  const settled = await Promise.allSettled(workers);
+  const failed = settled.find((result) => result.status === "rejected");
+  if (failed?.status === "rejected") throw failed.reason;
   return results;
 }
 
@@ -306,6 +310,7 @@ function isNoTextReply(text: string): boolean {
 }
 
 async function grokOcr(apiKey: string, model: string, jpeg: Uint8Array): Promise<{ text: string; tokens: number }> {
+  requireDocumentParseWindow();
   const res = await fetch(XAI_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -363,6 +368,7 @@ async function geminiClassify(
       : { page: p.page, text: p.text.slice(0, CLASSIFY_TEXT_CHARS) })),
   };
   const model = resolveGeminiModel();
+  requireDocumentParseWindow();
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
@@ -476,6 +482,7 @@ async function extractBatch(admin: SupabaseClient, job: Job, documentId: string,
           row.text_source = "ocr";
         }
       } catch (err) {
+        if (err instanceof ParseWindowClosed) throw err;
         row.ocr_status = "failed";
         row.ocr_error = (err instanceof Error ? err.message : String(err)).slice(0, 500);
       }
@@ -869,6 +876,7 @@ async function geminiStructure(
   });
 
   const model = resolveGeminiModel();
+  requireDocumentParseWindow();
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
@@ -1084,6 +1092,8 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
     await admin.from("supplier_documents").update({ page_count: state.page_count }).eq("id", documentId);
   }
 
+  job.payload.state = state;
+  requireDocumentParseWindow();
   await heartbeat(admin, job.id, progressOf(state));
 
   if (state.phase === "extract") {
@@ -1187,9 +1197,18 @@ async function runJob(admin: SupabaseClient, job: Job) {
     if (job.job_type !== "parse_pdf") {
       throw new NonRetryableError(`unsupported job_type: ${job.job_type}`);
     }
+    requireDocumentParseWindow();
     const finished = await handleParsePdf(admin, job);
     return { id: job.id, status: finished ? "succeeded" : "continued" };
   } catch (err) {
+    if (err instanceof ParseWindowClosed) {
+      const { data: ok, error } = await admin.rpc("fds_document_parse_pause", {
+        p_job_id: job.id,
+        p_state: job.payload.state ?? null,
+      });
+      if (error) return { id: job.id, status: "pause_failed", error: error.message };
+      return { id: job.id, status: ok ? "paused" : "cancelled" };
+    }
     if (err instanceof JobCancelledError) {
       return { id: job.id, status: "cancelled" };
     }
@@ -1229,7 +1248,7 @@ Deno.serve(async (req: Request) => {
 
   // One batch per request keeps each invocation inside the Edge CPU budget.
   const { data: claimed, error } = await admin.rpc("fds_processing_jobs_claim", {
-    p_job_types: JOB_TYPES,
+    p_job_types: documentParseWindowOpen() ? JOB_TYPES : JOB_TYPES.filter(type => type !== "parse_pdf"),
     p_limit: 1,
     p_worker: WORKER_NAME,
   });
@@ -1267,6 +1286,7 @@ const PDF_SPLIT_STALE_MS = 10 * 60 * 1000;
  * Rejects redirects and non-JSON responses. Leaves claiming and retry state to the splitter.
  */
 function kickPdfSplit(admin: SupabaseClient) {
+  if (!documentParseWindowOpen()) return;
   const splitUrl = (Deno.env.get("PDF_SPLIT_URL") ?? "").trim();
   const splitSecret = (Deno.env.get("PDF_SPLIT_SECRET") ?? "").trim();
   EdgeRuntime.waitUntil((async () => {

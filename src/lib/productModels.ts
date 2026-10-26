@@ -35,7 +35,21 @@ export interface ProductModelFile {
   preview?: SkpPreviewStatus | null;
 }
 
-export type ModelFlags = Record<string, { su: boolean; '3d': boolean }>;
+/**
+ * 每個產品有哪些模型檔。
+ * - `su` / `3d` 是舊的 model_type 欄位，保留相容。
+ * - `skp` / `fbx` / `glb` 是格式層級旗標，FDS-06 用這組回答
+ *   「SKP／FBX 有了沒」（model_type='3d' 同時涵蓋 glb 與 fbx，不夠用）。
+ */
+export type ModelFormatFlags = {
+  su?: boolean;
+  '3d'?: boolean;
+  skp?: boolean;
+  fbx?: boolean;
+  glb?: boolean;
+};
+
+export type ModelFlags = Record<string, ModelFormatFlags>;
 
 export type SkpStatus =
   | { status: 'none' }
@@ -219,7 +233,7 @@ export async function fetchSkpPreviewStatus(productModelId: string): Promise<Skp
 }
 
 export function previewGlbPath(file: ProductModelFile): string | null {
-  if (file.format === 'glb') return file.storage_path;
+  if (file.format === 'glb') return file.storage_path || null;
   if (file.format === 'skp' && file.preview?.status === 'ready' && file.preview.storage_path) {
     return file.preview.storage_path;
   }

@@ -19,21 +19,12 @@ import {
   Factory,
   RefreshCw,
   X,
-  ChevronRight,
-  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, useReducedMotion } from 'framer-motion';
 import { loadManufacturerDirectory, type DirectoryFactory } from '@/lib/manufacturerDirectory';
-import {
-  catalogStatusLabel,
-  enqueueSupplierCatalogParse,
-  listCatalogRows,
-  openSupplierCatalog,
-  supplierDocTypeLabel,
-  type SupplierDocType,
-} from '@/lib/supplierCatalog';
-import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
+import { catalogStatusLabel, listCatalogRows, openSupplierCatalog, type SupplierDocType } from '@/lib/supplierCatalog';
+import { canManageSupplierDocuments, enqueueSupplierDocumentParse } from '@/lib/supplierDocuments';
 import { FactoryCatalogPanel } from '@/components/dashboard/FactoryCatalogPanel';
 import {
   Select,
@@ -88,19 +79,16 @@ function hasUploadedQuote(factory: FactoryRecord, catalog: CatalogSummary | unde
   return shownQuoteYear(factory, catalog) != null || Boolean(catalog?.priceListFile);
 }
 
-function uploadYearLabel(year: number | null | undefined): string {
-  return year ? String(year) : '未上傳';
+function uploadYearLabel(year: number | null | undefined, hasDocument = false): string {
+  return year ? String(year) : hasDocument ? '年份未填' : '未上傳';
 }
 
-function uploadYear(createdAt: string | null | undefined, documentYear: number | null | undefined): number | null {
-  if (createdAt) {
-    const year = Number(new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Shanghai',
-      year: 'numeric',
-    }).format(new Date(createdAt)));
-    if (Number.isFinite(year)) return year;
-  }
-  return documentYear ?? null;
+function shanghaiYearOf(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const year = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric' }).format(date));
+  return Number.isInteger(year) ? year : null;
 }
 
 type CatalogFileRef = {
@@ -131,61 +119,50 @@ function preferFile(current: CatalogFileRef | null, next: CatalogFileRef): Catal
 
 function DocumentYearCell({
   file,
-  year,
-  queueingId,
-  canQueue,
-  canOpen,
+  documentYear,
+  uploadYear,
+  allowOpen = true,
   onOpen,
-  onQueue,
 }: {
   file: CatalogFileRef | null;
-  year: number | null | undefined;
-  queueingId: string | null;
-  canQueue: boolean;
-  canOpen: boolean;
+  documentYear: number | null | undefined;
+  uploadYear: number | null | undefined;
+  /** Designer/PM may open catalog PDFs only; quote/price_list need admin/uploader. */
+  allowOpen?: boolean;
   onOpen: (storagePath: string) => void;
-  onQueue: (file: CatalogFileRef) => void;
 }) {
-  const shownYear = file?.year ?? year;
-  if (!file?.storagePath || !canOpen) {
-    return (
-      <span className={cn('font-mono-data text-[11px]', shownYear ? 'text-foreground' : 'text-muted-foreground')}>
-        {uploadYearLabel(shownYear)}
-      </span>
-    );
+  const linkedYear = file?.year ?? documentYear ?? null;
+  const uploadedYear = shanghaiYearOf(file?.createdAt) ?? uploadYear ?? null;
+  const canOpen = allowOpen && Boolean(file?.storagePath);
+  if (!canOpen && linkedYear == null && uploadedYear == null) {
+    return <span className="font-mono-data text-[11px] text-muted-foreground">未上傳</span>;
   }
-  const parsing = file.status === 'processing';
-  const busy = queueingId === file.id;
   return (
-    <div className="flex flex-col items-start gap-1">
-      <button
-        type="button"
-        className="font-body text-[11px] text-primary underline-offset-2 hover:underline"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen(file.storagePath);
-        }}
-      >
-        打開
-      </button>
-      <span className="font-mono-data text-[11px] text-foreground">{shownYear ? String(shownYear) : '—'}</span>
-      {canQueue ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-6 px-1.5 text-[10px]"
-          disabled={parsing || busy}
+    <div className="flex flex-col items-start gap-0.5">
+      {canOpen ? (
+        <button
+          type="button"
+          className="font-mono-data text-[11px] text-primary underline underline-offset-2 hover:text-primary/80"
           onClick={(event) => {
             event.stopPropagation();
-            onQueue(file);
+            onOpen(file!.storagePath);
           }}
         >
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : parsing ? '解析中' : '排入解析'}
-        </Button>
+          {linkedYear != null ? String(linkedYear) : '查看'}
+        </button>
+      ) : (
+        <span className={cn('font-mono-data text-[11px]', linkedYear != null ? 'text-foreground' : 'text-muted-foreground')}>
+          {uploadYearLabel(linkedYear, Boolean(file))}
+        </span>
+      )}
+      {uploadedYear != null ? (
+        <span className="font-mono-data text-[10px] text-muted-foreground">上傳 {uploadedYear}</span>
       ) : null}
     </div>
   );
 }
+
+const DIRECTORY_UPLOAD_TYPES: SupplierDocType[] = ['catalog', 'price_list'];
 
 function formatJoinDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -208,9 +185,9 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   const [catalogUploadFilter, setCatalogUploadFilter] = useState<UploadFilter>('all');
   const [priceListUploadFilter, setPriceListUploadFilter] = useState<UploadFilter>('all');
   const [catalogByFactory, setCatalogByFactory] = useState<Record<string, CatalogSummary>>({});
-  const [uploadTarget, setUploadTarget] = useState<{ factory: FactoryRecord; docType: SupplierDocType } | null>(null);
+  const [uploadTarget, setUploadTarget] = useState<FactoryRecord | null>(null);
   const [canManageDocs, setCanManageDocs] = useState(false);
-  const [queueingId, setQueueingId] = useState<string | null>(null);
+  const queuedDocumentIds = useRef(new Set<string>());
 
   const fetchData = useCallback(async (force = false) => {
     setIsLoading(true);
@@ -242,16 +219,16 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
             status: null,
             categories: [],
           };
-          const year = uploadYear(row.created_at, row.document_year);
-          const file: CatalogFileRef | null = row.storage_path
-            ? {
-                id: row.id,
-                storagePath: row.storage_path,
-                year,
-                status: row.processing_status,
-                createdAt: row.created_at,
-              }
-            : null;
+          // The document's own year, not the upload date: a 2025 catalog uploaded
+          // in 2026 must still show 2025.
+          const year = row.document_year;
+          const file: CatalogFileRef = {
+            id: row.id,
+            storagePath: row.storage_path ?? '',
+            year,
+            status: row.processing_status,
+            createdAt: row.created_at,
+          };
           const isPriceList = row.doc_type === 'price_list' || row.doc_type === 'quote';
           if (isPriceList) {
             current.hasPriceList = true;
@@ -342,8 +319,8 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
     onOpenFactory(slug);
   };
 
-  const openUpload = (factory: FactoryRecord, docType: SupplierDocType) => {
-    setUploadTarget({ factory, docType });
+  const openUpload = (factory: FactoryRecord) => {
+    setUploadTarget(factory);
   };
 
   const openFile = (storagePath: string) => {
@@ -352,34 +329,60 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
     });
   };
 
-  const queueParse = (file: CatalogFileRef) => {
-    setQueueingId(file.id);
-    void enqueueSupplierCatalogParse(file.id)
-      .then(() => {
-        toast.success('已排入解析任務（夜間窗口解析）');
+  useEffect(() => {
+    if (!canManageDocs) return;
+    const waiting: { factoryId: string; id: string }[] = [];
+    for (const [factoryId, summary] of Object.entries(catalogByFactory)) {
+      if (!summary.catalogFile || !summary.priceListFile) continue;
+      for (const file of [summary.catalogFile, summary.priceListFile]) {
+        if (queuedDocumentIds.current.has(file.id)) continue;
+        if (file.status === 'processing' || file.status === 'completed' || file.status === 'review_required' || file.status === 'failed') {
+          queuedDocumentIds.current.add(file.id);
+          continue;
+        }
+        waiting.push({ factoryId, id: file.id });
+        queuedDocumentIds.current.add(file.id);
+      }
+    }
+    if (!waiting.length) return;
+    void (async () => {
+      const queued = new Map<string, Set<string>>();
+      let failed = 0;
+      for (const item of waiting) {
+        try {
+          await enqueueSupplierDocumentParse(item.id);
+          const ids = queued.get(item.factoryId) ?? new Set<string>();
+          ids.add(item.id);
+          queued.set(item.factoryId, ids);
+        } catch {
+          failed += 1;
+          queuedDocumentIds.current.delete(item.id);
+        }
+      }
+      if (queued.size) {
         setCatalogByFactory((current) => {
-          const next: Record<string, CatalogSummary> = {};
-          for (const [factoryId, summary] of Object.entries(current)) {
+          const next = { ...current };
+          for (const [factoryId, ids] of queued) {
+            const summary = next[factoryId];
+            if (!summary) continue;
             const patch = (target: CatalogFileRef | null) => (
-              target?.id === file.id ? { ...target, status: 'pending' } : target
+              target && ids.has(target.id) ? { ...target, status: 'pending' } : target
             );
+            const statusRank: Record<string, number> = { processing: 5, pending: 4, failed: 3, review_required: 2, completed: 1 };
+            const status = (statusRank[summary.status ?? ''] ?? 0) >= statusRank.pending ? summary.status : 'pending';
             next[factoryId] = {
               ...summary,
               catalogFile: patch(summary.catalogFile),
               priceListFile: patch(summary.priceListFile),
-              status: summary.catalogFile?.id === file.id || summary.priceListFile?.id === file.id
-                ? 'pending'
-                : summary.status,
+              status,
             };
           }
           return next;
         });
-      })
-      .catch((error: unknown) => {
-        toast.error(error instanceof Error ? error.message : '未能排入解析任務');
-      })
-      .finally(() => setQueueingId(null));
-  };
+      }
+      if (failed) toast.error(failed === waiting.length ? '未能自動排入解析任務' : `${failed} 份文件未能排入解析任務`);
+    })();
+  }, [canManageDocs, catalogByFactory]);
 
   return (
     <div className="flex h-full min-h-0 flex-col fds-page-padding">
@@ -388,7 +391,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
           <div>
             <h1 className="fds-page-title"><BookOpen className="h-5 w-5 text-primary" />廠家目錄</h1>
             <p className="fds-page-description">
-              類型為傢私或材料 · 今年報價代表本年報價單有此廠家 · 已上傳的圖冊／報價單可打開，年份在連結下面 · {factories.length} records
+              類型為傢私或材料 · 今年報價代表本年報價單有此廠家 · 圖冊／報價單 PDF 顯示文件年份 · {factories.length} records
             </p>
           </div>
         </div>
@@ -454,18 +457,16 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
             <SelectItem value="missing">未有圖冊</SelectItem>
           </SelectContent>
         </Select>
-        {canManageDocs ? (
-          <Select value={priceListUploadFilter} onValueChange={(value) => setPriceListUploadFilter(value as UploadFilter)}>
-            <SelectTrigger className="w-[148px]">
-              <SelectValue placeholder="報價單PDF" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部報價單</SelectItem>
-              <SelectItem value="uploaded">已有報價單</SelectItem>
-              <SelectItem value="missing">未有報價單</SelectItem>
-            </SelectContent>
-          </Select>
-        ) : null}
+        <Select value={priceListUploadFilter} onValueChange={(value) => setPriceListUploadFilter(value as UploadFilter)}>
+          <SelectTrigger className="w-[148px]">
+            <SelectValue placeholder="報價單PDF" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部報價單</SelectItem>
+            <SelectItem value="uploaded">已有報價單</SelectItem>
+            <SelectItem value="missing">未有報價單</SelectItem>
+          </SelectContent>
+        </Select>
         <Badge variant="secondary" className="font-mono-data text-xs">
           {filteredFactories.length} / {factories.length}
         </Badge>
@@ -518,7 +519,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                 <TableHead className="font-display text-xs font-semibold w-[110px]">
                   加入日期
                 </TableHead>
-                <TableHead className="font-display text-xs font-semibold w-[220px] text-right">
+                <TableHead className="font-display text-xs font-semibold w-[210px] text-right">
                   操作
                 </TableHead>
               </TableRow>
@@ -531,8 +532,6 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                   no longer match are now removed straight away. */}
               {visibleFactories.map((factory, index) => {
                 const catalog = catalogByFactory[factory.id];
-                const catalogYear = shownCatalogYear(factory, catalog);
-                const quoteYear = shownQuoteYear(factory, catalog);
                 return (
                 <motion.tr
                   key={factory.id}
@@ -578,29 +577,24 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                           : 'text-muted-foreground',
                       )}
                     >
-                      {factory.used_this_year ? '有' : '無'}
+                      {factory.used_this_year ? '有記錄' : '未見記錄'}
                     </Badge>
                   </TableCell>
                   <TableCell>
                     <DocumentYearCell
                       file={catalog?.catalogFile ?? null}
-                      year={catalogYear}
-                      queueingId={queueingId}
-                      canQueue={canManageDocs}
-                      canOpen
+                      documentYear={catalog?.hasCatalog ? catalog.catalogYear : null}
+                      uploadYear={factory.catalog_year}
                       onOpen={openFile}
-                      onQueue={queueParse}
                     />
                   </TableCell>
                   <TableCell>
                     <DocumentYearCell
                       file={catalog?.priceListFile ?? null}
-                      year={quoteYear}
-                      queueingId={queueingId}
-                      canQueue={canManageDocs}
-                      canOpen={canManageDocs}
+                      documentYear={catalog?.hasPriceList ? catalog.priceListYear : null}
+                      uploadYear={factory.quote_pdf_year}
+                      allowOpen={canManageDocs}
                       onOpen={openFile}
-                      onQueue={queueParse}
                     />
                   </TableCell>
                   <TableCell>
@@ -647,36 +641,22 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                           className="h-7 px-2 text-[11px]"
                           onClick={(e) => {
                             e.stopPropagation();
-                            openUpload(factory, 'catalog');
+                            openUpload(factory);
                           }}
                         >
-                          上傳圖冊
-                        </Button>
-                      ) : null}
-                      {canManageDocs ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openUpload(factory, 'price_list');
-                          }}
-                        >
-                          上傳報價單
+                          上傳圖冊/報價單
                         </Button>
                       ) : null}
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        className="h-7 px-2"
+                        className="h-7 px-2 text-[11px]"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleViewDetail(factory);
                         }}
                       >
-                        <ChevronRight className="h-4 w-4" />
-                        <span className="ml-1 text-xs">查看</span>
+                        查看
                       </Button>
                     </div>
                   </TableCell>
@@ -713,15 +693,15 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
       <Dialog open={uploadTarget != null} onOpenChange={(open) => { if (!open) setUploadTarget(null); }}>
         <DialogContent
           size="3xl"
-          title={uploadTarget ? `上傳${supplierDocTypeLabel(uploadTarget.docType)} · ${uploadTarget.factory.display_name}` : '上傳'}
-          description="新檔另存一版，不會覆蓋舊檔，也不會立刻解析。"
+          title={uploadTarget ? `上傳圖冊/報價單 · ${uploadTarget.display_name}` : '上傳圖冊/報價單'}
+          description="可選圖冊或報價單。新檔另存一版，不會覆蓋舊檔，也不會立刻解析。"
         >
           {uploadTarget ? (
             <FactoryCatalogPanel
-              key={`${uploadTarget.factory.id}-${uploadTarget.docType}`}
-              factoryId={uploadTarget.factory.id}
-              factoryName={uploadTarget.factory.display_name}
-              initialDocType={uploadTarget.docType}
+              key={uploadTarget.id}
+              factoryId={uploadTarget.id}
+              factoryName={uploadTarget.display_name}
+              allowedDocTypes={DIRECTORY_UPLOAD_TYPES}
               embedded
               onUploaded={() => void fetchData(true)}
             />

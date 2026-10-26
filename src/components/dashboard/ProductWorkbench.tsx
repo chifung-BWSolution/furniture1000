@@ -11,12 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { ProductImageGalleryLightbox } from '@/components/dashboard/ProductImageGallery';
 import { GlbViewport, type ViewportTool } from '@/components/dashboard/GlbViewport';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { autoMatchColor, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
-import { signedModelUrl, fetchModelFlags, type ModelFlags, type ProductModelFile } from '@/lib/productModels';
+import { signedModelUrl, fetchModelFlags, previewGlbPath, type ModelFlags, type ProductModelFile } from '@/lib/productModels';
 import { evictCachedGlb, readCachedGlb, writeCachedGlb } from '@/lib/glbCache';
 import {
   EMPTY_SEARCH_FILTERS, searchProducts, sizeLabel, type ProductDetail, type SearchProduct,
@@ -87,12 +88,24 @@ const COMPARE_FIELDS: { key: string; label: string; value: (card: Card, flags: M
   {
     key: 'modelFile',
     label: '3D 模型',
-    value: (card, flags) => (flags[card.id]?.['3d'] ? '可預覽' : '未建立'),
+    value: (card, flags) => {
+      const f = flags[card.id];
+      // 有格式旗標就講清楚是哪種格式，沒有就退回舊的 model_type 判斷。
+      if (f?.fbx) return 'FBX 可預覽';
+      if (f?.glb) return 'GLB 可預覽';
+      if (f?.fbx === false && f?.glb === false && f?.['3d']) return '可預覽';
+      if (f?.fbx === undefined && f?.glb === undefined && f?.['3d']) return '可預覽';
+      return '未建立';
+    },
   },
   {
     key: 'suFile',
     label: 'SU 模型',
-    value: (card, flags) => (flags[card.id]?.su ? '可下載' : '未建立'),
+    value: (card, flags) => {
+      const f = flags[card.id];
+      if (f?.skp !== undefined) return f.skp ? '可下載' : '未建立';
+      return f?.su ? '可下載' : '未建立';
+    },
   },
 ];
 
@@ -116,7 +129,11 @@ export function ProductWorkbench({
   const [params] = useSearchParams();
   const arPage = params.get('ar') === '1';
   const names = splitTitle(detail.title);
-  const glb = modelFiles.find((file) => file.format === 'glb') ?? null;
+  const previewModels = modelFiles.filter((file) => previewGlbPath(file) !== null);
+  const [previewSelection, setPreviewSelection] = useState<{ productId: string; modelId: string } | null>(null);
+  const glb = previewModels.find((file) => previewSelection?.productId === detail.id && file.id === previewSelection.modelId)
+    ?? previewModels.find((file) => file.format === 'glb')
+    ?? previewModels[0] ?? null;
   const [viewerOn, setViewerOn] = useState(false);
   const [glbUrl, setGlbUrl] = useState<string | null>(null);
   const [glbError, setGlbError] = useState<string | null>(null);
@@ -166,8 +183,8 @@ export function ProductWorkbench({
     };
   }, [detail.id]);
 
-  const glbPath = glb?.storage_path ?? null;
-  const glbBytes = glb?.size_bytes ?? null;
+  const glbPath = glb ? previewGlbPath(glb) : null;
+  const glbBytes = glb?.format === 'glb' ? glb.size_bytes : null;
   useEffect(() => {
     if (!viewerOn || !glbPath) {
       if (!glbPath) {
@@ -481,7 +498,47 @@ export function ProductWorkbench({
                           ['ar', 'AR 預覽'],
                           ['scene', '場景應用'],
                         ] as const
-                      ).map(([id, label]) => (
+                      ).map(([id, label]) => id === '3d' && glb ? (
+                        <div key={id} className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            className={cn(
+                              'rounded-full px-3.5 py-1.5 text-xs shadow-sm',
+                              stage === '3d' ? 'bg-[#5b4dff] text-white' : 'border border-slate-200 bg-white text-slate-600',
+                            )}
+                            onClick={() => setStage('3d')}
+                          >
+                            {label}
+                          </button>
+                          <Select
+                            value={glb.id}
+                            onOpenChange={(open) => {
+                              if (open) setStage('3d');
+                            }}
+                            onValueChange={(modelId) => {
+                              setPreviewSelection({ productId: detail.id, modelId });
+                              setStage('3d');
+                              // A new model deserves a fresh camera and view mode.
+                              setResetKey((n) => n + 1);
+                            }}
+                          >
+                            <SelectTrigger
+                              aria-label="3D 預覽：選擇模型"
+                              className={cn(
+                                'h-8 w-8 shrink-0 justify-center rounded-full p-0 text-xs shadow-sm transition-colors duration-200 hover:brightness-95 [&>svg]:opacity-100 [&>svg]:transition-transform [&>svg]:duration-200 data-[state=open]:[&>svg]:rotate-180 motion-reduce:transition-none motion-reduce:[&>svg]:transition-none',
+                                stage === '3d' ? 'border-transparent bg-[#5b4dff] text-white' : 'border-slate-200 bg-white text-slate-600',
+                              )}
+                            />
+                            <SelectContent className="duration-200 data-[state=open]:slide-in-from-top-2 data-[state=closed]:slide-out-to-top-2 motion-reduce:animate-none">
+                              {previewModels.map((file, index) => (
+                                <SelectItem key={file.id} value={file.id}>
+                                  {file.file_name || `模型 ${index + 1}`} · {file.format === 'skp' ? 'SKP 預覽' : file.format.toUpperCase()}{file.version_note ? ` · ${file.version_note}` : ''}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
                         <button
                           key={id}
                           type="button"

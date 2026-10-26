@@ -79,7 +79,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'fds2-quote-quick', label: '快速報價', icon: Calculator },
       { view: 'fds2-quote-common', label: '常用傢俬', icon: Heart },
-      { view: 'fds2-quote-report', label: '產品報告', icon: BarChart2 },
       { view: 'fds2-quote-list', label: '報價一覽', icon: ClipboardList },
       { view: 'fds2-quote-large', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
       { view: 'solution-project-list', label: '方案列表', icon: Map },
@@ -110,6 +109,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-products-ai-review', label: 'AI 提取審核', icon: ListChecks },
       { view: 'fds2-products-pending', label: '待處理產品', icon: Boxes },
       { view: 'fds2-products-catalog', label: '產品目錄', icon: BookOpen },
+      { view: 'fds2-quote-report', label: '產品報告', icon: BarChart2 },
     ],
   },
   {

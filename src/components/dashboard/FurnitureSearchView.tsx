@@ -67,6 +67,7 @@ import {
   requestSkp,
   uploadProductModel,
   type ModelFlags,
+  type ModelFormatFlags,
   type ProductModelFile,
   type SkpStatus,
 } from '@/lib/productModels';
@@ -155,6 +156,26 @@ function latestModelFiles(files: ProductModelFile[]): ProductModelFile[] {
 
 function modelSourceLabel(source: ProductModelFile['source']): string {
   return source === 'uploaded' ? '上載' : 'AI 生成';
+}
+
+/** 最新的 SKP 檔（沒有則 null）。 */
+function latestSkpFile(files: ProductModelFile[] | null): ProductModelFile | null {
+  if (!files) return null;
+  return (
+    [...files]
+      .filter((file) => file.format === 'skp')
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))[0] ?? null
+  );
+}
+
+/** 最新的 FBX 檔（沒有則 null）。GLB 不算，GLB 只是預覽中間檔。 */
+function latestFbxFile(files: ProductModelFile[] | null): ProductModelFile | null {
+  if (!files) return null;
+  return (
+    [...files]
+      .filter((file) => file.format === 'fbx')
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))[0] ?? null
+  );
 }
 
 function errorText(err: unknown): string {
@@ -840,7 +861,7 @@ function ProductCard({
   canOpenSource,
 }: {
   product: SearchProduct;
-  models?: { su: boolean; '3d': boolean };
+  models?: ModelFormatFlags;
   showNew?: boolean;
   onOpen: () => void;
   onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
@@ -888,16 +909,34 @@ function ProductCard({
               </span>
             )}
           </div>
-          {(models?.su || models?.['3d']) && (
-            <div className="absolute bottom-2 right-2 flex gap-1">
-              {models.su && (
-                <span className="rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-foreground">SU</span>
-              )}
-              {models['3d'] && (
-                <span className="rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-foreground">3D</span>
-              )}
-            </div>
-          )}
+          {(() => {
+            // 舊版 RPC 只回 { su, '3d' }；新版多回格式層級旗標。
+            // 若拿不到格式旗標，就退回舊的 model_type 標示，避免徽章整個消失。
+            const hasFormatFlags =
+              models?.skp !== undefined || models?.fbx !== undefined || models?.glb !== undefined;
+            const badges: { key: string; label: string }[] = [];
+            if (hasFormatFlags) {
+              if (models?.skp) badges.push({ key: 'skp', label: 'SKP' });
+              if (models?.fbx) badges.push({ key: 'fbx', label: 'FBX' });
+              if (models?.glb) badges.push({ key: 'glb', label: 'GLB' });
+            } else {
+              if (models?.su) badges.push({ key: 'su', label: 'SU' });
+              if (models?.['3d']) badges.push({ key: '3d', label: '3D' });
+            }
+            if (!badges.length) return null;
+            return (
+              <div className="absolute bottom-2 right-2 flex gap-1">
+                {badges.map((badge) => (
+                  <span
+                    key={badge.key}
+                    className="rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-foreground"
+                  >
+                    {badge.label}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
         <div className="flex flex-1 flex-col gap-1 p-2.5">
           <div>
@@ -1305,6 +1344,23 @@ const WORKBENCH_TONE = {
   ['--ring' as string]: '243 100% 68%',
 };
 
+/**
+ * FDS-06：設計師要的是「可下載、可匯入效果圖軟件的檔」，主格式是 SKP 與 FBX。
+ * GLB 只作中間／預覽格式，不當主按鈕名稱（見 docs/prd/FDS-V2.2.md §2、§9）。
+ * 內部一律用格式語意命名，避免再出現「SU」「3D」這種含糊說法。
+ */
+type ModelTarget = 'skp' | 'fbx';
+
+const MODEL_TARGET_LABEL: Record<ModelTarget, string> = {
+  skp: 'SKP',
+  fbx: 'FBX',
+};
+
+/** 產生按鈕與進度提示用的完整名稱，例如「生成 SKP」「下載 FBX」。 */
+function modelTargetAction(target: ModelTarget, verb: '生成' | '下載' | '重新生成'): string {
+  return `${verb} ${MODEL_TARGET_LABEL[target]}`;
+}
+
 type ProgressFlow = 'prepare' | 'generate';
 
 /** Stepper inside the progress dialog: the real stages of each run, keyed by progress label. */
@@ -1313,9 +1369,9 @@ const PROGRESS_FLOW: Record<ProgressFlow, { steps: string[]; hints: string[]; in
     steps: ['讀取產品資料', '生成三視圖', '辨認產品結構', '整理結構'],
     hints: ['正在讀取產品資料，請稍候…', '正在根據產品圖與描述生成三視圖，請稍候…', '正在對照原圖與三視圖分析結構，請稍候…', '正在整理結構，請稍候…'],
     index: {
-      '準備生成 SU': 0,
-      '準備生成 3D': 0,
-      '檢查 SU 生成環境': 0,
+      '準備生成 SKP': 0,
+      '準備生成 FBX': 0,
+      '檢查 SKP 生成環境': 0,
       '辨認產品圖': 2,
       '生成 AI 三視圖': 1,
       '整理結構': 3,
@@ -1327,15 +1383,15 @@ const PROGRESS_FLOW: Record<ProgressFlow, { steps: string[]; hints: string[]; in
     hints: ['正在建立模型，請稍候…', '正在儲存模型，請稍候…', '正在寫出模型檔，請稍候…'],
     index: {
       '建立模型': 0,
-      '檢查 SU 生成環境': 0,
+      '檢查 SKP 生成環境': 0,
       '儲存模型': 1,
-      '排入 SU 生成': 2,
+      '排入 SKP 生成': 2,
       '寫出 GLB': 2,
       '寫出 FBX': 2,
       'SKP 已可下載': 2,
-      '已排入 SU 生成': 2,
-      '3D 模型已生成': 2,
-      '3D 只完成一部分': 2,
+      '已排入 SKP 生成': 2,
+      'FBX 已可下載': 2,
+      'FBX 生成失敗': 2,
     },
   },
 };
@@ -1445,14 +1501,14 @@ function ProductModelsSection({
     [catalogDimensions],
   );
   const [files, setFiles] = useState<ProductModelFile[] | null>(null);
-  const [busy, setBusy] = useState<null | 'su' | '3d' | 'upload'>(null);
+  const [busy, setBusy] = useState<null | ModelTarget | 'upload'>(null);
   const [reload, setReload] = useState(0);
   const [filesError, setFilesError] = useState(false);
   const [draft, setDraft] = useState<ModelDraft | null>(null);
   const drawingCache = useRef<{ key: string; url: string; image: { image_base64: string; mime_type: string } } | null>(null);
   const drawingAsset = useRef<{ key: string; url: string } | null>(null);
   const drawingPending = useRef<Promise<{ key: string; url: string; image: { image_base64: string; mime_type: string } }> | null>(null);
-  const [reuse, setReuse] = useState<{ target: 'su' | '3d'; files: ProductModelFile[] } | null>(null);
+  const [reuse, setReuse] = useState<{ target: ModelTarget; files: ProductModelFile[] } | null>(null);
   /** 進度 Modal 內的沿用詢問：之前生成過三視圖時，先在同一個 Modal 問沿用還是重畫。 */
   const [drawingAsk, setDrawingAsk] = useState<{ url: string; resolve: (regenerate: boolean) => void } | null>(null);
   const [previewFile, setPreviewFile] = useState<ProductModelFile | null>(null);
@@ -1466,8 +1522,8 @@ function ProductModelsSection({
   const [pendingModelNote, setPendingModelNote] = useState('');
   const [extraPhotos, setExtraPhotos] = useState<File[]>([]);
   const [scopeChoice, setScopeChoice] = useState<ProductScopeChoice>();
-  const [scopeRequest, setScopeRequest] = useState<{ target: 'su' | '3d' | 'parts'; detection: ProductCountDetection } | null>(null);
-  const [photoRequest, setPhotoRequest] = useState<{ target: 'su' | '3d' | 'parts'; message: string } | null>(null);
+  const [scopeRequest, setScopeRequest] = useState<{ target: ModelTarget | 'parts'; detection: ProductCountDetection } | null>(null);
+  const [photoRequest, setPhotoRequest] = useState<{ target: ModelTarget | 'parts'; message: string } | null>(null);
   const modelPhotos: (string | File)[] = [...extraPhotos, ...new Set((product.images ?? []).filter(src => /^https?:\/\//i.test(src)))];
   useEffect(() => { setExtraPhotos([]); setDraft(null); setPhotoRequest(null); setDrawingAsk(null); }, [productId]);
   useEffect(() => { setScopeChoice(undefined); setScopeRequest(null); }, [productId, extraPhotos, product.images]);
@@ -1612,8 +1668,14 @@ function ProductModelsSection({
     return data;
   };
 
-  const existingFor = (target: 'su' | '3d') =>
-    (files ?? []).filter((file) => (target === 'su' ? file.format === 'skp' : file.format === 'glb' || file.format === 'fbx'));
+  /**
+   * 已有檔案（用來判斷要不要問「沿用／重新生成」）。
+   * SKP 只有 skp 一種；FBX 目標同時看 fbx 與 glb（glb 是預覽中間檔，不算完成）。
+   */
+  const existingFor = (target: ModelTarget) =>
+    (files ?? []).filter((file) =>
+      target === 'skp' ? file.format === 'skp' : file.format === 'fbx' || file.format === 'glb',
+    );
 
   /** Identity of the current reference set: the same inputs reuse the paid drawing. */
   const drawingKey = useMemo(
@@ -1687,7 +1749,7 @@ function ProductModelsSection({
   };
 
   /** T-806: look for uploaded or earlier generated files before any AI call. */
-  const start = (target: 'su' | '3d', force = false) => {
+  const start = (target: ModelTarget, force = false) => {
     if (filesError) {
       toast.error('讀不到現有模型檔，請重新載入後再生成');
       return;
@@ -1702,8 +1764,57 @@ function ProductModelsSection({
     void prepare(target);
   };
 
+  /**
+   * FDS-06 的按鈕行為：
+   * - 已有可交付檔 → 直接下載（SKP／FBX 各自對應自己的格式）。
+   * - 沒有 → 走生成流程。
+   * - 生成失敗 → 按鈕轉成「重新生成」。
+   */
+  // SKP 檔不一定是本系統生成的：管理員可能直接上載 SKP。
+  // 所以按鈕以「檔案在不在」為準，job status 只用來顯示生成中／失敗。
+  const skpFile = latestSkpFile(files);
+  const skpReady = skp?.status === 'ready' || skpFile != null;
+  const skpFailed = !skpFile && (skp?.status === 'failed' || skp?.status === 'cancelled');
+  const skpRunning = !skpFile && (skp?.status === 'queued' || skp?.status === 'running');
+  const skpButtonLabel = skpFailed
+    ? '重新生成 SKP'
+    : skpReady
+      ? '下載 SKP'
+      : skpRunning
+        ? 'SKP 生成中'
+        : '生成 SKP';
+
+  const onSkpAction = () => {
+    if (skpReady) {
+      if (!skpFile) {
+        toast.error('找不到 SKP 檔', { description: '請重新載入後再試' });
+        return;
+      }
+      void downloadModel(skpFile.storage_path, skpFile.file_name).catch((err) =>
+        toast.error('SKP 下載失敗', { description: errorText(err) }),
+      );
+      return;
+    }
+    start('skp');
+  };
+
+  const fbxFile = latestFbxFile(files);
+  // FDS-06：按鈕名稱必須跟實際動作一致。已有 FBX 就叫「下載 FBX」，
+  // 重新生成另放在「下載模型」下拉選單，避免按鈕說一套做一套。
+  const fbxButtonLabel = fbxFile ? '下載 FBX' : '生成 FBX';
+
+  const onFbxAction = () => {
+    if (fbxFile) {
+      void downloadModel(fbxFile.storage_path, fbxFile.file_name).catch((err) =>
+        toast.error('FBX 下載失敗', { description: errorText(err) }),
+      );
+      return;
+    }
+    start('fbx');
+  };
+
   /** T-801: read kind, size, and table structure, then hand a draft to the user to confirm. */
-  const prepare = async (target: 'su' | '3d', choice = scopeChoice) => {
+  const prepare = async (target: ModelTarget, choice = scopeChoice) => {
     if (modelPhotos.length < 2) {
       setPhotoRequest({ target, message: `目前只有 ${modelPhotos.length} 張候選圖片，最少需要 2 張不同角度圖片。` });
       return;
@@ -1712,10 +1823,10 @@ function ProductModelsSection({
     setConfirmShown(false);
     clearProgress();
     setProgressFlow('prepare');
-    showProgress(8, target === 'su' ? '準備生成 SU' : '準備生成 3D');
+    showProgress(8, modelTargetAction(target, '生成'));
     try {
-      if (target === 'su') {
-        showProgress(8, '檢查 SU 生成環境');
+      if (target === 'skp') {
+        showProgress(8, '檢查 SKP 生成環境');
         if (!await skpRequirements.check()) {
           clearProgress();
           return;
@@ -1863,7 +1974,7 @@ function ProductModelsSection({
       clearProgress();
       setConfirmShown(false);
       if ((err as { code?: string })?.code === 'reference_images_required') setPhotoRequest({ target, message: errorText(err) });
-      else toast.error(target === 'su' ? '準備生成 SU 失敗' : '準備生成 3D 失敗', { description: errorText(err) });
+      else toast.error(`${modelTargetAction(target, '生成')}失敗`, { description: errorText(err) });
     } finally {
       setBusy(null);
     }
@@ -2047,8 +2158,8 @@ function ProductModelsSection({
     showProgress(12, '建立模型');
     try {
       // The Worker may have gone offline while the structure dialog was open.
-      if (target === 'su') {
-        showProgress(12, '檢查 SU 生成環境');
+      if (target === 'skp') {
+        showProgress(12, '檢查 SKP 生成環境');
         if (!await skpRequirements.check()) {
           clearProgress();
           setConfirmShown(true);
@@ -2071,8 +2182,8 @@ function ProductModelsSection({
       showProgress(34, '儲存模型');
       const id = await ensureSaved(model);
       setDraft(null);
-      if (target === 'su') {
-        showProgress(68, '排入 SU 生成');
+      if (target === 'skp') {
+        showProgress(68, '排入 SKP 生成');
         const status = await requestSkp(id);
         setSkpModelId(id);
         setSkp(status);
@@ -2080,38 +2191,48 @@ function ProductModelsSection({
           setReload((n) => n + 1);
           onChanged();
         }
-        const doneLabel = status.status === 'ready' ? 'SKP 已可下載' : '已排入 SU 生成';
+        const doneLabel = status.status === 'ready' ? 'SKP 已可下載' : '已排入 SKP 生成';
         toast.success(doneLabel);
         closeProgressSoon(doneLabel);
       } else {
         const base = (product.model || product.sku || model.label).replace(/[^\w.\-\u3400-\u9fff]+/g, '_').slice(0, 80);
         const problems: string[] = [];
-        let done = 0;
-        showProgress(70, '寫出 GLB'); // step 3 of 3: % must match the stepper (66–100 band)
+        // GLB 是預覽用的中間格式，不是交付物；FBX 才是這次按鈕要的檔案。
+        showProgress(70, '寫出 GLB');
         try {
           await registerGeneratedFile(id, buildFurnitureGlb(model), `${base}.glb`, 'glb');
-          done += 1;
         } catch (err) {
-          problems.push(`GLB：${errorText(err)}`);
+          problems.push(`GLB 預覽檔：${errorText(err)}`);
         }
         showProgress(82, '寫出 FBX');
+        let fbxOk = false;
         try {
           await registerGeneratedFile(id, buildFurnitureFbx(model), `${base}.fbx`, 'fbx');
-          done += 1;
+          fbxOk = true;
         } catch (err) {
           problems.push(`FBX：${errorText(err)}`);
         }
         setReload((n) => n + 1);
         onChanged();
-        if (done === 0) throw new Error(problems.join('；'));
-        if (problems.length > 0) toast.warning('3D 只完成一部分', { description: problems.join('；') });
-        else toast.success('3D 模型已生成（GLB 預覽、FBX 檔）');
-        closeProgressSoon(done === 2 ? '3D 模型已生成' : '3D 只完成一部分');
+        // FBX 失敗就是這次動作失敗；GLB 只是預覽，不算完成。
+        if (!fbxOk) {
+          showProgress(100, 'FBX 生成失敗');
+          toast.error('FBX 生成失敗', { description: problems.join('；') });
+          closeProgressSoon('FBX 生成失敗');
+          return;
+        }
+        if (problems.length > 0) {
+          toast.warning('FBX 已生成', { description: problems.join('；') });
+          closeProgressSoon('FBX 已可下載');
+        } else {
+          toast.success('FBX 已可下載');
+          closeProgressSoon('FBX 已可下載');
+        }
       }
     } catch (err) {
       clearProgress();
       setConfirmShown(true);
-      toast.error(target === 'su' ? '生成 SU 失敗' : '生成 3D 失敗', { description: errorText(err) });
+      toast.error(`${modelTargetAction(target, '生成')}失敗`, { description: errorText(err) });
     } finally {
       setBusy(null);
     }
@@ -2225,13 +2346,14 @@ function ProductModelsSection({
       <div className={workbench ? 'flex flex-wrap gap-2' : 'flex flex-wrap items-center justify-between gap-2'}>
         {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
         <div className="flex flex-wrap gap-1.5">
-          <Button size="sm" className={workbench ? 'h-10 rounded-lg bg-[#5b4dff] px-4 hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null} onClick={() => start('su')}>
-            {busy === 'su' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : workbench ? <Sparkles className="mr-1 h-3.5 w-3.5" /> : null}
-            {skp?.status === 'failed' || skp?.status === 'cancelled' ? '重新生成 SU' : '生成 SU'}
+          {/* FDS-06：兩個明確動作，各自對應一個交付格式；GLB 不當主按鈕名稱。 */}
+          <Button size="sm" className={workbench ? 'h-10 rounded-lg bg-[#5b4dff] px-4 hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null} onClick={onSkpAction}>
+            {busy === 'skp' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : workbench ? <Sparkles className="mr-1 h-3.5 w-3.5" /> : null}
+            {skpButtonLabel}
           </Button>
-          <Button size="sm" variant="outline" className={workbench ? 'h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50' : 'h-7'} disabled={busy != null} onClick={() => start('3d')}>
-            {busy === '3d' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-            生成 3D
+          <Button size="sm" variant="outline" className={workbench ? 'h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50' : 'h-7'} disabled={busy != null} onClick={onFbxAction}>
+            {busy === 'fbx' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            {fbxButtonLabel}
           </Button>
           {workbench ? (
             <DropdownMenu>
@@ -2475,9 +2597,9 @@ function ProductModelsSection({
           {latestModelFiles(files).map((f) => (
             <li key={f.id} className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-semibold">
-                {f.model_type === 'su' ? 'SU' : '3D'}
+                {(f.format ?? f.model_type).toUpperCase()}
               </Badge>
-              <span className="truncate">{f.file_name ?? `${f.model_type}.${f.format}`}</span>
+              <span className="truncate">{f.file_name ?? `${f.format ?? f.model_type}`}</span>
               {f.size_bytes != null && (
                 <span className="text-muted-foreground">{modelSizeLabel(f.size_bytes)}</span>
               )}

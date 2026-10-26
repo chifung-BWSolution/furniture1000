@@ -221,7 +221,7 @@ export function FactoryDetailView({
           label: `客戶意見 (${(stats?.comment_count ?? comments.length)})`,
           icon: MessageSquare,
         },
-        { id: 'catalogs' as const, label: '圖冊／報價單', icon: FileText },
+        { id: 'catalogs' as const, label: '廠家文件', icon: FileText },
         { id: 'products' as const, label: `產品PDF (${products.length})`, icon: FileText },
       ]
     : [];
@@ -392,7 +392,7 @@ export function FactoryDetailView({
               />
             )}
             {activeTab === 'catalogs' && (
-              <FactoryCatalogPanel factoryId={factory.id} factoryName={factory.display_name} />
+              <FactoryCatalogPanel key={factory.id} factoryId={factory.id} factoryName={factory.display_name} />
             )}
             {activeTab === 'products' && <FactoryProductsTab products={products} />}
           </motion.div>

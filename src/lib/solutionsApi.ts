@@ -71,6 +71,7 @@ function mapZone(r: any): ProjectZone {
     bounds: typeof r.bounds === 'string' ? JSON.parse(r.bounds) : (r.bounds ?? { x: 0, y: 0, w: 0, h: 0 }),
     aiSuggested: !!r.ai_suggested,
     sortOrder: r.sort_order ?? 0,
+    roomKey: r.room_key ?? null,
   };
 }
 
@@ -1960,6 +1961,8 @@ export async function createZone(input: {
   bounds: { x: number; y: number; w: number; h: number };
   aiSuggested?: boolean;
   sortOrder?: number;
+  /** 對應房間種類 key（FDS-10：改名後仍以它比對同步）。 */
+  roomKey?: string | null;
 }): Promise<WriteResult<ProjectZone>> {
   try {
     const insertPayload = await withInsertAuditFields({
@@ -1969,6 +1972,7 @@ export async function createZone(input: {
       bounds: input.bounds,
       ai_suggested: input.aiSuggested ?? false,
       sort_order: input.sortOrder ?? 0,
+      room_key: input.roomKey ?? null,
     });
     const { data, error } = await supabase
       .from('project_zones')
@@ -1990,6 +1994,8 @@ export async function updateZone(
     code?: string | null;
     bounds?: { x: number; y: number; w: number; h: number };
     sortOrder?: number;
+    /** 對應房間種類 key（FDS-10）。 */
+    roomKey?: string | null;
   },
 ): Promise<WriteResult> {
   try {
@@ -1998,6 +2004,7 @@ export async function updateZone(
     if (patch.code !== undefined) row.code = patch.code;
     if (patch.bounds !== undefined) row.bounds = patch.bounds;
     if (patch.sortOrder !== undefined) row.sort_order = patch.sortOrder;
+    if (patch.roomKey !== undefined) row.room_key = patch.roomKey;
     const updatePayload = await withUpdateAuditFields(row);
     const { error } = await supabase.from('project_zones').update(updatePayload).eq('id', zoneId);
     if (error) return { ok: false, error: error.message };

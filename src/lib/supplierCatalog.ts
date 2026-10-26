@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { withInsertAuditFields } from '@/lib/pmsAudit';
-import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
+import { canManageSupplierDocuments, uploadSupplierDocument, type DocumentUploadProgress } from '@/lib/supplierDocuments';
 
 export const SUPPLIER_DOCUMENT_BUCKET = 'supplier-documents';
 
@@ -12,7 +11,7 @@ export type CatalogProcessingStatus =
   | 'review_required'
   | 'not_applicable';
 
-export type SupplierDocType = 'catalog' | 'price_list';
+export type SupplierDocType = 'catalog' | 'price_list' | 'quote' | 'certificate';
 
 export type SupplierCatalogRow = {
   id: string;
@@ -37,7 +36,7 @@ const CATALOG_COLUMNS =
   'id, factory_id, factory_name, doc_type, title, document_year, series, product_categories, version_label, description, processing_status, storage_path, file_size, created_at';
 
 export function supplierDocTypeLabel(docType: string | null | undefined): string {
-  return docType === 'price_list' ? '報價單' : '圖冊';
+  return docType === 'certificate' ? '證書' : docType === 'price_list' || docType === 'quote' ? '報價單' : '圖冊';
 }
 
 export function catalogStatusLabel(status: string | null | undefined): string {
@@ -52,6 +51,8 @@ export function catalogStatusLabel(status: string | null | undefined): string {
       return '解析失敗';
     case 'review_required':
       return '待審核';
+    case 'not_applicable':
+      return '只保存原檔';
     default:
       return '—';
   }
@@ -72,6 +73,8 @@ export function catalogStatusDetail(status: string | null | undefined, errorMess
         : '解析失敗。原檔仍在，可稍後重試。';
     case 'review_required':
       return '解析已完成，結果需要人工確認後才會入庫。';
+    case 'not_applicable':
+      return '證書已保存，不會安排 AI 解析。';
     default:
       return '尚未取得處理狀態。';
   }
@@ -87,16 +90,16 @@ export async function listFactoryCatalogs(factoryId: string): Promise<SupplierCa
     .from('supplier_documents')
     .select(CATALOG_COLUMNS)
     .eq('factory_id', factoryId)
-    .in('doc_type', ['catalog', 'price_list'])
+    .in('doc_type', ['catalog', 'price_list', 'quote', 'certificate'])
     .is('parent_document_id', null)
-    .order('document_year', { ascending: false })
+    .order('document_year', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as SupplierCatalogRow[];
   if (rows.length === 0) return rows;
   const { data: jobs, error: jobError } = await supabase
-    .from('supplier_document_jobs')
-    .select('document_id, error_message, created_at')
+    .from('processing_jobs')
+    .select('document_id, error, created_at')
     .in('document_id', rows.map((row) => row.id))
     .order('created_at', { ascending: false });
   if (jobError) return rows;
@@ -104,7 +107,7 @@ export async function listFactoryCatalogs(factoryId: string): Promise<SupplierCa
   for (const job of jobs ?? []) {
     const documentId = String(job.document_id);
     if (!errorByDocument.has(documentId)) {
-      errorByDocument.set(documentId, job.error_message ?? null);
+      errorByDocument.set(documentId, job.error ?? null);
     }
   }
   return rows.map((row) => ({
@@ -151,12 +154,14 @@ export async function uploadSupplierCatalog(input: {
   productCategories: string[];
   versionLabel?: string;
   description?: string;
+  onProgress?: (progress: DocumentUploadProgress) => void;
 }): Promise<Pick<SupplierCatalogRow, 'id' | 'title' | 'doc_type' | 'processing_status'>> {
   const isCatalog = input.docType === 'catalog';
   const docLabel = supplierDocTypeLabel(input.docType);
   const series = input.series.trim();
   const categories = input.productCategories.map((item) => item.trim()).filter(Boolean);
-  if (!input.file || input.file.type !== 'application/pdf') {
+  if (!input.factoryId.trim() || !input.factoryName.trim()) throw new Error('請先選擇廠家');
+  if (!input.file || (input.file.type !== 'application/pdf' && !input.file.name.toLowerCase().endsWith('.pdf'))) {
     throw new Error(`請上傳 PDF ${docLabel}`);
   }
   if (!Number.isInteger(input.year) || input.year < 1990 || input.year > 2100) {
@@ -165,67 +170,30 @@ export async function uploadSupplierCatalog(input: {
   if (isCatalog && !series) throw new Error('圖冊必須填寫系列');
   if (isCatalog && categories.length === 0) throw new Error('圖冊必須選擇至少一個產品類型');
 
-  const contentHash = await sha256Hex(input.file);
-  const { data: existing, error: existingError } = await supabase
-    .from('supplier_documents')
-    .select('id')
-    .eq('factory_id', input.factoryId)
-    .eq('doc_type', input.docType)
-    .eq('content_hash', contentHash)
-    .is('parent_document_id', null)
-    .maybeSingle();
-  if (existingError) throw new Error(existingError.message);
-  if (existing?.id) {
-    throw new Error(`這份${docLabel}已經上傳過，不會覆蓋舊檔`);
-  }
-
-  const folder = isCatalog ? 'catalogs' : 'price-lists';
-  const objectPath = `${folder}/${input.factoryId}/${input.year}/${crypto.randomUUID()}.pdf`;
-  const { error: uploadError } = await supabase.storage
-    .from(SUPPLIER_DOCUMENT_BUCKET)
-    .upload(objectPath, input.file, {
-      contentType: 'application/pdf',
-      upsert: false,
-    });
-  if (uploadError) throw new Error(uploadError.message);
-
-  const row = await withInsertAuditFields({
-    factory_id: input.factoryId,
-    factory_name: input.factoryName,
-    doc_type: input.docType,
+  const saved = await uploadSupplierDocument({
+    file: input.file,
+    factoryId: input.factoryId,
+    factoryName: input.factoryName,
+    docType: input.docType,
     title: input.file.name,
-    storage_path: objectPath,
-    file_size: input.file.size,
-    content_hash: contentHash,
-    source: 'upload',
-    status: 'uploaded',
-    processing_status: 'pending',
-    document_year: input.year,
-    series: series || null,
-    product_categories: categories,
-    version_label: input.versionLabel?.trim() || null,
-    description: input.description?.trim() || null,
-    parent_document_id: null,
+    enqueue: input.docType !== 'certificate',
+    metadata: {
+      document_year: input.year,
+      series,
+      product_categories: categories,
+      version_label: input.versionLabel?.trim(),
+      description: input.description?.trim(),
+    },
+    onProgress: input.onProgress,
   });
-
-  const { data: inserted, error: insertError } = await supabase
-    .from('supplier_documents')
-    .insert(row)
-    .select('id, title, doc_type, processing_status')
-    .single();
-  if (insertError || !inserted) {
-    await supabase.storage.from(SUPPLIER_DOCUMENT_BUCKET).remove([objectPath]);
-    if (insertError?.code === '23505') {
-      throw new Error(`這份${docLabel}已經上傳過，不會覆蓋舊檔`);
-    }
-    throw new Error(insertError?.message || '文件已上傳，但未能讀取處理狀態');
-  }
+  if (saved.duplicate) throw new Error(`這份${docLabel}已經上傳過，不會覆蓋舊檔`);
   return {
-    id: inserted.id,
-    title: inserted.title,
-    doc_type: inserted.doc_type,
-    processing_status: inserted.processing_status,
+    id: saved.documentId,
+    title: input.file.name,
+    doc_type: input.docType,
+    processing_status: input.docType === 'certificate' ? 'not_applicable' : 'pending',
   };
+
 }
 
 export async function openSupplierCatalog(storagePath: string): Promise<void> {
