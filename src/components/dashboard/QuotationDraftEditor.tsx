@@ -2220,6 +2220,56 @@ function insertItemsAt(
   return [...prev.slice(0, clamped), ...rows, ...prev.slice(clamped)];
 }
 
+function sectionZonesOf(items: QuotationItem[]): { id: string; name: string }[] {
+  return items
+    .filter((item) => item.isSectionTitle)
+    .map((item) => ({ id: item.id, name: item.name || "" }));
+}
+
+/** Rebuild the flat list from the zone-manager draft. Removed zones release their rows to 未分區. */
+function applyZoneManager(
+  items: QuotationItem[],
+  drafts: { id: string; name: string }[],
+): QuotationItem[] {
+  const kept = new Set(drafts.map((row) => row.id));
+  const unzoned: QuotationItem[] = [];
+  const blocks = new Map<string, QuotationItem[]>();
+  let currentId: string | null = null;
+  let current: QuotationItem[] | null = null;
+  const flush = () => {
+    if (current && currentId) blocks.set(currentId, current);
+    current = null;
+    currentId = null;
+  };
+  for (const item of items) {
+    if (item.isSectionTitle) {
+      flush();
+      currentId = item.id;
+      current = [item];
+    } else if (current) {
+      current.push(item);
+    } else {
+      unzoned.push(item);
+    }
+  }
+  flush();
+  const orphans: QuotationItem[] = [];
+  for (const [id, block] of blocks) {
+    if (!kept.has(id)) orphans.push(...block.filter((row) => !row.isSectionTitle));
+  }
+  const next = [...unzoned, ...orphans];
+  for (const draft of drafts) {
+    const name = draft.name.trim();
+    const block = blocks.get(draft.id);
+    if (block) {
+      next.push({ ...block[0], name: name || block[0].name }, ...block.slice(1));
+    } else if (name) {
+      next.push({ ...createBlankSectionTitle(), id: draft.id, name });
+    }
+  }
+  return next;
+}
+
 function QuoteAddRowButtonGroup({
   labels,
   onCopyFromOther,
@@ -2228,11 +2278,6 @@ function QuoteAddRowButtonGroup({
   onAddCustomTerm,
   onAddProduct,
   onUploadZoneImage,
-  onUploadFloorPlan,
-  onRecognizeZones,
-  hasFloorPlan = false,
-  floorPlanBusy = false,
-  recognizingZones = false,
   onPaste,
   showPaste = false,
   compact = false,
@@ -2244,11 +2289,6 @@ function QuoteAddRowButtonGroup({
   onAddCustomTerm: () => void;
   onAddProduct: () => void;
   onUploadZoneImage?: () => void;
-  onUploadFloorPlan?: () => void;
-  onRecognizeZones?: () => void;
-  hasFloorPlan?: boolean;
-  floorPlanBusy?: boolean;
-  recognizingZones?: boolean;
   onPaste?: () => void;
   showPaste?: boolean;
   compact?: boolean;
@@ -2293,38 +2333,6 @@ function QuoteAddRowButtonGroup({
         >
           <ImagePlus className={iconClass} />
           {labels.uploadZoneImage}
-        </button>
-      ) : null}
-      {onUploadFloorPlan ? (
-        <button
-          type="button"
-          onClick={onUploadFloorPlan}
-          disabled={floorPlanBusy}
-          className={cn(
-            btnBase,
-            "border-sky-500/50 text-sky-700 hover:bg-sky-500/5 disabled:opacity-50 dark:text-sky-400",
-          )}
-        >
-          <Upload className={iconClass} />
-          {floorPlanBusy
-            ? labels.uploadingFloorPlan
-            : hasFloorPlan
-              ? labels.replaceFloorPlan
-              : labels.uploadFloorPlan}
-        </button>
-      ) : null}
-      {onRecognizeZones ? (
-        <button
-          type="button"
-          onClick={onRecognizeZones}
-          disabled={!hasFloorPlan || floorPlanBusy || recognizingZones}
-          className={cn(
-            btnBase,
-            "border-violet-500/50 text-violet-700 hover:bg-violet-500/5 disabled:opacity-50 dark:text-violet-400",
-          )}
-        >
-          {recognizingZones ? <Loader2 className={cn(iconClass, "animate-spin")} /> : <Wand2 className={iconClass} />}
-          {recognizingZones ? labels.recognizingZones : labels.recognizeZones}
         </button>
       ) : null}
       <button
@@ -2592,9 +2600,8 @@ export function QuotationDraftEditor({
   const [floorPlanBusy, setFloorPlanBusy] = useState(false);
   const [recognizingZones, setRecognizingZones] = useState(false);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
-  const [pendingZones, setPendingZones] = useState<
-    { id: string; name: string; include: boolean }[] | null
-  >(null);
+  const [zoneManagerOpen, setZoneManagerOpen] = useState(false);
+  const [zoneManagerDraft, setZoneManagerDraft] = useState<{ id: string; name: string }[]>([]);
   const [zoneImageTargetId, setZoneImageTargetId] = useState<string | null>(null);
   const [zoneLightbox, setZoneLightbox] = useState<{ urls: string[]; index: number } | null>(null);
   const floorPlanInputRef = useRef<HTMLInputElement>(null);
@@ -3738,6 +3745,61 @@ export function QuotationDraftEditor({
     setZoneImageTargetId(zoneId);
   };
 
+  const openZoneManager = () => {
+    setZoneManagerDraft(sectionZonesOf(items));
+    setZoneManagerOpen(true);
+  };
+
+  const saveZoneManager = () => {
+    itemsUserEditedRef.current = true;
+    const drafts = zoneManagerDraft;
+    setItems((prev) => applyZoneManager(prev, drafts));
+    setZoneImages((prev) =>
+      pruneQuoteZoneImages(prev, drafts.map((row) => row.id)),
+    );
+    setZoneManagerOpen(false);
+  };
+
+  const detectZonesFromBlob = async (blob: Blob) => {
+    setRecognizingZones(true);
+    try {
+      const jpeg = await imageBlobToJpegBase64(blob);
+      const names = await detectZonesFromJpegBase64(jpeg);
+      const existing = new Set(
+        items
+          .filter((item) => item.isSectionTitle)
+          .map((item) => item.name.trim().toLowerCase()),
+      );
+      const fresh = names.filter((name) => name.trim() && !existing.has(name.trim().toLowerCase()));
+      setZoneManagerDraft([
+        ...fresh.map((name) => ({ id: generateId(), name: name.trim() })),
+        ...sectionZonesOf(items),
+      ]);
+      setZoneManagerOpen(true);
+      if (!names.length) {
+        toast.message(
+          quoteLocale === "en"
+            ? "No labeled zones were found. Add them here."
+            : "平面圖上看不到可辨識的分區，可在這裡手動新增",
+        );
+      } else if (!fresh.length) {
+        toast.message(quoteLocale === "en" ? "Those zones are already on this quote" : "這些分區已經在報價裡");
+      } else {
+        toast.success(
+          quoteLocale === "en"
+            ? `Found ${fresh.length} zone${fresh.length === 1 ? "" : "s"}. Confirm to add them.`
+            : `已識別 ${fresh.length} 個分區，確認後加入報價`,
+        );
+      }
+    } catch (error) {
+      toast.error(quoteLocale === "en" ? "Could not detect zones" : "識別分區失敗", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setRecognizingZones(false);
+    }
+  };
+
   const handleFloorPlanFile = async (file: File) => {
     const lowerName = file.name.toLowerCase();
     const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
@@ -3750,9 +3812,11 @@ export function QuotationDraftEditor({
     try {
       const uploaded = await uploadProjectFloorPlanFile(quoteImageScope || "quote", file);
       let previewUrl = uploaded.mimeType.startsWith("image/") ? uploaded.url : null;
+      let visionBlob: Blob = file;
       if (isPdf) {
         const rendered = await renderPdfPageToJpegBlob(file, 1, { scale: 1.1, quality: 0.8 });
         previewUrl = await uploadProjectFloorPlanPreview(quoteImageScope || "quote", rendered.blob);
+        visionBlob = rendered.blob;
       }
       itemsUserEditedRef.current = true;
       setFloorPlan({
@@ -3761,81 +3825,15 @@ export function QuotationDraftEditor({
         fileName: uploaded.fileName,
         previewUrl,
       });
-      toast.success(quoteLocale === "en" ? "Floor plan uploaded" : "已上傳平面圖");
+      toast.success(quoteLocale === "en" ? "Floor plan uploaded. Detecting zones…" : "已上傳平面圖，正在識別分區");
+      setFloorPlanBusy(false);
+      await detectZonesFromBlob(visionBlob);
     } catch (error) {
       toast.error(quoteLocale === "en" ? "Could not upload the floor plan" : "平面圖上傳失敗", {
         description: error instanceof Error ? error.message : undefined,
       });
-    } finally {
       setFloorPlanBusy(false);
     }
-  };
-
-  const recognizeFloorPlanZones = async () => {
-    if (!floorPlan) {
-      toast.error(quoteLocale === "en" ? "Upload a floor plan first" : "請先上傳平面圖");
-      return;
-    }
-    setRecognizingZones(true);
-    try {
-      const source = floorPlan.previewUrl
-        || (floorPlan.mimeType.startsWith("image/") ? floorPlan.url : null);
-      const blob = source
-        ? await (await fetch(source)).blob()
-        : (await renderPdfPageToJpegBlob(floorPlan.url, 1, { scale: 1.1, quality: 0.75 })).blob;
-      const jpeg = await imageBlobToJpegBase64(blob);
-      const names = await detectZonesFromJpegBase64(jpeg);
-      if (!names.length) {
-        toast.message(
-          quoteLocale === "en"
-            ? "No labeled zones were found. Add one manually."
-            : "平面圖上看不到可辨識的分區，可手動新增",
-        );
-        return;
-      }
-      setPendingZones(names.map((name) => ({ id: generateId(), name, include: true })));
-    } catch (error) {
-      toast.error(quoteLocale === "en" ? "Could not detect zones" : "識別分區失敗", {
-        description: error instanceof Error ? error.message : undefined,
-      });
-    } finally {
-      setRecognizingZones(false);
-    }
-  };
-
-  const confirmDetectedZones = () => {
-    const names = (pendingZones || [])
-      .filter((zone) => zone.include && zone.name.trim())
-      .map((zone) => zone.name.trim());
-    if (!names.length) {
-      toast.error(quoteLocale === "en" ? "Select at least one zone" : "請至少保留一個分區");
-      return;
-    }
-    itemsUserEditedRef.current = true;
-    let added = 0;
-    setItems((prev) => {
-      const existing = new Set(
-        prev.filter((item) => item.isSectionTitle).map((item) => item.name.trim().toLowerCase()),
-      );
-      const fresh = names.filter((name) => !existing.has(name.toLowerCase()));
-      added = fresh.length;
-      if (!fresh.length) return prev;
-      return insertItemsAt(
-        prev,
-        fresh.map((name) => ({ ...createBlankSectionTitle(), name })),
-        0,
-      );
-    });
-    if (!added) {
-      toast.message(quoteLocale === "en" ? "Those zones are already on this quote" : "這些分區已經在報價裡");
-    } else {
-      toast.success(
-        quoteLocale === "en"
-          ? `Added ${added} zone${added === 1 ? "" : "s"}`
-          : `已加入 ${added} 個分區`,
-      );
-    }
-    setPendingZones(null);
   };
 
   // Reset item-edit guard when switching to a different quote.
@@ -4782,6 +4780,35 @@ export function QuotationDraftEditor({
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
+                  disabled={floorPlanBusy || recognizingZones}
+                  onClick={() => floorPlanInputRef.current?.click()}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
+                >
+                  {floorPlanBusy || recognizingZones ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4 shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {floorPlanBusy
+                      ? t.uploadingFloorPlan
+                      : recognizingZones
+                        ? t.recognizingZones
+                        : floorPlan
+                          ? t.replaceFloorPlan
+                          : t.uploadFloorPlan}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openZoneManager}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 font-body text-sm font-medium text-violet-700 transition-colors hover:bg-violet-100"
+                >
+                  <FolderKanban className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t.manageZones}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     setUnifyRateDraft("");
                     setUnifyRateModalOpen(true);
@@ -5259,17 +5286,12 @@ export function QuotationDraftEditor({
                       {t.quoteContent}
                     </h2>
                     <p className="mt-1 font-body text-sm text-muted-foreground">
-                      {ui('新增或編輯產品項目、增值服務等，支援圖片、材料及詳細規格。可上傳平面圖並識別分區；分區加在報價最前，每件傢俬前面可改所屬分區。', 'Add or edit products and services, including images, materials and specifications. Upload a floor plan to detect zones, then assign each item with the zone menu in front of it.')}
+                      {ui('新增或編輯產品項目、增值服務等，支援圖片、材料及詳細規格。上傳平面圖後會自動識別分區，也可在分區管理裡調整。', 'Add or edit products and services, including images, materials and specifications. Uploading a floor plan detects zones automatically. Adjust them in Manage zones.')}
                     </p>
                   </div>
                   <QuoteAddRowButtonGroup
                     labels={t}
                     showPaste={cutItemId != null}
-                    hasFloorPlan={Boolean(floorPlan)}
-                    floorPlanBusy={floorPlanBusy}
-                    recognizingZones={recognizingZones}
-                    onUploadFloorPlan={() => floorPlanInputRef.current?.click()}
-                    onRecognizeZones={() => void recognizeFloorPlanZones()}
                     onUploadZoneImage={() => openZoneImageUpload(zoneTitleIdBefore(items, 0))}
                     onPaste={() => {
 
@@ -6218,55 +6240,81 @@ export function QuotationDraftEditor({
       />
 
       <Modal
-        open={pendingZones != null}
-        onOpenChange={(open) => {
-          if (!open) setPendingZones(null);
-        }}
+        open={zoneManagerOpen}
+        onOpenChange={setZoneManagerOpen}
         size="md"
-        icon={<Wand2 className="h-5 w-5" />}
-        title={t.reviewDetectedZones}
-        description={t.reviewDetectedZonesHint}
+        icon={<FolderKanban className="h-5 w-5" />}
+        title={t.manageZones}
+        description={t.manageZonesHint}
         footer={
           <>
-            <ModalButton variant="secondary" onClick={() => setPendingZones(null)}>
+            <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
               {t.cancel}
             </ModalButton>
-            <ModalButton onClick={confirmDetectedZones}>{t.confirm}</ModalButton>
+            <ModalButton onClick={saveZoneManager}>{t.confirm}</ModalButton>
           </>
         }
       >
         <div className="space-y-2">
-          {(pendingZones || []).map((zone) => (
+          {zoneManagerDraft.length === 0 ? (
+            <p className="font-body text-sm text-muted-foreground">
+              {quoteLocale === "en" ? "No zones yet." : "尚未有分區。"}
+            </p>
+          ) : null}
+          {zoneManagerDraft.map((zone, index) => (
             <div key={zone.id} className="flex items-center gap-2">
-              <Checkbox
-                checked={zone.include}
-                onCheckedChange={(checked) =>
-                  setPendingZones((prev) =>
-                    (prev || []).map((row) =>
-                      row.id === zone.id ? { ...row, include: Boolean(checked) } : row,
-                    ),
-                  )
-                }
-                aria-label={zone.name || t.sectionTitleLabel}
-              />
+              <span className="w-6 shrink-0 text-center font-mono-data text-xs text-muted-foreground">
+                {index + 1}
+              </span>
               <Input
                 value={zone.name}
                 aria-label={t.sectionTitleLabel}
+                placeholder={t.sectionTitlePlaceholder}
                 onChange={(e) =>
-                  setPendingZones((prev) =>
-                    (prev || []).map((row) =>
-                      row.id === zone.id ? { ...row, name: e.target.value } : row,
-                    ),
+                  setZoneManagerDraft((prev) =>
+                    prev.map((row) => (row.id === zone.id ? { ...row, name: e.target.value } : row)),
                   )
                 }
                 className={QUOTE_INPUT_CLASS}
               />
               <button
                 type="button"
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
+                aria-label={quoteLocale === "en" ? "Move zone up" : "上移分區"}
+                disabled={index === 0}
+                onClick={() =>
+                  setZoneManagerDraft((prev) => {
+                    if (index === 0) return prev;
+                    const next = [...prev];
+                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                    return next;
+                  })
+                }
+              >
+                <ChevronUp className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
+                aria-label={quoteLocale === "en" ? "Move zone down" : "下移分區"}
+                disabled={index === zoneManagerDraft.length - 1}
+                onClick={() =>
+                  setZoneManagerDraft((prev) => {
+                    if (index === prev.length - 1) return prev;
+                    const next = [...prev];
+                    [next[index + 1], next[index]] = [next[index], next[index + 1]];
+                    return next;
+                  })
+                }
+              >
+                <ChevronDown className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
                 className="rounded-md p-1 text-muted-foreground hover:text-destructive"
                 aria-label={quoteLocale === "en" ? "Remove zone" : "移除分區"}
                 onClick={() =>
-                  setPendingZones((prev) => (prev || []).filter((row) => row.id !== zone.id))
+                  setZoneManagerDraft((prev) => prev.filter((row) => row.id !== zone.id))
                 }
               >
                 <X className="h-4 w-4" />
@@ -6277,14 +6325,11 @@ export function QuotationDraftEditor({
             type="button"
             className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-foreground/80 hover:bg-muted/50"
             onClick={() =>
-              setPendingZones((prev) => [
-                ...(prev || []),
-                { id: generateId(), name: "", include: true },
-              ])
+              setZoneManagerDraft((prev) => [...prev, { id: generateId(), name: "" }])
             }
           >
             <Plus className="h-3 w-3" />
-            {t.addZoneHere}
+            {t.addSectionTitle}
           </button>
         </div>
       </Modal>
