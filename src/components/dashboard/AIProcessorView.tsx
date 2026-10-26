@@ -2360,11 +2360,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               docType: documentType, currency: documentCurrency || null,
             });
             const splitNote = result.splitMode === 'worker'
-              ? `${file.name} 已保存，改由伺服器拆檔後解析`
+              ? `${file.name} 已保存，等待夜間排程拆檔及解析`
               : result.partCount
-                ? `${file.name} 已拆成 ${result.partCount} 段並開始解析`
+                ? `${file.name} 已拆成 ${result.partCount} 段並排隊解析`
                 : null;
-            toast.success(splitNote ?? (result.duplicate ? `${file.name} 已存在，請在文件列表查看或開始解析` : `${file.name} 已上載，解析任務已排隊`));
+            toast.success(splitNote ?? (result.duplicate ? `${file.name} 已存在，請在文件列表查看或排隊解析` : `${file.name} 已上載，解析任務已排隊`));
           } catch (error) {
             toast.error(`${file.name} 上載失敗`, { description: error instanceof Error ? error.message : String(error) });
           }
@@ -2397,8 +2397,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               docType: documentType, currency: documentCurrency || null,
             });
             const splitNote = result.splitMode === 'worker'
-              ? `${file.name} 已保存，改由伺服器拆檔後解析`
-              : `${file.name} 已拆成 ${result.partCount ?? 0} 段並開始解析`;
+              ? `${file.name} 已保存，等待夜間排程拆檔及解析`
+              : `${file.name} 已拆成 ${result.partCount ?? 0} 段並排隊解析`;
             toast.success(splitNote);
           } catch (error) {
             toast.error(`${file.name} 上載失敗`, { description: error instanceof Error ? error.message : String(error) });
@@ -3395,11 +3395,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               docType: documentType, currency: documentCurrency || null,
             });
             const splitNote = result.splitMode === 'worker'
-              ? `${file.name} 已保存，改由伺服器拆檔後解析`
+              ? `${file.name} 已保存，等待夜間排程拆檔及解析`
               : result.partCount
-                ? `${file.name} 已拆成 ${result.partCount} 段並開始解析`
+                ? `${file.name} 已拆成 ${result.partCount} 段並排隊解析`
                 : null;
-            toast.success(splitNote ?? (result.duplicate ? `${file.name} 已存在，請在文件列表查看或開始解析` : `${file.name} 已上載，解析任務已排隊`));
+            toast.success(splitNote ?? (result.duplicate ? `${file.name} 已存在，請在文件列表查看或排隊解析` : `${file.name} 已上載，解析任務已排隊`));
           } catch (error) {
             toast.error(`${file.name} 上載失敗`, { description: error instanceof Error ? error.message : String(error) });
           }
@@ -5316,7 +5316,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               <Upload className={cn('h-6 w-6 transition-colors', isDragOver ? 'text-primary' : 'text-muted-foreground group-hover:text-primary')} />
             </div>
             <p className="mt-4 font-display text-sm font-bold">{isUploadingDocuments ? '正在上載 PDF…' : isDragOver ? '放開以上傳檔案' : '點擊選檔，或拖放檔案至此'}</p>
-            <p className="mt-1 text-center text-xs text-muted-foreground font-body">{uploadMethod === 'background' ? 'PDF 報價單或產品目錄 · 自動保存並開始解析' : 'PDF 目錄、Excel 表格或產品圖片 · 加入待提取檔案'}</p>
+            <p className="mt-1 text-center text-xs text-muted-foreground font-body">{uploadMethod === 'background' ? 'PDF 報價單或產品目錄 · 保存原檔並排隊，上海時間 23:00–翌日 09:00 解析' : 'PDF 目錄、Excel 表格或產品圖片 · 加入待提取檔案'}</p>
             <p className="mt-1 font-mono-data text-[10px] text-muted-foreground/60">{uploadMethod === 'background' ? 'PDF · 支援多份文件' : 'PDF · XLSX · XLS · JPG · PNG · WEBP'}</p>
           </div>
         </div>

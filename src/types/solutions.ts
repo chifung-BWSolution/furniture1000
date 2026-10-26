@@ -27,6 +27,11 @@ export interface ProjectZone {
   bounds: ZoneBounds;
   aiSuggested: boolean;
   sortOrder: number;
+  /**
+   * 對應的房間種類 key。FDS-10：分區改名／改代號後，房間清單同步仍以它
+   * 對應，不再靠名稱比對（否則改名會被同步改回去）。
+   */
+  roomKey?: string | null;
 }
 
 export interface ZoneProduct {

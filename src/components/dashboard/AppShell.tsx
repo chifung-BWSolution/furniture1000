@@ -1095,11 +1095,6 @@ function AppShellContent() {
         return (
           <DashboardView onNavigate={handleViewChange} />
         );
-      case "ai-processor":
-        return <ManufacturerDirectoryView onOpenFactory={(code) => {
-          store.setFactoryDetailCode(code);
-          store.setCurrentView('factory-detail');
-        }} />;
       case "furniture-group-check":
         return (
           <FurnitureGroupCheckView
@@ -1216,10 +1211,11 @@ function AppShellContent() {
             onUpdateSettings={store.updateSettings}
           />
         );
+      case "ai-processor":
       case "manufacturer-catalog":
+        // ai-processor is the legacy alias of 廠家目錄 (see appSectionRoutes).
         return <ManufacturerDirectoryView onOpenFactory={(code) => {
-          store.setFactoryDetailCode(code);
-          store.setCurrentView('factory-detail');
+          navigate(`/manufacturers/${encodeURIComponent(code)}`);
         }} />;
       case "factory-detail":
         return store.factoryDetailCode ? (

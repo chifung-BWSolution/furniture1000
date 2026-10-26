@@ -7,7 +7,6 @@ import { uploadDocumentChunks, type DocumentUploadProgress } from '@/lib/resumab
 export type { DocumentUploadProgress } from '@/lib/resumableDocumentUpload';
 import { PDF_EDGE_MAX_BYTES } from '@/lib/pdfSplitLimits';
 import { supabase } from '@/lib/supabase';
-import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 
 export { PDF_EDGE_MAX_BYTES };
 
@@ -71,7 +70,7 @@ export interface SupplierDocument {
   id: string;
   factory_id: string | null;
   factory_name: string;
-  doc_type: 'quote' | 'catalog';
+  doc_type: 'quote' | 'catalog' | 'price_list' | 'certificate';
   title: string | null;
   storage_path: string;
   file_size: number | null;
@@ -95,7 +94,8 @@ export interface UploadSupplierDocumentInput {
   factoryId?: string | null;
   factoryName?: string | null;
   title?: string | null;
-  docType?: 'quote' | 'catalog';
+  docType?: 'quote' | 'catalog' | 'price_list' | 'certificate';
+  metadata?: { document_year: number; series?: string; product_categories?: string[]; version_label?: string; description?: string };
   currency?: string | null;
   source?: 'upload' | 'ai_processor';
   /** false = archive the original only; parsing can be started later from the panel. */
@@ -108,7 +108,7 @@ export interface UploadSupplierDocumentResult {
   jobId: string | null;
   duplicate: boolean;
   partCount?: number;
-  /** browser = split in this tab; worker = needs_split queued for the Vercel pdf-split function. */
+  /** worker = needs_split queued for the Vercel pdf-split function; browser retained for older callers. */
   splitMode?: 'browser' | 'worker';
 }
 
@@ -171,14 +171,6 @@ export async function canManageSupplierDocuments(): Promise<boolean> {
   return data === true;
 }
 
-/** Wake the worker now instead of waiting for the next pg_cron tick (≤ 1 min). */
-export function kickProcessingWorker(): void {
-  void invokeEdgeFunctionDirect('supabase-functions-process-jobs', { source: 'ui' }, { timeoutMs: 150_000 })
-    .then(({ error }) => {
-      if (error) console.warn('[supplierDocuments] worker kick:', error.message);
-    });
-}
-
 async function uploadOriginalPdf(input: UploadSupplierDocumentInput, path: string): Promise<void> {
   const getSession = async () => {
     const { data, error } = await supabase.auth.getSession();
@@ -204,59 +196,6 @@ async function uploadOriginalPdf(input: UploadSupplierDocumentInput, path: strin
   }
 }
 
-/** Browser split. Edge never sees the original bytes. Returns how many parts were registered. */
-async function splitAndRegisterParts(
-  input: UploadSupplierDocumentInput,
-  parentId: string,
-  parentPath: string,
-  pdfBytes: Uint8Array,
-): Promise<number> {
-  input.onProgress?.({ phase: 'splitting', uploadedBytes: 0, totalBytes: input.file.size });
-  const { splitPdfUnderTarget, partStoragePath } = await import('@/lib/pdfSplitCore.mjs');
-  const parts = await splitPdfUnderTarget(pdfBytes);
-  const getSession = async () => {
-    const { data, error } = await supabase.auth.getSession();
-    if (error || !data.session) throw new Error('登入已失效，請重新登入後上載');
-    return data.session;
-  };
-  const session = await getSession();
-  const payload: { part_index: number; page_offset: number; page_count: number; storage_path: string; content_hash: string }[] = [];
-  let uploadedBytes = 0;
-  for (const part of parts) {
-    const bytes = new Uint8Array(part.bytes);
-    const partHash = await sha256HexBytes(bytes);
-    const path = partStoragePath(parentPath, part.partIndex, partHash);
-    const partFile = new File([bytes], `part-${part.partIndex}.pdf`, { type: 'application/pdf' });
-    const before = uploadedBytes;
-    await uploadDocumentChunks({
-      file: partFile, path, bucket: SUPPLIER_DOCUMENTS_BUCKET,
-      supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
-      userId: session.user.id,
-      getToken: async () => (await getSession()).access_token,
-      onProgress: (progress) => input.onProgress?.({
-        phase: 'uploading',
-        uploadedBytes: Math.min(input.file.size, before + progress.uploadedBytes),
-        totalBytes: input.file.size,
-      }),
-    });
-    uploadedBytes += bytes.byteLength;
-    payload.push({
-      part_index: part.partIndex,
-      page_offset: part.pageOffset,
-      page_count: part.pageCount,
-      storage_path: path,
-      content_hash: partHash,
-    });
-  }
-  input.onProgress?.({ phase: 'registering', uploadedBytes: input.file.size, totalBytes: input.file.size });
-  const { error } = await supabase.rpc('fds_supplier_document_register_parts', {
-    p_parent_id: parentId,
-    p_parts: payload,
-  });
-  if (error) throw new Error(rpcErrorMessage(error.message));
-  return parts.length;
-}
-
 export async function uploadSupplierDocument(
   input: UploadSupplierDocumentInput,
 ): Promise<UploadSupplierDocumentResult> {
@@ -270,14 +209,14 @@ export async function uploadSupplierDocument(
   input.onProgress?.({ phase: 'preparing', uploadedBytes: 0, totalBytes: file.size });
   // Yield so the preparation state paints before hashing a large document.
   await new Promise(resolve => setTimeout(resolve, 0));
-  const pdfBytes = oversized ? new Uint8Array(await file.arrayBuffer()) : null;
-  const hash = pdfBytes ? await sha256HexBytes(pdfBytes) : await sha256Hex(file);
-  const path = `${storageKeySegment(input.factoryId || input.factoryName)}/${hash}.pdf`;
+  const hash = await sha256Hex(file);
+  const folder = storageKeySegment(input.factoryId || input.factoryName);
+  const path = input.metadata ? `${folder}/${input.docType ?? 'quote'}/${hash}.pdf` : `${folder}/${hash}.pdf`;
   await uploadOriginalPdf(input, path);
   input.onProgress?.({ phase: 'registering', uploadedBytes: file.size, totalBytes: file.size });
 
-  // Large files are split before any parse job. enqueue stays false so the original is not sent to Edge.
-  const enqueue = oversized ? false : (input.enqueue ?? true);
+  // The existing enqueue RPC routes large originals to needs_split. Upload never wakes a worker.
+  const enqueue = input.docType !== 'certificate' && (input.enqueue ?? true);
   const { data, error } = await supabase.rpc('fds_supplier_document_create', {
     p_storage_path: path,
     p_factory_id: input.factoryId || null,
@@ -288,44 +227,13 @@ export async function uploadSupplierDocument(
     p_content_hash: hash,
     p_source: input.source ?? 'upload',
     p_enqueue: enqueue,
+    ...(input.metadata ? { p_metadata: input.metadata } : {}),
   });
   if (error) throw new Error(rpcErrorMessage(error.message));
 
   const result = data as UploadSupplierDocumentResult;
-  if (!oversized) {
-    input.onProgress?.({ phase: 'complete', uploadedBytes: file.size, totalBytes: file.size });
-    if (result.jobId) kickProcessingWorker();
-    return result;
-  }
-
-  if (result.duplicate) {
-    const { count, error: countError } = await supabase
-      .from('supplier_documents')
-      .select('id', { count: 'exact', head: true })
-      .eq('parent_document_id', result.documentId);
-    if (countError) throw new Error(countError.message);
-    if ((count ?? 0) > 0) {
-      input.onProgress?.({ phase: 'complete', uploadedBytes: file.size, totalBytes: file.size });
-      return { ...result, duplicate: true, partCount: count ?? 0, splitMode: 'browser' };
-    }
-  }
-
-  try {
-    const partCount = await splitAndRegisterParts(input, result.documentId, path, pdfBytes ?? new Uint8Array());
-    input.onProgress?.({ phase: 'complete', uploadedBytes: file.size, totalBytes: file.size });
-    kickProcessingWorker();
-    return { ...result, duplicate: false, partCount, splitMode: 'browser' };
-  } catch (splitError) {
-    const { error: queueError } = await supabase.rpc('fds_supplier_document_enqueue_parse', {
-      p_document_id: result.documentId,
-    });
-    if (queueError) {
-      throw new Error(splitError instanceof Error ? splitError.message : String(splitError));
-    }
-    kickProcessingWorker();
-    input.onProgress?.({ phase: 'complete', uploadedBytes: file.size, totalBytes: file.size });
-    return { ...result, duplicate: false, partCount: 0, splitMode: 'worker' };
-  }
+  input.onProgress?.({ phase: 'complete', uploadedBytes: file.size, totalBytes: file.size });
+  return oversized && enqueue ? { ...result, splitMode: 'worker' } : result;
 }
 
 export async function listSupplierDocuments(opts: {
@@ -363,7 +271,6 @@ export async function enqueueSupplierDocumentParse(documentId: string): Promise<
     p_document_id: documentId,
   });
   if (error) throw new Error(rpcErrorMessage(error.message));
-  kickProcessingWorker();
 }
 
 export async function cancelSupplierDocumentParts(documentId: string): Promise<void> {

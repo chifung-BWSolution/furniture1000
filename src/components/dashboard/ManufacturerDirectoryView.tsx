@@ -81,19 +81,8 @@ function hasUploadedQuote(factory: FactoryRecord, catalog: CatalogSummary | unde
   return shownQuoteYear(factory, catalog) != null || Boolean(catalog?.priceListFile);
 }
 
-function uploadYearLabel(year: number | null | undefined): string {
-  return year ? String(year) : '未上傳';
-}
-
-function uploadYear(createdAt: string | null | undefined, documentYear: number | null | undefined): number | null {
-  if (createdAt) {
-    const year = Number(new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Shanghai',
-      year: 'numeric',
-    }).format(new Date(createdAt)));
-    if (Number.isFinite(year)) return year;
-  }
-  return documentYear ?? null;
+function uploadYearLabel(year: number | null | undefined, hasDocument = false): string {
+  return year ? String(year) : hasDocument ? '年份未填' : '未上傳';
 }
 
 type CatalogFileRef = {
@@ -141,7 +130,7 @@ function DocumentYearCell({
   if (!file?.storagePath) {
     return (
       <span className={cn('font-mono-data text-[11px]', shownYear ? 'text-foreground' : 'text-muted-foreground')}>
-        {uploadYearLabel(shownYear)}
+        {uploadYearLabel(shownYear, Boolean(file))}
       </span>
     );
   }
@@ -233,7 +222,9 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
             status: null,
             categories: [],
           };
-          const year = uploadYear(row.created_at, row.document_year);
+          // The document's own year, not the upload date: a 2025 catalog uploaded
+          // in 2026 must still show 2025.
+          const year = row.document_year;
           const file: CatalogFileRef | null = row.storage_path
             ? {
                 id: row.id,
@@ -379,7 +370,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
           <div>
             <h1 className="fds-page-title"><BookOpen className="h-5 w-5 text-primary" />廠家目錄</h1>
             <p className="fds-page-description">
-              類型為傢私或材料 · 今年報價代表本年報價單有此廠家 · 已上傳的圖冊／報價單可打開，年份在連結下面 · {factories.length} records
+              類型為傢私或材料 · 今年報價代表本年報價單有此廠家 · 圖冊／報價單 PDF 顯示文件年份 · {factories.length} records
             </p>
           </div>
         </div>
@@ -567,7 +558,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                           : 'text-muted-foreground',
                       )}
                     >
-                      {factory.used_this_year ? '有' : '無'}
+                      {factory.used_this_year ? '有記錄' : '未見記錄'}
                     </Badge>
                   </TableCell>
                   <TableCell>

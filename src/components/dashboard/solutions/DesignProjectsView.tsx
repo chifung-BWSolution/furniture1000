@@ -91,6 +91,7 @@ import {
   FloorPlanViewerModal,
   floorPlanPreviewOf,
 } from './FloorPlanViewerModal';
+import { ZoneEditButton, ZoneRenameDialog } from './ZoneRenameDialog';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 import { RemarksRichEditor } from '@/components/dashboard/RemarksRichEditor';
 
@@ -1525,6 +1526,8 @@ export function DesignProjectsView() {
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const { confirm, confirmDialog } = useConfirm();
   const [creatingBlankZoneId, setCreatingBlankZoneId] = useState<string | null>(null);
+  /** FDS-10：分區改名稱與代號的彈窗目標。 */
+  const [zoneEditTarget, setZoneEditTarget] = useState<ProjectZone | null>(null);
   const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
   const [savingFurniture, setSavingFurniture] = useState(false);
   const [furnitureDirty, setFurnitureDirty] = useState(false);
@@ -3482,6 +3485,11 @@ export function DesignProjectsView() {
                     </label>
                   </div>
                   <div className="flex flex-wrap items-center justify-center gap-2 md:justify-end">
+                    <ZoneEditButton
+                      zone={zone}
+                      onOpen={setZoneEditTarget}
+                      className="h-10 rounded-lg border-border bg-background px-3 text-[15px] font-medium text-foreground hover:bg-muted"
+                    />
                     <button
                       type="button"
                       onClick={() => void openDivisionModal(zone.id)}
@@ -4259,6 +4267,21 @@ export function DesignProjectsView() {
         type={project.floorPlanType}
         previewUrl={floorPlanPreviewUrl}
         onClose={() => setFloorPlanViewerOpen(false)}
+      />
+      <ZoneRenameDialog
+        zone={zoneEditTarget}
+        open={zoneEditTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setZoneEditTarget(null);
+        }}
+        onSaved={(patch) => {
+          // Local patch keeps the toolbar label in sync without a full reload.
+          setZones((current) =>
+            current.map((row) =>
+              row.id === zoneEditTarget?.id ? { ...row, ...patch } : row,
+            ),
+          );
+        }}
       />
       {confirmDialog}
     </div>

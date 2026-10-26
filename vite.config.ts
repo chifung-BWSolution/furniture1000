@@ -253,8 +253,10 @@ export default defineConfig(({ command, mode }) => {
   },
   server: {
     port: 8080,
-    // @ts-ignore
+    strictPort: true,
     allowedHosts: process.env.TEMPO === "true" ? true : undefined,
+    // Bind all interfaces only when explicitly asked (TEMPO). Loose 0.0.0.0 leaks the
+    // develop quick-login bundle to anyone on the same network.
     host: process.env.TEMPO === "true" ? "0.0.0.0" : "127.0.0.1",
   },
 };
