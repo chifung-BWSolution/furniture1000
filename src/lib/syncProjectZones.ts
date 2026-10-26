@@ -1,6 +1,13 @@
 /**
  * Sync project_zones rows to match room seeds derived from design_projects.meta.
- * Match by zone name (not code) — custom Chinese rooms often share codePrefix "CR".
+ *
+ * FDS-10：分區可以在方案裡改名稱與代號，所以同步不能只靠名稱比對。
+ * 對應順序：
+ * 1. room_key（房間種類 key）—— 最可靠，改名也不影響。
+ * 2. 舊資料（room_key 為 null）退回名稱比對，並順手補上 room_key。
+ *
+ * 名稱與代號是顯示值：對應到既有分區後，若該分區已被用戶改名／改代號，
+ * 就不會被房間清單改回去。
  */
 import {
   createZone,
@@ -17,6 +24,43 @@ export type ZoneSeed = {
   bounds: ZoneBounds;
   roomKey?: string;
 };
+
+/**
+ * 把種子與現有分區配對。
+ *
+ * - 有 room_key 的種子先找同 room_key 的分區。
+ * - 找不到就退回名稱（只對還沒有 room_key 的舊資料）。
+ * - 同一種類的第 n 個種子配同一種類的第 n 個分區，
+ *   這樣「會議室 1／會議室 2」改名後仍各自對應原位。
+ */
+export function pairSeedsWithZones(
+  desired: ZoneSeed[],
+  pool: ProjectZone[],
+): { seed: ZoneSeed; zone: ProjectZone | null }[] {
+  const used = new Set<string>();
+  const paired: { seed: ZoneSeed; zone: ProjectZone | null }[] = [];
+
+  for (const seed of desired) {
+    let match: ProjectZone | undefined;
+
+    if (seed.roomKey) {
+      // 1. 已記錄 room_key 的分區。
+      match = pool.find(
+        (zone) => !used.has(zone.id) && zone.roomKey === seed.roomKey,
+      );
+    }
+    if (!match) {
+      // 2. 舊資料：還沒有 room_key，只能按名稱對。對上後會補 room_key。
+      match = pool.find(
+        (zone) => !used.has(zone.id) && !zone.roomKey && zone.name === seed.name,
+      );
+    }
+
+    if (match) used.add(match.id);
+    paired.push({ seed, zone: match ?? null });
+  }
+  return paired;
+}
 
 export async function syncProjectZones(options: {
   projectId: string;
@@ -58,31 +102,31 @@ export async function syncProjectZones(options: {
     }
 
     const pool = pruneEmpty ? [...kept] : [...zones];
+    const paired = pairSeedsWithZones(desired, pool);
     const usedIds = new Set<string>();
 
-    for (let i = 0; i < desired.length; i++) {
-      const seed = desired[i];
-      const existing = pool.find(
-        (z) => !usedIds.has(z.id) && z.name === seed.name,
-      );
+    for (let i = 0; i < paired.length; i++) {
+      const { seed, zone: existing } = paired[i];
       if (existing) {
         usedIds.add(existing.id);
         const patch: {
+          name?: string;
           code?: string | null;
           sortOrder?: number;
           bounds?: ZoneBounds;
+          roomKey?: string | null;
         } = {};
-        if (existing.code !== seed.code) patch.code = seed.code;
+        // 名稱與代號是顯示值：使用者改名後就保留，不再被種子覆蓋。
+        // 舊資料（room_key 為 null）第一次對上時補上 room_key，
+        // 補上之後就以 room_key 為準，改名不再影響對應。
+        if (!existing.roomKey && seed.roomKey) patch.roomKey = seed.roomKey;
         if (existing.sortOrder !== i) patch.sortOrder = i;
         if (Object.keys(patch).length > 0) {
           const updated = await updateZone(existing.id, patch);
           if (!updated.ok) {
             return { ok: false, error: updated.error || '更新間隔失敗' };
           }
-          Object.assign(existing, {
-            code: seed.code,
-            sortOrder: i,
-          });
+          Object.assign(existing, patch);
         }
         continue;
       }
@@ -94,6 +138,7 @@ export async function syncProjectZones(options: {
         bounds: seed.bounds,
         aiSuggested: true,
         sortOrder: i,
+        roomKey: seed.roomKey ?? null,
       });
       if (!created.ok || !created.data) {
         return { ok: false, error: created.error || '建立間隔失敗' };
@@ -103,20 +148,15 @@ export async function syncProjectZones(options: {
     }
 
     const orderedZones: ProjectZone[] = [];
-    const orderedIds = new Set<string>();
-    for (let i = 0; i < desired.length; i++) {
-      const seed = desired[i];
-      const match = pool.find(
-        (z) => !orderedIds.has(z.id) && z.name === seed.name,
-      );
-      if (!match) continue;
-      orderedIds.add(match.id);
-      orderedZones.push({ ...match, code: seed.code, sortOrder: i });
+    for (let i = 0; i < paired.length; i++) {
+      const { zone } = paired[i];
+      if (!zone) continue;
+      orderedZones.push({ ...zone, sortOrder: i });
     }
 
     // Leftover zones not in 方案列表 desired names.
     for (const zone of pool) {
-      if (orderedIds.has(zone.id)) continue;
+      if (usedIds.has(zone.id)) continue;
       if (dropOrphanZones) {
         const removed = await deleteZone(zone.id);
         if (!removed.ok) {
@@ -132,7 +172,7 @@ export async function syncProjectZones(options: {
         }
       }
       orderedZones.push({ ...zone, sortOrder });
-      orderedIds.add(zone.id);
+      usedIds.add(zone.id);
     }
 
     return { ok: true, data: orderedZones };
@@ -144,36 +184,32 @@ export async function syncProjectZones(options: {
   }
 }
 
-/** True when meta room seeds are missing from the current zones list (by name). */
+/**
+ * True when meta room seeds are missing from the current zones list.
+ *
+ * 比對以 room_key 為準；舊資料（room_key 為 null）才退回名稱，
+ * 這樣 FDS-10 改名後不會被誤判成「缺少分區」而觸發一次改回去的同步。
+ */
 export function zonesMissingFromSeeds(
   desired: ZoneSeed[],
   zones: ProjectZone[],
 ): boolean {
   if (desired.length === 0) return false;
-  const names = new Set(zones.map((z) => z.name));
-  return desired.some((seed) => !names.has(seed.name));
+  return pairSeedsWithZones(desired, zones).some((pair) => !pair.zone);
 }
 
-/** True when zones don't match 方案列表 seeds (missing, extras, or count drift). */
+/**
+ * True when zones don't match 方案列表 seeds (missing, extras, or count drift).
+ */
 export function zonesOutOfSyncWithSeeds(
   desired: ZoneSeed[],
   zones: ProjectZone[],
 ): boolean {
   if (zonesMissingFromSeeds(desired, zones)) return true;
-  const desiredCount = new Map<string, number>();
-  for (const seed of desired) {
-    desiredCount.set(seed.name, (desiredCount.get(seed.name) || 0) + 1);
-  }
-  const zoneCount = new Map<string, number>();
-  for (const zone of zones) {
-    zoneCount.set(zone.name, (zoneCount.get(zone.name) || 0) + 1);
-  }
-  if (desiredCount.size !== zoneCount.size) return true;
-  for (const [name, count] of desiredCount) {
-    if ((zoneCount.get(name) || 0) !== count) return true;
-  }
-  for (const name of zoneCount.keys()) {
-    if (!desiredCount.has(name)) return true;
-  }
-  return false;
+  const paired = pairSeedsWithZones(desired, zones);
+  const matched = new Set(
+    paired.map((pair) => pair.zone?.id).filter((id): id is string => Boolean(id)),
+  );
+  // 有多餘的分區（沒對上任何種子）也算不同步。
+  return zones.some((zone) => !matched.has(zone.id));
 }
