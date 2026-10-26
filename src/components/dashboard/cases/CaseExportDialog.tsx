@@ -63,9 +63,24 @@ export function CaseExportDialog({
   const exportPdf = async () => {
     setBusy('pdf');
     try {
-      const blob = await buildCaseShowcasePdf(items, (message) => setBusy(message));
+      const { blob, failedImageCount, requestedPhotoCount } = await buildCaseShowcasePdf(
+        items,
+        (message) => setBusy(message),
+      );
+      if (requestedPhotoCount > 0 && failedImageCount >= requestedPhotoCount) {
+        toast.error(
+          `匯出失敗：${failedImageCount} 張入選相片／Logo 全部無法載入，請檢查連結後重試`,
+        );
+        return;
+      }
       downloadBlob(blob, `成功案例集-${new Date().toISOString().slice(0, 10)}.pdf`);
-      toast.success('已匯出成功案例集 PDF');
+      if (failedImageCount > 0) {
+        toast.warning(
+          `已匯出 PDF，但有 ${failedImageCount} 張相片／Logo 載入失敗（已跳過），請檢查後重試`,
+        );
+      } else {
+        toast.success('已匯出成功案例集 PDF');
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '匯出 PDF 失敗，請重試');
     } finally {
@@ -165,6 +180,16 @@ export function CaseExportDialog({
                     aria-label={`顯示 PM（${item.title}）`}
                   />
                   顯示 PM
+                </label>
+              )}
+              {(item.kind === 'order' || item.kind === 'photo') && (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <Switch
+                    checked={item.showDates}
+                    onCheckedChange={(checked) => update(item.key, { showDates: checked === true })}
+                    aria-label={`顯示日期（${item.title}）`}
+                  />
+                  顯示日期
                 </label>
               )}
             </div>

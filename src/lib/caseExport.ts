@@ -63,11 +63,13 @@ export function buildCaseOrdersWorkbook(items: CaseExportItem[]): XLSX.WorkBook 
         o.product_type || '',
         o.quantity ?? '',
         o.status || '',
-        safeCaseDate(o.production_start_date),
-        safeCaseDate(o.production_finish_date || o.production_finish_date_est),
-        safeCaseDate(o.est_delivery_date),
-        safeCaseDate(o.est_installation_date),
-        safeCaseDate(o.actual_installation_date),
+        item.showDates ? safeCaseDate(o.production_start_date) : '',
+        item.showDates
+          ? safeCaseDate(o.production_finish_date || o.production_finish_date_est)
+          : '',
+        item.showDates ? safeCaseDate(o.est_delivery_date) : '',
+        item.showDates ? safeCaseDate(o.est_installation_date) : '',
+        item.showDates ? safeCaseDate(o.actual_installation_date) : '',
         index === 0 ? photos : '',
         pm,
       ]);

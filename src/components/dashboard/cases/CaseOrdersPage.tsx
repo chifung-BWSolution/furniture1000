@@ -104,7 +104,15 @@ export function CaseOrdersPage() {
     visibleKeys.length > 0 && visibleKeys.every((key) => picked.has(key));
   const someSelected = visibleKeys.some((key) => picked.has(key));
   const toggleAll = () =>
-    setPicked(allSelected ? new Set() : new Set(visibleKeys));
+    setPicked((old) => {
+      const next = new Set(old);
+      if (allSelected) {
+        for (const key of visibleKeys) next.delete(key);
+      } else {
+        for (const key of visibleKeys) next.add(key);
+      }
+      return next;
+    });
   return (
     <CaseShell
       {...data}

@@ -2,7 +2,7 @@
  * 成功案例 › 案例集 PDF（PRD：docs/prd/成功案例-PRD.md F-CASE-004）。
  *
  * - 復用報價單 PDF 的字體載入管線（QuotationPDFPreview.ensureQuotationPdfModule）。
- * - 相片先抓取並壓成 JPEG dataURL（上限 6 張／專案），避免 PDF 過大或 CORS 問題。
+ * - 相片先抓取並壓成 JPEG dataURL（與入選一致，不靜默截斷），避免 PDF 過大或 CORS 問題。
  * - 版面刻意簡單：封面（標題＋合作品牌 Logo 牆）→ 逐案例（標題、說明、PM 可選、相片格）。
  * - 內容一律來自 CaseExportItem（結構上已脫敏，見 caseExport.ts）。
  */
@@ -11,7 +11,6 @@ import { ensureQuotationPdfModule } from '@/components/dashboard/QuotationPDFPre
 import { safeCaseDate } from '@/lib/caseShowcasePublish';
 import type { CaseExportItem } from '@/lib/caseExport';
 
-const MAX_PHOTOS_PER_PROJECT = 6;
 const PHOTO_MAX_WIDTH_PX = 1200;
 const PHOTO_JPEG_QUALITY = 0.82;
 const IMAGE_FETCH_TIMEOUT_MS = 20_000;
@@ -46,14 +45,23 @@ async function fetchAllForPdf(urls: string[]): Promise<(string | null)[]> {
   return Promise.all(urls.map(fetchImageForPdf));
 }
 
+export type CaseShowcasePdfResult = {
+  blob: Blob;
+  /** 入選但抓取／解碼失敗的相片／Logo 數量（AC-004-6）。 */
+  failedImageCount: number;
+  /** 入選相片總數（含失敗）。 */
+  requestedPhotoCount: number;
+};
+
 /**
- * 生成案例集 PDF Blob。
- * 相片／Logo 抓取失敗的項目會跳過圖片但保留文字；全部失敗仍會生成純文字版。
+ * 生成案例集 PDF。
+ * 相片／Logo 抓取失敗會計入 failedImageCount；呼叫端必須據此提示，不得只報成功。
+ * 入選相片全部寫入（不靜默截斷；AC-004-3）。
  */
 export async function buildCaseShowcasePdf(
   items: CaseExportItem[],
   onProgress?: (message: string) => void,
-): Promise<Blob> {
+): Promise<CaseShowcasePdfResult> {
   onProgress?.('載入 PDF 字體…');
   const P = await ensureQuotationPdfModule();
 
@@ -69,39 +77,38 @@ export async function buildCaseShowcasePdf(
   const brandItems = items.filter((item) => item.kind === 'brand' && item.brand);
 
   onProgress?.('下載完工相片…');
+  let failedImageCount = 0;
+  let requestedPhotoCount = 0;
+  const fetchIncludedPhotos = async (item: CaseExportItem) => {
+    const urls = (item.photos || []).filter((p) => p.include).map((p) => p.url);
+    requestedPhotoCount += urls.length;
+    const fetched = await fetchAllForPdf(urls);
+    const photos = fetched.filter((url): url is string => Boolean(url));
+    failedImageCount += fetched.length - photos.length;
+    return photos;
+  };
   const photoAlbums = await Promise.all(
     photoItems.map(async (item) => ({
       item,
-      photos: (
-        await fetchAllForPdf(
-          (item.photos || [])
-            .filter((p) => p.include)
-            .slice(0, MAX_PHOTOS_PER_PROJECT)
-            .map((p) => p.url),
-        )
-      ).filter((url): url is string => Boolean(url)),
+      photos: await fetchIncludedPhotos(item),
     })),
   );
   const orderAlbums = await Promise.all(
     orderPhotoItems.map(async (item) => ({
       item,
-      photos: (
-        await fetchAllForPdf(
-          (item.photos || [])
-            .filter((p) => p.include)
-            .slice(0, MAX_PHOTOS_PER_PROJECT)
-            .map((p) => p.url),
-        )
-      ).filter((url): url is string => Boolean(url)),
+      photos: await fetchIncludedPhotos(item),
     })),
   );
 
   onProgress?.('下載客戶 Logo…');
   const brandLogos = await Promise.all(
-    brandItems.map(async (item) => ({
-      item,
-      logo: await fetchImageForPdf(item.brand!.branding_icon || ''),
-    })),
+    brandItems.map(async (item) => {
+      const logoUrl = item.brand!.branding_icon || '';
+      if (!logoUrl) return { item, logo: null as string | null };
+      const logo = await fetchImageForPdf(logoUrl);
+      if (!logo) failedImageCount += 1;
+      return { item, logo };
+    }),
   );
 
   onProgress?.('排版生成 PDF…');
@@ -262,6 +269,12 @@ export async function buildCaseShowcasePdf(
         {item.showPm && item.photoProject?.pm_name ? (
           <Text style={styles.casePm}>PM：{item.photoProject.pm_name}</Text>
         ) : null}
+        {item.showDates && item.photoProject?.handover_date
+          ? (() => {
+              const d = safeCaseDate(item.photoProject.handover_date);
+              return d ? <Text style={styles.casePm}>交付日期：{d}</Text> : null;
+            })()
+          : null}
       </View>,
     );
     if (album.photos.length) {
@@ -337,10 +350,10 @@ export async function buildCaseShowcasePdf(
                 {o.status || '—'}
               </Text>
               <Text style={[styles.tableCellText, { width: '13%' }]}>
-                {safeCaseDate(o.est_delivery_date) || '—'}
+                {item.showDates ? safeCaseDate(o.est_delivery_date) || '—' : '—'}
               </Text>
               <Text style={[styles.tableCellText, { width: '13%' }]}>
-                {safeCaseDate(o.est_installation_date) || '—'}
+                {item.showDates ? safeCaseDate(o.est_installation_date) || '—' : '—'}
               </Text>
             </View>
           ))}
@@ -371,7 +384,8 @@ export async function buildCaseShowcasePdf(
     </Document>
   );
 
-  return await P.pdf(doc).toBlob();
+  const blob = await P.pdf(doc).toBlob();
+  return { blob, failedImageCount, requestedPhotoCount };
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
