@@ -12,6 +12,11 @@ export const PUBLISH_BASE = '/publish';
 export const REPORTS_BASE = '/reports';
 export const SETTINGS_BASE = '/settings';
 export const FDS_BASE = '/fds';
+/** 廠家目錄。詳情為 `${FACTORIES_PATH}/:code`，留在後台殼內。 */
+export const FACTORIES_PATH = `${FDS_BASE}/factories`;
+
+/** Segments under /fds/factories that are other pages, not a factory code. */
+const FACTORY_PATH_RESERVED = new Set(['sales', 'zones', 'login', 'info', 'upload-pdf']);
 
 /** view → absolute path (no trailing slash; design-projects list only — id appended elsewhere). */
 const VIEW_PATHS: { view: ViewType; path: string }[] = [
@@ -20,7 +25,6 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'solution-project-list', path: `${PROJECT_BASE}/project-list` },
   { view: 'design-projects', path: `${PROJECT_BASE}/design-projects` },
   { view: 'invite-clients', path: `${PROJECT_BASE}/invite-clients` },
-  { view: 'confirmed-projects', path: `${PROJECT_BASE}/confirmed-projects` },
   /** Legacy alias → design-projects */
   { view: 'product-search', path: `${PROJECT_BASE}/design-projects` },
 
@@ -75,7 +79,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-factory-sales', path: `${FDS_BASE}/factories/sales` },
   { view: 'fds2-factory-zones', path: `${FDS_BASE}/factories/zones` },
   { view: 'fds2-factory-login', path: `${FDS_BASE}/factories/login` },
-  { view: 'fds2-products-factories', path: `${FDS_BASE}/factories` },
+  { view: 'fds2-products-factories', path: FACTORIES_PATH },
   { view: 'fds2-products-quote-pdf', path: `${FDS_BASE}/factories` },
   { view: 'fds2-products-ai-review', path: `${FDS_BASE}/products/ai-review` },
   { view: 'fds2-products-pending', path: `${FDS_BASE}/products/pending` },
@@ -180,6 +184,31 @@ export function buildDesignerProductPath(productId: string): string {
   return `${DESIGNER_TYPES_PATH}/${encodeURIComponent(id)}`;
 }
 
+/** Shareable factory detail inside the app shell. */
+export function buildFactoryDetailPath(code: string): string {
+  const id = code.trim();
+  if (!id || FACTORY_PATH_RESERVED.has(id)) return FACTORIES_PATH;
+  return `${FACTORIES_PATH}/${encodeURIComponent(id)}`;
+}
+
+/** Factory code from `/fds/factories/:code`, or null on the list and sibling pages. */
+export function factoryCodeFromPath(pathname: string): string | null {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  const prefix = `${FACTORIES_PATH}/`;
+  if (!path.startsWith(prefix)) return null;
+  const segment = path.slice(prefix.length);
+  if (!segment || segment.includes('/')) return null;
+  let code = segment;
+  try {
+    code = decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+  code = code.trim();
+  if (!code || FACTORY_PATH_RESERVED.has(code)) return null;
+  return code;
+}
+
 /** Product id from `/fds/designer/types/:productId`, or null on the list. */
 export function designerProductIdFromPath(pathname: string): string | null {
   const path = pathname.replace(/\/+$/, '') || '/';
@@ -250,7 +279,10 @@ export function appViewFromPath(pathname: string): ViewType | null {
     return 'fds2-products-factories';
   }
 
-  // Prefix-only e.g. /project → project-list
+  // 已確定方案併入客戶專區的報價方案。
+  if (path === `${PROJECT_BASE}/confirmed-projects`) return 'fds2-customer-quotes';
+
+  // Prefix-only e.g. /project → 平面圖與房間
   if (path === PROJECT_BASE) return 'solution-project-list';
   if (path === PUBLISH_BASE) return 'publish-copywriting';
   if (path === REPORTS_BASE) return 'report-factory';

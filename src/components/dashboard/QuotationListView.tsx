@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Clock, Copy, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ChevronDown, ChevronUp, Clock, Copy, Sofa, Trash2 } from 'lucide-react';
+import { DESIGN_PROJECTS_PATH } from '@/lib/designProjectRoutes';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Modal, ModalButton } from '@/components/ui/modal';
@@ -156,6 +158,7 @@ export function QuotationListView({
   mode = 'all',
 }: QuotationListViewProps) {
   const isLargeAmount = mode === 'large-amount';
+  const navigate = useNavigate();
   const [quotes, setQuotes] = useState<QuoteListRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -625,7 +628,20 @@ export function QuotationListView({
           </>
         }
         searchActions={
-          <ListRefreshButton onClick={() => void fetchQuotes(true)} loading={isLoading} />
+          <div className="flex shrink-0 items-center gap-2">
+            {!isLargeAmount ? (
+              <button
+                type="button"
+                onClick={() => navigate(DESIGN_PROJECTS_PATH)}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-border bg-card px-3 font-body text-sm font-semibold text-foreground shadow-sm hover:bg-muted"
+                title="平面圖、房間、配置傢俬、邀請客戶"
+              >
+                <Sofa className="h-4 w-4 text-primary" />
+                設計方案
+              </button>
+            ) : null}
+            <ListRefreshButton onClick={() => void fetchQuotes(true)} loading={isLoading} />
+          </div>
         }
       >
         <ListTableCard

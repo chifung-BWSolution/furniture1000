@@ -54,7 +54,11 @@ import {
 } from "@/lib/customerPortalRoutes";
 import {
   appViewFromPath,
+  buildFactoryDetailPath,
+  canonicalizeDirectoryView,
   designerProductIdFromPath,
+  FACTORIES_PATH,
+  factoryCodeFromPath,
   isAppSectionPath,
   pathFromAppView,
 } from "@/lib/appSectionRoutes";
@@ -157,17 +161,8 @@ const PresentationView = lazy(() =>
   import("./PresentationView").then((mod) => ({ default: mod.PresentationView }))
 );
 // 傢俬方案 (Furniture Scheme)
-const SolutionProjectListView = lazy(() =>
-  import("./solutions/SolutionProjectListView").then((mod) => ({ default: mod.SolutionProjectListView }))
-);
-const DesignProjectsView = lazy(() =>
-  import("./solutions/DesignProjectsView").then((mod) => ({ default: mod.DesignProjectsView }))
-);
-const InviteClientsView = lazy(() =>
-  import("./solutions/InviteClientsView").then((mod) => ({ default: mod.InviteClientsView }))
-);
-const ConfirmedProjectsView = lazy(() =>
-  import("./solutions/ConfirmedProjectsView").then((mod) => ({ default: mod.ConfirmedProjectsView }))
+const DesignSchemeWorkspace = lazy(() =>
+  import("./solutions/DesignSchemeWorkspace").then((mod) => ({ default: mod.DesignSchemeWorkspace }))
 );
 // 客戶專區 (Client Portal)
 const CustomerQuoteSchemesView = lazy(() =>
@@ -560,7 +555,8 @@ function AppShellContent() {
     }
     if (
       store.currentView === 'customer-design-projects' ||
-      store.currentView === 'customer-confirmed-products'
+      store.currentView === 'customer-confirmed-products' ||
+      store.currentView === 'confirmed-projects'
     ) {
       store.setCurrentView('fds2-customer-quotes');
     }
@@ -891,6 +887,11 @@ function AppShellContent() {
       designerProductIdFromPath(location.pathname)
     ) {
       // FurnitureSearchView owns /fds/designer/types/:productId
+    } else if (
+      canonicalizeDirectoryView(store.currentView) === 'fds2-products-factories' &&
+      factoryCodeFromPath(location.pathname)
+    ) {
+      // Factory detail owns /fds/factories/:code inside the shell.
     } else {
       const sectionPath = pathFromAppView(store.currentView);
       if (sectionPath) {
@@ -1212,11 +1213,30 @@ function AppShellContent() {
           />
         );
       case "ai-processor":
-      case "manufacturer-catalog":
+      case "manufacturer-catalog": {
         // ai-processor is the legacy alias of 廠家目錄 (see appSectionRoutes).
-        return <ManufacturerDirectoryView onOpenFactory={(code) => {
-          navigate(`/manufacturers/${encodeURIComponent(code)}`);
-        }} />;
+        const openFactoryCode = factoryCodeFromPath(location.pathname);
+        if (openFactoryCode) {
+          return (
+            <FactoryDetailView
+              factoryCode={openFactoryCode}
+              onBack={() => {
+                quoteUrlSyncRef.current = FACTORIES_PATH;
+                navigate(FACTORIES_PATH);
+              }}
+            />
+          );
+        }
+        return (
+          <ManufacturerDirectoryView
+            onOpenFactory={(code) => {
+              const target = buildFactoryDetailPath(code);
+              quoteUrlSyncRef.current = target;
+              navigate(target);
+            }}
+          />
+        );
+      }
       case "factory-detail":
         return store.factoryDetailCode ? (
           <FactoryDetailView
@@ -1225,20 +1245,17 @@ function AppShellContent() {
           />
         ) : null;
       case "solution-project-list":
-        return <SolutionProjectListView />;
-      case "design-projects":
-        return <DesignProjectsView />;
-      case "product-search":
-        // 產品搜尋已併入「設計專案」右上角「選擇產品」
-        return <DesignProjectsView />;
-      case "invite-clients":
-        return <InviteClientsView />;
-      case "confirmed-projects":
-        return <ConfirmedProjectsView />;
       case "solution-client-activity":
       case "solution-portal-content":
-        // 已自傢俬方案側欄移除 — 舊 deep-link 導向方案列表
-        return <SolutionProjectListView />;
+        return <DesignSchemeWorkspace panel="setup" />;
+      case "design-projects":
+      case "product-search":
+        // 產品搜尋已併入配置傢俬右上角「選擇產品」
+        return <DesignSchemeWorkspace panel="design" />;
+      case "invite-clients":
+        return <DesignSchemeWorkspace panel="invite" />;
+      case "confirmed-projects":
+        return <CustomerQuoteSchemesView />;
 
       case "customer-quote-schemes":
         return <CustomerQuoteSchemesView />;
