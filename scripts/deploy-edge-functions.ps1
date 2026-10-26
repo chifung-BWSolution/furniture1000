@@ -105,4 +105,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\process-supplier-catalogs\index.ts') `
   -Name 'process-supplier-catalogs'
 
+Deploy-Function `
+  -Slug 'supabase-functions-fetch-manufacturer-directory' `
+  -FilePath (Join-Path $root 'supabase\functions\fetch-manufacturer-directory\index.ts') `
+  -Name 'fetch-manufacturer-directory'
+
 Write-Host 'All functions deployed successfully.'

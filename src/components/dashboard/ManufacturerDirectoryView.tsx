@@ -33,6 +33,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+type SupplierKind = 'furniture' | 'material' | 'both';
+
 interface FactoryRecord {
   id: string;
   display_name: string;
@@ -42,7 +44,45 @@ interface FactoryRecord {
   location: string | null;
   project_number: number | null;
   join_date: string | null;
+  supplier_kind?: SupplierKind | null;
+  used_this_year?: boolean;
+  catalog_year?: number | null;
+  quote_pdf_year?: number | null;
 }
+
+const KIND_LABEL: Record<SupplierKind, string> = {
+  furniture: '傢私',
+  material: '材料',
+  both: '傢私・材料',
+};
+
+function kindLabel(kind: SupplierKind | null | undefined): string {
+  return kind ? KIND_LABEL[kind] : '—';
+}
+
+function uploadYearLabel(year: number | null | undefined): string {
+  return year ? String(year) : '未上傳';
+}
+
+function uploadYear(createdAt: string | null | undefined, documentYear: number | null | undefined): number | null {
+  if (createdAt) {
+    const year = Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+    }).format(new Date(createdAt)));
+    if (Number.isFinite(year)) return year;
+  }
+  return documentYear ?? null;
+}
+
+type CatalogSummary = {
+  hasCatalog: boolean;
+  hasPriceList: boolean;
+  catalogYear: number | null;
+  priceListYear: number | null;
+  status: string | null;
+  categories: string[];
+};
 
 function formatJoinDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -56,9 +96,7 @@ export function ManufacturerDirectoryView() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'missing-catalog' | 'missing-price-list'>('all');
-  const [catalogByFactory, setCatalogByFactory] = useState<
-    Record<string, { hasCatalog: boolean; hasPriceList: boolean; latestYear: number | null; status: string | null; categories: string[] }>
-  >({});
+  const [catalogByFactory, setCatalogByFactory] = useState<Record<string, CatalogSummary>>({});
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -94,21 +132,29 @@ export function ManufacturerDirectoryView() {
           review_required: 2,
           completed: 1,
         };
-        const summary: Record<string, { hasCatalog: boolean; hasPriceList: boolean; latestYear: number | null; status: string | null; categories: string[] }> = {};
+        const summary: Record<string, CatalogSummary> = {};
         for (const row of catalogs) {
           const factoryId = row.factory_id;
           if (!factoryId) continue;
           const current = summary[factoryId] ?? {
             hasCatalog: false,
             hasPriceList: false,
-            latestYear: null,
+            catalogYear: null,
+            priceListYear: null,
             status: null,
             categories: [],
           };
-          if (row.doc_type === 'price_list') current.hasPriceList = true;
-          else current.hasCatalog = true;
-          if (row.document_year != null && (current.latestYear == null || row.document_year > current.latestYear)) {
-            current.latestYear = row.document_year;
+          const year = uploadYear(row.created_at, row.document_year);
+          if (row.doc_type === 'price_list') {
+            current.hasPriceList = true;
+            if (year != null && (current.priceListYear == null || year > current.priceListYear)) {
+              current.priceListYear = year;
+            }
+          } else {
+            current.hasCatalog = true;
+            if (year != null && (current.catalogYear == null || year > current.catalogYear)) {
+              current.catalogYear = year;
+            }
           }
           current.categories = [...new Set([...current.categories, ...(row.product_categories || [])])];
           if ((statusRank[row.processing_status] ?? 0) > (statusRank[current.status ?? ''] ?? 0)) {
@@ -134,7 +180,7 @@ export function ManufacturerDirectoryView() {
 
   const filteredFactories = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return factories.filter((factory) => {
+    const rows = factories.filter((factory) => {
       const catalog = catalogByFactory[factory.id];
       if (catalogFilter === 'missing-catalog' && catalog?.hasCatalog) return false;
       if (catalogFilter === 'missing-price-list' && catalog?.hasPriceList) return false;
@@ -145,9 +191,16 @@ export function ManufacturerDirectoryView() {
         factory.contact_person?.toLowerCase().includes(q) ||
         factory.phone?.toLowerCase().includes(q) ||
         factory.location?.toLowerCase().includes(q) ||
+        kindLabel(factory.supplier_kind).toLowerCase().includes(q) ||
         catalog?.categories.some((category) => category.toLowerCase().includes(q))
       );
     });
+    rows.sort((a, b) => {
+      const used = Number(Boolean(b.used_this_year)) - Number(Boolean(a.used_this_year));
+      if (used !== 0) return used;
+      return (a.display_name || '').localeCompare(b.display_name || '', 'zh-HK');
+    });
+    return rows;
   }, [factories, searchQuery, catalogFilter, catalogByFactory]);
 
   const handleViewDetail = (factory: FactoryRecord) => {
@@ -166,7 +219,7 @@ export function ManufacturerDirectoryView() {
           <div>
             <h1 className="font-display text-xl font-bold tracking-tight">廠家目錄</h1>
             <p className="font-body text-xs text-muted-foreground">
-              Manufacturer Directory · {factories.length} records
+              類型為傢私或材料 · 今年報價代表本年報價單有此廠家 · 圖冊／報價單 PDF 顯示上傳年份 · {factories.length} records
             </p>
           </div>
         </div>
@@ -229,14 +282,17 @@ export function ManufacturerDirectoryView() {
                 <TableHead className="font-display text-xs font-semibold min-w-[180px]">
                   廠家名稱
                 </TableHead>
-                <TableHead className="font-display text-xs font-semibold w-[70px]">
-                  圖冊
+                <TableHead className="font-display text-xs font-semibold w-[88px]">
+                  類型
                 </TableHead>
-                <TableHead className="font-display text-xs font-semibold w-[70px]">
-                  報價單
+                <TableHead className="font-display text-xs font-semibold w-[88px]">
+                  今年報價
                 </TableHead>
                 <TableHead className="font-display text-xs font-semibold w-[80px]">
-                  年份
+                  圖冊
+                </TableHead>
+                <TableHead className="font-display text-xs font-semibold w-[96px]">
+                  報價單PDF
                 </TableHead>
                 <TableHead className="font-display text-xs font-semibold w-[90px]">
                   解析
@@ -272,7 +328,7 @@ export function ManufacturerDirectoryView() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
-                    transition={{ delay: index * 0.03 }}
+                    transition={{ delay: Math.min(index, 12) * 0.02 }}
                     className="group cursor-pointer border-b border-border/50 hover:bg-muted/30 transition-colors"
                     onClick={() => handleViewDetail(factory)}
                   >
@@ -283,18 +339,57 @@ export function ManufacturerDirectoryView() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="font-body text-xs text-muted-foreground">
-                        {catalogByFactory[factory.id]?.hasCatalog ? '有' : '未有'}
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'font-body text-[10px]',
+                          factory.supplier_kind === 'material' && 'border-amber-500/40 text-amber-700 dark:text-amber-300',
+                          factory.supplier_kind === 'furniture' && 'border-primary/40 text-primary',
+                          factory.supplier_kind === 'both' && 'border-violet-500/40 text-violet-700 dark:text-violet-300',
+                        )}
+                      >
+                        {kindLabel(factory.supplier_kind)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'font-body text-[10px]',
+                          factory.used_this_year
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                            : 'text-muted-foreground',
+                        )}
+                      >
+                        {factory.used_this_year ? '有' : '無'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          'font-mono-data text-[11px]',
+                          catalogByFactory[factory.id]?.hasCatalog ? 'text-foreground' : 'text-muted-foreground',
+                        )}
+                      >
+                        {uploadYearLabel(
+                          catalogByFactory[factory.id]?.hasCatalog
+                            ? catalogByFactory[factory.id]?.catalogYear
+                            : null,
+                        )}
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span className="font-body text-xs text-muted-foreground">
-                        {catalogByFactory[factory.id]?.hasPriceList ? '有' : '未有'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-mono-data text-xs text-muted-foreground">
-                        {catalogByFactory[factory.id]?.latestYear ?? '—'}
+                      <span
+                        className={cn(
+                          'font-mono-data text-[11px]',
+                          catalogByFactory[factory.id]?.hasPriceList ? 'text-foreground' : 'text-muted-foreground',
+                        )}
+                      >
+                        {uploadYearLabel(
+                          catalogByFactory[factory.id]?.hasPriceList
+                            ? catalogByFactory[factory.id]?.priceListYear
+                            : null,
+                        )}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -352,7 +447,7 @@ export function ManufacturerDirectoryView() {
 
               {filteredFactories.length === 0 && !isLoading && (
                 <TableRow>
-                  <TableCell colSpan={12} className="h-32 text-center">
+                  <TableCell colSpan={13} className="h-32 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <Search className="h-8 w-8 opacity-30" />
                       <p className="font-body text-sm">沒有找到匹配的廠家</p>

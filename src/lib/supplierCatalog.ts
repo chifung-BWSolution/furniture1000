@@ -113,17 +113,17 @@ export async function listFactoryCatalogs(factoryId: string): Promise<SupplierCa
 }
 
 export async function listCatalogRows(): Promise<
-  Pick<SupplierCatalogRow, 'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories'>[]
+  Pick<SupplierCatalogRow, 'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories' | 'created_at'>[]
 > {
   const { data, error } = await supabase
     .from('supplier_documents')
-    .select('factory_id, doc_type, document_year, processing_status, product_categories')
+    .select('factory_id, doc_type, document_year, processing_status, product_categories, created_at')
     .in('doc_type', ['catalog', 'price_list'])
     .is('parent_document_id', null);
   if (error) throw new Error(error.message);
   return (data ?? []) as Pick<
     SupplierCatalogRow,
-    'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories'
+    'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories' | 'created_at'
   >[];
 }
 
