@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { buildFactoryDetailPath } from '@/lib/appSectionRoutes';
 import { supabase } from '@/lib/supabase';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -38,19 +38,6 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { inkEase, NavInk } from '@/components/motion/NavInk';
 import { FactoryCatalogPanel } from '@/components/dashboard/FactoryCatalogPanel';
-
-// ─── Standalone route wrapper ─────────────────────────────────────────────────
-export function FactoryDetailPage() {
-  const { factoryCode } = useParams<{ factoryCode: string }>();
-  const navigate = useNavigate();
-  if (!factoryCode) return null;
-  return (
-    <FactoryDetailView
-      factoryCode={factoryCode}
-      onBack={() => navigate(-1)}
-    />
-  );
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -228,7 +215,7 @@ export function FactoryDetailView({
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3 text-muted-foreground">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="font-body text-sm">正在載入廠家資料...</p>
@@ -320,7 +307,7 @@ export function FactoryDetailView({
               </div>
               <div className="mt-1 flex items-center gap-2 text-muted-foreground">
                 <span className="font-mono-data text-[11px] text-muted-foreground/60">
-                  /manufacturers/{factory.factory_code || factory.id}
+                  {buildFactoryDetailPath(factory.factory_code || factory.id)}
                 </span>
               </div>
             </div>

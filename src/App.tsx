@@ -1,8 +1,8 @@
 import { Suspense, lazy, Component, type ReactNode } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Routes, Route, useParams } from "react-router-dom";
+import { buildFactoryDetailPath } from "@/lib/appSectionRoutes";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/contexts/AuthProvider";
-import { RequireAuth } from "@/components/auth/RequireAuth";
 import { AppUpdateBanner } from "@/components/system/AppUpdateBanner";
 import { isStaleAssetErrorMessage, notifyAppUpdate } from "@/lib/appUpdateGuard";
 import Home from "./components/home";
@@ -19,11 +19,11 @@ const PmsSsoCallback = lazy(() =>
   })),
 );
 
-const FactoryDetailPage = lazy(() =>
-  import("./components/dashboard/FactoryDetailPage").then((m) => ({
-    default: m.FactoryDetailPage,
-  })),
-);
+/** Old share links opened a page outside the shell. Keep them, inside the app. */
+function LegacyManufacturerRedirect() {
+  const { factoryCode = "" } = useParams();
+  return <Navigate to={buildFactoryDetailPath(factoryCode)} replace />;
+}
 
 // Error boundary to catch rendering errors gracefully
 class ErrorBoundary extends Component<
@@ -102,14 +102,7 @@ function App() {
           <Routes>
             <Route path="/auth/shopify/callback" element={<ShopifyCallback />} />
             <Route path="/auth/pms/callback" element={<PmsSsoCallback />} />
-            <Route
-              path="/manufacturers/:factoryCode"
-              element={
-                <RequireAuth>
-                  <FactoryDetailPage />
-                </RequireAuth>
-              }
-            />
+            <Route path="/manufacturers/:factoryCode" element={<LegacyManufacturerRedirect />} />
             {/* Stable deep links for PMS Quote tab / SSO redirect_to */}
             <Route path="/quote/quick" element={<Home />} />
             <Route path="/quote/:quoteId" element={<Home />} />
