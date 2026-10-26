@@ -24,13 +24,16 @@ export type SupplierCatalogRow = {
   version_label: string | null;
   description: string | null;
   processing_status: CatalogProcessingStatus;
+  /** Latest parse job error, when the job failed. */
+  error_message?: string | null;
+  title?: string | null;
   storage_path: string;
   file_size: number | null;
   created_at: string;
 };
 
 const CATALOG_COLUMNS =
-  'id, factory_id, factory_name, doc_type, document_year, series, product_categories, version_label, description, processing_status, storage_path, file_size, created_at';
+  'id, factory_id, factory_name, doc_type, title, document_year, series, product_categories, version_label, description, processing_status, storage_path, file_size, created_at';
 
 export function supplierDocTypeLabel(docType: string | null | undefined): string {
   return docType === 'price_list' ? '報價單' : '圖冊';
@@ -45,11 +48,31 @@ export function catalogStatusLabel(status: string | null | undefined): string {
     case 'completed':
       return '已完成';
     case 'failed':
-      return '失敗';
+      return '解析失敗';
     case 'review_required':
       return '待審核';
     default:
       return '—';
+  }
+}
+
+/** What the current status means for the person who just uploaded the file. */
+export function catalogStatusDetail(status: string | null | undefined, errorMessage?: string | null): string {
+  switch (status) {
+    case 'pending':
+      return '檔案已保存。解析尚未開始，會在上海時間 23:00 至翌日 09:00 進行。';
+    case 'processing':
+      return '正在解析這份文件。完成前可以離開此頁。';
+    case 'completed':
+      return '解析已完成。';
+    case 'failed':
+      return errorMessage?.trim()
+        ? `解析失敗：${errorMessage.trim()}`
+        : '解析失敗。原檔仍在，可稍後重試。';
+    case 'review_required':
+      return '解析已完成，結果需要人工確認後才會入庫。';
+    default:
+      return '尚未取得處理狀態。';
   }
 }
 
@@ -68,7 +91,25 @@ export async function listFactoryCatalogs(factoryId: string): Promise<SupplierCa
     .order('document_year', { ascending: false })
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []) as SupplierCatalogRow[];
+  const rows = (data ?? []) as SupplierCatalogRow[];
+  if (rows.length === 0) return rows;
+  const { data: jobs, error: jobError } = await supabase
+    .from('supplier_document_jobs')
+    .select('document_id, error_message, created_at')
+    .in('document_id', rows.map((row) => row.id))
+    .order('created_at', { ascending: false });
+  if (jobError) return rows;
+  const errorByDocument = new Map<string, string | null>();
+  for (const job of jobs ?? []) {
+    const documentId = String(job.document_id);
+    if (!errorByDocument.has(documentId)) {
+      errorByDocument.set(documentId, job.error_message ?? null);
+    }
+  }
+  return rows.map((row) => ({
+    ...row,
+    error_message: errorByDocument.get(row.id) ?? null,
+  }));
 }
 
 export async function listCatalogRows(): Promise<
@@ -96,7 +137,7 @@ export async function uploadSupplierCatalog(input: {
   productCategories: string[];
   versionLabel?: string;
   description?: string;
-}): Promise<void> {
+}): Promise<Pick<SupplierCatalogRow, 'id' | 'title' | 'doc_type' | 'processing_status'>> {
   const isCatalog = input.docType === 'catalog';
   const docLabel = supplierDocTypeLabel(input.docType);
   const series = input.series.trim();
@@ -153,14 +194,24 @@ export async function uploadSupplierCatalog(input: {
     parent_document_id: null,
   });
 
-  const { error: insertError } = await supabase.from('supplier_documents').insert(row);
-  if (insertError) {
+  const { data: inserted, error: insertError } = await supabase
+    .from('supplier_documents')
+    .insert(row)
+    .select('id, title, doc_type, processing_status')
+    .single();
+  if (insertError || !inserted) {
     await supabase.storage.from(SUPPLIER_DOCUMENT_BUCKET).remove([objectPath]);
-    if (insertError.code === '23505') {
+    if (insertError?.code === '23505') {
       throw new Error(`這份${docLabel}已經上傳過，不會覆蓋舊檔`);
     }
-    throw new Error(insertError.message);
+    throw new Error(insertError?.message || '文件已上傳，但未能讀取處理狀態');
   }
+  return {
+    id: inserted.id,
+    title: inserted.title,
+    doc_type: inserted.doc_type,
+    processing_status: inserted.processing_status,
+  };
 }
 
 export async function openSupplierCatalog(storagePath: string): Promise<void> {

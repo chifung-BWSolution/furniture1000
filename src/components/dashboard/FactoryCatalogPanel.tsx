@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Loader2, Upload } from 'lucide-react';
+import { Download, Loader2, RefreshCw, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -22,6 +23,7 @@ import {
   uniqueLevel1InOrder,
 } from '@/lib/productCategoryOptions';
 import {
+  catalogStatusDetail,
   catalogStatusLabel,
   listFactoryCatalogs,
   openSupplierCatalog,
@@ -61,9 +63,10 @@ export function FactoryCatalogPanel({
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [fileKey, setFileKey] = useState(0);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [rows, pairs] = await Promise.all([
         listFactoryCatalogs(factoryId),
@@ -123,7 +126,7 @@ export function FactoryCatalogPanel({
     }
     setSaving(true);
     try {
-      await uploadSupplierCatalog({
+      const saved = await uploadSupplierCatalog({
         factoryId,
         factoryName,
         docType,
@@ -134,14 +137,15 @@ export function FactoryCatalogPanel({
         versionLabel,
         description,
       });
-      toast.success(`${docLabel}已保存。解析會在今晚 23:00 至明早 09:00（上海時間）進行，現在不會開始。`);
+      setHighlightedId(saved.id);
+      toast.success(`${docLabel}已保存，目前狀態：${catalogStatusLabel(saved.processing_status)}`);
       setSeries('');
       setVersionLabel('');
       setDescription('');
       setSelectedCategories([]);
       setFile(null);
       setFileKey((current) => current + 1);
-      await load();
+      await load(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : '上傳失敗';
       toast.error(message);
@@ -249,7 +253,21 @@ export function FactoryCatalogPanel({
         )}
       </div>
 
+      {highlightedId ? (
+        <UploadedStatus
+          document={catalogs.find((row) => row.id === highlightedId) ?? null}
+          fallbackLabel={docLabel}
+        />
+      ) : null}
+
       <div className="rounded-xl border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h2 className="font-display text-sm font-semibold">已上傳文件</h2>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load(true)} disabled={loading}>
+            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+            重新整理狀態
+          </Button>
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -278,7 +296,7 @@ export function FactoryCatalogPanel({
               </TableRow>
             ) : (
               catalogs.map((catalog) => (
-                <TableRow key={catalog.id}>
+                <TableRow key={catalog.id} className={cn(catalog.id === highlightedId && 'bg-primary/5')}>
                   <TableCell>{supplierDocTypeLabel(catalog.doc_type)}</TableCell>
                   <TableCell className="font-mono-data text-xs">{catalog.document_year ?? '—'}</TableCell>
                   <TableCell>{catalog.series || '—'}</TableCell>
@@ -288,8 +306,13 @@ export function FactoryCatalogPanel({
                     </span>
                   </TableCell>
                   <TableCell>{catalog.version_label || '—'}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{catalogStatusLabel(catalog.processing_status)}</Badge>
+                  <TableCell className="min-w-[220px]">
+                    <Badge variant={catalog.processing_status === 'failed' ? 'destructive' : 'secondary'}>
+                      {catalogStatusLabel(catalog.processing_status)}
+                    </Badge>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      {catalogStatusDetail(catalog.processing_status, catalog.error_message)}
+                    </p>
                   </TableCell>
                   <TableCell className="font-mono-data text-[11px] text-muted-foreground">
                     {new Date(catalog.created_at).toLocaleString('zh-HK', { timeZone: 'Asia/Shanghai' })}
@@ -315,6 +338,29 @@ export function FactoryCatalogPanel({
           </TableBody>
         </Table>
       </div>
+    </div>
+  );
+}
+
+function UploadedStatus({
+  document,
+  fallbackLabel,
+}: {
+  document: SupplierCatalogRow | null;
+  fallbackLabel: string;
+}) {
+  const status = document?.processing_status ?? 'pending';
+  const label = document ? supplierDocTypeLabel(document.doc_type) : fallbackLabel;
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <p className="font-body text-xs text-muted-foreground">剛剛上傳的{label}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <p className="font-display text-base font-semibold">{document?.title || label}</p>
+        <Badge variant={status === 'failed' ? 'destructive' : 'secondary'}>{catalogStatusLabel(status)}</Badge>
+      </div>
+      <p className="mt-2 font-body text-sm text-muted-foreground">
+        {catalogStatusDetail(status, document?.error_message)}
+      </p>
     </div>
   );
 }
