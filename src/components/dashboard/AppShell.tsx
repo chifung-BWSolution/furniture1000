@@ -1096,7 +1096,10 @@ function AppShellContent() {
           <DashboardView onNavigate={handleViewChange} />
         );
       case "ai-processor":
-        return <ManufacturerDirectoryView />;
+        return <ManufacturerDirectoryView onOpenFactory={(code) => {
+          store.setFactoryDetailCode(code);
+          store.setCurrentView('factory-detail');
+        }} />;
       case "furniture-group-check":
         return (
           <FurnitureGroupCheckView

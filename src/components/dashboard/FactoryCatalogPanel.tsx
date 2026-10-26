@@ -45,9 +45,15 @@ function shanghaiYear(): number {
 export function FactoryCatalogPanel({
   factoryId,
   factoryName,
+  initialDocType = 'catalog',
+  embedded = false,
+  onUploaded,
 }: {
   factoryId: string;
   factoryName: string;
+  initialDocType?: SupplierDocType;
+  embedded?: boolean;
+  onUploaded?: () => void;
 }) {
   const { user } = useAuth();
   const [catalogs, setCatalogs] = useState<SupplierCatalogRow[]>([]);
@@ -55,7 +61,7 @@ export function FactoryCatalogPanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [canUpload, setCanUpload] = useState(false);
-  const [docType, setDocType] = useState<SupplierDocType>('catalog');
+  const [docType, setDocType] = useState<SupplierDocType>(initialDocType);
   const [year, setYear] = useState(shanghaiYear());
   const [series, setSeries] = useState('');
   const [versionLabel, setVersionLabel] = useState('');
@@ -85,6 +91,10 @@ export function FactoryCatalogPanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setDocType(initialDocType);
+  }, [initialDocType]);
 
   useEffect(() => {
     const email = user?.email?.trim();
@@ -146,6 +156,7 @@ export function FactoryCatalogPanel({
       setFile(null);
       setFileKey((current) => current + 1);
       await load(true);
+      onUploaded?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : '上傳失敗';
       toast.error(message);
@@ -157,12 +168,16 @@ export function FactoryCatalogPanel({
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="font-display text-base font-semibold">上傳圖冊或報價單</h2>
-        <p className="mt-1 font-body text-xs text-muted-foreground">
-          兩種文件用同一個畫面。新檔另存一版，不會覆蓋舊檔，也不會立刻解析。
-        </p>
+        {embedded ? null : (
+          <>
+            <h2 className="font-display text-base font-semibold">上傳圖冊或報價單</h2>
+            <p className="mt-1 font-body text-xs text-muted-foreground">
+              兩種文件用同一個畫面。新檔另存一版，不會覆蓋舊檔，也不會立刻解析。
+            </p>
+          </>
+        )}
         {canUpload ? (
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className={cn('grid gap-4 md:grid-cols-2', !embedded && 'mt-4')}>
             <div className="space-y-2 md:col-span-2">
               <Label>文件類型</Label>
               <div className="flex gap-2">

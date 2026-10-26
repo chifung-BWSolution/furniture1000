@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -23,7 +24,8 @@ import {
 import { toast } from 'sonner';
 import { motion, useReducedMotion } from 'framer-motion';
 import { loadManufacturerDirectory, type DirectoryFactory } from '@/lib/manufacturerDirectory';
-import { catalogStatusLabel, listCatalogRows } from '@/lib/supplierCatalog';
+import { catalogStatusLabel, listCatalogRows, supplierDocTypeLabel, type SupplierDocType } from '@/lib/supplierCatalog';
+import { FactoryCatalogPanel } from '@/components/dashboard/FactoryCatalogPanel';
 import {
   Select,
   SelectContent,
@@ -97,6 +99,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   const [currentPage, setCurrentPage] = useState(1);
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'missing-catalog' | 'missing-price-list'>('all');
   const [catalogByFactory, setCatalogByFactory] = useState<Record<string, CatalogSummary>>({});
+  const [uploadTarget, setUploadTarget] = useState<{ factory: FactoryRecord; docType: SupplierDocType } | null>(null);
 
   const fetchData = useCallback(async (force = false) => {
     setIsLoading(true);
@@ -207,6 +210,10 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
     onOpenFactory(slug);
   };
 
+  const openUpload = (factory: FactoryRecord, docType: SupplierDocType) => {
+    setUploadTarget({ factory, docType });
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col fds-page-padding">
       <div className="fds-page-header mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -310,7 +317,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                 <TableHead className="font-display text-xs font-semibold w-[110px]">
                   加入日期
                 </TableHead>
-                <TableHead className="font-display text-xs font-semibold w-[90px] text-right">
+                <TableHead className="font-display text-xs font-semibold w-[220px] text-right">
                   操作
                 </TableHead>
               </TableRow>
@@ -419,18 +426,42 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleViewDetail(factory);
-                      }}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                      <span className="ml-1 text-xs">查看</span>
-                    </Button>
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openUpload(factory, 'catalog');
+                        }}
+                      >
+                        上傳圖冊
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openUpload(factory, 'price_list');
+                        }}
+                      >
+                        上傳報價單
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleViewDetail(factory);
+                        }}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                        <span className="ml-1 text-xs">查看</span>
+                      </Button>
+                    </div>
                   </TableCell>
                 </motion.tr>
                 );
@@ -462,6 +493,24 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
           ) : null}
         </div>
       )}
+      <Dialog open={uploadTarget != null} onOpenChange={(open) => { if (!open) setUploadTarget(null); }}>
+        <DialogContent
+          size="3xl"
+          title={uploadTarget ? `上傳${supplierDocTypeLabel(uploadTarget.docType)} · ${uploadTarget.factory.display_name}` : '上傳'}
+          description="新檔另存一版，不會覆蓋舊檔，也不會立刻解析。"
+        >
+          {uploadTarget ? (
+            <FactoryCatalogPanel
+              key={`${uploadTarget.factory.id}-${uploadTarget.docType}`}
+              factoryId={uploadTarget.factory.id}
+              factoryName={uploadTarget.factory.display_name}
+              initialDocType={uploadTarget.docType}
+              embedded
+              onUploaded={() => void fetchData(true)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

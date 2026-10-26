@@ -98,7 +98,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Building2,
     children: [
       { view: 'fds2-factory-info', label: '廠家資訊', icon: Building2 },
-      { view: 'fds2-factory-upload', label: '上載產品PDF', icon: FileUp },
+      { view: 'fds2-factory-upload', label: '上傳圖冊/報價單', icon: FileUp },
       { view: 'fds2-factory-sales', label: '銷售表現', icon: BarChart2 },
       { view: 'fds2-factory-zones', label: '廠家分區', icon: Map },
       { view: 'fds2-factory-login', label: '廠家登入', icon: LogIn },
