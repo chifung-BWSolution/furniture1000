@@ -6,7 +6,6 @@ import {
   Building2, BarChart2, Map, LogIn, Mail, FolderTree, History,
   UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film,
   Briefcase, Phone, Landmark, Heart, Combine, Presentation,
-  UserPlus, CheckCircle2,
   type LucideIcon,
 } from 'lucide-react';
 import { type PrimarySection, type ViewType } from '@/types/product';
@@ -81,10 +80,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-quote-common', label: '常用傢俬', icon: Heart },
       { view: 'fds2-quote-list', label: '報價一覽', icon: ClipboardList },
       { view: 'fds2-quote-large', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
-      { view: 'solution-project-list', label: '方案列表', icon: Map },
-      { view: 'design-projects', label: '設計專案', icon: LayoutDashboard },
-      { view: 'invite-clients', label: '邀請客戶', icon: UserPlus },
-      { view: 'confirmed-projects', label: '已確定方案', icon: CheckCircle2 },
       { view: 'fds2-quote-trash', label: '報價回收桶', icon: Trash2, pinned: true },
       { view: 'fds2-quote-format', label: '報價單格式設定', icon: FileText },
       { view: 'fds2-quote-photos', label: '圖片庫', icon: Images },
@@ -186,11 +181,14 @@ export function findSection(view: ViewType): PrimarySection {
     return 'customers';
   }
   if (
+    view === 'design-projects' ||
+    view === 'product-search' ||
+    view === 'solution-project-list' ||
+    view === 'invite-clients' ||
     view === 'solution-client-activity' ||
-    view === 'solution-portal-content' ||
-    view === 'product-search'
+    view === 'solution-portal-content'
   ) {
-    return 'designer';
+    return 'quote';
   }
   if (view === 'factory-detail') return 'factories';
   return 'home';
@@ -273,12 +271,17 @@ export function isImplementedLegacyView(view: ViewType): boolean {
   return PRIMARY_SITEMAP_BY_LEGACY[view] != null;
 }
 
-/** main 的傢俬方案頁，掛在傢俬報價選單。PM 仍可開這些頁（其餘報價頁維持封鎖）。 */
+/**
+ * 設計方案工作區（平面圖與房間、配置傢俬、邀請客戶）。
+ * 不出現在側欄；PM 仍可開這些頁，其餘報價頁維持封鎖。
+ */
 const SOLUTION_PAGES_IN_QUOTE: readonly ViewType[] = [
   'solution-project-list',
   'design-projects',
   'invite-clients',
-  'confirmed-projects',
+  'product-search',
+  'solution-client-activity',
+  'solution-portal-content',
 ];
 
 export function isSolutionPageInQuote(view: ViewType): boolean {
@@ -329,8 +332,12 @@ export function filterNavChildren(
   }
   list = list.filter((child) => !child.pinned);
   if (opts?.pm) {
-    const solutionPages = list.filter((c) => isSolutionPageInQuote(c.view));
-    if (solutionPages.length > 0) list = solutionPages;
+    const quoteSection = list.some(
+      (c) => c.view.startsWith('fds2-quote-') || isSolutionPageInQuote(c.view),
+    );
+    if (quoteSection) {
+      list = list.filter((c) => isSolutionPageInQuote(c.view));
+    }
   }
   return list;
 }
@@ -344,7 +351,10 @@ export function getFirstVisibleView(
     pm?: boolean;
   },
 ): ViewType | undefined {
-  return filterNavChildren(getSection(sectionId).children, isAdmin, opts)[0]?.view;
+  const first = filterNavChildren(getSection(sectionId).children, isAdmin, opts)[0]?.view;
+  if (first) return first;
+  if (opts?.pm && sectionId === 'quote') return 'design-projects';
+  return undefined;
 }
 
 export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: string } {
@@ -360,12 +370,18 @@ export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: 
   ) {
     return { sectionLabel: '客戶專區', viewLabel: '報價方案' };
   }
+  if (view === 'design-projects' || view === 'product-search') {
+    return { sectionLabel: '傢俬報價', viewLabel: '配置傢俬' };
+  }
   if (
+    view === 'solution-project-list' ||
     view === 'solution-client-activity' ||
-    view === 'solution-portal-content' ||
-    view === 'product-search'
+    view === 'solution-portal-content'
   ) {
-    return { sectionLabel: '設計師選傢俬', viewLabel: '產品類型' };
+    return { sectionLabel: '傢俬報價', viewLabel: '平面圖與房間' };
+  }
+  if (view === 'invite-clients') {
+    return { sectionLabel: '傢俬報價', viewLabel: '邀請客戶' };
   }
   return { sectionLabel: '', viewLabel: view };
 }

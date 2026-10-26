@@ -222,6 +222,11 @@ export function SidebarNav({
         <nav className="flex-1 overflow-y-auto px-3 py-3">
           <div className="space-y-1">
             {scrollChildren.map((item) => renderItem(item))}
+            {scrollChildren.length === 0 && pm && section.id === 'quote' && !isCollapsed ? (
+              <p className="px-2 pt-1 text-xs leading-5 text-shell-muted">
+                平面圖、房間、配置傢俬和邀請客戶都在右側工作區。已確認的方案在客戶專區的報價方案。
+              </p>
+            ) : null}
           </div>
         </nav>
 

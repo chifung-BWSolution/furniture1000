@@ -3220,7 +3220,7 @@ export function CustomerQuoteSchemesView() {
       unsavedGuard.clear();
       if (decision === 'approved') {
         toast.success('已確認整張報價並提交', {
-          description: '方案已標示為已確認，可在「已確定方案」查看',
+          description: '方案已標示為已確認，可在這張報價方案查看',
         });
       } else if (decision === 'rejected') {
         toast.success('已提交拒絕整張報價的回覆', {

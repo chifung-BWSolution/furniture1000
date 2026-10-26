@@ -248,7 +248,7 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
             />
             <QuickLink
               label="我的設計專案"
-              description="管理進行中的設計方案"
+              description="配置傢俬、房間與邀請客戶"
               icon={<LayoutDashboard className="h-4 w-4" />}
               onClick={() => onNavigate('design-projects')}
               delay={0.2}

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
-import { Calculator, CircleDollarSign } from 'lucide-react';
+import { Calculator, CircleDollarSign, Sofa } from 'lucide-react';
+import { DESIGN_PROJECTS_PATH } from '@/lib/designProjectRoutes';
 import { PM_BUDGET_PATH } from '@/content/bwaPm';
 import {
   formatHkMoney,
@@ -239,6 +240,13 @@ export function PmQuickView() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link
+                to={DESIGN_PROJECTS_PATH}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-background px-3 text-sm font-semibold"
+              >
+                <Sofa className="mr-1.5 h-4 w-4" />
+                設計方案
+              </Link>
               <Link
                 to={PM_BUDGET_PATH}
                 className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-background px-3 text-sm font-semibold"

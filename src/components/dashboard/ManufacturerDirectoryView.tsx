@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Modal } from '@/components/ui/modal';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -737,24 +737,28 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
           ) : null}
         </div>
       )}
-      <Dialog open={uploadTarget != null} onOpenChange={(open) => { if (!open) setUploadTarget(null); }}>
-        <DialogContent
-          size="3xl"
-          title={uploadTarget ? `上傳圖冊/報價單 · ${uploadTarget.display_name}` : '上傳圖冊/報價單'}
-          description="可選圖冊或報價單。新檔另存一版，不會覆蓋舊檔，也不會立刻解析。"
-        >
-          {uploadTarget ? (
+      <Modal
+        open={uploadTarget != null}
+        onOpenChange={(open) => { if (!open) setUploadTarget(null); }}
+        variant="fullscreen"
+        title={uploadTarget ? `上傳圖冊/報價單 · ${uploadTarget.display_name}` : '上傳圖冊/報價單'}
+        description="這是廠家文件上傳頁。可選圖冊或報價單，新檔另存，不會覆蓋舊檔。"
+        className="bg-background text-foreground"
+        headerClassName="border-b border-border bg-background text-foreground"
+        bodyClassName="bg-background p-0 sm:p-0"
+      >
+        {uploadTarget ? (
+          <div className="min-h-0 flex-1 overflow-y-auto bg-background p-4 text-foreground md:p-6">
             <FactoryCatalogPanel
               key={uploadTarget.id}
               factoryId={uploadTarget.id}
               factoryName={uploadTarget.display_name}
               allowedDocTypes={DIRECTORY_UPLOAD_TYPES}
-              embedded
               onUploaded={() => void fetchData(true)}
             />
-          ) : null}
-        </DialogContent>
-      </Dialog>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

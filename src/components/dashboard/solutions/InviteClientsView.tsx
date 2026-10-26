@@ -255,7 +255,7 @@ export function InviteClientsView() {
           <div>
             <h1 className="fds-page-title">邀請客戶</h1>
             <p className="fds-page-description">
-              「設計專案」完成傢俬配置並儲存後，可在此為該專案建立免登入連結。客戶開啟後直接查看報價方案，亦可瀏覽客戶專區其他頁面；成本資料一律隱藏。
+              在「配置傢俬」儲存方案後，可在此為該專案建立免登入連結。客戶開啟後直接查看報價方案，亦可瀏覽客戶專區其他頁面；成本資料一律隱藏。
             </p>
           </div>
           <div className="min-w-[280px]">
@@ -284,8 +284,8 @@ export function InviteClientsView() {
         ) : !project ? (
           <CompactEmptyState
             icon={FolderOpen}
-            title="請先在「方案列表」建立專案"
-            description="建立專案並上傳平面圖後，才能邀請客戶查看方案。"
+            title="請先建立專案"
+            description="在「平面圖與房間」建立專案並上傳平面圖後，才能邀請客戶查看方案。"
             className="py-12"
           />
         ) : (
@@ -309,7 +309,7 @@ export function InviteClientsView() {
               <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
                 <p className="font-semibold text-primary">邀請流程</p>
                 <p className="mt-1">
-                  1 完成設計專案 → 2 選該專案並建立連結 → 3 客戶免登入查看報價
+                  1 在「配置傢俬」儲存方案 → 2 選該專案並建立連結 → 3 客戶免登入查看報價
                 </p>
               </div>
             </section>

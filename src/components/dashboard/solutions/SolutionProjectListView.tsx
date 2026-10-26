@@ -356,9 +356,9 @@ export function SolutionProjectListView() {
       <div className="mx-auto max-w-none space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="fds-page-title">方案列表</h1>
+            <h1 className="fds-page-title">平面圖與房間</h1>
             <p className="fds-page-description">
-              依工程類型建立專案；展開每個方案設定「間隔／功能房間」，並按「儲存」寫入專案資料
+              依工程類型建立專案、上傳平面圖，再設定間隔／功能房間。按「儲存」後，到「配置傢俬」放入產品。
             </p>
           </div>
           <button

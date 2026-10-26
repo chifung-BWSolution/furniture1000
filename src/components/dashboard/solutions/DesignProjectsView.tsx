@@ -39,7 +39,6 @@ import {
 } from '@/lib/factoryNames';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import { ProductImageUploadModal } from './ProductImageUploadModal';
-import { useAppStore } from '@/hooks/use-app-store';
 import {
   buildDesignProjectPath,
   parseDesignProjectPathname,
@@ -1455,7 +1454,6 @@ function roomOrderLabels(
 }
 
 export function DesignProjectsView() {
-  const appStore = useAppStore();
   const navigate = useNavigate();
   const location = useLocation();
   const routeProjectId = useMemo(() => {
@@ -1762,13 +1760,13 @@ export function DesignProjectsView() {
         setZones(synced.data);
         setZoneProducts(withOptionalFlags(nextProducts, optionalIds));
         toast.success('已同步房間清單', {
-          description: '已與方案列表的房間類型及數量對齊',
+          description: '已與平面圖與房間的房間類型及數量對齊',
         });
         return synced.data;
       }
       healedProjectIdsRef.current.delete(projectId);
       toast.error('同步房間失敗', {
-        description: synced.error || '請到方案列表重新按「儲存」',
+        description: synced.error || '請到「平面圖與房間」重新按「儲存」',
       });
       return z;
     } catch {
@@ -2945,9 +2943,8 @@ export function DesignProjectsView() {
       ),
     );
     toast.success('方案已提交', {
-      description: `${zones.length} 個間隔 · ${selectedProducts.length} 件產品；已標示為已確認`,
+      description: `${zones.length} 個間隔 · ${selectedProducts.length} 件產品；已標示為已確認，可在「客戶報價方案」查看`,
     });
-    appStore.setCurrentView('confirmed-projects');
   };
 
   saveFurnitureRef.current = () => {
@@ -3079,7 +3076,7 @@ export function DesignProjectsView() {
       <div className="flex h-full items-center justify-center bg-background">
         <EmptyState
           title="尚無設計專案"
-          description="請先到「方案列表」建立專案並上傳平面圖。"
+          description="請先到「平面圖與房間」建立專案並上傳平面圖。"
         />
       </div>
     );
@@ -3096,7 +3093,7 @@ export function DesignProjectsView() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="fds-page-title">
-                設計專案
+                配置傢俬
               </h1>
               <span className="text-sm font-medium text-muted-foreground">
                 （客戶專區 &gt; 報價方案）
@@ -3329,7 +3326,7 @@ export function DesignProjectsView() {
           ) : zones.length === 0 ? (
             <CompactEmptyState
               icon={LayoutGrid}
-              title="請到「方案列表」展開此專案並設定間隔／功能房間"
+              title="請到「平面圖與房間」設定間隔／功能房間"
               className="py-8"
             />
           ) : (
