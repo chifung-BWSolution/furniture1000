@@ -3,7 +3,6 @@ import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Modal } from '@/components/ui/modal';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -23,9 +22,8 @@ import {
 import { toast } from 'sonner';
 import { motion, useReducedMotion } from 'framer-motion';
 import { loadManufacturerDirectory, type DirectoryDocumentLink, type DirectoryFactory } from '@/lib/manufacturerDirectory';
-import { catalogStatusLabel, listCatalogRows, openSupplierCatalog, type SupplierDocType } from '@/lib/supplierCatalog';
+import { catalogStatusLabel, listCatalogRows, openSupplierCatalog } from '@/lib/supplierCatalog';
 import { canManageSupplierDocuments, enqueueSupplierDocumentParse } from '@/lib/supplierDocuments';
-import { FactoryCatalogPanel } from '@/components/dashboard/FactoryCatalogPanel';
 import {
   Select,
   SelectContent,
@@ -203,15 +201,19 @@ function DocumentYearCell({
   );
 }
 
-const DIRECTORY_UPLOAD_TYPES: SupplierDocType[] = ['catalog', 'price_list'];
-
 function formatJoinDate(value: string | null | undefined): string {
   if (!value) return '—';
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('zh-HK');
 }
 
-export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (code: string) => void }) {
+export function ManufacturerDirectoryView({
+  onOpenFactory,
+  onOpenUpload,
+}: {
+  onOpenFactory: (code: string) => void;
+  onOpenUpload: (factory: FactoryRecord) => void;
+}) {
   const [factories, setFactories] = useState<FactoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -226,7 +228,6 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   const [catalogUploadFilter, setCatalogUploadFilter] = useState<UploadFilter>('all');
   const [priceListUploadFilter, setPriceListUploadFilter] = useState<UploadFilter>('all');
   const [catalogByFactory, setCatalogByFactory] = useState<Record<string, CatalogSummary>>({});
-  const [uploadTarget, setUploadTarget] = useState<FactoryRecord | null>(null);
   const [canQueueParse, setCanQueueParse] = useState(false);
   const queuedDocumentIds = useRef(new Set<string>());
 
@@ -362,7 +363,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   };
 
   const openUpload = (factory: FactoryRecord) => {
-    setUploadTarget(factory);
+    onOpenUpload(factory);
   };
 
   const openFile = (storagePath: string) => {
@@ -729,28 +730,6 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
           ) : null}
         </div>
       )}
-      <Modal
-        open={uploadTarget != null}
-        onOpenChange={(open) => { if (!open) setUploadTarget(null); }}
-        variant="fullscreen"
-        title={uploadTarget ? `上傳圖冊/報價單 · ${uploadTarget.display_name}` : '上傳圖冊/報價單'}
-        description="這是廠家文件上傳頁。可選圖冊或報價單，新檔另存，不會覆蓋舊檔。"
-        className="bg-background text-foreground"
-        headerClassName="border-b border-border bg-background text-foreground"
-        bodyClassName="bg-background p-0 sm:p-0"
-      >
-        {uploadTarget ? (
-          <div className="min-h-0 flex-1 overflow-y-auto bg-background p-4 text-foreground md:p-6">
-            <FactoryCatalogPanel
-              key={uploadTarget.id}
-              factoryId={uploadTarget.id}
-              factoryName={uploadTarget.display_name}
-              allowedDocTypes={DIRECTORY_UPLOAD_TYPES}
-              onUploaded={() => void fetchData(true)}
-            />
-          </div>
-        ) : null}
-      </Modal>
     </div>
   );
 }

@@ -2074,6 +2074,18 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     hasAttemptedRecovery.current = true;
 
     const doRestore = async () => {
+      const pendingFactory = sessionStorage.getItem('fds-upload-factory');
+      if (pendingFactory) {
+        sessionStorage.removeItem('fds-upload-factory');
+        try {
+          const picked = JSON.parse(pendingFactory) as { id?: string; name?: string };
+          if (picked.name) setSelectedManufacturer(picked.name);
+          if (picked.id) setSelectedFactoryId(picked.id);
+          return;
+        } catch {
+          // Fall through and restore the last upload session.
+        }
+      }
       const saved = await loadSession();
       if (!saved || !saved.headerLabels) {
         console.log('[IndexedDB] No saved session found');

@@ -190,7 +190,7 @@ export function findSection(view: ViewType): PrimarySection {
   ) {
     return 'quote';
   }
-  if (view === 'factory-detail') return 'factories';
+  if (view === 'factory-detail' || view === 'ai-processor') return 'factories';
   return 'home';
 }
 
@@ -382,6 +382,9 @@ export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: 
   }
   if (view === 'invite-clients') {
     return { sectionLabel: '傢俬報價', viewLabel: '邀請客戶' };
+  }
+  if (view === 'ai-processor') {
+    return { sectionLabel: '廠家目錄', viewLabel: '上載報價 PDF' };
   }
   return { sectionLabel: '', viewLabel: view };
 }
