@@ -96,6 +96,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '廠家目錄',
     icon: Building2,
     children: [
+      { view: 'fds2-products-factories', label: '廠家目錄', icon: BookOpen },
       { view: 'fds2-factory-sales', label: '銷售表現', icon: BarChart2 },
       { view: 'fds2-factory-zones', label: '廠家分區', icon: Map },
       { view: 'fds2-factory-login', label: '廠家登入', icon: LogIn },
@@ -106,7 +107,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '產品管理',
     icon: Package,
     children: [
-      { view: 'fds2-products-factories', label: '廠家目錄', icon: BookOpen },
       { view: 'fds2-products-ai-review', label: 'AI 提取審核', icon: ListChecks },
       { view: 'fds2-products-pending', label: '待處理產品', icon: Boxes },
       { view: 'fds2-products-catalog', label: '產品目錄', icon: BookOpen },
@@ -192,7 +192,7 @@ export function findSection(view: ViewType): PrimarySection {
   ) {
     return 'designer';
   }
-  if (view === 'factory-detail') return 'products';
+  if (view === 'factory-detail') return 'factories';
   return 'home';
 }
 
