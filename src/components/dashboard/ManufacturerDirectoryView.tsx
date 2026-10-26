@@ -59,14 +59,20 @@ type KindFilter = 'all' | SupplierKind | 'unknown';
 type YesNoFilter = 'all' | 'yes' | 'no';
 type UploadFilter = 'all' | 'uploaded' | 'missing';
 
+function usableYear(year: number | null | undefined): number | null {
+  return year != null && year >= 1990 && year <= 2100 ? year : null;
+}
+
 function shownCatalogYear(factory: FactoryRecord, catalog: CatalogSummary | undefined): number | null {
-  if (catalog?.hasCatalog) return catalog.catalogYear;
-  return factory.catalog_year ?? null;
+  return usableYear(catalog?.catalogFile?.year)
+    ?? usableYear(catalog?.catalogYear)
+    ?? usableYear(factory.catalog_year);
 }
 
 function shownQuoteYear(factory: FactoryRecord, catalog: CatalogSummary | undefined): number | null {
-  if (catalog?.hasPriceList) return catalog.priceListYear;
-  return factory.quote_pdf_year ?? null;
+  return usableYear(catalog?.priceListFile?.year)
+    ?? usableYear(catalog?.priceListYear)
+    ?? usableYear(factory.quote_pdf_year);
 }
 
 function hasUploadedCatalog(factory: FactoryRecord, catalog: CatalogSummary | undefined): boolean {
@@ -75,10 +81,6 @@ function hasUploadedCatalog(factory: FactoryRecord, catalog: CatalogSummary | un
 
 function hasUploadedQuote(factory: FactoryRecord, catalog: CatalogSummary | undefined): boolean {
   return shownQuoteYear(factory, catalog) != null || Boolean(catalog?.priceListFile);
-}
-
-function uploadYearLabel(year: number | null | undefined, hasDocument = false): string {
-  return year ? String(year) : hasDocument ? '年份未填' : '未上傳';
 }
 
 function shanghaiYearOf(value: string | null | undefined): number | null {
@@ -162,44 +164,42 @@ function preferFile(current: CatalogFileRef | null, next: CatalogFileRef): Catal
 
 function DocumentYearCell({
   file,
-  documentYear,
-  uploadYear,
+  year,
   allowOpen = true,
   onOpen,
 }: {
   file: CatalogFileRef | null;
-  documentYear: number | null | undefined;
-  uploadYear: number | null | undefined;
+  year: number | null | undefined;
   /** Designer/PM may open catalog PDFs only; quote/price_list need admin/uploader. */
   allowOpen?: boolean;
   onOpen: (storagePath: string) => void;
 }) {
-  const linkedYear = file?.year ?? documentYear ?? null;
-  const uploadedYear = shanghaiYearOf(file?.createdAt) ?? uploadYear ?? null;
+  const documentYear = usableYear(file?.year);
+  const listedYear = usableYear(year);
+  const uploadedYear = shanghaiYearOf(file?.createdAt);
+  const labelYear = documentYear ?? listedYear ?? uploadedYear;
   const canOpen = allowOpen && Boolean(file?.storagePath);
-  if (!canOpen && linkedYear == null && uploadedYear == null) {
-    return <span className="font-mono-data text-[11px] text-muted-foreground">未上傳</span>;
+  if (!canOpen) {
+    return (
+      <span className={cn('font-mono-data text-[11px]', labelYear != null ? 'text-foreground' : 'text-muted-foreground')}>
+        {labelYear != null ? String(labelYear) : '未上傳'}
+      </span>
+    );
   }
   return (
     <div className="flex flex-col items-start gap-0.5">
-      {canOpen ? (
-        <button
-          type="button"
-          className="font-mono-data text-[11px] text-primary underline underline-offset-2 hover:text-primary/80"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpen(file!.storagePath);
-          }}
-        >
-          {linkedYear != null ? String(linkedYear) : '查看'}
-        </button>
-      ) : (
-        <span className={cn('font-mono-data text-[11px]', linkedYear != null ? 'text-foreground' : 'text-muted-foreground')}>
-          {uploadYearLabel(linkedYear, Boolean(file))}
-        </span>
-      )}
-      {uploadedYear != null ? (
-        <span className="font-mono-data text-[10px] text-muted-foreground">上傳 {uploadedYear}</span>
+      <button
+        type="button"
+        className="font-body text-[11px] text-primary underline underline-offset-2 hover:text-primary/80"
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen(file!.storagePath);
+        }}
+      >
+        查看
+      </button>
+      {labelYear != null ? (
+        <span className="font-mono-data text-[10px] text-muted-foreground">上傳 {uploadedYear ?? labelYear}</span>
       ) : null}
     </div>
   );
@@ -581,6 +581,8 @@ export function ManufacturerDirectoryView({
                   no longer match are now removed straight away. */}
               {visibleFactories.map((factory, index) => {
                 const catalog = catalogByFactory[factory.id];
+                const catalogYear = shownCatalogYear(factory, catalog);
+                const quoteYear = shownQuoteYear(factory, catalog);
                 return (
                 <motion.tr
                   key={factory.id}
@@ -632,16 +634,14 @@ export function ManufacturerDirectoryView({
                   <TableCell>
                     <DocumentYearCell
                       file={catalog?.catalogFile ?? null}
-                      documentYear={catalog?.hasCatalog ? catalog.catalogYear : null}
-                      uploadYear={catalog?.catalogFile ? factory.catalog_year : null}
+                      year={catalogYear}
                       onOpen={openFile}
                     />
                   </TableCell>
                   <TableCell>
                     <DocumentYearCell
                       file={catalog?.priceListFile ?? null}
-                      documentYear={catalog?.hasPriceList ? catalog.priceListYear : null}
-                      uploadYear={catalog?.priceListFile ? factory.quote_pdf_year : null}
+                      year={quoteYear}
                       allowOpen={canManageDocs}
                       onOpen={openFile}
                     />
