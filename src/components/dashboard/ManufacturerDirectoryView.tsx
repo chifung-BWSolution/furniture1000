@@ -59,6 +59,28 @@ function kindLabel(kind: SupplierKind | null | undefined): string {
   return kind ? KIND_LABEL[kind] : '—';
 }
 
+type KindFilter = 'all' | SupplierKind | 'unknown';
+type YesNoFilter = 'all' | 'yes' | 'no';
+type UploadFilter = 'all' | 'uploaded' | 'missing';
+
+function shownCatalogYear(factory: FactoryRecord, catalog: CatalogSummary | undefined): number | null {
+  if (catalog?.hasCatalog) return catalog.catalogYear;
+  return factory.catalog_year ?? null;
+}
+
+function shownQuoteYear(factory: FactoryRecord, catalog: CatalogSummary | undefined): number | null {
+  if (catalog?.hasPriceList) return catalog.priceListYear;
+  return factory.quote_pdf_year ?? null;
+}
+
+function hasUploadedCatalog(factory: FactoryRecord, catalog: CatalogSummary | undefined): boolean {
+  return shownCatalogYear(factory, catalog) != null || Boolean(catalog?.catalogFile);
+}
+
+function hasUploadedQuote(factory: FactoryRecord, catalog: CatalogSummary | undefined): boolean {
+  return shownQuoteYear(factory, catalog) != null || Boolean(catalog?.priceListFile);
+}
+
 function uploadYearLabel(year: number | null | undefined): string {
   return year ? String(year) : '未上傳';
 }
@@ -172,7 +194,10 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   const hasShownList = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [catalogFilter, setCatalogFilter] = useState<'all' | 'missing-catalog' | 'missing-price-list'>('all');
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
+  const [quoteFilter, setQuoteFilter] = useState<YesNoFilter>('all');
+  const [catalogUploadFilter, setCatalogUploadFilter] = useState<UploadFilter>('all');
+  const [priceListUploadFilter, setPriceListUploadFilter] = useState<UploadFilter>('all');
   const [catalogByFactory, setCatalogByFactory] = useState<Record<string, CatalogSummary>>({});
   const [uploadTarget, setUploadTarget] = useState<{ factory: FactoryRecord; docType: SupplierDocType } | null>(null);
   const [canQueueParse, setCanQueueParse] = useState(false);
@@ -262,16 +287,22 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   useEffect(() => {
     setCurrentPage(1);
     scrollContainerRef.current?.scrollTo({ top: 0 });
-  }, [searchQuery, catalogFilter]);
+  }, [searchQuery, kindFilter, quoteFilter, catalogUploadFilter, priceListUploadFilter]);
 
   const filteredFactories = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const rows = factories.filter((factory) => {
       const catalog = catalogByFactory[factory.id];
-      const hasCatalog = Boolean(catalog?.hasCatalog) || factory.catalog_year != null;
-      const hasPriceList = Boolean(catalog?.hasPriceList) || factory.quote_pdf_year != null;
-      if (catalogFilter === 'missing-catalog' && hasCatalog) return false;
-      if (catalogFilter === 'missing-price-list' && hasPriceList) return false;
+      if (kindFilter === 'unknown' && factory.supplier_kind) return false;
+      if (kindFilter !== 'all' && kindFilter !== 'unknown' && factory.supplier_kind !== kindFilter) return false;
+      if (quoteFilter === 'yes' && !factory.used_this_year) return false;
+      if (quoteFilter === 'no' && factory.used_this_year) return false;
+      const uploadedCatalog = hasUploadedCatalog(factory, catalog);
+      const uploadedQuote = hasUploadedQuote(factory, catalog);
+      if (catalogUploadFilter === 'uploaded' && !uploadedCatalog) return false;
+      if (catalogUploadFilter === 'missing' && uploadedCatalog) return false;
+      if (priceListUploadFilter === 'uploaded' && !uploadedQuote) return false;
+      if (priceListUploadFilter === 'missing' && uploadedQuote) return false;
       if (!q) return true;
       return (
         factory.display_name?.toLowerCase().includes(q) ||
@@ -289,7 +320,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
       return (a.display_name || '').localeCompare(b.display_name || '', 'zh-HK');
     });
     return rows;
-  }, [factories, searchQuery, catalogFilter, catalogByFactory]);
+  }, [factories, searchQuery, kindFilter, quoteFilter, catalogUploadFilter, priceListUploadFilter, catalogByFactory]);
 
   const totalPages = Math.max(1, Math.ceil(filteredFactories.length / DIRECTORY_PAGE_SIZE));
   const visibleFactories = filteredFactories.slice(
@@ -364,7 +395,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
         </Button>
       </div>
 
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -382,14 +413,46 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
             </button>
           )}
         </div>
-        <Select value={catalogFilter} onValueChange={(value) => setCatalogFilter(value as 'all' | 'missing-catalog' | 'missing-price-list')}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="文件" />
+        <Select value={kindFilter} onValueChange={(value) => setKindFilter(value as KindFilter)}>
+          <SelectTrigger className="w-[132px]">
+            <SelectValue placeholder="類型" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">全部廠家</SelectItem>
-            <SelectItem value="missing-catalog">未有圖冊</SelectItem>
-            <SelectItem value="missing-price-list">未有報價單</SelectItem>
+            <SelectItem value="all">全部類型</SelectItem>
+            <SelectItem value="furniture">傢私</SelectItem>
+            <SelectItem value="material">材料</SelectItem>
+            <SelectItem value="both">傢私・材料</SelectItem>
+            <SelectItem value="unknown">未分類</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={quoteFilter} onValueChange={(value) => setQuoteFilter(value as YesNoFilter)}>
+          <SelectTrigger className="w-[148px]">
+            <SelectValue placeholder="今年報價" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部今年報價</SelectItem>
+            <SelectItem value="yes">今年有報價</SelectItem>
+            <SelectItem value="no">今年無報價</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={catalogUploadFilter} onValueChange={(value) => setCatalogUploadFilter(value as UploadFilter)}>
+          <SelectTrigger className="w-[120px]">
+            <SelectValue placeholder="圖冊" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部圖冊</SelectItem>
+            <SelectItem value="uploaded">已有圖冊</SelectItem>
+            <SelectItem value="missing">未有圖冊</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={priceListUploadFilter} onValueChange={(value) => setPriceListUploadFilter(value as UploadFilter)}>
+          <SelectTrigger className="w-[148px]">
+            <SelectValue placeholder="報價單PDF" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部報價單</SelectItem>
+            <SelectItem value="uploaded">已有報價單</SelectItem>
+            <SelectItem value="missing">未有報價單</SelectItem>
           </SelectContent>
         </Select>
         <Badge variant="secondary" className="font-mono-data text-xs">
@@ -457,8 +520,8 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                   no longer match are now removed straight away. */}
               {visibleFactories.map((factory, index) => {
                 const catalog = catalogByFactory[factory.id];
-                const catalogYear = catalog?.hasCatalog ? catalog.catalogYear : factory.catalog_year;
-                const quoteYear = catalog?.hasPriceList ? catalog.priceListYear : factory.quote_pdf_year;
+                const catalogYear = shownCatalogYear(factory, catalog);
+                const quoteYear = shownQuoteYear(factory, catalog);
                 return (
                 <motion.tr
                   key={factory.id}
