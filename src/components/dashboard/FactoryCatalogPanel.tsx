@@ -42,16 +42,20 @@ function shanghaiYear(): number {
   );
 }
 
+const ALL_DOC_TYPES: SupplierDocType[] = ['catalog', 'price_list', 'certificate'];
+
 export function FactoryCatalogPanel({
   factoryId,
   factoryName,
   initialDocType = 'catalog',
+  allowedDocTypes = ALL_DOC_TYPES,
   embedded = false,
   onUploaded,
 }: {
   factoryId: string;
   factoryName: string;
   initialDocType?: SupplierDocType;
+  allowedDocTypes?: SupplierDocType[];
   embedded?: boolean;
   onUploaded?: () => void;
 }) {
@@ -93,8 +97,8 @@ export function FactoryCatalogPanel({
   }, [load, canUpload]);
 
   useEffect(() => {
-    setDocType(initialDocType);
-  }, [initialDocType]);
+    setDocType(allowedDocTypes.includes(initialDocType) ? initialDocType : allowedDocTypes[0]);
+  }, [initialDocType, allowedDocTypes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,7 +173,7 @@ export function FactoryCatalogPanel({
             <div className="space-y-2 md:col-span-2">
               <Label>文件類型</Label>
               <div className="flex gap-2">
-                {(['catalog', 'price_list', 'certificate'] as const).map((type) => (
+                {allowedDocTypes.map((type) => (
                   <Button
                     key={type}
                     type="button"
