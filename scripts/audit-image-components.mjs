@@ -55,7 +55,7 @@ const RAW_IMG_EXCEPTIONS = [
   ["components/dashboard/SourcePageDialog.tsx", "src={imageUrl}", "blob: object URL of an already downloaded page, natural ratio"],
   ["components/dashboard/customers/CustomerPortalExtraViews.tsx", "src={imagePreview}", "local blob: preview of the just-picked file"],
   ["components/dashboard/ProductWorkbench.tsx", "src={qr}", "QR code data URL generated in the browser"],
-  ["components/dashboard/QuotationDraftEditor.tsx", "qrserver", "QR code from an external QR service"],
+  ["components/dashboard/QuotationDraftEditor.tsx", "src={qrDataUrl}", "QR code data URL generated in the browser"],
   [
     "components/dashboard/QuotePhotoLayoutEditor.tsx",
     null,

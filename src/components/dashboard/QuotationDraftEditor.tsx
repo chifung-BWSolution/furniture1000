@@ -159,7 +159,7 @@ import {
 import type { QuoteCopyPayload } from "@/lib/quoteCopy";
 import { parseQuotePathname } from "@/lib/quoteRoutes";
 import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
-import { createQuoteShareLink } from "@/lib/bwfQuoteShareLinks";
+import { createQuoteShareLink, findActiveQuoteShareLink } from "@/lib/bwfQuoteShareLinks";
 import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
 import {
   buildDraftProductFromQuoteItem,
@@ -2437,13 +2437,26 @@ export function QuotationDraftEditor({
     setQuotePhotoAssets((prev) => (JSON.stringify(prev) === JSON.stringify(nextAssets) ? prev : nextAssets));
   }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
+  // 報價 PDF 的 QR 指向這張單已有的客戶連結，不必每次開啟都重新生成。
+  const shareQuoteUuid = existingQuote?.quoteUuid?.trim() || "";
+  useEffect(() => {
+    if (!shareQuoteUuid) return;
+    let cancelled = false;
+    void findActiveQuoteShareLink(shareQuoteUuid).then((link) => {
+      if (!cancelled && link) setShareUrl((current) => current || link.url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [shareQuoteUuid]);
+
   useEffect(() => {
     if (!shareUrl) {
       setQrDataUrl(null);
       return;
     }
     let cancelled = false;
-    void QRCode.toDataURL(shareUrl, { margin: 1, width: 180 }).then((url) => {
+    void QRCode.toDataURL(shareUrl, { margin: 1, width: 440 }).then((url) => {
       if (!cancelled) setQrDataUrl(url);
     });
     return () => {
@@ -5700,9 +5713,9 @@ export function QuotationDraftEditor({
         }
       >
             <div className="mb-4 flex justify-center rounded-xl border border-border bg-background p-4">
-              {shareUrl ? (
+              {qrDataUrl ? (
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(shareUrl)}`}
+                  src={qrDataUrl}
                   alt="Quote share QR code"
                   width={220}
                   height={220}

@@ -69,6 +69,26 @@ export async function createQuoteShareLink(input: {
   }
 }
 
+/** Latest active, unexpired share link of a quote, or null when none exists. */
+export async function findActiveQuoteShareLink(quoteUuid: string): Promise<QuoteShareLink | null> {
+  const id = quoteUuid.trim();
+  if (!id) return null;
+  const { data, error } = await supabase
+    .from('bwf_quote_share_links')
+    .select('id, quote_uuid, quote_id, share_token, status')
+    .eq('quote_uuid', id)
+    .eq('status', 'active')
+    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn('[findActiveQuoteShareLink]', error.message);
+    return null;
+  }
+  return data ? mapShareRow(data) : null;
+}
+
 /** Revoke a quote-share token (used when 邀請管理 withdraws the link). */
 export async function revokeQuoteShareLink(
   shareToken: string,
