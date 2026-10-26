@@ -11,10 +11,13 @@ export type CatalogProcessingStatus =
   | 'review_required'
   | 'not_applicable';
 
+export type SupplierDocType = 'catalog' | 'price_list';
+
 export type SupplierCatalogRow = {
   id: string;
   factory_id: string | null;
   factory_name: string;
+  doc_type: SupplierDocType;
   document_year: number | null;
   series: string | null;
   product_categories: string[];
@@ -27,7 +30,11 @@ export type SupplierCatalogRow = {
 };
 
 const CATALOG_COLUMNS =
-  'id, factory_id, factory_name, document_year, series, product_categories, version_label, description, processing_status, storage_path, file_size, created_at';
+  'id, factory_id, factory_name, doc_type, document_year, series, product_categories, version_label, description, processing_status, storage_path, file_size, created_at';
+
+export function supplierDocTypeLabel(docType: string | null | undefined): string {
+  return docType === 'price_list' ? '報價單' : '圖冊';
+}
 
 export function catalogStatusLabel(status: string | null | undefined): string {
   switch (status) {
@@ -56,7 +63,7 @@ export async function listFactoryCatalogs(factoryId: string): Promise<SupplierCa
     .from('supplier_documents')
     .select(CATALOG_COLUMNS)
     .eq('factory_id', factoryId)
-    .eq('doc_type', 'catalog')
+    .in('doc_type', ['catalog', 'price_list'])
     .is('parent_document_id', null)
     .order('document_year', { ascending: false })
     .order('created_at', { ascending: false });
@@ -65,23 +72,24 @@ export async function listFactoryCatalogs(factoryId: string): Promise<SupplierCa
 }
 
 export async function listCatalogRows(): Promise<
-  Pick<SupplierCatalogRow, 'factory_id' | 'document_year' | 'processing_status' | 'product_categories'>[]
+  Pick<SupplierCatalogRow, 'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories'>[]
 > {
   const { data, error } = await supabase
     .from('supplier_documents')
-    .select('factory_id, document_year, processing_status, product_categories')
-    .eq('doc_type', 'catalog')
+    .select('factory_id, doc_type, document_year, processing_status, product_categories')
+    .in('doc_type', ['catalog', 'price_list'])
     .is('parent_document_id', null);
   if (error) throw new Error(error.message);
   return (data ?? []) as Pick<
     SupplierCatalogRow,
-    'factory_id' | 'document_year' | 'processing_status' | 'product_categories'
+    'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories'
   >[];
 }
 
 export async function uploadSupplierCatalog(input: {
   factoryId: string;
   factoryName: string;
+  docType: SupplierDocType;
   file: File;
   year: number;
   series: string;
@@ -89,32 +97,35 @@ export async function uploadSupplierCatalog(input: {
   versionLabel?: string;
   description?: string;
 }): Promise<void> {
+  const isCatalog = input.docType === 'catalog';
+  const docLabel = supplierDocTypeLabel(input.docType);
   const series = input.series.trim();
   const categories = input.productCategories.map((item) => item.trim()).filter(Boolean);
   if (!input.file || input.file.type !== 'application/pdf') {
-    throw new Error('請上傳 PDF 圖冊');
+    throw new Error(`請上傳 PDF ${docLabel}`);
   }
   if (!Number.isInteger(input.year) || input.year < 1990 || input.year > 2100) {
     throw new Error('請填寫有效年份');
   }
-  if (!series) throw new Error('圖冊必須填寫系列');
-  if (categories.length === 0) throw new Error('圖冊必須選擇至少一個產品類型');
+  if (isCatalog && !series) throw new Error('圖冊必須填寫系列');
+  if (isCatalog && categories.length === 0) throw new Error('圖冊必須選擇至少一個產品類型');
 
   const contentHash = await sha256Hex(input.file);
   const { data: existing, error: existingError } = await supabase
     .from('supplier_documents')
     .select('id')
     .eq('factory_id', input.factoryId)
-    .eq('doc_type', 'catalog')
+    .eq('doc_type', input.docType)
     .eq('content_hash', contentHash)
     .is('parent_document_id', null)
     .maybeSingle();
   if (existingError) throw new Error(existingError.message);
   if (existing?.id) {
-    throw new Error('這份圖冊已經上傳過，不會覆蓋舊檔');
+    throw new Error(`這份${docLabel}已經上傳過，不會覆蓋舊檔`);
   }
 
-  const objectPath = `catalogs/${input.factoryId}/${input.year}/${crypto.randomUUID()}.pdf`;
+  const folder = isCatalog ? 'catalogs' : 'price-lists';
+  const objectPath = `${folder}/${input.factoryId}/${input.year}/${crypto.randomUUID()}.pdf`;
   const { error: uploadError } = await supabase.storage
     .from(SUPPLIER_DOCUMENT_BUCKET)
     .upload(objectPath, input.file, {
@@ -126,7 +137,7 @@ export async function uploadSupplierCatalog(input: {
   const row = await withInsertAuditFields({
     factory_id: input.factoryId,
     factory_name: input.factoryName,
-    doc_type: 'catalog',
+    doc_type: input.docType,
     title: input.file.name,
     storage_path: objectPath,
     file_size: input.file.size,
@@ -135,7 +146,7 @@ export async function uploadSupplierCatalog(input: {
     status: 'uploaded',
     processing_status: 'pending',
     document_year: input.year,
-    series,
+    series: series || null,
     product_categories: categories,
     version_label: input.versionLabel?.trim() || null,
     description: input.description?.trim() || null,
@@ -146,7 +157,7 @@ export async function uploadSupplierCatalog(input: {
   if (insertError) {
     await supabase.storage.from(SUPPLIER_DOCUMENT_BUCKET).remove([objectPath]);
     if (insertError.code === '23505') {
-      throw new Error('這份圖冊已經上傳過，不會覆蓋舊檔');
+      throw new Error(`這份${docLabel}已經上傳過，不會覆蓋舊檔`);
     }
     throw new Error(insertError.message);
   }

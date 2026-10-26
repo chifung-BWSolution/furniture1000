@@ -55,9 +55,9 @@ export function ManufacturerDirectoryView() {
   const [factories, setFactories] = useState<FactoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [catalogFilter, setCatalogFilter] = useState<'all' | 'missing' | 'uploaded'>('all');
+  const [catalogFilter, setCatalogFilter] = useState<'all' | 'missing-catalog' | 'missing-price-list'>('all');
   const [catalogByFactory, setCatalogByFactory] = useState<
-    Record<string, { latestYear: number | null; status: string | null; categories: string[] }>
+    Record<string, { hasCatalog: boolean; hasPriceList: boolean; latestYear: number | null; status: string | null; categories: string[] }>
   >({});
 
   const fetchData = useCallback(async () => {
@@ -94,11 +94,19 @@ export function ManufacturerDirectoryView() {
           review_required: 2,
           completed: 1,
         };
-        const summary: Record<string, { latestYear: number | null; status: string | null; categories: string[] }> = {};
+        const summary: Record<string, { hasCatalog: boolean; hasPriceList: boolean; latestYear: number | null; status: string | null; categories: string[] }> = {};
         for (const row of catalogs) {
           const factoryId = row.factory_id;
           if (!factoryId) continue;
-          const current = summary[factoryId] ?? { latestYear: null, status: null, categories: [] };
+          const current = summary[factoryId] ?? {
+            hasCatalog: false,
+            hasPriceList: false,
+            latestYear: null,
+            status: null,
+            categories: [],
+          };
+          if (row.doc_type === 'price_list') current.hasPriceList = true;
+          else current.hasCatalog = true;
           if (row.document_year != null && (current.latestYear == null || row.document_year > current.latestYear)) {
             current.latestYear = row.document_year;
           }
@@ -128,8 +136,8 @@ export function ManufacturerDirectoryView() {
     const q = searchQuery.trim().toLowerCase();
     return factories.filter((factory) => {
       const catalog = catalogByFactory[factory.id];
-      if (catalogFilter === 'missing' && catalog) return false;
-      if (catalogFilter === 'uploaded' && !catalog) return false;
+      if (catalogFilter === 'missing-catalog' && catalog?.hasCatalog) return false;
+      if (catalogFilter === 'missing-price-list' && catalog?.hasPriceList) return false;
       if (!q) return true;
       return (
         factory.display_name?.toLowerCase().includes(q) ||
@@ -192,14 +200,14 @@ export function ManufacturerDirectoryView() {
             </button>
           )}
         </div>
-        <Select value={catalogFilter} onValueChange={(value) => setCatalogFilter(value as 'all' | 'missing' | 'uploaded')}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="圖冊" />
+        <Select value={catalogFilter} onValueChange={(value) => setCatalogFilter(value as 'all' | 'missing-catalog' | 'missing-price-list')}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="文件" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">全部廠家</SelectItem>
-            <SelectItem value="missing">未有圖冊</SelectItem>
-            <SelectItem value="uploaded">已有圖冊</SelectItem>
+            <SelectItem value="missing-catalog">未有圖冊</SelectItem>
+            <SelectItem value="missing-price-list">未有報價單</SelectItem>
           </SelectContent>
         </Select>
         <Badge variant="secondary" className="font-mono-data text-xs">
@@ -221,8 +229,11 @@ export function ManufacturerDirectoryView() {
                 <TableHead className="font-display text-xs font-semibold min-w-[180px]">
                   廠家名稱
                 </TableHead>
-                <TableHead className="font-display text-xs font-semibold w-[80px]">
+                <TableHead className="font-display text-xs font-semibold w-[70px]">
                   圖冊
+                </TableHead>
+                <TableHead className="font-display text-xs font-semibold w-[70px]">
+                  報價單
                 </TableHead>
                 <TableHead className="font-display text-xs font-semibold w-[80px]">
                   年份
@@ -273,7 +284,12 @@ export function ManufacturerDirectoryView() {
                     </TableCell>
                     <TableCell>
                       <span className="font-body text-xs text-muted-foreground">
-                        {catalogByFactory[factory.id] ? '有' : '未有'}
+                        {catalogByFactory[factory.id]?.hasCatalog ? '有' : '未有'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-body text-xs text-muted-foreground">
+                        {catalogByFactory[factory.id]?.hasPriceList ? '有' : '未有'}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -336,7 +352,7 @@ export function ManufacturerDirectoryView() {
 
               {filteredFactories.length === 0 && !isLoading && (
                 <TableRow>
-                  <TableCell colSpan={11} className="h-32 text-center">
+                  <TableCell colSpan={12} className="h-32 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <Search className="h-8 w-8 opacity-30" />
                       <p className="font-body text-sm">沒有找到匹配的廠家</p>

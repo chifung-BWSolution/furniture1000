@@ -24,7 +24,8 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'product-search', path: `${PROJECT_BASE}/design-projects` },
 
   { view: 'manufacturer-catalog', path: `${PRODUCTS_BASE}/manufacturer-catalog` },
-  { view: 'ai-processor', path: `${PRODUCTS_BASE}/ai-processor` },
+  /** Legacy 上載PDF → 廠家目錄（圖冊與報價單同一個上傳入口） */
+  { view: 'ai-processor', path: `${PRODUCTS_BASE}/manufacturer-catalog` },
   { view: 'listed-products', path: `${PRODUCTS_BASE}/listed-products` },
   { view: 'product-catalog', path: `${PRODUCTS_BASE}/product-catalog` },
 
@@ -54,7 +55,10 @@ const PATH_BY_VIEW = new Map(
 
 const VIEW_BY_PATH = new Map(
   VIEW_PATHS.filter(
-    (row) => row.view !== 'product-search' && row.view !== 'report-sales',
+    (row) =>
+      row.view !== 'product-search' &&
+      row.view !== 'report-sales' &&
+      row.view !== 'ai-processor',
   ).map((row) => [row.path, row.view] as const),
 );
 
@@ -102,6 +106,8 @@ export function appViewFromPath(pathname: string): ViewType | null {
   if (path === `${SETTINGS_BASE}/upload-product-log`) {
     return 'upload-product-log';
   }
+
+  if (path === `${PRODUCTS_BASE}/ai-processor`) return 'manufacturer-catalog';
 
   // Prefix-only e.g. /project → project-list
   if (path === PROJECT_BASE) return 'solution-project-list';

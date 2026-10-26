@@ -25,8 +25,10 @@ import {
   catalogStatusLabel,
   listFactoryCatalogs,
   openSupplierCatalog,
+  supplierDocTypeLabel,
   uploadSupplierCatalog,
   type SupplierCatalogRow,
+  type SupplierDocType,
 } from '@/lib/supplierCatalog';
 
 function shanghaiYear(): number {
@@ -51,6 +53,7 @@ export function FactoryCatalogPanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [canUpload, setCanUpload] = useState(false);
+  const [docType, setDocType] = useState<SupplierDocType>('catalog');
   const [year, setYear] = useState(shanghaiYear());
   const [series, setSeries] = useState('');
   const [versionLabel, setVersionLabel] = useState('');
@@ -69,7 +72,7 @@ export function FactoryCatalogPanel({
       setCatalogs(rows);
       setCategories(uniqueLevel1InOrder(pairs));
     } catch (error) {
-      const message = error instanceof Error ? error.message : '圖冊載入失敗';
+      const message = error instanceof Error ? error.message : '文件載入失敗';
       toast.error(message);
     } finally {
       setLoading(false);
@@ -102,6 +105,8 @@ export function FactoryCatalogPanel({
     };
   }, [user?.email]);
 
+  const isCatalog = docType === 'catalog';
+  const docLabel = supplierDocTypeLabel(docType);
   const selectedSet = useMemo(() => new Set(selectedCategories), [selectedCategories]);
 
   const toggleCategory = (name: string, checked: boolean) => {
@@ -113,7 +118,7 @@ export function FactoryCatalogPanel({
 
   const handleUpload = async () => {
     if (!file) {
-      toast.error('請選擇 PDF 圖冊');
+      toast.error(`請選擇 PDF ${docLabel}`);
       return;
     }
     setSaving(true);
@@ -121,6 +126,7 @@ export function FactoryCatalogPanel({
       await uploadSupplierCatalog({
         factoryId,
         factoryName,
+        docType,
         file,
         year,
         series,
@@ -128,7 +134,7 @@ export function FactoryCatalogPanel({
         versionLabel,
         description,
       });
-      toast.success('圖冊已保存。解析會在今晚 23:00 至明早 09:00（上海時間）進行，現在不會開始。');
+      toast.success(`${docLabel}已保存。解析會在今晚 23:00 至明早 09:00（上海時間）進行，現在不會開始。`);
       setSeries('');
       setVersionLabel('');
       setDescription('');
@@ -147,12 +153,27 @@ export function FactoryCatalogPanel({
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="font-display text-base font-semibold">上傳圖冊</h2>
+        <h2 className="font-display text-base font-semibold">上傳圖冊或報價單</h2>
         <p className="mt-1 font-body text-xs text-muted-foreground">
-          新檔會另存一版，不會覆蓋舊圖冊。上傳只保存檔案，不會立刻解析。
+          兩種文件用同一個畫面。新檔另存一版，不會覆蓋舊檔，也不會立刻解析。
         </p>
         {canUpload ? (
           <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <Label>文件類型</Label>
+              <div className="flex gap-2">
+                {(['catalog', 'price_list'] as const).map((type) => (
+                  <Button
+                    key={type}
+                    type="button"
+                    variant={docType === type ? 'default' : 'outline'}
+                    onClick={() => setDocType(type)}
+                  >
+                    {supplierDocTypeLabel(type)}
+                  </Button>
+                ))}
+              </div>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="catalog-file">PDF</Label>
               <Input
@@ -175,7 +196,7 @@ export function FactoryCatalogPanel({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="catalog-series">系列</Label>
+              <Label htmlFor="catalog-series">{isCatalog ? '系列' : '系列（可空）'}</Label>
               <Input
                 id="catalog-series"
                 value={series}
@@ -193,7 +214,7 @@ export function FactoryCatalogPanel({
               />
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>主要產品類型</Label>
+              <Label>{isCatalog ? '主要產品類型' : '主要產品類型（可空）'}</Label>
               <div className="flex flex-wrap gap-3">
                 {categories.map((name) => (
                   <label key={name} className="flex items-center gap-2 font-body text-sm">
@@ -217,13 +238,13 @@ export function FactoryCatalogPanel({
             <div>
               <Button onClick={() => void handleUpload()} disabled={saving} className="gap-2">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                保存圖冊
+                保存{docLabel}
               </Button>
             </div>
           </div>
         ) : (
           <p className="mt-3 font-body text-sm text-muted-foreground">
-            只有管理員或上載人員可以上傳。你可以查看及下載已保存的圖冊。
+            只有管理員或上載人員可以上傳。你可以查看及下載已保存的圖冊和報價單。
           </p>
         )}
       </div>
@@ -232,6 +253,7 @@ export function FactoryCatalogPanel({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>類型</TableHead>
               <TableHead>年份</TableHead>
               <TableHead>系列</TableHead>
               <TableHead>產品類型</TableHead>
@@ -244,19 +266,20 @@ export function FactoryCatalogPanel({
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  正在載入圖冊…
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                  正在載入文件…
                 </TableCell>
               </TableRow>
             ) : catalogs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  尚未上傳圖冊
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                  尚未上傳圖冊或報價單
                 </TableCell>
               </TableRow>
             ) : (
               catalogs.map((catalog) => (
                 <TableRow key={catalog.id}>
+                  <TableCell>{supplierDocTypeLabel(catalog.doc_type)}</TableCell>
                   <TableCell className="font-mono-data text-xs">{catalog.document_year ?? '—'}</TableCell>
                   <TableCell>{catalog.series || '—'}</TableCell>
                   <TableCell className="max-w-[240px]">

@@ -1676,7 +1676,7 @@ export function ListedProductsView({
                   ? '請嘗試其他搜尋字詞'
                   : isCatalog
                     ? '到「所有產品」勾選產品，按「上傳到產品目錄」即可加入'
-                    : '從「上載PDF」新增產品或從 Shopify 同步現有產品'}
+                    : '從 Shopify 同步現有產品。圖冊與報價單請到「廠家目錄」上傳'}
               </p>
             </div>
           ) : viewMode === 'grid' ? (

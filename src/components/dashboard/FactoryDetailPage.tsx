@@ -218,7 +218,7 @@ export function FactoryDetailView({
           label: `客戶意見 (${(stats?.comment_count ?? comments.length)})`,
           icon: MessageSquare,
         },
-        { id: 'catalogs' as const, label: '圖冊', icon: FileText },
+        { id: 'catalogs' as const, label: '圖冊／報價單', icon: FileText },
         { id: 'products' as const, label: `產品PDF (${products.length})`, icon: FileText },
       ]
     : [];

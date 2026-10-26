@@ -2,7 +2,7 @@ import {
   Layers, Users, Calculator, Package, Globe, BarChart3, Settings as SettingsIcon,
   LayoutDashboard, Search, UserPlus, CheckCircle2,
   Building2, Zap, ClipboardList, CircleDollarSign,
-  FileUp, FolderTree, BookOpen, Boxes,
+  FolderTree, BookOpen, Boxes,
   FileText, UploadCloud, CheckCheck, Sofa, BadgeDollarSign,
   Building, BarChart2,
   UserCog, History,
@@ -80,7 +80,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Package,
     children: [
       { view: 'manufacturer-catalog', label: '廠家目錄', icon: BookOpen },
-      { view: 'ai-processor', label: '上載PDF', icon: FileUp },
       { view: 'listed-products', label: '待處理產品', icon: Boxes },
       { view: 'product-catalog', label: '產品目錄', icon: BookOpen },
     ],
