@@ -105,6 +105,48 @@ type DirectorySignals = {
   }>;
 };
 
+type DirectoryDocumentLink = {
+  id: string;
+  storage_path: string;
+  document_year: number | null;
+  created_at: string | null;
+};
+
+type DirectorySignalMaps = {
+  kindById: Map<string, SupplierKind | null>;
+  usedIds: Set<string>;
+  catalogYear: Map<string, number>;
+  quotePdfYear: Map<string, number>;
+  catalogFiles: Map<string, DirectoryDocumentLink>;
+  quoteFiles: Map<string, DirectoryDocumentLink>;
+};
+
+function emptySignalMaps(
+  kindById: Map<string, SupplierKind | null>,
+  usedIds: Set<string>,
+  catalogYear: Map<string, number>,
+  quotePdfYear: Map<string, number>,
+): DirectorySignalMaps {
+  return {
+    kindById,
+    usedIds,
+    catalogYear,
+    quotePdfYear,
+    catalogFiles: new Map(),
+    quoteFiles: new Map(),
+  };
+}
+
+function preferDocumentLink(
+  current: DirectoryDocumentLink | undefined,
+  next: DirectoryDocumentLink,
+): DirectoryDocumentLink {
+  if (!current) return next;
+  const yearDiff = (next.document_year ?? -1) - (current.document_year ?? -1);
+  if (yearDiff !== 0) return yearDiff > 0 ? next : current;
+  return (next.created_at ?? "") > (current.created_at ?? "") ? next : current;
+}
+
 function normName(value: string | null | undefined): string {
   return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -152,6 +194,8 @@ async function loadDirectorySignals(
   const usedIds = new Set<string>();
   const catalogYear = new Map<string, number>();
   const quotePdfYear = new Map<string, number>();
+  const catalogFiles = new Map<string, DirectoryDocumentLink>();
+  const quoteFiles = new Map<string, DirectoryDocumentLink>();
 
   const byId = new Map(factories.map((factory) => [factory.id, factory]));
   const byName = new Map<string, string>();
@@ -218,7 +262,7 @@ async function loadDirectorySignals(
     "";
   if (!furnitureUrl || !furnitureKey) {
     console.error("[fetch-manufacturer-directory] Furniture service role is not configured; directory signals skipped");
-    return { kindById, usedIds, catalogYear, quotePdfYear };
+    return emptySignalMaps(kindById, usedIds, catalogYear, quotePdfYear);
   }
 
   try {
@@ -228,7 +272,7 @@ async function loadDirectorySignals(
     });
     if (error) {
       console.error("[fetch-manufacturer-directory] Signals RPC failed:", error.message);
-      return { kindById, usedIds, catalogYear, quotePdfYear };
+      return emptySignalMaps(kindById, usedIds, catalogYear, quotePdfYear);
     }
     const signals = (data || {}) as DirectorySignals;
     for (const name of signals.quote_names || []) {
@@ -243,11 +287,37 @@ async function loadDirectorySignals(
       if (row.doc_type === "quote" || row.doc_type === "price_list") bumpYear(quotePdfYear, id, row.year);
       else if (row.doc_type === "catalog") bumpYear(catalogYear, id, row.year);
     }
+
+    const { data: docRows, error: docError } = await furniture
+      .from("supplier_documents")
+      .select("id, factory_id, factory_name, doc_type, document_year, storage_path, created_at")
+      .in("doc_type", ["catalog", "price_list", "quote"])
+      .is("parent_document_id", null);
+    if (docError) {
+      console.error("[fetch-manufacturer-directory] Document links failed:", docError.message);
+    } else {
+      for (const row of docRows || []) {
+        const storagePath = typeof row.storage_path === "string" ? row.storage_path.trim() : "";
+        if (!storagePath) continue;
+        const id = resolveFactoryId(row.factory_name, row.factory_id);
+        if (!id) continue;
+        const documentYear = Number(row.document_year);
+        const link: DirectoryDocumentLink = {
+          id: String(row.id),
+          storage_path: storagePath,
+          document_year: Number.isFinite(documentYear) ? documentYear : null,
+          created_at: typeof row.created_at === "string" ? row.created_at : null,
+        };
+        const isPriceList = row.doc_type === "price_list" || row.doc_type === "quote";
+        const target = isPriceList ? quoteFiles : catalogFiles;
+        target.set(id, preferDocumentLink(target.get(id), link));
+      }
+    }
   } catch (error) {
     console.error("[fetch-manufacturer-directory] Exception loading directory signals:", (error as Error).message);
   }
 
-  return { kindById, usedIds, catalogYear, quotePdfYear };
+  return { kindById, usedIds, catalogYear, quotePdfYear, catalogFiles, quoteFiles };
 }
 
 Deno.serve(async (req: Request) => {
@@ -323,6 +393,8 @@ Deno.serve(async (req: Request) => {
           used_this_year: signals.usedIds.has(factory.id),
           catalog_year: signals.catalogYear.get(factory.id) ?? null,
           quote_pdf_year: signals.quotePdfYear.get(factory.id) ?? null,
+          catalog_file: signals.catalogFiles.get(factory.id) ?? null,
+          quote_file: signals.quoteFiles.get(factory.id) ?? null,
         };
       });
 
@@ -523,6 +595,8 @@ Deno.serve(async (req: Request) => {
         used_this_year: signals.usedIds.has(factory.id),
         catalog_year: signals.catalogYear.get(factory.id) ?? null,
         quote_pdf_year: signals.quotePdfYear.get(factory.id) ?? null,
+        catalog_file: signals.catalogFiles.get(factory.id) ?? null,
+        quote_file: signals.quoteFiles.get(factory.id) ?? null,
       };
     });
 

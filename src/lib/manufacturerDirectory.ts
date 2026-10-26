@@ -25,6 +25,15 @@ export interface DirectoryFactory {
   used_this_year?: boolean;
   catalog_year?: number | null;
   quote_pdf_year?: number | null;
+  catalog_file?: DirectoryDocumentLink | null;
+  quote_file?: DirectoryDocumentLink | null;
+}
+
+export interface DirectoryDocumentLink {
+  id: string;
+  storage_path: string;
+  document_year: number | null;
+  created_at: string | null;
 }
 
 /** 前端實際呼叫的 slug 在前；裸 slug 是同源的舊 alias。 */

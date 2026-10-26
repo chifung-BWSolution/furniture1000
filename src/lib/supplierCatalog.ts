@@ -119,7 +119,7 @@ export async function listFactoryCatalogs(factoryId: string): Promise<SupplierCa
 export type CatalogListRow = Omit<
   Pick<
     SupplierCatalogRow,
-    'id' | 'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories' | 'created_at' | 'storage_path'
+    'id' | 'factory_id' | 'factory_name' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories' | 'created_at' | 'storage_path'
   >,
   'doc_type'
 > & { doc_type: SupplierDocType | 'quote' };
@@ -127,7 +127,7 @@ export type CatalogListRow = Omit<
 export async function listCatalogRows(): Promise<CatalogListRow[]> {
   const { data, error } = await supabase
     .from('supplier_documents')
-    .select('id, factory_id, doc_type, document_year, processing_status, product_categories, created_at, storage_path')
+    .select('id, factory_id, factory_name, doc_type, document_year, processing_status, product_categories, created_at, storage_path')
     .in('doc_type', ['catalog', 'price_list', 'quote'])
     .is('parent_document_id', null);
   if (error) throw new Error(error.message);
