@@ -112,19 +112,22 @@ export async function listFactoryCatalogs(factoryId: string): Promise<SupplierCa
   }));
 }
 
-export async function listCatalogRows(): Promise<
-  Pick<SupplierCatalogRow, 'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories' | 'created_at'>[]
-> {
+export type CatalogListRow = Omit<
+  Pick<
+    SupplierCatalogRow,
+    'id' | 'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories' | 'created_at' | 'storage_path'
+  >,
+  'doc_type'
+> & { doc_type: SupplierDocType | 'quote' };
+
+export async function listCatalogRows(): Promise<CatalogListRow[]> {
   const { data, error } = await supabase
     .from('supplier_documents')
-    .select('factory_id, doc_type, document_year, processing_status, product_categories, created_at')
-    .in('doc_type', ['catalog', 'price_list'])
+    .select('id, factory_id, doc_type, document_year, processing_status, product_categories, created_at, storage_path')
+    .in('doc_type', ['catalog', 'price_list', 'quote'])
     .is('parent_document_id', null);
   if (error) throw new Error(error.message);
-  return (data ?? []) as Pick<
-    SupplierCatalogRow,
-    'factory_id' | 'doc_type' | 'document_year' | 'processing_status' | 'product_categories' | 'created_at'
-  >[];
+  return (data ?? []) as CatalogListRow[];
 }
 
 export async function uploadSupplierCatalog(input: {

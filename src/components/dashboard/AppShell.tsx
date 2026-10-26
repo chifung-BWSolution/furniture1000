@@ -1060,7 +1060,7 @@ function AppShellContent() {
     if (store.currentView === 'fds2-products-ai-review') {
       return (
         <ExtractionReviewView
-          onOpenUpload={() => store.setCurrentView('fds2-products-quote-pdf')}
+          onOpenUpload={() => store.setCurrentView('fds2-products-factories')}
         />
       );
     }
@@ -1096,7 +1096,10 @@ function AppShellContent() {
           <DashboardView onNavigate={handleViewChange} />
         );
       case "ai-processor":
-        return <ManufacturerDirectoryView />;
+        return <ManufacturerDirectoryView onOpenFactory={(code) => {
+          store.setFactoryDetailCode(code);
+          store.setCurrentView('factory-detail');
+        }} />;
       case "furniture-group-check":
         return (
           <FurnitureGroupCheckView
@@ -1222,7 +1225,7 @@ function AppShellContent() {
         return store.factoryDetailCode ? (
           <FactoryDetailView
             factoryCode={store.factoryDetailCode}
-            onBack={() => store.setCurrentView("manufacturer-catalog")}
+            onBack={() => store.setCurrentView("fds2-products-factories")}
           />
         ) : null;
       case "solution-project-list":

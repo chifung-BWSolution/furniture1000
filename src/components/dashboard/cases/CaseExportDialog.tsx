@@ -54,7 +54,7 @@ export function CaseExportDialog({
   const exportExcel = () => {
     try {
       downloadCaseOrdersExcel(items);
-      toast.success('已匯出訂單數據精選 Excel');
+      toast.success('已匯出項目列表精選 Excel');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '匯出 Excel 失敗');
     }
@@ -164,7 +164,7 @@ export function CaseExportDialog({
             <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
               {item.kind === 'order' && (
                 <span>
-                  訂單數據 · {item.orders?.length || 0} 個產品項目
+                  項目列表 · {item.orders?.length || 0} 個產品項目
                   {(item.photos || []).length > 0 &&
                     ` · ${(item.photos || []).filter((p) => p.include).length} 張相片入選`}
                 </span>
@@ -193,9 +193,26 @@ export function CaseExportDialog({
                   顯示日期
                 </label>
               )}
+              {(item.photos || []).length > 0 && (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <Switch
+                    checked={(item.photos || []).some((photo) => photo.include)}
+                    onCheckedChange={(checked) =>
+                      update(item.key, {
+                        photos: (item.photos || []).map((photo) => ({
+                          ...photo,
+                          include: checked === true,
+                        })),
+                      })
+                    }
+                    aria-label={`加入完工相片（${item.title}）`}
+                  />
+                  加入完工相片
+                </label>
+              )}
             </div>
-            {(item.photos || []).length > 0 && (
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+            {(item.photos || []).some((photo) => photo.include) && (
+              <div className="grid grid-cols-3 gap-2">
                 {item.photos!.map((photo) => (
                   <label
                     key={photo.url}

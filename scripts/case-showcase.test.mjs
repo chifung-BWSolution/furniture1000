@@ -177,6 +177,69 @@ test("query errors are surfaced instead of returning a misleading empty list", a
     /database unavailable/,
   );
 });
+test("order rows carry project-list columns used by the case filters", async () => {
+  const { items } = await fetchCaseShowcase(
+    database({
+      role: "Admin",
+      tables: {
+        bwf_projects: [
+          {
+            id: "p1",
+            project_code: "BWF-SH26-119",
+            project_name: "Beacon College",
+            signed_date: "2026-10-23T00:00:00.000Z",
+            p2_code: "BWF2627RZ-026",
+            estimated_income: "24000",
+            estimated_profit: "12710",
+            status: "Work In Progress",
+            real_customer_display_name: "Beacon College",
+            customer_id: "c1",
+            n_bwf_service_types_id: "svc1",
+            cost_center_id: "bu1",
+            main_pm_id: "s1",
+            main_designer_id: "s2",
+          },
+        ],
+        bwf_orders: [{ id: "o1", bwf_project_id: "p1", product_id: "prod1", quantity: 2 }],
+        nos_service_type_2: [{ id: "svc1", display: "Furniture" }],
+        cost_centres: [{ id: "bu1", bu_code: "BWD" }],
+        staff: [
+          { id: "s1", name: "Rachel Zhu", role: "Admin", status: "Active" },
+          { id: "s2", name: "Ada", role: "user", status: "Active" },
+        ],
+        bwf_products: [{ id: "prod1", display: "Desk", product_types_id: "type1" }],
+        product_types: [{ id: "type1", display: "學校家具" }],
+        nos_customer_tags: [
+          { id: "ind1", display: "教育 - Education", collection_id: "4f5de598-2dcb-45a6-a106-9d933e9a8007" },
+        ],
+        customer_tags: [
+          { id: "tag1", customer_uuid: "c1", tag_uuid: "ind1" },
+          {
+            id: "tag2",
+            customer_uuid: "c1",
+            tag_uuid: "63175251-2c31-46e6-b107-cbe0140983d8",
+          },
+        ],
+        customers: [{ id: "c1", brand_name_cn: "Beacon", status: "Active" }],
+      },
+    }),
+    user,
+    "cases-orders",
+  );
+  assert.equal(items.length, 1);
+  assert.equal(items[0].signed_date, "2026-10-23T00:00:00.000Z");
+  assert.equal(items[0].service_type, "Furniture");
+  assert.equal(items[0].bu_code, "BWD");
+  assert.equal(items[0].customer_name, "Beacon College");
+  assert.equal(items[0].p2_code, "BWF2627RZ-026");
+  assert.equal(items[0].estimated_income, 24000);
+  assert.equal(items[0].estimated_profit, 12710);
+  assert.equal(items[0].designer_name, "Ada");
+  assert.equal(items[0].project_status, "Work In Progress");
+  assert.deepEqual(items[0].industries, ["教育 - Education"]);
+  assert.equal(items[0].famous_brand, "Beacon");
+  assert.equal(items[0].product_type, "學校家具");
+});
 test("brands use exact well-known tag, Active state, and normalized project junctions", async () => {
   const tag = "63175251-2c31-46e6-b107-cbe0140983d8";
   const db = database({

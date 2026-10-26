@@ -22,6 +22,7 @@ import {
   type CaseKind,
   type CaseResult,
 } from "@/lib/caseShowcase";
+import type { CaseListFilterState } from "@/lib/caseListFilters";
 
 export function useCaseData<T>(kind: CaseKind) {
   const [result, setResult] = useState<CaseResult<T>>({ items: [] });
@@ -132,6 +133,81 @@ export function CaseFilter({
         })}
       </SelectContent>
     </Select>
+  );
+}
+
+export function CaseListFilters({
+  state,
+  onChange,
+  industries,
+  furnitureTypes,
+  brands,
+  showBrand = true,
+}: {
+  state: CaseListFilterState;
+  onChange: (patch: Partial<CaseListFilterState>) => void;
+  industries: string[];
+  furnitureTypes: string[];
+  brands: string[];
+  showBrand?: boolean;
+}) {
+  return (
+    <>
+      <CaseFilter
+        label="行業"
+        value={state.industry}
+        onChange={(industry) => onChange({ industry })}
+        options={industries}
+      />
+      <CaseFilter
+        label="傢俬類型"
+        value={state.furniture}
+        onChange={(furniture) => onChange({ furniture })}
+        options={furnitureTypes}
+      />
+      <Input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        aria-label="項目金額最少"
+        placeholder="金額最少"
+        value={state.priceMin}
+        onChange={(event) => onChange({ priceMin: event.target.value })}
+        className="h-9 w-28 text-sm"
+      />
+      <Input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        aria-label="項目金額最多"
+        placeholder="金額最多"
+        value={state.priceMax}
+        onChange={(event) => onChange({ priceMax: event.target.value })}
+        className="h-9 w-28 text-sm"
+      />
+      <Input
+        type="date"
+        aria-label="訂單日期由"
+        value={state.dateFrom}
+        onChange={(event) => onChange({ dateFrom: event.target.value })}
+        className="h-9 w-36 text-sm"
+      />
+      <Input
+        type="date"
+        aria-label="訂單日期至"
+        value={state.dateTo}
+        onChange={(event) => onChange({ dateTo: event.target.value })}
+        className="h-9 w-36 text-sm"
+      />
+      {showBrand ? (
+        <CaseFilter
+          label="知名品牌"
+          value={state.brand}
+          onChange={(brand) => onChange({ brand })}
+          options={brands}
+        />
+      ) : null}
+    </>
   );
 }
 

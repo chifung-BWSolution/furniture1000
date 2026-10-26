@@ -1,4 +1,3 @@
-import { TripoModelTrial } from '@/components/dashboard/TripoModelTrial';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -2234,7 +2233,6 @@ function ProductModelsSection({
             {busy === '3d' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
             生成 3D
           </Button>
-          {canManage && <TripoModelTrial key={productId} productId={productId} title={product.title} prepareOrthographic={ensureDrawing} disabled={busy != null} onComplete={() => { setReload(n => n + 1); onChanged(); }} />}
           {workbench ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

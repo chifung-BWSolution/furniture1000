@@ -2,6 +2,10 @@ import type { SupabaseClient, User } from "jsr:@supabase/supabase-js@2";
 
 // Read the existing PMS contracts; never copy customer/order data into FDS.
 const BRAND_TAG = "63175251-2c31-46e6-b107-cbe0140983d8";
+/** Same NOS collection the quote form uses for 客戶產業. */
+const INDUSTRY_COLLECTION_ID = "4f5de598-2dcb-45a6-a106-9d933e9a8007";
+const PROJECT_LIST_COLUMNS =
+  "signed_date, p2_code, estimated_income, estimated_profit, n_bwf_service_types_id, cost_center_id, customer_id, status, real_customer_display_name, main_designer_id";
 export class CaseAccessError extends Error {}
 
 async function rows(query: any): Promise<any[]> {
@@ -54,6 +58,171 @@ async function byIds(
     );
   }
   return result;
+}
+
+function asMoney(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function famousBrandName(customer: any): string {
+  return (
+    customer?.brand_name_cn ||
+    customer?.brand_name_en ||
+    customer?.company_name ||
+    customer?.display_name ||
+    "未命名品牌"
+  );
+}
+
+async function rowsByColumn(
+  db: SupabaseClient,
+  table: string,
+  columns: string,
+  column: string,
+  ids: string[],
+) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const result: any[] = [];
+  for (let i = 0; i < unique.length; i += 150) {
+    result.push(
+      ...(await all(() =>
+        db
+          .from(table)
+          .select(columns)
+          .in(column, unique.slice(i, i + 150)),
+      )),
+    );
+  }
+  return result;
+}
+
+/** Industry labels and famous-brand names for the given customers. */
+async function customerFacets(db: SupabaseClient, customerIds: string[]) {
+  const industriesByCustomer = new Map<string, string[]>();
+  const famousByCustomer = new Map<string, string>();
+  const unique = [...new Set(customerIds.filter(Boolean))];
+  if (!unique.length) return { industriesByCustomer, famousByCustomer };
+  const industryRows = await all(() =>
+    db
+      .from("nos_customer_tags")
+      .select("id, display")
+      .eq("collection_id", INDUSTRY_COLLECTION_ID),
+  );
+  const industryById = new Map(
+    industryRows
+      .map((row) => [row.id, String(row.display || "").trim()] as const)
+      .filter((entry) => entry[0] && entry[1]),
+  );
+  const tags = await rowsByColumn(
+    db,
+    "customer_tags",
+    "id, customer_uuid, tag_uuid",
+    "customer_uuid",
+    unique,
+  );
+  for (const tag of tags) {
+    const label = industryById.get(tag.tag_uuid);
+    if (!label || !tag.customer_uuid) continue;
+    const list = industriesByCustomer.get(tag.customer_uuid) || [];
+    if (!list.includes(label)) list.push(label);
+    industriesByCustomer.set(tag.customer_uuid, list);
+  }
+  const brandCustomerIds = tags
+    .filter((tag) => tag.tag_uuid === BRAND_TAG)
+    .map((tag) => tag.customer_uuid);
+  const brandCustomers = await byIds(
+    db,
+    "customers",
+    "id, brand_name_cn, brand_name_en, company_name, display_name",
+    brandCustomerIds,
+  );
+  for (const customer of brandCustomers) {
+    famousByCustomer.set(customer.id, famousBrandName(customer));
+  }
+  return { industriesByCustomer, famousByCustomer };
+}
+
+async function serviceAndBu(db: SupabaseClient, projects: any[]) {
+  const services = await byIds(
+    db,
+    "nos_service_type_2",
+    "id, display",
+    projects.map((project) => project.n_bwf_service_types_id),
+  );
+  const centres = await byIds(
+    db,
+    "cost_centres",
+    "id, bu_code",
+    projects.map((project) => project.cost_center_id),
+  );
+  return {
+    serviceById: new Map(services.map((row) => [row.id, row.display || null])),
+    buById: new Map(centres.map((row) => [row.id, row.bu_code || null])),
+  };
+}
+
+function projectListFields(
+  project: any,
+  names: Map<string, string>,
+  serviceById: Map<string, string | null>,
+  buById: Map<string, string | null>,
+  industriesByCustomer: Map<string, string[]>,
+  famousByCustomer: Map<string, string>,
+) {
+  const customerId = project?.customer_id || null;
+  return {
+    signed_date: project?.signed_date || null,
+    service_type: serviceById.get(project?.n_bwf_service_types_id) || null,
+    bu_code: buById.get(project?.cost_center_id) || null,
+    customer_name: project?.real_customer_display_name || null,
+    p2_code: project?.p2_code || null,
+    estimated_income: asMoney(project?.estimated_income),
+    estimated_profit: asMoney(project?.estimated_profit),
+    designer_name: names.get(project?.main_designer_id) || null,
+    project_status: project?.status || null,
+    industries: customerId ? industriesByCustomer.get(customerId) || [] : [],
+    famous_brand: customerId ? famousByCustomer.get(customerId) || null : null,
+  };
+}
+
+async function furnitureByProject(db: SupabaseClient, projectIds: string[]) {
+  const orders = await rowsByColumn(
+    db,
+    "bwf_orders",
+    "id, bwf_project_id, product_id",
+    "bwf_project_id",
+    projectIds,
+  );
+  const products = await byIds(
+    db,
+    "bwf_products",
+    "id, product_types_id",
+    orders.map((order) => order.product_id),
+  );
+  const types = await byIds(
+    db,
+    "product_types",
+    "id, display",
+    products.map((product) => product.product_types_id),
+  );
+  const typeById = new Map(types.map((type) => [type.id, type.display]));
+  const productType = new Map(
+    products.map((product) => [
+      product.id,
+      typeById.get(product.product_types_id) || null,
+    ]),
+  );
+  const grouped = new Map<string, string[]>();
+  for (const order of orders) {
+    const label = productType.get(order.product_id);
+    if (!label || !order.bwf_project_id) continue;
+    const list = grouped.get(order.bwf_project_id) || [];
+    if (!list.includes(label)) list.push(label);
+    grouped.set(order.bwf_project_id, list);
+  }
+  return grouped;
 }
 
 async function actor(db: SupabaseClient, user: User, module: string) {
@@ -175,32 +344,58 @@ export async function fetchCaseShowcase(
         .from("bwa_project_project_types")
         .select("id, project_id, project_type_id"),
     );
+    const items = active.map(({ status: _status, ...c }) => {
+      const projects = summaries
+        .filter((p) => p.customer_id === c.id)
+        .sort((a, b) =>
+          (b.signed_date || "").localeCompare(a.signed_date || ""),
+        );
+      const ids = new Set(projects.map((p) => p.id));
+      return {
+        ...c,
+        project_count: projects.length,
+        recent_projects: projects.slice(0, 3),
+        service_type_ids: [
+          ...new Set(
+            projects.map((p) => p.n_service_type_id).filter(Boolean),
+          ),
+        ],
+        project_type_ids: [
+          ...new Set(
+            junctions
+              .filter((j) => ids.has(j.project_id))
+              .map((j) => j.project_type_id),
+          ),
+        ],
+      };
+    });
+    const { industriesByCustomer } = await customerFacets(
+      db,
+      items.map((item) => item.id),
+    );
+    const bwfProjects = await rowsByColumn(
+      db,
+      "bwf_projects",
+      "id, customer_id, signed_date, estimated_income",
+      "customer_id",
+      items.map((item) => item.id),
+    );
+    const furniture = await furnitureByProject(
+      db,
+      bwfProjects.map((project) => project.id),
+    );
     return {
-      items: active.map(({ status: _status, ...c }) => {
-        const projects = summaries
-          .filter((p) => p.customer_id === c.id)
-          .sort((a, b) =>
-            (b.signed_date || "").localeCompare(a.signed_date || ""),
-          );
-        const ids = new Set(projects.map((p) => p.id));
-        return {
-          ...c,
-          project_count: projects.length,
-          recent_projects: projects.slice(0, 3),
-          service_type_ids: [
-            ...new Set(
-              projects.map((p) => p.n_service_type_id).filter(Boolean),
-            ),
-          ],
-          project_type_ids: [
-            ...new Set(
-              junctions
-                .filter((j) => ids.has(j.project_id))
-                .map((j) => j.project_type_id),
-            ),
-          ],
-        };
-      }),
+      items: items.map((item) => ({
+        ...item,
+        industries: industriesByCustomer.get(item.id) || [],
+        filter_projects: bwfProjects
+          .filter((project) => project.customer_id === item.id)
+          .map((project) => ({
+            signed_date: project.signed_date || null,
+            estimated_income: asMoney(project.estimated_income),
+            furniture_types: furniture.get(project.id) || [],
+          })),
+      })),
       service_types: serviceTypes,
       project_types: projectTypes,
     };
@@ -209,8 +404,8 @@ export async function fetchCaseShowcase(
   if (visible?.length === 0) return { items: [] };
   const projectCols =
     action === "cases-photos"
-      ? "id, project_code, project_name, status, real_customer_display_name, main_pm_id, main_designer_id, n_financial_year_id, completion_photos, handover_date, modified_date, site_address"
-      : "id, project_code, project_name, main_pm_id, completion_photos";
+      ? `id, project_code, project_name, main_pm_id, n_financial_year_id, completion_photos, handover_date, modified_date, site_address, ${PROJECT_LIST_COLUMNS}`
+      : `id, project_code, project_name, main_pm_id, completion_photos, ${PROJECT_LIST_COLUMNS}`;
   const projects =
     visible === null
       ? await all(() => db.from("bwf_projects").select(projectCols))
@@ -222,26 +417,44 @@ export async function fetchCaseShowcase(
     projects.flatMap((p) => [p.main_pm_id, p.main_designer_id]),
   );
   const names = new Map(people.map((p) => [p.id, p.name]));
+  const { serviceById, buById } = await serviceAndBu(db, projects);
+  const { industriesByCustomer, famousByCustomer } = await customerFacets(
+    db,
+    projects.map((project) => project.customer_id),
+  );
   if (action === "cases-photos") {
+    const withPhotos = projects.filter(
+      (p) =>
+        p.completion_photos?.trim() &&
+        !["[]", "null"].includes(p.completion_photos.trim()),
+    );
     const years = await byIds(
       db,
       "financial_years",
       "id, display",
-      projects.map((p) => p.n_financial_year_id),
+      withPhotos.map((p) => p.n_financial_year_id),
     );
     const yearNames = new Map(years.map((y) => [y.id, y.display]));
+    const furniture = await furnitureByProject(
+      db,
+      withPhotos.map((project) => project.id),
+    );
     return {
-      items: projects
-        .filter(
-          (p) =>
-            p.completion_photos?.trim() &&
-            !["[]", "null"].includes(p.completion_photos.trim()),
-        )
+      items: withPhotos
         .map((p) => ({
           ...p,
           pm_name: names.get(p.main_pm_id) || null,
           designer_name: names.get(p.main_designer_id) || null,
           financial_year: yearNames.get(p.n_financial_year_id) || null,
+          ...projectListFields(
+            p,
+            names,
+            serviceById,
+            buById,
+            industriesByCustomer,
+            famousByCustomer,
+          ),
+          furniture_types: furniture.get(p.id) || [],
         }))
         .sort((a, b) =>
           (b.modified_date || "").localeCompare(a.modified_date || ""),
@@ -307,6 +520,14 @@ export async function fetchCaseShowcase(
           project_name: p?.project_name,
           pm_name: names.get(p?.main_pm_id) || null,
           completion_photos: p?.completion_photos ?? null,
+          ...projectListFields(
+            p,
+            names,
+            serviceById,
+            buById,
+            industriesByCustomer,
+            famousByCustomer,
+          ),
           product_name: productNames.get(o.product_id) || null,
           product_type:
             productTypeById.get(productsById.get(o.product_id)?.product_types_id) || null,

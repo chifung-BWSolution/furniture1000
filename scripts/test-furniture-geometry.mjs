@@ -68,4 +68,30 @@ for (const section of ['rect','round']) for (const path of [[[0,0,-200],[80,40,2
   recovered.forEach((point,i)=>point.forEach((n,k)=>assert.ok(Math.abs(n-expected[i][k])<0.001,'SKP writer input must preserve the preview mesh')));
 }
 assert.throws(()=>p.sanitizeCustomParts([{name:'壞路徑',shape:'sweep',size_mm:[30,30,400],center_mm:[0,0,200],path_mm:[[0,0,0],[0,0,0]],section:'round',section_mm:[30,30]}]));
+
+const frame = load('../src/lib/frameGlb.ts', { three: THREE });
+const offsetGroup = new THREE.Group();
+const offsetMesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 0.4));
+offsetMesh.position.set(2.5, 0.4, -1.2);
+offsetGroup.add(offsetMesh);
+const offsetCamera = new THREE.PerspectiveCamera(35, 16 / 9, 0.01, 100);
+frame.frameGlbRoot(offsetGroup, offsetCamera);
+offsetGroup.updateWorldMatrix(true, true);
+const framed = new THREE.Box3().setFromObject(offsetGroup, true).getCenter(new THREE.Vector3());
+assert.ok(framed.length() < 1e-4, `framed model center should be the origin, got ${framed.toArray()}`);
+offsetCamera.updateMatrixWorld(true);
+const ndc = framed.clone().project(offsetCamera);
+assert.ok(Math.abs(ndc.x) < 0.02 && Math.abs(ndc.y) < 0.02, `framed model should project to the middle, got ${ndc.toArray()}`);
+const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+const generatedBuffer = await glb.buildFurnitureGlb(template).arrayBuffer();
+const generated = await new Promise((resolve, reject) => new GLTFLoader().parse(generatedBuffer, '', resolve, reject));
+const generatedRoot = new THREE.Group();
+generatedRoot.add(generated.scene);
+const generatedCamera = new THREE.PerspectiveCamera(35, 4 / 3, 0.01, 100);
+frame.frameGlbRoot(generatedRoot, generatedCamera);
+generatedRoot.updateWorldMatrix(true, true);
+generatedCamera.updateMatrixWorld(true);
+const generatedCenter = new THREE.Box3().setFromObject(generatedRoot, true).getCenter(new THREE.Vector3()).project(generatedCamera);
+assert.ok(Math.abs(generatedCenter.x) < 0.02 && Math.abs(generatedCenter.y) < 0.02, `generated GLB should land in the middle, got ${generatedCenter.toArray()}`);
+
 console.log('PASS: structural counts, uncertainty, symmetry, contact, grounding, exact template matching, watertight slanted/bent/tapered solids, scaling, GLB/FBX and unchanged SKP writer vertices');
