@@ -25,8 +25,15 @@ import {
 import { toast } from 'sonner';
 import { motion, useReducedMotion } from 'framer-motion';
 import { loadManufacturerDirectory, type DirectoryFactory } from '@/lib/manufacturerDirectory';
-import { catalogStatusLabel, listCatalogRows, openSupplierCatalog, supplierDocTypeLabel, type SupplierDocType } from '@/lib/supplierCatalog';
-import { canManageSupplierDocuments, enqueueSupplierDocumentParse } from '@/lib/supplierDocuments';
+import {
+  catalogStatusLabel,
+  enqueueSupplierCatalogParse,
+  listCatalogRows,
+  openSupplierCatalog,
+  supplierDocTypeLabel,
+  type SupplierDocType,
+} from '@/lib/supplierCatalog';
+import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
 import { FactoryCatalogPanel } from '@/components/dashboard/FactoryCatalogPanel';
 import {
   Select,
@@ -127,6 +134,7 @@ function DocumentYearCell({
   year,
   queueingId,
   canQueue,
+  canOpen,
   onOpen,
   onQueue,
 }: {
@@ -134,11 +142,12 @@ function DocumentYearCell({
   year: number | null | undefined;
   queueingId: string | null;
   canQueue: boolean;
+  canOpen: boolean;
   onOpen: (storagePath: string) => void;
   onQueue: (file: CatalogFileRef) => void;
 }) {
   const shownYear = file?.year ?? year;
-  if (!file?.storagePath) {
+  if (!file?.storagePath || !canOpen) {
     return (
       <span className={cn('font-mono-data text-[11px]', shownYear ? 'text-foreground' : 'text-muted-foreground')}>
         {uploadYearLabel(shownYear)}
@@ -200,7 +209,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
   const [priceListUploadFilter, setPriceListUploadFilter] = useState<UploadFilter>('all');
   const [catalogByFactory, setCatalogByFactory] = useState<Record<string, CatalogSummary>>({});
   const [uploadTarget, setUploadTarget] = useState<{ factory: FactoryRecord; docType: SupplierDocType } | null>(null);
-  const [canQueueParse, setCanQueueParse] = useState(false);
+  const [canManageDocs, setCanManageDocs] = useState(false);
   const [queueingId, setQueueingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async (force = false) => {
@@ -267,7 +276,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
       } catch (catalogError) {
         console.error('[ManufacturerDirectory] Catalog summary failed:', catalogError);
       }
-      setCanQueueParse(await canManageSupplierDocuments().catch(() => false));
+      setCanManageDocs(await canManageSupplierDocuments().catch(() => false));
     } catch (err) {
       console.error('[ManufacturerDirectory] Failed to load manufacturers:', err);
       toast.error('廠家目錄載入失敗，請重試');
@@ -345,21 +354,21 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
 
   const queueParse = (file: CatalogFileRef) => {
     setQueueingId(file.id);
-    void enqueueSupplierDocumentParse(file.id)
+    void enqueueSupplierCatalogParse(file.id)
       .then(() => {
-        toast.success('已排入解析任務');
+        toast.success('已排入解析任務（夜間窗口解析）');
         setCatalogByFactory((current) => {
           const next: Record<string, CatalogSummary> = {};
           for (const [factoryId, summary] of Object.entries(current)) {
             const patch = (target: CatalogFileRef | null) => (
-              target?.id === file.id ? { ...target, status: 'processing' } : target
+              target?.id === file.id ? { ...target, status: 'pending' } : target
             );
             next[factoryId] = {
               ...summary,
               catalogFile: patch(summary.catalogFile),
               priceListFile: patch(summary.priceListFile),
               status: summary.catalogFile?.id === file.id || summary.priceListFile?.id === file.id
-                ? 'processing'
+                ? 'pending'
                 : summary.status,
             };
           }
@@ -445,16 +454,18 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
             <SelectItem value="missing">未有圖冊</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={priceListUploadFilter} onValueChange={(value) => setPriceListUploadFilter(value as UploadFilter)}>
-          <SelectTrigger className="w-[148px]">
-            <SelectValue placeholder="報價單PDF" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部報價單</SelectItem>
-            <SelectItem value="uploaded">已有報價單</SelectItem>
-            <SelectItem value="missing">未有報價單</SelectItem>
-          </SelectContent>
-        </Select>
+        {canManageDocs ? (
+          <Select value={priceListUploadFilter} onValueChange={(value) => setPriceListUploadFilter(value as UploadFilter)}>
+            <SelectTrigger className="w-[148px]">
+              <SelectValue placeholder="報價單PDF" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部報價單</SelectItem>
+              <SelectItem value="uploaded">已有報價單</SelectItem>
+              <SelectItem value="missing">未有報價單</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : null}
         <Badge variant="secondary" className="font-mono-data text-xs">
           {filteredFactories.length} / {factories.length}
         </Badge>
@@ -575,7 +586,8 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                       file={catalog?.catalogFile ?? null}
                       year={catalogYear}
                       queueingId={queueingId}
-                      canQueue={canQueueParse}
+                      canQueue={canManageDocs}
+                      canOpen
                       onOpen={openFile}
                       onQueue={queueParse}
                     />
@@ -585,7 +597,8 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                       file={catalog?.priceListFile ?? null}
                       year={quoteYear}
                       queueingId={queueingId}
-                      canQueue={canQueueParse}
+                      canQueue={canManageDocs}
+                      canOpen={canManageDocs}
                       onOpen={openFile}
                       onQueue={queueParse}
                     />
@@ -627,28 +640,32 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-[11px]"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openUpload(factory, 'catalog');
-                        }}
-                      >
-                        上傳圖冊
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-[11px]"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openUpload(factory, 'price_list');
-                        }}
-                      >
-                        上傳報價單
-                      </Button>
+                      {canManageDocs ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openUpload(factory, 'catalog');
+                          }}
+                        >
+                          上傳圖冊
+                        </Button>
+                      ) : null}
+                      {canManageDocs ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openUpload(factory, 'price_list');
+                          }}
+                        >
+                          上傳報價單
+                        </Button>
+                      ) : null}
                       <Button
                         variant="ghost"
                         size="sm"

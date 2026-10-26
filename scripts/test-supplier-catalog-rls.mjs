@@ -11,10 +11,12 @@ if (!token && fs.existsSync('.env.local')) {
 }
 if (!token) throw new Error('SUPABASE_ACCESS_TOKEN required');
 
-const migration = fs.readFileSync(
+const migration = [
   'supabase/migrations/20261026173000_supplier_catalog_rls_scoping.sql',
-  'utf8',
-);
+  'supabase/migrations/20261026181500_manufacturer_directory_catalog_access.sql',
+]
+  .map((path) => fs.readFileSync(path, 'utf8'))
+  .join('\n');
 const actor = randomUUID();
 const email = `supplier-rls-${actor}@example.invalid`;
 const catalogPath = `catalogs/${actor}/2024/${randomUUID()}.pdf`;

@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { withInsertAuditFields } from '@/lib/pmsAudit';
+import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
 
 export const SUPPLIER_DOCUMENT_BUCKET = 'supplier-documents';
 
@@ -121,13 +122,23 @@ export type CatalogListRow = Omit<
 > & { doc_type: SupplierDocType | 'quote' };
 
 export async function listCatalogRows(): Promise<CatalogListRow[]> {
+  const canManage = await canManageSupplierDocuments().catch(() => false);
+  const docTypes = canManage ? ['catalog', 'price_list', 'quote'] : ['catalog'];
   const { data, error } = await supabase
     .from('supplier_documents')
     .select('id, factory_id, doc_type, document_year, processing_status, product_categories, created_at, storage_path')
-    .in('doc_type', ['catalog', 'price_list', 'quote'])
+    .in('doc_type', docTypes)
     .is('parent_document_id', null);
   if (error) throw new Error(error.message);
   return (data ?? []) as CatalogListRow[];
+}
+
+/** Enqueue catalog/price_list for the nightly worker only — does not wake parse workers. */
+export async function enqueueSupplierCatalogParse(documentId: string): Promise<void> {
+  const { error } = await supabase.rpc('fds_supplier_catalog_enqueue_parse', {
+    p_document_id: documentId,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function uploadSupplierCatalog(input: {

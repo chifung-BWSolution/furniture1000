@@ -64,6 +64,16 @@ async function hasDirectoryRole(
   return !error && data === true;
 }
 
+/** Admin/uploader may see quote & price_list PDF signals; designer/pm catalog only. */
+async function supplierDocScopeForCaller(
+  client: ReturnType<typeof createFurnitureClient>,
+): Promise<"all" | "catalog_only"> {
+  if (!client) return "catalog_only";
+  const { data, error } = await client.rpc("bwf_has_role", { p_roles: ["admin", "uploader"] });
+  if (!error && data === true) return "all";
+  return "catalog_only";
+}
+
 /** Role gate for read-only calls that do not need the caller's e-mail. */
 async function requireDirectoryRole(req: Request): Promise<Response | null> {
   const client = createFurnitureClient(req);
@@ -147,6 +157,7 @@ function bumpYear(map: Map<string, number>, factoryId: string | null, year: numb
 async function loadDirectorySignals(
   masterSupabase: ReturnType<typeof createClient>,
   factories: Array<{ id: string; display_name?: string | null; factory_code?: string | null; key_product_categories?: string | null }>,
+  supplierDocScope: "all" | "catalog_only",
 ) {
   const kindById = new Map<string, SupplierKind | null>();
   const usedIds = new Set<string>();
@@ -225,6 +236,7 @@ async function loadDirectorySignals(
     const furniture = createClient(furnitureUrl, furnitureKey);
     const { data, error } = await furniture.rpc("manufacturer_directory_signals", {
       p_year: shanghaiYear(),
+      p_doc_scope: supplierDocScope,
     });
     if (error) {
       console.error("[fetch-manufacturer-directory] Signals RPC failed:", error.message);
@@ -303,9 +315,11 @@ Deno.serve(async (req: Request) => {
 
       // The role gate and the PMS read do not depend on each other, so they
       // travel together instead of stacking two round trips.
-      const [denied, listResult] = await Promise.all([
+      const furnitureClient = createFurnitureClient(req);
+      const [denied, listResult, supplierDocScope] = await Promise.all([
         requireDirectoryRole(req),
         listQuery,
+        supplierDocScopeForCaller(furnitureClient),
       ]);
       if (denied) return denied;
 
@@ -314,7 +328,7 @@ Deno.serve(async (req: Request) => {
       }
 
       const rows = listResult.data || [];
-      const signals = await loadDirectorySignals(masterSupabase, rows);
+      const signals = await loadDirectorySignals(masterSupabase, rows, supplierDocScope);
       const factories = rows.map((factory) => {
         const { key_product_categories: _categories, ...rest } = factory;
         return {
@@ -322,7 +336,8 @@ Deno.serve(async (req: Request) => {
           supplier_kind: signals.kindById.get(factory.id) ?? null,
           used_this_year: signals.usedIds.has(factory.id),
           catalog_year: signals.catalogYear.get(factory.id) ?? null,
-          quote_pdf_year: signals.quotePdfYear.get(factory.id) ?? null,
+          quote_pdf_year:
+            supplierDocScope === "all" ? signals.quotePdfYear.get(factory.id) ?? null : null,
         };
       });
 
@@ -392,9 +407,11 @@ Deno.serve(async (req: Request) => {
 
     // The role gate and the PMS read do not depend on each other, so they
     // travel together instead of stacking two round trips.
-    const [caller, factoriesResult] = await Promise.all([
+    const furnitureClient = createFurnitureClient(req);
+    const [caller, factoriesResult, supplierDocScope] = await Promise.all([
       requireDirectoryUser(req),
       factoriesQuery,
+      supplierDocScopeForCaller(furnitureClient),
     ]);
     if (caller instanceof Response) return caller;
 
@@ -514,7 +531,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const signals = await loadDirectorySignals(masterSupabase, factories || []);
+    const signals = await loadDirectorySignals(masterSupabase, factories || [], supplierDocScope);
     const enrichedFactories = (factories || []).map((factory) => {
       const { key_product_categories: _categories, ...rest } = factory;
       return {
@@ -522,7 +539,8 @@ Deno.serve(async (req: Request) => {
         supplier_kind: signals.kindById.get(factory.id) ?? null,
         used_this_year: signals.usedIds.has(factory.id),
         catalog_year: signals.catalogYear.get(factory.id) ?? null,
-        quote_pdf_year: signals.quotePdfYear.get(factory.id) ?? null,
+        quote_pdf_year:
+          supplierDocScope === "all" ? signals.quotePdfYear.get(factory.id) ?? null : null,
       };
     });
 

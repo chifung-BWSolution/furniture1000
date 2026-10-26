@@ -263,7 +263,7 @@ export function FactoryCatalogPanel({
           </div>
         ) : (
           <p className="mt-3 font-body text-sm text-muted-foreground">
-            只有管理員或上載人員可以上傳。你可以查看及下載已保存的圖冊和報價單。
+            只有管理員或上載人員可以上傳。設計師與 PM 僅可查看及下載圖冊；報價單 PDF 僅限管理員或上載人員。
           </p>
         )}
       </div>
