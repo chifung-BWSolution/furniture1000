@@ -49,18 +49,28 @@ function toRows(payload: unknown): DirectoryFactory[] {
   return Array.isArray(data?.factories) ? data.factories : [];
 }
 
+/**
+ * 舊的裸 slug 只回廠家主檔，沒有 supplier_kind。
+ * 那種結果會讓類型全部變成「—」、今年報價全部變成「無」，不能拿來畫這張表。
+ */
+function includesDirectorySignals(payload: unknown): boolean {
+  const factories = (payload as { factories?: Array<Record<string, unknown>> } | null)?.factories;
+  if (!Array.isArray(factories) || factories.length === 0) return false;
+  return Object.prototype.hasOwnProperty.call(factories[0], 'supplier_kind');
+}
+
 /** 只有「不支援這個 action」類的回應才值得改用完整 payload。 */
 const FALLBACK_STATUSES = new Set([400, 404, 405, 501]);
 
 async function invokeDirectory(body: Record<string, unknown>): Promise<DirectoryFactory[]> {
   let lastError: unknown = null;
+  let plainRows: DirectoryFactory[] | null = null;
 
   for (const slug of DIRECTORY_SLUGS) {
     try {
       const { data, error } = await supabase.functions.invoke(slug, { body });
       if (error) {
         lastError = error;
-        // 401/403 換 slug 也是一樣的結果，不要再打一次。
         const status = statusOf(error);
         if (status === 401 || status === 403) throw error;
         continue;
@@ -70,12 +80,17 @@ async function invokeDirectory(body: Record<string, unknown>): Promise<Directory
         lastError = new Error(payload.error);
         continue;
       }
-      return toRows(data);
+      const rows = toRows(data);
+      if (includesDirectorySignals(data)) return rows;
+      plainRows = rows;
     } catch (err) {
       lastError = err;
+      const status = statusOf(err);
+      if (status === 401 || status === 403) throw err;
     }
   }
 
+  if (plainRows) return plainRows;
   throw lastError instanceof Error ? lastError : new Error('廠家目錄載入失敗');
 }
 

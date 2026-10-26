@@ -12,7 +12,7 @@ const FACTORY_ID_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Roles allowed to read the manufacturer directory. */
-const DIRECTORY_ROLES = ["admin", "uploader", "designer"];
+const DIRECTORY_ROLES = ["admin", "uploader", "designer", "pm"];
 
 /** Columns the manufacturer directory renders. */
 const FACTORY_COLUMNS =
