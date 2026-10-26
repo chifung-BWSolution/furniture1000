@@ -143,6 +143,7 @@ export async function syncProjectZones(options: {
       if (!created.ok || !created.data) {
         return { ok: false, error: created.error || '建立間隔失敗' };
       }
+      paired[i].zone = created.data;
       pool.push(created.data);
       usedIds.add(created.data.id);
     }
