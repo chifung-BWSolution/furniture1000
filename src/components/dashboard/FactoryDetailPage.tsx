@@ -434,7 +434,7 @@ function FactoryInfoTab({
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="font-display text-sm font-semibold text-muted-foreground uppercase tracking-widest">
           基本資料
@@ -676,7 +676,7 @@ function FactoryCommentsTab({
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6">
       {/* Form */}
       <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-3">
         <p className="font-display text-xs font-semibold">新增意見</p>
