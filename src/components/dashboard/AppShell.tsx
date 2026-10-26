@@ -550,6 +550,7 @@ function AppShellContent() {
     } else if (
       store.currentView !== 'dashboard' &&
       store.currentView !== 'factory-detail' &&
+      store.currentView !== 'ai-processor' &&
       !isSitemapPlaceholderView(store.currentView) &&
       !isImplementedLegacyView(store.currentView) &&
       !implementedPage(store.currentView) &&
