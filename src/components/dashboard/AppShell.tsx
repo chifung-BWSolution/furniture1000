@@ -83,6 +83,7 @@ import { syncRtsWorkflowToProduct } from "@/lib/rtsProductSync";
 import { resolveSelectedPublishProducts } from "@/lib/readyToPublishRow";
 import type { Product } from "@/types/product";
 import { hasPmsQuotePrefillParams } from "@/lib/pmsQuotePrefill";
+import { canManageSupplierDocuments } from "@/lib/supplierDocuments";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const ListedProductsView = lazy(() =>
@@ -90,6 +91,9 @@ const ListedProductsView = lazy(() =>
 );
 const ManufacturerDirectoryView = lazy(() =>
   import("./ManufacturerDirectoryView").then((mod) => ({ default: mod.ManufacturerDirectoryView }))
+);
+const AIProcessorView = lazy(() =>
+  import("./AIProcessorView").then((mod) => ({ default: mod.AIProcessorView }))
 );
 const FactoryDetailView = lazy(() =>
   import("./FactoryDetailPage").then((mod) => ({ default: mod.FactoryDetailView }))
@@ -1213,8 +1217,15 @@ function AppShellContent() {
           />
         );
       case "ai-processor":
+        return (
+          <AIProcessorView
+            onAddProduct={store.addProduct}
+            onNavigateToPublish={() => store.setCurrentView("ready-to-publish")}
+            selectedModel={store.settings.aiModel}
+            geminiProxyUrl={store.settings.geminiProxyUrl}
+          />
+        );
       case "manufacturer-catalog": {
-        // ai-processor is the legacy alias of 廠家目錄 (see appSectionRoutes).
         const openFactoryCode = factoryCodeFromPath(location.pathname);
         if (openFactoryCode) {
           return (
@@ -1233,6 +1244,19 @@ function AppShellContent() {
               const target = buildFactoryDetailPath(code);
               quoteUrlSyncRef.current = target;
               navigate(target);
+            }}
+            onOpenUpload={(factory) => {
+              void canManageSupplierDocuments().then((ok) => {
+                if (!ok) {
+                  toast.error('只有管理員或上載員可以上傳圖冊／報價單');
+                  return;
+                }
+                sessionStorage.setItem('fds-upload-factory', JSON.stringify({
+                  id: factory.id,
+                  name: factory.display_name,
+                }));
+                store.setCurrentView('ai-processor');
+              });
             }}
           />
         );

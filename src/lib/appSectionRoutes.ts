@@ -28,9 +28,9 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   /** Legacy alias → design-projects */
   { view: 'product-search', path: `${PROJECT_BASE}/design-projects` },
 
-  /** Legacy list/upload screens → 廠家目錄 */
+  /** Legacy list screens → 廠家目錄. 上載報價 PDF stays on its own page. */
   { view: 'manufacturer-catalog', path: `${FDS_BASE}/factories` },
-  { view: 'ai-processor', path: `${FDS_BASE}/factories` },
+  { view: 'ai-processor', path: `${PRODUCTS_BASE}/ai-processor` },
   { view: 'listed-products', path: `${PRODUCTS_BASE}/listed-products` },
   { view: 'product-catalog', path: `${PRODUCTS_BASE}/product-catalog` },
 
@@ -126,7 +126,6 @@ const VIEW_BY_PATH = new Map(
     (row) =>
       row.view !== 'product-search' &&
       row.view !== 'report-sales' &&
-      row.view !== 'ai-processor' &&
       row.view !== 'manufacturer-catalog' &&
       row.view !== 'fds2-quote-factories' &&
       row.view !== 'fds2-factory-info' &&
@@ -164,7 +163,6 @@ export function pathFromAppView(view: ViewType): string | null {
 /** Menus that used to open the factory list. One sidebar item remains. */
 const DIRECTORY_ALIAS_VIEWS = new Set<ViewType>([
   'manufacturer-catalog',
-  'ai-processor',
   'fds2-quote-factories',
   'fds2-factory-info',
   'fds2-factory-upload',
@@ -267,7 +265,6 @@ export function appViewFromPath(pathname: string): ViewType | null {
 
   // Retired directory / PDF menus all open 廠家目錄.
   if (
-    path === `${PRODUCTS_BASE}/ai-processor` ||
     path === `${PRODUCTS_BASE}/manufacturer-catalog` ||
     path === PRODUCTS_BASE ||
     path === `${FDS_BASE}/quote/factories` ||
