@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { frameGlbRoot } from '@/lib/frameGlb';
 
 export type ViewportTool = 'rotate' | 'pan' | 'zoom';
 
@@ -80,6 +81,11 @@ export function GlbViewport({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0xf7f8fb, 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // CSS must override the canvas bitmap size. Otherwise a 2x display shows
+    // only the top-left of the frame and the model sits off centre.
+    canvas.style.display = 'block';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
     host.appendChild(canvas);
 
     const scene = new THREE.Scene();
@@ -100,21 +106,15 @@ export function GlbViewport({
     const root = new THREE.Group();
     rootRef.current = root;
     scene.add(root);
+    let fitted = false;
+    let userMoved = false;
 
     const fit = () => {
-      const box = new THREE.Box3().setFromObject(root);
-      if (box.isEmpty()) return;
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-      root.position.sub(center);
-      const max = Math.max(size.x, size.y, size.z, 0.2);
-      homeRef.current.set(max * 1.35, max * 0.85, max * 1.55);
-      camera.near = max / 100;
-      camera.far = max * 40;
-      camera.position.copy(homeRef.current);
+      if (root.children.length === 0) return;
+      homeRef.current.copy(frameGlbRoot(root, camera));
       controls.target.set(0, 0, 0);
       controls.update();
-      camera.updateProjectionMatrix();
+      fitted = true;
     };
 
     const resize = () => {
@@ -123,6 +123,7 @@ export function GlbViewport({
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer?.setSize(w, h, false);
+      if (fitted && !userMoved) fit();
     };
     resize();
     const observer = new ResizeObserver(resize);
@@ -133,6 +134,10 @@ export function GlbViewport({
       failedRef.current('顯示卡中斷了預覽，請重試');
     };
     canvas.addEventListener('webglcontextlost', onLost);
+    const onControlStart = () => {
+      userMoved = true;
+    };
+    controls.addEventListener('start', onControlStart);
 
     const loader = new GLTFLoader();
     loader.load(
@@ -172,6 +177,7 @@ export function GlbViewport({
       cancelAnimationFrame(frame);
       observer.disconnect();
       canvas.removeEventListener('webglcontextlost', onLost);
+      controls.removeEventListener('start', onControlStart);
       controls.dispose();
       controlsRef.current = null;
       cameraRef.current = null;
@@ -212,5 +218,5 @@ export function GlbViewport({
     controls.update();
   }, [resetKey]);
 
-  return <div ref={hostRef} className="h-full w-full" />;
+  return <div ref={hostRef} className="h-full w-full overflow-hidden" />;
 }
