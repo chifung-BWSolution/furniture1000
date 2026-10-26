@@ -182,22 +182,18 @@ function DocumentYearCell({
       </span>
     );
   }
+  const openYear = uploadedYear ?? labelYear;
   return (
-    <div className="flex flex-col items-start gap-0.5">
-      <button
-        type="button"
-        className="font-body text-[11px] text-primary underline underline-offset-2 hover:text-primary/80"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen(file!.storagePath);
-        }}
-      >
-        查看
-      </button>
-      {labelYear != null ? (
-        <span className="font-mono-data text-[10px] text-muted-foreground">上傳 {uploadedYear ?? labelYear}</span>
-      ) : null}
-    </div>
+    <button
+      type="button"
+      className="font-body text-[11px] text-primary underline underline-offset-2 hover:text-primary/80"
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen(file!.storagePath);
+      }}
+    >
+      {openYear != null ? `查看（${openYear}）` : '查看'}
+    </button>
   );
 }
 
