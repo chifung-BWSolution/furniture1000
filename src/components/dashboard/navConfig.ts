@@ -77,7 +77,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '傢俬報價',
     icon: Calculator,
     children: [
-      { view: 'fds2-quote-factories', label: '廠家目錄', icon: BookOpen },
       { view: 'fds2-quote-quick', label: '快速報價', icon: Calculator },
       { view: 'fds2-quote-common', label: '常用傢俬', icon: Heart },
       { view: 'fds2-quote-report', label: '產品報告', icon: BarChart2 },
@@ -97,8 +96,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '廠家目錄',
     icon: Building2,
     children: [
-      { view: 'fds2-factory-info', label: '廠家資訊', icon: Building2 },
-      { view: 'fds2-factory-upload', label: '上傳圖冊/報價單', icon: FileUp },
       { view: 'fds2-factory-sales', label: '銷售表現', icon: BarChart2 },
       { view: 'fds2-factory-zones', label: '廠家分區', icon: Map },
       { view: 'fds2-factory-login', label: '廠家登入', icon: LogIn },
@@ -110,7 +107,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Package,
     children: [
       { view: 'fds2-products-factories', label: '廠家目錄', icon: BookOpen },
-      { view: 'fds2-products-quote-pdf', label: '上載報價PDF', icon: FileUp },
       { view: 'fds2-products-ai-review', label: 'AI 提取審核', icon: ListChecks },
       { view: 'fds2-products-pending', label: '待處理產品', icon: Boxes },
       { view: 'fds2-products-catalog', label: '產品目錄', icon: BookOpen },
@@ -227,14 +223,10 @@ export const ADMIN_ONLY_VIEWS: ViewType[] = [
  * `primary` is the menu item that stays highlighted for that original page.
  */
 const MOVED_PAGES: { sitemap: ViewType; legacy: ViewType; primary?: boolean }[] = [
-  { sitemap: 'fds2-quote-factories', legacy: 'manufacturer-catalog' },
   { sitemap: 'fds2-quote-quick', legacy: 'quick-quote', primary: true },
   { sitemap: 'fds2-quote-list', legacy: 'quotation-list', primary: true },
   { sitemap: 'fds2-quote-large', legacy: 'quotation-large-amount', primary: true },
-  { sitemap: 'fds2-factory-info', legacy: 'manufacturer-catalog' },
-  { sitemap: 'fds2-factory-upload', legacy: 'ai-processor' },
   { sitemap: 'fds2-products-factories', legacy: 'manufacturer-catalog', primary: true },
-  { sitemap: 'fds2-products-quote-pdf', legacy: 'ai-processor', primary: true },
   { sitemap: 'fds2-products-pending', legacy: 'listed-products', primary: true },
   { sitemap: 'fds2-products-catalog', legacy: 'product-catalog', primary: true },
   { sitemap: 'fds2-publish-copy', legacy: 'publish-copywriting', primary: true },

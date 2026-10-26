@@ -1060,7 +1060,7 @@ function AppShellContent() {
     if (store.currentView === 'fds2-products-ai-review') {
       return (
         <ExtractionReviewView
-          onOpenUpload={() => store.setCurrentView('fds2-products-quote-pdf')}
+          onOpenUpload={() => store.setCurrentView('fds2-products-factories')}
         />
       );
     }
@@ -1225,7 +1225,7 @@ function AppShellContent() {
         return store.factoryDetailCode ? (
           <FactoryDetailView
             factoryCode={store.factoryDetailCode}
-            onBack={() => store.setCurrentView("manufacturer-catalog")}
+            onBack={() => store.setCurrentView("fds2-products-factories")}
           />
         ) : null;
       case "solution-project-list":

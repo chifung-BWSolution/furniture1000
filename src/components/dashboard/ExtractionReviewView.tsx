@@ -221,7 +221,7 @@ function inputToField(value: string, kind: string): unknown {
 }
 
 interface ExtractionReviewViewProps {
-  /** Jump to 上載報價PDF when there is nothing to review yet. */
+  /** Jump to 廠家目錄 when there is nothing to review yet. */
   onOpenUpload?: () => void;
 }
 

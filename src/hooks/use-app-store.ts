@@ -20,7 +20,7 @@ import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase
 import { toast } from 'sonner';
 import { withInsertAuditFields, withUpdateAuditFields, withUpsertAuditFields } from '@/lib/pmsAudit';
 import { customerViewFromPath } from '@/lib/customerPortalRoutes';
-import { appViewFromPath } from '@/lib/appSectionRoutes';
+import { appViewFromPath, canonicalizeDirectoryView } from '@/lib/appSectionRoutes';
 import { DEFAULT_GEMINI_MODEL } from '@/lib/geminiModel';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -353,13 +353,14 @@ function useAppStoreState() {
       if (saved === 'product-report' || saved === 'quotation-settings') {
         return 'quick-quote';
       }
-      if (saved) return saved as ViewType;
+      if (saved) return canonicalizeDirectoryView(saved as ViewType);
     } catch { /* ignore */ }
     return 'dashboard';
   });
   const setCurrentView = (view: ViewType) => {
-    try { sessionStorage.setItem('current-view', view); } catch { /* ignore */ }
-    setCurrentViewRaw(view);
+    const next = canonicalizeDirectoryView(view);
+    try { sessionStorage.setItem('current-view', next); } catch { /* ignore */ }
+    setCurrentViewRaw(next);
   };
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [filterProductId, setFilterProductId] = useState<string | null>(null);

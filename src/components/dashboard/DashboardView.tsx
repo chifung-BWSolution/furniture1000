@@ -243,7 +243,7 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
               label="廠家目錄"
               description="查看廠家資料與聯絡方式"
               icon={<BookOpen className="h-4 w-4" />}
-              onClick={() => onNavigate('manufacturer-catalog')}
+              onClick={() => onNavigate('fds2-products-factories')}
               delay={0.16}
             />
             <QuickLink

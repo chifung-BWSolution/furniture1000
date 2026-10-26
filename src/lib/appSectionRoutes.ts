@@ -24,9 +24,9 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   /** Legacy alias → design-projects */
   { view: 'product-search', path: `${PROJECT_BASE}/design-projects` },
 
-  { view: 'manufacturer-catalog', path: `${PRODUCTS_BASE}/manufacturer-catalog` },
-  /** Legacy 上載PDF → 廠家目錄（圖冊與報價單同一個上傳入口） */
-  { view: 'ai-processor', path: `${PRODUCTS_BASE}/manufacturer-catalog` },
+  /** Legacy list/upload screens → 產品管理／廠家目錄 */
+  { view: 'manufacturer-catalog', path: `${FDS_BASE}/products/factories` },
+  { view: 'ai-processor', path: `${FDS_BASE}/products/factories` },
   { view: 'listed-products', path: `${PRODUCTS_BASE}/listed-products` },
   { view: 'product-catalog', path: `${PRODUCTS_BASE}/product-catalog` },
 
@@ -60,7 +60,8 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-cases-orders', path: `${FDS_BASE}/cases/orders` },
   { view: 'fds2-cases-photos', path: `${FDS_BASE}/cases/photos` },
   { view: 'fds2-cases-clients', path: `${FDS_BASE}/cases/clients` },
-  { view: 'fds2-quote-factories', path: `${FDS_BASE}/quote/factories` },
+  /** 傢俬報價裡的廠家目錄已併入產品管理 */
+  { view: 'fds2-quote-factories', path: `${FDS_BASE}/products/factories` },
   { view: 'fds2-quote-quick', path: `${FDS_BASE}/quote/quick` },
   { view: 'fds2-quote-common', path: `${FDS_BASE}/quote/common` },
   { view: 'fds2-quote-report', path: `${FDS_BASE}/quote/report` },
@@ -69,13 +70,14 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-quote-trash', path: `${FDS_BASE}/quote/trash` },
   { view: 'fds2-quote-format', path: `${FDS_BASE}/quote/format` },
   { view: 'fds2-quote-photos', path: `${FDS_BASE}/quote/photos` },
-  { view: 'fds2-factory-info', path: `${FDS_BASE}/factories/info` },
-  { view: 'fds2-factory-upload', path: `${FDS_BASE}/factories/upload-pdf` },
+  /** 廠家資訊、上載產品 PDF 已併入產品管理／廠家目錄 */
+  { view: 'fds2-factory-info', path: `${FDS_BASE}/products/factories` },
+  { view: 'fds2-factory-upload', path: `${FDS_BASE}/products/factories` },
   { view: 'fds2-factory-sales', path: `${FDS_BASE}/factories/sales` },
   { view: 'fds2-factory-zones', path: `${FDS_BASE}/factories/zones` },
   { view: 'fds2-factory-login', path: `${FDS_BASE}/factories/login` },
   { view: 'fds2-products-factories', path: `${FDS_BASE}/products/factories` },
-  { view: 'fds2-products-quote-pdf', path: `${FDS_BASE}/products/quote-pdf` },
+  { view: 'fds2-products-quote-pdf', path: `${FDS_BASE}/products/factories` },
   { view: 'fds2-products-ai-review', path: `${FDS_BASE}/products/ai-review` },
   { view: 'fds2-products-pending', path: `${FDS_BASE}/products/pending` },
   { view: 'fds2-products-catalog', path: `${FDS_BASE}/products/catalog` },
@@ -120,7 +122,12 @@ const VIEW_BY_PATH = new Map(
     (row) =>
       row.view !== 'product-search' &&
       row.view !== 'report-sales' &&
-      row.view !== 'ai-processor',
+      row.view !== 'ai-processor' &&
+      row.view !== 'manufacturer-catalog' &&
+      row.view !== 'fds2-quote-factories' &&
+      row.view !== 'fds2-factory-info' &&
+      row.view !== 'fds2-factory-upload' &&
+      row.view !== 'fds2-products-quote-pdf',
   ).map((row) => [row.path, row.view] as const),
 );
 
@@ -137,8 +144,8 @@ const FDS_PREFIX_DEFAULTS: { prefix: string; view: ViewType }[] = [
   { prefix: `${FDS_BASE}/designer`, view: 'fds2-designer-types' },
   { prefix: `${FDS_BASE}/pm`, view: 'fds2-pm-budget' },
   { prefix: `${FDS_BASE}/cases`, view: 'fds2-cases-orders' },
-  { prefix: `${FDS_BASE}/quote`, view: 'fds2-quote-factories' },
-  { prefix: `${FDS_BASE}/factories`, view: 'fds2-factory-info' },
+  { prefix: `${FDS_BASE}/quote`, view: 'fds2-quote-quick' },
+  { prefix: `${FDS_BASE}/factories`, view: 'fds2-factory-sales' },
   { prefix: `${FDS_BASE}/products`, view: 'fds2-products-factories' },
   { prefix: `${FDS_BASE}/publish`, view: 'fds2-publish-copy' },
   { prefix: `${FDS_BASE}/reports`, view: 'fds2-report-factory' },
@@ -148,6 +155,20 @@ const FDS_PREFIX_DEFAULTS: { prefix: string; view: ViewType }[] = [
 
 export function pathFromAppView(view: ViewType): string | null {
   return PATH_BY_VIEW.get(view) ?? null;
+}
+
+/** Menus that used to open the factory list. One sidebar item remains. */
+const DIRECTORY_ALIAS_VIEWS = new Set<ViewType>([
+  'manufacturer-catalog',
+  'ai-processor',
+  'fds2-quote-factories',
+  'fds2-factory-info',
+  'fds2-factory-upload',
+  'fds2-products-quote-pdf',
+]);
+
+export function canonicalizeDirectoryView(view: ViewType): ViewType {
+  return DIRECTORY_ALIAS_VIEWS.has(view) ? 'fds2-products-factories' : view;
 }
 
 /** 產品類型 list. A product opens at `${DESIGNER_TYPES_PATH}/:productId`. */
@@ -212,11 +233,21 @@ export function appViewFromPath(pathname: string): ViewType | null {
     return 'upload-product-log';
   }
 
-  if (path === `${PRODUCTS_BASE}/ai-processor`) return 'manufacturer-catalog';
+  // Retired directory / PDF menus all open 產品管理 → 廠家目錄.
+  if (
+    path === `${PRODUCTS_BASE}/ai-processor` ||
+    path === `${PRODUCTS_BASE}/manufacturer-catalog` ||
+    path === PRODUCTS_BASE ||
+    path === `${FDS_BASE}/quote/factories` ||
+    path === `${FDS_BASE}/factories/info` ||
+    path === `${FDS_BASE}/factories/upload-pdf` ||
+    path === `${FDS_BASE}/products/quote-pdf`
+  ) {
+    return 'fds2-products-factories';
+  }
 
   // Prefix-only e.g. /project → project-list
   if (path === PROJECT_BASE) return 'solution-project-list';
-  if (path === PRODUCTS_BASE) return 'manufacturer-catalog';
   if (path === PUBLISH_BASE) return 'publish-copywriting';
   if (path === REPORTS_BASE) return 'report-factory';
   if (path === SETTINGS_BASE) return 'category-management';
