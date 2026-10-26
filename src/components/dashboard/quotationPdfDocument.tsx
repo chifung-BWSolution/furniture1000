@@ -768,11 +768,13 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
 
 // ─── 其他區塊 ───────────────────────────────────────────────────────────────
 
-function buildSectionBlock(ctx: Ctx, text: string): PdfBlock {
+function buildSectionBlock(ctx: Ctx, text: string, imageUrls: string[] | undefined, index: number): PdfBlock {
   const P = ctx.P;
-  const heightPt = 22;
+  const images = (imageUrls ?? []).filter((url) => url.startsWith('http')).slice(0, 6);
+  const imageRow = images.length ? 72 : 0;
+  const heightPt = 22 + imageRow;
   return {
-    key: `section-${text}`,
+    key: `section-${index}-${text}`,
     heightPt,
     table: true,
     node: (
@@ -784,11 +786,22 @@ function buildSectionBlock(ctx: Ctx, text: string): PdfBlock {
           borderLeftWidth: BORDER,
           borderRightWidth: BORDER,
           borderColor: RULE,
-          justifyContent: 'center',
-          paddingHorizontal: 6,
         }}
       >
-        <P.Text style={{ fontSize: 9, fontWeight: 700 }}>{text}</P.Text>
+        <P.View style={{ height: 22, justifyContent: 'center', paddingHorizontal: 6 }}>
+          <P.Text style={{ fontSize: 9, fontWeight: 700 }}>{text}</P.Text>
+        </P.View>
+        {images.length ? (
+          <P.View style={{ height: 72, flexDirection: 'row', paddingHorizontal: 6, paddingBottom: 6 }}>
+            {images.map((url) => (
+              <P.Image
+                key={url}
+                src={url}
+                style={{ width: 90, height: 66, objectFit: 'contain', marginRight: 6 }}
+              />
+            ))}
+          </P.View>
+        ) : null}
       </P.View>
     ),
   };
@@ -1490,6 +1503,8 @@ export function QuotationDocument({
               item.name || '',
             ),
           ),
+          item.zoneImages,
+          index,
         ),
       );
       return;

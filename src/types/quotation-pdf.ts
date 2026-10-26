@@ -115,6 +115,8 @@ export interface QuotationPDFData {
     hideInPdf?: boolean;
     /** Section heading (一、開放區) — full-width title row in PDF. */
     isSectionTitle?: boolean;
+    /** Images uploaded on that zone heading. */
+    zoneImages?: string[];
     unit?: string;
     /**
      * Item 的全部圖片（產品圖＋參考圖＋備註圖），供 PDF 圖例自適應排版使用。
