@@ -94,3 +94,47 @@ export function zoneEndInsertAt(items: SectionTitleLike[], titleIndex: number): 
 export function quoteItemSerialLabel(items: SectionTitleLike[], index: number): string {
   return zoneItemPrefixAt(items, index) ?? String(productSerialAt(items, index));
 }
+
+type ZoneRow = SectionTitleLike & { id: string };
+
+/** Section-title id that owns the row at `index`; null when the row is still unzoned. */
+export function zoneTitleIdAt(items: ZoneRow[], index: number): string | null {
+  let titleId: string | null = null;
+  for (let i = 0; i <= index && i < items.length; i += 1) {
+    if (items[i]?.isSectionTitle) titleId = items[i].id;
+  }
+  return titleId;
+}
+
+/** Section-title id that an insert at `insertAt` would fall into. */
+export function zoneTitleIdBefore(items: ZoneRow[], insertAt: number): string | null {
+  for (let i = Math.min(insertAt, items.length) - 1; i >= 0; i -= 1) {
+    if (items[i]?.isSectionTitle) return items[i].id;
+  }
+  return null;
+}
+
+/**
+ * Move a furniture/service row into a zone (append at that zone's end)
+ * or back to the unzoned block at the top. Section titles are left in place.
+ */
+export function moveItemIntoZone<T extends ZoneRow>(
+  items: T[],
+  itemId: string,
+  zoneTitleId: string | null,
+): T[] {
+  const from = items.findIndex((item) => item.id === itemId);
+  if (from < 0 || items[from]?.isSectionTitle) return items;
+  if (zoneTitleIdAt(items, from) === zoneTitleId) return items;
+  const item = items[from];
+  const without = items.filter((_, index) => index !== from);
+  if (!zoneTitleId) {
+    return [item, ...without];
+  }
+  const titleIndex = without.findIndex(
+    (row) => row.id === zoneTitleId && row.isSectionTitle,
+  );
+  if (titleIndex < 0) return items;
+  const at = zoneEndInsertAt(without, titleIndex);
+  return [...without.slice(0, at), item, ...without.slice(at)];
+}

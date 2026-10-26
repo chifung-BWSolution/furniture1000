@@ -59,6 +59,22 @@ import {
   type GenerateChoice,
 } from "@/components/dashboard/QuotePhotoGenerateDialog";
 import { parsePhotoLayouts, type PhotoLayoutGroup } from "@/lib/quotePhotoLayouts";
+import { FloorPlanViewerModal } from "@/components/dashboard/solutions/FloorPlanViewerModal";
+import { renderPdfPageToJpegBlob } from "@/lib/floorPlanPdf";
+import {
+  uploadProjectFloorPlanFile,
+  uploadProjectFloorPlanPreview,
+} from "@/lib/imageStorage";
+import {
+  detectZonesFromJpegBase64,
+  imageBlobToJpegBase64,
+  MAX_ZONE_IMAGES,
+  parseQuoteFloorPlan,
+  parseQuoteZoneImages,
+  pruneQuoteZoneImages,
+  type QuoteFloorPlan,
+  type QuoteZoneImageMap,
+} from "@/lib/quoteFloorPlan";
 import { materialPlainText } from "@/lib/quotationMaterialHtml";
 import { toast } from "sonner";
 import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
@@ -74,6 +90,7 @@ import { CopyQuoteItemsModal } from "@/components/dashboard/CopyQuoteItemsModal"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Modal, ModalButton } from "@/components/ui/modal";
 import { LoadingImage } from "@/components/ui/loading-image";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -136,15 +153,19 @@ import {
 import { parseGpSummary } from "@/lib/quoteGpSummary";
 import { quoteBillableProductCost, quoteBillableSubtotal, quoteItemLineSubtotal } from "@/lib/quoteItemTotals";
 import {
+  formatSectionTitleLabel,
   productSerialAt,
   sectionTitleOrdinalAt,
   sectionTitlePrefix,
 } from "@/lib/quoteSectionTitle";
 import {
+  moveItemIntoZone,
   quoteItemSerialLabel,
   zoneEndInsertAt,
   zoneItemCountAt,
   zoneItemPrefixAt,
+  zoneTitleIdAt,
+  zoneTitleIdBefore,
 } from "@/lib/quoteZone";
 import {
   loadQuoteItems,
@@ -1054,6 +1075,38 @@ function QuoteFactoryField({
   );
 }
 
+function QuoteItemZoneSelect({
+  zoneTitleId,
+  zoneOptions,
+  labels,
+  onAssign,
+}: {
+  zoneTitleId: string | null;
+  zoneOptions: { id: string; label: string }[];
+  labels: QuoteUiLabels;
+  onAssign: (zoneTitleId: string) => void;
+}) {
+  return (
+    <Select value={zoneTitleId ?? "__none__"} onValueChange={onAssign}>
+      <SelectTrigger
+        className="h-8 w-[9.5rem] shrink-0 text-xs"
+        aria-label={labels.itemZone}
+      >
+        <SelectValue placeholder={labels.itemZone} />
+      </SelectTrigger>
+      <SelectContent className="z-[300]">
+        <SelectItem value="__none__">{labels.unzoned}</SelectItem>
+        {zoneOptions.map((zone) => (
+          <SelectItem key={zone.id} value={zone.id}>
+            {zone.label}
+          </SelectItem>
+        ))}
+        <SelectItem value="__new__">{labels.addZoneHere}</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
 function QuoteProductItemCard({
   item,
   index,
@@ -1086,6 +1139,9 @@ function QuoteProductItemCard({
   onMoveDown,
   canMoveUp,
   canMoveDown,
+  zoneTitleId = null,
+  zoneOptions = [],
+  onAssignZone,
 }: {
   item: QuotationItem;
   index: number;
@@ -1121,6 +1177,9 @@ function QuoteProductItemCard({
   onMoveDown: () => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  zoneTitleId?: string | null;
+  zoneOptions?: { id: string; label: string }[];
+  onAssignZone?: (zoneTitleId: string) => void;
 }) {
   const [cardCollapsed, setCardCollapsed] = useState(false);
   const dimensionMode = item.dimensionMode ?? 'lwh';
@@ -1167,6 +1226,14 @@ function QuoteProductItemCard({
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         />
+        {onAssignZone ? (
+          <QuoteItemZoneSelect
+            zoneTitleId={zoneTitleId}
+            zoneOptions={zoneOptions}
+            labels={labels}
+            onAssign={onAssignZone}
+          />
+        ) : null}
         <div className="min-w-0 flex-1">
           <input
             type="text"
@@ -1579,6 +1646,9 @@ function QuoteCustomTermCard({
   onMoveDown,
   canMoveUp,
   canMoveDown,
+  zoneTitleId = null,
+  zoneOptions = [],
+  onAssignZone,
 }: {
   item: QuotationItem;
   index: number;
@@ -1601,6 +1671,9 @@ function QuoteCustomTermCard({
   onMoveDown: () => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  zoneTitleId?: string | null;
+  zoneOptions?: { id: string; label: string }[];
+  onAssignZone?: (zoneTitleId: string) => void;
 }) {
   return (
     <div
@@ -1625,6 +1698,16 @@ function QuoteCustomTermCard({
             onDragEnd={onDragEnd}
           />
         </div>
+        {onAssignZone ? (
+          <div className="shrink-0 pt-4">
+            <QuoteItemZoneSelect
+              zoneTitleId={zoneTitleId}
+              zoneOptions={zoneOptions}
+              labels={labels}
+              onAssign={onAssignZone}
+            />
+          </div>
+        ) : null}
         <div className="min-w-0 flex-1 space-y-3">
           <QuoteFieldBlock label={labels.valueServiceDesc}>
             <input
@@ -1739,6 +1822,10 @@ function QuoteSectionTitleCard({
   onMoveDown,
   canMoveUp,
   canMoveDown,
+  zoneImageUrls = [],
+  onUploadZoneImage,
+  onRemoveZoneImage,
+  onPreviewZoneImage,
 }: {
   item: QuotationItem;
   index: number;
@@ -1763,6 +1850,10 @@ function QuoteSectionTitleCard({
   onMoveDown: () => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  zoneImageUrls?: string[];
+  onUploadZoneImage?: () => void;
+  onRemoveZoneImage?: (url: string) => void;
+  onPreviewZoneImage?: (imageIndex: number) => void;
 }) {
   const ordinal = sectionTitleOrdinalAt(items, index);
   const prefix = sectionTitlePrefix(ordinal);
@@ -1841,8 +1932,48 @@ function QuoteSectionTitleCard({
           <Plus className="h-3 w-3" />
           {labels.zoneAddItemBelow}
         </button>
+        {onUploadZoneImage ? (
+          <button
+            type="button"
+            onClick={onUploadZoneImage}
+            className={zoneAddBtn}
+            title={labels.uploadZoneImage}
+          >
+            <ImagePlus className="h-3 w-3" />
+            {labels.uploadZoneImage}
+          </button>
+        ) : null}
         </div>
       </div>
+      {zoneImageUrls.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {zoneImageUrls.map((url, imageIndex) => (
+            <div key={url} className="relative">
+              <button
+                type="button"
+                onClick={() => onPreviewZoneImage?.(imageIndex)}
+                className="block overflow-hidden rounded-md border border-border bg-background"
+                aria-label={`${item.name || labels.sectionTitleLabel} 圖片 ${imageIndex + 1}`}
+              >
+                <LoadingImage
+                  src={url}
+                  alt=""
+                  className="h-16 w-20"
+                  imgClassName="object-contain"
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => onRemoveZoneImage?.(url)}
+                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"
+                aria-label={labels.removeZoneImage}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2096,6 +2227,12 @@ function QuoteAddRowButtonGroup({
   onAddField,
   onAddCustomTerm,
   onAddProduct,
+  onUploadZoneImage,
+  onUploadFloorPlan,
+  onRecognizeZones,
+  hasFloorPlan = false,
+  floorPlanBusy = false,
+  recognizingZones = false,
   onPaste,
   showPaste = false,
   compact = false,
@@ -2106,6 +2243,12 @@ function QuoteAddRowButtonGroup({
   onAddField: () => void;
   onAddCustomTerm: () => void;
   onAddProduct: () => void;
+  onUploadZoneImage?: () => void;
+  onUploadFloorPlan?: () => void;
+  onRecognizeZones?: () => void;
+  hasFloorPlan?: boolean;
+  floorPlanBusy?: boolean;
+  recognizingZones?: boolean;
   onPaste?: () => void;
   showPaste?: boolean;
   compact?: boolean;
@@ -2139,6 +2282,51 @@ function QuoteAddRowButtonGroup({
         <Plus className={iconClass} />
         {labels.addSectionTitle}
       </button>
+      {onUploadZoneImage ? (
+        <button
+          type="button"
+          onClick={onUploadZoneImage}
+          className={cn(
+            btnBase,
+            "border-teal-500/50 text-teal-700 hover:bg-teal-500/5 dark:text-teal-400",
+          )}
+        >
+          <ImagePlus className={iconClass} />
+          {labels.uploadZoneImage}
+        </button>
+      ) : null}
+      {onUploadFloorPlan ? (
+        <button
+          type="button"
+          onClick={onUploadFloorPlan}
+          disabled={floorPlanBusy}
+          className={cn(
+            btnBase,
+            "border-sky-500/50 text-sky-700 hover:bg-sky-500/5 disabled:opacity-50 dark:text-sky-400",
+          )}
+        >
+          <Upload className={iconClass} />
+          {floorPlanBusy
+            ? labels.uploadingFloorPlan
+            : hasFloorPlan
+              ? labels.replaceFloorPlan
+              : labels.uploadFloorPlan}
+        </button>
+      ) : null}
+      {onRecognizeZones ? (
+        <button
+          type="button"
+          onClick={onRecognizeZones}
+          disabled={!hasFloorPlan || floorPlanBusy || recognizingZones}
+          className={cn(
+            btnBase,
+            "border-violet-500/50 text-violet-700 hover:bg-violet-500/5 disabled:opacity-50 dark:text-violet-400",
+          )}
+        >
+          {recognizingZones ? <Loader2 className={cn(iconClass, "animate-spin")} /> : <Wand2 className={iconClass} />}
+          {recognizingZones ? labels.recognizingZones : labels.recognizeZones}
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onAddField}
@@ -2395,6 +2583,21 @@ export function QuotationDraftEditor({
   const [quotePhotoAssets, setQuotePhotoAssets] = useState<QuotePhotoAssetRef[]>(() =>
     parseQuotePhotoAssetRefs(savedProjectData.quotePhotoAssets),
   );
+  const [floorPlan, setFloorPlan] = useState<QuoteFloorPlan | null>(() =>
+    parseQuoteFloorPlan(savedProjectData.floorPlan),
+  );
+  const [zoneImages, setZoneImages] = useState<QuoteZoneImageMap>(() =>
+    parseQuoteZoneImages(savedProjectData.zoneImages),
+  );
+  const [floorPlanBusy, setFloorPlanBusy] = useState(false);
+  const [recognizingZones, setRecognizingZones] = useState(false);
+  const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
+  const [pendingZones, setPendingZones] = useState<
+    { id: string; name: string; include: boolean }[] | null
+  >(null);
+  const [zoneImageTargetId, setZoneImageTargetId] = useState<string | null>(null);
+  const [zoneLightbox, setZoneLightbox] = useState<{ urls: string[]; index: number } | null>(null);
+  const floorPlanInputRef = useRef<HTMLInputElement>(null);
   const [canManagePhotos, setCanManagePhotos] = useState(false);
   /**
    * 圖片庫標為封面／封底的圖（照 FCCD）：每次出 PDF 自動各佔一整頁，
@@ -2435,6 +2638,10 @@ export function QuotationDraftEditor({
     setQuotePhotoLayouts((prev) => (JSON.stringify(prev) === JSON.stringify(nextLayouts) ? prev : nextLayouts));
     const nextAssets = parseQuotePhotoAssetRefs(projectData?.quotePhotoAssets);
     setQuotePhotoAssets((prev) => (JSON.stringify(prev) === JSON.stringify(nextAssets) ? prev : nextAssets));
+    const nextFloorPlan = parseQuoteFloorPlan(projectData?.floorPlan);
+    setFloorPlan((prev) => (JSON.stringify(prev) === JSON.stringify(nextFloorPlan) ? prev : nextFloorPlan));
+    const nextZoneImages = parseQuoteZoneImages(projectData?.zoneImages);
+    setZoneImages((prev) => (JSON.stringify(prev) === JSON.stringify(nextZoneImages) ? prev : nextZoneImages));
   }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
   // 報價 PDF 的 QR 指向這張單已有的客戶連結，不必每次開啟都重新生成。
@@ -2925,6 +3132,12 @@ export function QuotationDraftEditor({
     itemsUserEditedRef.current = true;
     if (cutItemId === id) setCutItemId(null);
     setItems((prev) => prev.filter((item) => item.id !== id));
+    setZoneImages((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   /** Toggle cut state on a row (dimmed like dragging); paste moves it between rows. */
@@ -2959,10 +3172,18 @@ export function QuotationDraftEditor({
       const index = prev.findIndex((item) => item.id === id);
       if (index < 0) return prev;
       const source = prev[index];
+      const cloneId = generateId();
       const clone: QuotationItem = {
         ...source,
-        id: generateId(),
+        id: cloneId,
       };
+      if (source.isSectionTitle) {
+        setZoneImages((prev) => {
+          const urls = prev[source.id];
+          if (!urls?.length) return prev;
+          return { ...prev, [cloneId]: [...urls] };
+        });
+      }
       return [...prev.slice(0, index + 1), clone, ...prev.slice(index + 1)];
     });
   };
@@ -3452,6 +3673,171 @@ export function QuotationDraftEditor({
   const storageKey = makeDraftKey(userEmail, rawQuoteId);
   const quoteImageScope = existingQuote?.quoteId || rawQuoteId;
 
+  const zoneOptions = useMemo(
+    () =>
+      items
+        .filter((item) => item.isSectionTitle)
+        .map((item) => {
+          const index = items.findIndex((row) => row.id === item.id);
+          const name = item.name.trim() || (quoteLocale === "en" ? "Untitled zone" : "未命名分區");
+          return {
+            id: item.id,
+            label: formatSectionTitleLabel(sectionTitleOrdinalAt(items, index), name),
+          };
+        }),
+    [items, quoteLocale],
+  );
+
+  const assignItemToZone = (itemId: string, value: string) => {
+    itemsUserEditedRef.current = true;
+    if (value === "__new__") {
+      setItems((prev) => {
+        const index = prev.findIndex((item) => item.id === itemId);
+        if (index < 0 || prev[index]?.isSectionTitle) return prev;
+        const row = prev[index];
+        const without = prev.filter((_, i) => i !== index);
+        return [...without, createBlankSectionTitle(), row];
+      });
+      return;
+    }
+    setItems((prev) => moveItemIntoZone(prev, itemId, value === "__none__" ? null : value));
+  };
+
+  const appendZoneImage = (zoneId: string, url: string) => {
+    if (!isHttpImageUrl(url)) return;
+    itemsUserEditedRef.current = true;
+    setZoneImages((prev) => {
+      const current = prev[zoneId] || [];
+      if (current.includes(url)) return prev;
+      if (current.length >= MAX_ZONE_IMAGES) {
+        toast.error(quoteLocale === "en"
+          ? `Each zone can hold ${MAX_ZONE_IMAGES} images`
+          : `每個分區最多 ${MAX_ZONE_IMAGES} 張圖片`);
+        return prev;
+      }
+      return { ...prev, [zoneId]: [...current, url] };
+    });
+  };
+
+  const removeZoneImage = (zoneId: string, url: string) => {
+    itemsUserEditedRef.current = true;
+    setZoneImages((prev) => {
+      const nextUrls = (prev[zoneId] || []).filter((entry) => entry !== url);
+      const next = { ...prev };
+      if (nextUrls.length) next[zoneId] = nextUrls;
+      else delete next[zoneId];
+      return next;
+    });
+  };
+
+  const openZoneImageUpload = (zoneId: string | null) => {
+    if (!zoneId) {
+      toast.error(quoteLocale === "en" ? "Add a zone before this row first" : "請先在這件傢俬前面新增分區");
+      return;
+    }
+    setZoneImageTargetId(zoneId);
+  };
+
+  const handleFloorPlanFile = async (file: File) => {
+    const lowerName = file.name.toLowerCase();
+    const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
+    const isImage = file.type.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(lowerName);
+    if (!isPdf && !isImage) {
+      toast.error(quoteLocale === "en" ? "Upload a PDF, JPG or PNG" : "請上傳 PDF / JPG / PNG");
+      return;
+    }
+    setFloorPlanBusy(true);
+    try {
+      const uploaded = await uploadProjectFloorPlanFile(quoteImageScope || "quote", file);
+      let previewUrl = uploaded.mimeType.startsWith("image/") ? uploaded.url : null;
+      if (isPdf) {
+        const rendered = await renderPdfPageToJpegBlob(file, 1, { scale: 1.1, quality: 0.8 });
+        previewUrl = await uploadProjectFloorPlanPreview(quoteImageScope || "quote", rendered.blob);
+      }
+      itemsUserEditedRef.current = true;
+      setFloorPlan({
+        url: uploaded.url,
+        mimeType: uploaded.mimeType,
+        fileName: uploaded.fileName,
+        previewUrl,
+      });
+      toast.success(quoteLocale === "en" ? "Floor plan uploaded" : "已上傳平面圖");
+    } catch (error) {
+      toast.error(quoteLocale === "en" ? "Could not upload the floor plan" : "平面圖上傳失敗", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setFloorPlanBusy(false);
+    }
+  };
+
+  const recognizeFloorPlanZones = async () => {
+    if (!floorPlan) {
+      toast.error(quoteLocale === "en" ? "Upload a floor plan first" : "請先上傳平面圖");
+      return;
+    }
+    setRecognizingZones(true);
+    try {
+      const source = floorPlan.previewUrl
+        || (floorPlan.mimeType.startsWith("image/") ? floorPlan.url : null);
+      const blob = source
+        ? await (await fetch(source)).blob()
+        : (await renderPdfPageToJpegBlob(floorPlan.url, 1, { scale: 1.1, quality: 0.75 })).blob;
+      const jpeg = await imageBlobToJpegBase64(blob);
+      const names = await detectZonesFromJpegBase64(jpeg);
+      if (!names.length) {
+        toast.message(
+          quoteLocale === "en"
+            ? "No labeled zones were found. Add one manually."
+            : "平面圖上看不到可辨識的分區，可手動新增",
+        );
+        return;
+      }
+      setPendingZones(names.map((name) => ({ id: generateId(), name, include: true })));
+    } catch (error) {
+      toast.error(quoteLocale === "en" ? "Could not detect zones" : "識別分區失敗", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setRecognizingZones(false);
+    }
+  };
+
+  const confirmDetectedZones = () => {
+    const names = (pendingZones || [])
+      .filter((zone) => zone.include && zone.name.trim())
+      .map((zone) => zone.name.trim());
+    if (!names.length) {
+      toast.error(quoteLocale === "en" ? "Select at least one zone" : "請至少保留一個分區");
+      return;
+    }
+    itemsUserEditedRef.current = true;
+    let added = 0;
+    setItems((prev) => {
+      const existing = new Set(
+        prev.filter((item) => item.isSectionTitle).map((item) => item.name.trim().toLowerCase()),
+      );
+      const fresh = names.filter((name) => !existing.has(name.toLowerCase()));
+      added = fresh.length;
+      if (!fresh.length) return prev;
+      return insertItemsAt(
+        prev,
+        fresh.map((name) => ({ ...createBlankSectionTitle(), name })),
+        0,
+      );
+    });
+    if (!added) {
+      toast.message(quoteLocale === "en" ? "Those zones are already on this quote" : "這些分區已經在報價裡");
+    } else {
+      toast.success(
+        quoteLocale === "en"
+          ? `Added ${added} zone${added === 1 ? "" : "s"}`
+          : `已加入 ${added} 個分區`,
+      );
+    }
+    setPendingZones(null);
+  };
+
   // Reset item-edit guard when switching to a different quote.
   // Do NOT reset when first persist promotes NEW → real quoteId (same editor session).
   const prevStorageKeyRef = useRef(storageKey);
@@ -3580,6 +3966,12 @@ export function QuotationDraftEditor({
         if (Array.isArray(cachedRecord.quotePhotoAssets)) {
           setQuotePhotoAssets(parseQuotePhotoAssetRefs(cachedRecord.quotePhotoAssets));
         }
+        if ("floorPlan" in cachedRecord) {
+          setFloorPlan(parseQuoteFloorPlan(cachedRecord.floorPlan));
+        }
+        if ("zoneImages" in cachedRecord) {
+          setZoneImages(parseQuoteZoneImages(cachedRecord.zoneImages));
+        }
         if (cached.termsContent) {
           const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
           setTermsContent(
@@ -3654,6 +4046,8 @@ export function QuotationDraftEditor({
       priceMultiplier: parseFloat(priceMultiplier) || 1,
       quotePhotoLayouts: quotePhotoLayouts as unknown as Record<string, unknown>[],
       quotePhotoAssets: quotePhotoAssets as unknown as Record<string, unknown>[],
+      floorPlan: floorPlan as unknown as Record<string, unknown> | null,
+      zoneImages: zoneImages as unknown as Record<string, unknown>,
     }),
     [
       storageKey,
@@ -3673,6 +4067,8 @@ export function QuotationDraftEditor({
       priceMultiplier,
       quotePhotoLayouts,
       quotePhotoAssets,
+      floorPlan,
+      zoneImages,
     ],
   );
 
@@ -4044,6 +4440,11 @@ export function QuotationDraftEditor({
       priceMultiplier: parseFloat(priceMultiplier) || 1,
       quotePhotoLayouts,
       quotePhotoAssets,
+      floorPlan,
+      zoneImages: pruneQuoteZoneImages(
+        zoneImages,
+        items.filter((item) => item.isSectionTitle).map((item) => item.id),
+      ),
     };
   };
 
@@ -4080,6 +4481,7 @@ export function QuotationDraftEditor({
       isCustomTerm: item.isCustomTerm,
       isOptional: item.isOptional,
       isSectionTitle: item.isSectionTitle,
+      zoneImages: item.isSectionTitle ? zoneImages[item.id] : undefined,
       unit: item.unit,
     }));
     const pdfSubtotal = quoteBillableSubtotal(pdfSourceItems);
@@ -4857,12 +5259,18 @@ export function QuotationDraftEditor({
                       {t.quoteContent}
                     </h2>
                     <p className="mt-1 font-body text-sm text-muted-foreground">
-                      {ui('新增或編輯產品項目、增值服務等，支援圖片、材料及詳細規格。', 'Add or edit products and services, including images, materials and specifications.')}
+                      {ui('新增或編輯產品項目、增值服務等，支援圖片、材料及詳細規格。可上傳平面圖並識別分區；分區加在報價最前，每件傢俬前面可改所屬分區。', 'Add or edit products and services, including images, materials and specifications. Upload a floor plan to detect zones, then assign each item with the zone menu in front of it.')}
                     </p>
                   </div>
                   <QuoteAddRowButtonGroup
                     labels={t}
                     showPaste={cutItemId != null}
+                    hasFloorPlan={Boolean(floorPlan)}
+                    floorPlanBusy={floorPlanBusy}
+                    recognizingZones={recognizingZones}
+                    onUploadFloorPlan={() => floorPlanInputRef.current?.click()}
+                    onRecognizeZones={() => void recognizeFloorPlanZones()}
+                    onUploadZoneImage={() => openZoneImageUpload(zoneTitleIdBefore(items, 0))}
                     onPaste={() => {
 
                       pasteCutItemAt(0);
@@ -4885,6 +5293,43 @@ export function QuotationDraftEditor({
                 <p className="mb-4 border-b border-border/80 pb-3 text-xs text-muted-foreground">
                   {ui('產品項目', 'Products')} {productCount} · {ui('增值服務', 'Services')} {serviceCount} · {ui('備註標題', 'Titles')} {titleCount}{ui('；依報價單順序排列，可拖曳或上下移動調整位置。', '; drag or use the arrows to reorder items as they appear in the quotation.')}
                 </p>
+                <input
+                  ref={floorPlanInputRef}
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) void handleFloorPlanFile(file);
+                  }}
+                />
+                {floorPlan ? (
+                  <button
+                    type="button"
+                    onClick={() => setFloorPlanViewerOpen(true)}
+                    className="mb-4 flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2 text-left hover:bg-muted/40"
+                  >
+                    {floorPlan.previewUrl || floorPlan.mimeType.startsWith("image/") ? (
+                      <LoadingImage
+                        src={floorPlan.previewUrl || floorPlan.url}
+                        alt={floorPlan.fileName}
+                        className="h-16 w-24 rounded-md bg-background"
+                        imgClassName="object-contain"
+                      />
+                    ) : (
+                      <span className="flex h-16 w-24 items-center justify-center rounded-md bg-background text-muted-foreground">
+                        <FileText className="h-6 w-6" />
+                      </span>
+                    )}
+                    <span className="min-w-0">
+                      <span className="block truncate font-body text-sm font-medium text-foreground">{floorPlan.fileName}</span>
+                      <span className="mt-0.5 block font-body text-xs text-muted-foreground">
+                        {ui('點擊查看平面圖', 'View floor plan')}
+                      </span>
+                    </span>
+                  </button>
+                ) : null}
 
                 <div
                   className="space-y-3"
@@ -4941,6 +5386,12 @@ export function QuotationDraftEditor({
                           onMoveDown={() => nudgeItem(item.id, 1)}
                           canMoveUp={canNudge(index, -1)}
                           canMoveDown={canNudge(index, 1)}
+                          zoneImageUrls={zoneImages[item.id] || []}
+                          onUploadZoneImage={() => openZoneImageUpload(item.id)}
+                          onRemoveZoneImage={(url) => removeZoneImage(item.id, url)}
+                          onPreviewZoneImage={(imageIndex) =>
+                            setZoneLightbox({ urls: zoneImages[item.id] || [], index: imageIndex })
+                          }
                         />
                       ) : item.isCustomTerm ? (
                         <QuoteCustomTermCard
@@ -4964,6 +5415,9 @@ export function QuotationDraftEditor({
                           onMoveDown={() => nudgeItem(item.id, 1)}
                           canMoveUp={canNudge(index, -1)}
                           canMoveDown={canNudge(index, 1)}
+                          zoneTitleId={zoneTitleIdAt(items, index)}
+                          zoneOptions={zoneOptions}
+                          onAssignZone={(value) => assignItemToZone(item.id, value)}
                         />
                       ) : (
                         <QuoteProductItemCard
@@ -4998,6 +5452,9 @@ export function QuotationDraftEditor({
                           onMoveDown={() => nudgeItem(item.id, 1)}
                           canMoveUp={canNudge(index, -1)}
                           canMoveDown={canNudge(index, 1)}
+                          zoneTitleId={zoneTitleIdAt(items, index)}
+                          zoneOptions={zoneOptions}
+                          onAssignZone={(value) => assignItemToZone(item.id, value)}
                         />
                       )}
                       <QuoteAddRowButtonGroup
@@ -5021,6 +5478,11 @@ export function QuotationDraftEditor({
                         onAddProduct={() => {
                           openProductSelector(index + 1);
                         }}
+                        onUploadZoneImage={() =>
+                          openZoneImageUpload(
+                            item.isSectionTitle ? item.id : zoneTitleIdBefore(items, index + 1),
+                          )
+                        }
                       />
                     </div>
                     );
@@ -5740,6 +6202,110 @@ export function QuotationDraftEditor({
               每次按「生成」都會建立全新連結與 QR Code
             </div>
       </Modal>
+
+      <ImageUploadModal
+        open={zoneImageTargetId != null}
+        onClose={() => setZoneImageTargetId(null)}
+        onSelect={(url) => {
+          if (zoneImageTargetId) appendZoneImage(zoneImageTargetId, url);
+        }}
+        title={t.uploadZoneImage}
+        uploadImage={
+          zoneImageTargetId
+            ? (file) => uploadQuoteImageFile(file, quoteImageScope, zoneImageTargetId, "reference")
+            : undefined
+        }
+      />
+
+      <Modal
+        open={pendingZones != null}
+        onOpenChange={(open) => {
+          if (!open) setPendingZones(null);
+        }}
+        size="md"
+        icon={<Wand2 className="h-5 w-5" />}
+        title={t.reviewDetectedZones}
+        description={t.reviewDetectedZonesHint}
+        footer={
+          <>
+            <ModalButton variant="secondary" onClick={() => setPendingZones(null)}>
+              {t.cancel}
+            </ModalButton>
+            <ModalButton onClick={confirmDetectedZones}>{t.confirm}</ModalButton>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          {(pendingZones || []).map((zone) => (
+            <div key={zone.id} className="flex items-center gap-2">
+              <Checkbox
+                checked={zone.include}
+                onCheckedChange={(checked) =>
+                  setPendingZones((prev) =>
+                    (prev || []).map((row) =>
+                      row.id === zone.id ? { ...row, include: Boolean(checked) } : row,
+                    ),
+                  )
+                }
+                aria-label={zone.name || t.sectionTitleLabel}
+              />
+              <Input
+                value={zone.name}
+                aria-label={t.sectionTitleLabel}
+                onChange={(e) =>
+                  setPendingZones((prev) =>
+                    (prev || []).map((row) =>
+                      row.id === zone.id ? { ...row, name: e.target.value } : row,
+                    ),
+                  )
+                }
+                className={QUOTE_INPUT_CLASS}
+              />
+              <button
+                type="button"
+                className="rounded-md p-1 text-muted-foreground hover:text-destructive"
+                aria-label={quoteLocale === "en" ? "Remove zone" : "移除分區"}
+                onClick={() =>
+                  setPendingZones((prev) => (prev || []).filter((row) => row.id !== zone.id))
+                }
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-foreground/80 hover:bg-muted/50"
+            onClick={() =>
+              setPendingZones((prev) => [
+                ...(prev || []),
+                { id: generateId(), name: "", include: true },
+              ])
+            }
+          >
+            <Plus className="h-3 w-3" />
+            {t.addZoneHere}
+          </button>
+        </div>
+      </Modal>
+
+      <FloorPlanViewerModal
+        open={floorPlanViewerOpen}
+        title={floorPlan?.fileName || t.uploadFloorPlan}
+        url={floorPlan?.url ?? null}
+        type={floorPlan?.mimeType ?? null}
+        previewUrl={floorPlan?.previewUrl}
+        onClose={() => setFloorPlanViewerOpen(false)}
+      />
+
+      <ImageLightbox
+        open={zoneLightbox != null}
+        onClose={() => setZoneLightbox(null)}
+        images={zoneLightbox?.urls || []}
+        startIndex={zoneLightbox?.index || 0}
+        title={t.uploadZoneImage}
+        thumbWidth={96}
+      />
 
     </>
   );
