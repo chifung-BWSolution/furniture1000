@@ -85,7 +85,7 @@ FDS 已經能管產品、跑 AI 識圖、做報價和設計專案，但贏標仍
 | 互動式 3D | Tripo 等可旋轉預覽優先級降低。客戶若看得到，必須標示「僅供參考」。不得把 AI 預覽當成實物圖。固定使用真實廠家圖片更安全 |
 | 模型轉換 | 只改副檔名不算完成。必須走該格式的生成或轉換，並由設計師實際打開驗證 |
 | 圖冊附件 | 報價可同時帶主產品圖和圖冊抽出的頁。支援不連續頁（例如第 2、34、64 頁），可跨 PDF，再合併進報價輸出 |
-| 顏色 | 沿用現有一級／二級顏色。AI 不得自建正式色名。無法對上的進人工審核。圖片推測色與廠家常規色分開存放。「訂造」是標記，不是新色庫 |
+| 顏色 | 沿用現有一級／二級顏色。圖片推測與廠家圖冊／報價單上的顏色寫入同一組顏色，不分開存放。AI 不得自建正式色名。無法對上的進人工審核。「訂造」是標記，不是新色庫 |
 | 行業 | 一間公司或一個項目可以有多個一級／二級行業。結構跟 Leo 確認的 PMS 行業標籤走，FDS 不另建分類樹 |
 | PPT 結構 | 固定五段，順序不可改：封面、公司介紹、平面圖、方案、參考案例。每段可多頁。沒有平面圖就略過該段。不做自由拖拉編輯器 |
 | 超過 10 個報價項 | 提示建立分區，不強制擋下輸出。分區數量不限於 A／B／C／D |
@@ -197,7 +197,7 @@ P0／P1／P2 是實施順序，不是已核准的日期。P2 在容量不夠時�
 
 ### 5.1 圖冊要抽的欄位
 
-Product Name、Model、Manufacturer、Product Images、Category、Series、Material、Dimensions、Primary Color、Secondary Color、Original Color、Source Page。同時建立圖冊目錄與頁碼索引，供附件選頁使用。
+Product Name、Model、Manufacturer、Product Images、Category、Series、Material、Dimensions、Primary Color、Secondary Color、Original Color、Source Page。圖片推測色與文件上的顏色都映射到同一組 Primary／Secondary Color。Original Color 只保留廠家原文，不成為第二套顏色。同時建立圖冊目錄與頁碼索引，供附件選頁使用。
 
 ### 5.2 報價單要抽的欄位
 
@@ -243,20 +243,17 @@ Manufacturer、Model、Product Name、Specification、Unit Price、Currency、Un
 
 ### 6.3 顏色
 
-沿用現有一級、二級顏色（實作起點是 `src/constants/color-map.ts`）。先盤點現有分類的使用情況，再把圖冊識別結果映射過去。保留廠家原始色名。對不上就人工審核。AI 不得新增正式顏色分類。
+沿用現有一級、二級顏色（實作起點是 `src/constants/color-map.ts`）。先盤點現有分類的使用情況，再把識別結果映射過去。對不上就人工審核。AI 不得新增正式顏色分類。
 
-必須分開存放：
+圖片推測出來的顏色，和廠家圖冊或報價單寫明的顏色，都寫入同一組一級／二級顏色。不另建「圖片推測色」和「廠家常規色」兩套欄位，也不把兩者當成不同的顏色來源。廠家原始色名只作對照文字，篩選與展示都用映射後的那一組顏色。
 
-- Image Detected Color：由圖片推測
-- Manufacturer Standard Color：廠家確認的常規色
-
-兩者不能當成同一個值。訂造色標記為「訂造」，表示要另作溝通，不寫進常規色庫。產品類型篩選優先於顏色篩選。
+訂造色標記為「訂造」，表示要另作溝通，不寫進常規色庫。產品類型篩選優先於顏色篩選。
 
 ### 6.4 驗收
 
 - 新舊報價並存時，有效價取最新年份。
 - 歷史價格追得到。
-- 顏色落在既有分類，或進入審核。
+- 圖片推測與廠家文件上的顏色落在同一組既有分類，或進入審核。
 - 不會出現系統不認識的新正式色。
 - 價格衝突和型號歧義在畫面上認得出、處理得了。
 
@@ -447,7 +444,7 @@ PDF 含：標題、分區與項目、尺寸與單位、數量、對應配套價�
 | ExtractedProduct | AI 識別結果，區別於正式產品 |
 | Product | 正式產品 |
 | ProductPriceHistory | 歷史報價與版本 |
-| ProductColorMapping | 推測色、常規色、原始色名、訂造標記 |
+| ProductColorMapping | 映射到同一組一級／二級顏色；另存廠家原始色名與訂造標記 |
 | ProductReview | 審核記錄 |
 | PricingTemplate / PricingPrice | 套餐式快速報價的項目與基準價 |
 | QuickQuote | 套餐式快速報價結果（與 `bwf_quote` 分開） |
