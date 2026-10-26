@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, useReducedMotion } from 'framer-motion';
-import { loadManufacturerDirectory, type DirectoryFactory } from '@/lib/manufacturerDirectory';
+import { loadManufacturerDirectory, type DirectoryDocumentLink, type DirectoryFactory } from '@/lib/manufacturerDirectory';
 import { catalogStatusLabel, listCatalogRows, openSupplierCatalog, type SupplierDocType } from '@/lib/supplierCatalog';
 import { canManageSupplierDocuments, enqueueSupplierDocumentParse } from '@/lib/supplierDocuments';
 import { FactoryCatalogPanel } from '@/components/dashboard/FactoryCatalogPanel';
@@ -110,6 +110,51 @@ type CatalogSummary = {
   categories: string[];
 };
 
+function attachDirectoryFiles(
+  summary: Record<string, CatalogSummary>,
+  factories: FactoryRecord[],
+  includeQuoteFiles: boolean,
+): Record<string, CatalogSummary> {
+  const next = { ...summary };
+  for (const factory of factories) {
+    const current = next[factory.id] ?? {
+      hasCatalog: false,
+      hasPriceList: false,
+      catalogYear: null,
+      priceListYear: null,
+      catalogFile: null,
+      priceListFile: null,
+      status: null,
+      categories: [],
+    };
+    const catalogLink = linkToFile(factory.catalog_file);
+    const quoteLink = linkToFile(factory.quote_file);
+    if (catalogLink && !current.catalogFile?.storagePath) {
+      current.hasCatalog = true;
+      current.catalogYear = catalogLink.year ?? current.catalogYear;
+      current.catalogFile = catalogLink;
+    }
+    if (includeQuoteFiles && quoteLink && !current.priceListFile?.storagePath) {
+      current.hasPriceList = true;
+      current.priceListYear = quoteLink.year ?? current.priceListYear;
+      current.priceListFile = quoteLink;
+    }
+    if (current.catalogFile || current.priceListFile) next[factory.id] = current;
+  }
+  return next;
+}
+
+function linkToFile(link: DirectoryDocumentLink | null | undefined): CatalogFileRef | null {
+  if (!link?.storage_path) return null;
+  return {
+    id: link.id,
+    storagePath: link.storage_path,
+    year: link.document_year,
+    status: 'pending',
+    createdAt: link.created_at ?? '',
+  };
+}
+
 function preferFile(current: CatalogFileRef | null, next: CatalogFileRef): CatalogFileRef {
   if (!current) return next;
   const yearDiff = (next.year ?? -1) - (current.year ?? -1);
@@ -196,6 +241,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
       // browser — typing never hits the API.
       const rows = await loadManufacturerDirectory({ force });
       setFactories(rows);
+      const canManage = await canManageSupplierDocuments().catch(() => false);
       try {
         const catalogs = await listCatalogRows();
         const statusRank: Record<string, number> = {
@@ -249,11 +295,12 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
           }
           summary[factoryId] = current;
         }
-        setCatalogByFactory(summary);
+        setCatalogByFactory(attachDirectoryFiles(summary, rows, canManage));
       } catch (catalogError) {
         console.error('[ManufacturerDirectory] Catalog summary failed:', catalogError);
+        setCatalogByFactory(attachDirectoryFiles({}, rows, canManage));
       }
-      setCanManageDocs(await canManageSupplierDocuments().catch(() => false));
+      setCanManageDocs(canManage);
     } catch (err) {
       console.error('[ManufacturerDirectory] Failed to load manufacturers:', err);
       toast.error('廠家目錄載入失敗，請重試');
@@ -584,7 +631,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                     <DocumentYearCell
                       file={catalog?.catalogFile ?? null}
                       documentYear={catalog?.hasCatalog ? catalog.catalogYear : null}
-                      uploadYear={factory.catalog_year}
+                      uploadYear={catalog?.catalogFile ? factory.catalog_year : null}
                       onOpen={openFile}
                     />
                   </TableCell>
@@ -592,7 +639,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                     <DocumentYearCell
                       file={catalog?.priceListFile ?? null}
                       documentYear={catalog?.hasPriceList ? catalog.priceListYear : null}
-                      uploadYear={factory.quote_pdf_year}
+                      uploadYear={catalog?.priceListFile ? factory.quote_pdf_year : null}
                       allowOpen={canManageDocs}
                       onOpen={openFile}
                     />
