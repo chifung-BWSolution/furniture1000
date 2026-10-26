@@ -301,11 +301,13 @@ async function loadDirectorySignals(
         if (!storagePath) continue;
         const id = resolveFactoryId(row.factory_name, row.factory_id);
         if (!id) continue;
-        const documentYear = Number(row.document_year);
+        const documentYear = row.document_year == null || row.document_year === ""
+          ? Number.NaN
+          : Number(row.document_year);
         const link: DirectoryDocumentLink = {
           id: String(row.id),
           storage_path: storagePath,
-          document_year: Number.isFinite(documentYear) ? documentYear : null,
+          document_year: documentYear >= 1990 && documentYear <= 2100 ? documentYear : null,
           created_at: typeof row.created_at === "string" ? row.created_at : null,
         };
         const isPriceList = row.doc_type === "price_list" || row.doc_type === "quote";
