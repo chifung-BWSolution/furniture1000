@@ -78,11 +78,11 @@ export function buildCaseOrdersWorkbook(items: CaseExportItem[]): XLSX.WorkBook 
   const sheet = XLSX.utils.aoa_to_sheet(rows);
   sheet['!cols'] = [{ wch: 24 }, { wch: 30 }, { wch: 28 }, { wch: 14 }, { wch: 8 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 40 }, { wch: 12 }];
   const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, sheet, '訂單數據精選');
+  XLSX.utils.book_append_sheet(book, sheet, '項目列表精選');
   return book;
 }
 
 export function downloadCaseOrdersExcel(items: CaseExportItem[]): void {
   const book = buildCaseOrdersWorkbook(items);
-  XLSX.writeFile(book, `訂單數據精選-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(book, `項目列表精選-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }

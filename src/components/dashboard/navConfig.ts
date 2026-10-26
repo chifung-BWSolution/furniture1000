@@ -67,7 +67,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '成功案例',
     icon: Images,
     children: [
-      { view: 'fds2-cases-orders', label: '訂單數據', icon: ClipboardList },
+      { view: 'fds2-cases-orders', label: '項目列表', icon: ClipboardList },
       { view: 'fds2-cases-photos', label: '完工相片', icon: Images },
       { view: 'fds2-cases-clients', label: '知名客户', icon: Star },
     ],

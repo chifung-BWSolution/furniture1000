@@ -14,9 +14,31 @@ import type { CaseExportItem } from '@/lib/caseExport';
 const PHOTO_MAX_WIDTH_PX = 1200;
 const PHOTO_JPEG_QUALITY = 0.82;
 const IMAGE_FETCH_TIMEOUT_MS = 20_000;
+/** A4 width minus page padding, three cells per row. */
+const PDF_PAGE_WIDTH = 595.28;
+const PDF_PAGE_PADDING = 36;
+const PDF_PHOTO_COLUMNS = 3;
+const PDF_PHOTO_GAP = 6;
+const PDF_PHOTO_CELL_WIDTH =
+  (PDF_PAGE_WIDTH - PDF_PAGE_PADDING * 2 - PDF_PHOTO_GAP * (PDF_PHOTO_COLUMNS - 1)) /
+  PDF_PHOTO_COLUMNS;
+const PDF_PHOTO_CELL_HEIGHT = PDF_PHOTO_CELL_WIDTH * 0.75;
+
+type PdfPhoto = { src: string; width: number; height: number };
+
+function fitPhoto(pixelWidth: number, pixelHeight: number): { width: number; height: number } {
+  const ratio = pixelWidth / Math.max(pixelHeight, 1);
+  let width = PDF_PHOTO_CELL_WIDTH;
+  let height = width / ratio;
+  if (height > PDF_PHOTO_CELL_HEIGHT) {
+    height = PDF_PHOTO_CELL_HEIGHT;
+    width = height * ratio;
+  }
+  return { width, height };
+}
 
 /** 抓取圖片並壓成 JPEG dataURL；失敗回 null（跳過，不中斷導出）。 */
-async function fetchImageForPdf(url: string): Promise<string | null> {
+async function fetchImageForPdf(url: string): Promise<PdfPhoto | null> {
   try {
     const response = await fetch(url, {
       signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
@@ -33,15 +55,18 @@ async function fetchImageForPdf(url: string): Promise<string | null> {
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const fitted = fitPhoto(bitmap.width, bitmap.height);
     bitmap.close();
     const dataUrl = canvas.toDataURL('image/jpeg', PHOTO_JPEG_QUALITY);
-    return dataUrl.startsWith('data:image/jpeg') ? dataUrl : null;
+    return dataUrl.startsWith('data:image/jpeg')
+      ? { src: dataUrl, ...fitted }
+      : null;
   } catch {
     return null;
   }
 }
 
-async function fetchAllForPdf(urls: string[]): Promise<(string | null)[]> {
+async function fetchAllForPdf(urls: string[]): Promise<(PdfPhoto | null)[]> {
   return Promise.all(urls.map(fetchImageForPdf));
 }
 
@@ -86,7 +111,7 @@ export async function buildCaseShowcasePdf(
     const urls = (item.photos || []).filter((p) => p.include).map((p) => p.url);
     requestedPhotoCount += urls.length;
     const fetched = await fetchAllForPdf(urls);
-    const photos = fetched.filter((url): url is string => Boolean(url));
+    const photos = fetched.filter((photo): photo is PdfPhoto => Boolean(photo));
     failedPhotoCount += fetched.length - photos.length;
     return photos;
   };
@@ -108,9 +133,9 @@ export async function buildCaseShowcasePdf(
     brandItems.map(async (item) => {
       const logoUrl = item.brand!.branding_icon || '';
       if (!logoUrl) return { item, logo: null as string | null };
-      const logo = await fetchImageForPdf(logoUrl);
-      if (!logo) failedLogoCount += 1;
-      return { item, logo };
+      const fetched = await fetchImageForPdf(logoUrl);
+      if (!fetched) failedLogoCount += 1;
+      return { item, logo: fetched?.src ?? null };
     }),
   );
 
@@ -186,15 +211,18 @@ export async function buildCaseShowcasePdf(
     photoGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 6,
+      gap: PDF_PHOTO_GAP,
       marginTop: 6,
       marginBottom: 10,
     },
-    photo: {
-      width: '31%',
-      aspectRatio: 1.4,
+    photoCell: {
+      width: PDF_PHOTO_CELL_WIDTH,
+      height: PDF_PHOTO_CELL_HEIGHT,
       borderRadius: 4,
       backgroundColor: '#f5f5f4',
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
     },
     table: {
       marginTop: 6,
@@ -283,8 +311,13 @@ export async function buildCaseShowcasePdf(
     if (album.photos.length) {
       elements.push(
         <View key={`photos-${item.key}`} style={styles.photoGrid} wrap>
-          {album.photos.map((src, index) => (
-            <Image key={`${item.key}-${index}`} style={styles.photo} src={src} />
+          {album.photos.map((photo, index) => (
+            <View key={`${item.key}-${index}`} style={styles.photoCell}>
+              <Image
+                style={{ width: photo.width, height: photo.height, objectFit: 'contain' }}
+                src={photo.src}
+              />
+            </View>
           ))}
         </View>,
       );
@@ -363,12 +396,13 @@ export async function buildCaseShowcasePdf(
         </View>
         {album && album.photos.length ? (
           <View style={styles.photoGrid} wrap>
-            {album.photos.map((src, index) => (
-              <Image
-                key={`${item.key}-${index}`}
-                style={styles.photo}
-                src={src}
-              />
+            {album.photos.map((photo, index) => (
+              <View key={`${item.key}-${index}`} style={styles.photoCell}>
+                <Image
+                  style={{ width: photo.width, height: photo.height, objectFit: 'contain' }}
+                  src={photo.src}
+                />
+              </View>
             ))}
           </View>
         ) : null}

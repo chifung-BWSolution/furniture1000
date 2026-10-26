@@ -18,7 +18,14 @@ import {
 } from "@/lib/caseExport";
 import { caseDate, photoUrls, type CasePhotoProject } from "@/lib/caseShowcase";
 import {
+  EMPTY_CASE_LIST_FILTERS,
+  matchesProjectListFilters,
+  uniqueSorted,
+  type CaseListFilterState,
+} from "@/lib/caseListFilters";
+import {
   CaseEmpty,
+  CaseListFilters,
   CasePagination,
   CaseShell,
   CaseSearch,
@@ -290,6 +297,9 @@ export function CasePhotosPage() {
   const [status, setStatus] = useState("");
   const [pm, setPm] = useState("");
   const [year, setYear] = useState("");
+  const [listFilters, setListFilters] = useState<CaseListFilterState>(
+    EMPTY_CASE_LIST_FILTERS,
+  );
   const [sortMode, setSortMode] = useState<SortMode>("handover-desc");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [page, setPage] = useState(1);
@@ -312,6 +322,7 @@ export function CasePhotosPage() {
           (!status || project.status === status) &&
           (!pm || project.pm_name === pm) &&
           (!year || project.financial_year === year) &&
+          matchesProjectListFilters(project, listFilters) &&
           [
             project.project_code,
             project.project_name,
@@ -345,17 +356,17 @@ export function CasePhotosPage() {
         if (dateOrder !== 0 && !Number.isNaN(dateOrder)) return dateOrder;
         return (a.project_code || "").localeCompare(b.project_code || "");
       });
-  }, [data.items, search, status, pm, year, sortMode]);
+  }, [data.items, search, status, pm, year, sortMode, listFilters]);
 
   useEffect(() => {
     setPage(1);
     scrollContainerRef.current?.scrollTo({ top: 0 });
     setLightbox(null);
     setActiveAlbumId(null);
-  }, [data.items, search, status, pm, year, sortMode]);
+  }, [data.items, search, status, pm, year, sortMode, listFilters]);
   useEffect(() => {
     setPicked(new Set());
-  }, [search, status, pm, year, sortMode]);
+  }, [search, status, pm, year, sortMode, listFilters]);
   const openExport = () => {
     setExportItems(
       data.items
@@ -479,7 +490,24 @@ export function CasePhotosPage() {
                     <List className="h-4 w-4" />
                   </Button>
                 </div>
-                {(search || status || pm || year) && (
+                <CaseListFilters
+                  state={listFilters}
+                  onChange={(patch) =>
+                    setListFilters((current) => ({ ...current, ...patch }))
+                  }
+                  industries={uniqueSorted(
+                    data.items.flatMap((project) => project.industries || []),
+                  )}
+                  furnitureTypes={uniqueSorted(
+                    data.items.flatMap((project) => project.furniture_types || []),
+                  )}
+                  brands={uniqueSorted(data.items.map((project) => project.famous_brand))}
+                />
+                {(search ||
+                  status ||
+                  pm ||
+                  year ||
+                  Object.values(listFilters).some(Boolean)) && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -489,6 +517,7 @@ export function CasePhotosPage() {
                       setStatus("");
                       setPm("");
                       setYear("");
+                      setListFilters(EMPTY_CASE_LIST_FILTERS);
                     }}
                   >
                     清除篩選

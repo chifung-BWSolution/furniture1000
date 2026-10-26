@@ -7,10 +7,22 @@ import {
   buildExportItem,
   type CaseExportItem,
 } from "@/lib/caseExport";
-import { caseDate, type CaseOrder } from "@/lib/caseShowcase";
+import {
+  caseDate,
+  caseMoney,
+  projectStatusLabel,
+  type CaseOrder,
+} from "@/lib/caseShowcase";
+import {
+  EMPTY_CASE_LIST_FILTERS,
+  matchesProjectListFilters,
+  uniqueSorted,
+  type CaseListFilterState,
+} from "@/lib/caseListFilters";
 import {
   CaseEmpty,
   CaseFilter,
+  CaseListFilters,
   CasePagination,
   CaseShell,
   CaseSearch,
@@ -26,6 +38,9 @@ export function CaseOrdersPage() {
   const [status, setStatus] = useState("");
   const [pm, setPm] = useState("");
   const [factory, setFactory] = useState("");
+  const [listFilters, setListFilters] = useState<CaseListFilterState>(
+    EMPTY_CASE_LIST_FILTERS,
+  );
   const [page, setPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState<CaseOrder[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -63,15 +78,33 @@ export function CaseOrdersPage() {
       if (!matchingKeys.has(key)) continue;
       groups.set(key, [...(groups.get(key) || []), item]);
     }
-    return [...groups.values()];
-  }, [data.items, filtered]);
+    return [...groups.values()]
+      .filter((items) =>
+        matchesProjectListFilters(
+          {
+            ...items[0],
+            furniture_types: [
+              ...new Set(
+                items
+                  .map((item) => item.product_type)
+                  .filter((type): type is string => Boolean(type)),
+              ),
+            ],
+          },
+          listFilters,
+        ),
+      )
+      .sort((a, b) =>
+        (b[0].signed_date || "").localeCompare(a[0].signed_date || ""),
+      );
+  }, [data.items, filtered, listFilters]);
   useEffect(() => {
     setPage(1);
     scrollContainerRef.current?.scrollTo({ top: 0 });
-  }, [search, status, pm, factory, data.items]);
+  }, [search, status, pm, factory, listFilters, data.items]);
   useEffect(() => {
     setPicked(new Set());
-  }, [search, status, pm, factory]);
+  }, [search, status, pm, factory, listFilters]);
   const openExport = () => {
     setExportItems(
       grouped
@@ -157,6 +190,15 @@ export function CaseOrdersPage() {
               onChange={setFactory}
               options={options("factory_name")}
             />
+            <CaseListFilters
+              state={listFilters}
+              onChange={(patch) =>
+                setListFilters((current) => ({ ...current, ...patch }))
+              }
+              industries={uniqueSorted(data.items.flatMap((item) => item.industries || []))}
+              furnitureTypes={uniqueSorted(data.items.map((item) => item.product_type))}
+              brands={uniqueSorted(data.items.map((item) => item.famous_brand))}
+            />
             <Button
               variant="ghost"
               size="sm"
@@ -166,6 +208,7 @@ export function CaseOrdersPage() {
                 setStatus("");
                 setPm("");
                 setFactory("");
+                setListFilters(EMPTY_CASE_LIST_FILTERS);
               }}
             >
               清除篩選
@@ -187,27 +230,28 @@ export function CaseOrdersPage() {
         </div>
       }
     >
-      {!filtered.length ? (
+      {!grouped.length ? (
         <CaseEmpty />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[950px] text-left text-xs">
+          <table className="w-full min-w-[1180px] text-left text-xs">
             <caption className="sr-only">
-              PMS 訂單及交付進度，點擊訂單查看產品明細
+              PMS 項目列表，點擊項目查看訂單明細
             </caption>
             <thead className="bg-muted text-muted-foreground">
               <tr>
                 {[
                   "",
+                  "訂單日期",
+                  "服務類型",
+                  "BU",
+                  "客戶名稱",
                   "項目",
-                  "PM",
-                  "產品數",
-                  "總數量",
-                  "工廠",
-                  "訂單狀態",
-                  "預計到場",
-                  "預計安裝",
-                  "實際安裝",
+                  "P2 Code",
+                  "預計收入",
+                  "預計毛利",
+                  "主要PM及設計師",
+                  "Status",
                 ].map((h, index) => (
                   <th
                     key={index}
@@ -237,18 +281,6 @@ export function CaseOrdersPage() {
               {visibleGroups.map((items) => {
                 const r = items[0];
                 const rowKey = `${r.project_id}:${r.project_code || ""}`;
-                const factories = [
-                  ...new Set(items.map((x) => x.factory_name).filter(Boolean)),
-                ];
-                const statuses = [
-                  ...new Set(items.map((x) => x.status).filter(Boolean)),
-                ];
-                const quantities = items
-                  .map((x) => x.quantity)
-                  .filter((x): x is number => x !== null);
-                const totalQuantity = quantities.length
-                  ? quantities.reduce((sum, n) => sum + n, 0)
-                  : null;
                 return (
                   <tr
                     key={rowKey}
@@ -281,51 +313,38 @@ export function CaseOrdersPage() {
                         }
                       />
                     </td>
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums">
+                      {caseDate(r.signed_date)}
+                    </td>
+                    <td className="px-3 py-3">{r.service_type || "—"}</td>
+                    <td className="px-3 py-3">{r.bu_code || "—"}</td>
+                    <td className="max-w-48 px-3 py-3">
+                      {r.customer_name || "—"}
+                    </td>
                     <td className="max-w-64 px-3 py-3">
                       <p className="font-medium">{r.project_name || "—"}</p>
                       <p className="mt-1 text-muted-foreground">
                         {r.project_code || "—"}
                       </p>
                     </td>
-                    <td className="px-3 py-3">{r.pm_name || "—"}</td>
-                    <td className="px-3 py-3">{items.length}</td>
-                    <td className="px-3 py-3 tabular-nums">
-                      {totalQuantity ?? "—"}
+                    <td className="whitespace-nowrap px-3 py-3">
+                      {r.p2_code || "—"}
                     </td>
-                    <td className="px-3 py-3">{factories.join("、") || "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums">
+                      {caseMoney(r.estimated_income)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums">
+                      {caseMoney(r.estimated_profit)}
+                    </td>
+                    <td className="px-3 py-3">
+                      {[r.pm_name, r.designer_name].filter(Boolean).join("、") ||
+                        "—"}
+                    </td>
                     <td className="px-3 py-3">
                       <span className="whitespace-nowrap rounded bg-muted px-2 py-1 text-xs">
-                        {statuses.length === 1
-                          ? statuses[0]
-                          : statuses.length
-                            ? "多種狀態"
-                            : "未設定"}
+                        {projectStatusLabel(r.project_status)}
                       </span>
                     </td>
-                    {[
-                      items
-                        .map((x) => x.est_delivery_date)
-                        .filter(Boolean)
-                        .sort()
-                        .at(-1) || null,
-                      items
-                        .map((x) => x.est_installation_date)
-                        .filter(Boolean)
-                        .sort()
-                        .at(-1) || null,
-                      items
-                        .map((x) => x.actual_installation_date)
-                        .filter(Boolean)
-                        .sort()
-                        .at(-1) || null,
-                    ].map((date, i) => (
-                      <td
-                        key={i}
-                        className="whitespace-nowrap px-3 py-3 tabular-nums"
-                      >
-                        {caseDate(date)}
-                      </td>
-                    ))}
                   </tr>
                 );
               })}

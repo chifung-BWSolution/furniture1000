@@ -16,8 +16,15 @@ import {
   type CaseBrand,
 } from "@/lib/caseShowcase";
 import {
+  EMPTY_CASE_LIST_FILTERS,
+  matchesBrandListFilters,
+  uniqueSorted,
+  type CaseListFilterState,
+} from "@/lib/caseListFilters";
+import {
   CaseEmpty,
   CaseFilter,
+  CaseListFilters,
   CasePagination,
   CaseShell,
   CaseSearch,
@@ -34,6 +41,9 @@ export function CaseBrandsPage() {
   const [projectType, setProjectType] = useState("");
   const [serviceType, setServiceType] = useState("");
   const [logo, setLogo] = useState("");
+  const [listFilters, setListFilters] = useState<CaseListFilterState>(
+    EMPTY_CASE_LIST_FILTERS,
+  );
   const [page, setPage] = useState(1);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -55,13 +65,14 @@ export function CaseBrandsPage() {
             (!serviceType || b.service_type_ids.includes(serviceType)) &&
             (!logo ||
               Boolean(imageUrl(b.branding_icon)) === (logo === "with")) &&
+            matchesBrandListFilters(b, listFilters) &&
             [b.brand_name_cn, b.brand_name_en, b.company_name, b.display_name]
               .join(" ")
               .toLowerCase()
               .includes(search.trim().toLowerCase()),
         )
         .sort((a, b) => brandName(a).localeCompare(brandName(b), "zh-Hant")),
-    [data.items, search, system, projectType, serviceType, logo],
+    [data.items, search, system, projectType, serviceType, logo, listFilters],
   );
   useEffect(() => {
     setPage(1);
@@ -69,7 +80,7 @@ export function CaseBrandsPage() {
     setSelected(new Set());
     setDownloadError("");
     setPreview(null);
-  }, [data.items, search, system, projectType, serviceType, logo]);
+  }, [data.items, search, system, projectType, serviceType, logo, listFilters]);
   const selectable = filtered.filter((b) => imageUrl(b.branding_icon));
   const selectedRows = selectable.filter((b) => selected.has(b.id));
   const visibleBrands = filtered.slice(
@@ -173,6 +184,24 @@ export function CaseBrandsPage() {
                   { value: "without", label: "沒有 Logo" },
                 ]}
               />
+              <CaseListFilters
+                state={listFilters}
+                onChange={(patch) =>
+                  setListFilters((current) => ({ ...current, ...patch }))
+                }
+                industries={uniqueSorted(
+                  data.items.flatMap((brand) => brand.industries || []),
+                )}
+                furnitureTypes={uniqueSorted(
+                  data.items.flatMap((brand) =>
+                    (brand.filter_projects || []).flatMap(
+                      (project) => project.furniture_types,
+                    ),
+                  ),
+                )}
+                brands={[]}
+                showBrand={false}
+              />
               <Button
                 variant="ghost"
                 size="sm"
@@ -183,6 +212,7 @@ export function CaseBrandsPage() {
                   setProjectType("");
                   setServiceType("");
                   setLogo("");
+                  setListFilters(EMPTY_CASE_LIST_FILTERS);
                 }}
               >
                 清除篩選

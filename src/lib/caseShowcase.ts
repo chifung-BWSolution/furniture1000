@@ -1,7 +1,24 @@
 import { invokeEdgeFunctionDirect } from "@/lib/invokeEdgeFunction";
 
 export type CaseKind = "orders" | "photos" | "brands";
-export interface CaseOrder {
+
+/** Project-list columns shared by 項目列表 and 完工相片 (from PMS bwf_projects). */
+export interface CaseProjectListFields {
+  signed_date?: string | null;
+  service_type?: string | null;
+  bu_code?: string | null;
+  customer_name?: string | null;
+  p2_code?: string | null;
+  estimated_income?: number | null;
+  estimated_profit?: number | null;
+  designer_name?: string | null;
+  project_status?: string | null;
+  industries?: string[];
+  famous_brand?: string | null;
+  furniture_types?: string[];
+}
+
+export interface CaseOrder extends CaseProjectListFields {
   id: string;
   project_id: string;
   project_code: string | null;
@@ -26,7 +43,7 @@ export interface CaseOrder {
   installer_needed: boolean | null;
   remarks: string | null;
 }
-export interface CasePhotoProject {
+export interface CasePhotoProject extends CaseProjectListFields {
   id: string;
   project_code: string | null;
   project_name: string | null;
@@ -57,6 +74,13 @@ export interface CaseBrand {
   }[];
   project_type_ids: string[];
   service_type_ids: string[];
+  industries?: string[];
+  /** BWF projects used by the shared amount / date / furniture filters. */
+  filter_projects?: {
+    signed_date: string | null;
+    estimated_income: number | null;
+    furniture_types: string[];
+  }[];
 }
 export interface CaseResult<T> {
   items: T[];
@@ -119,6 +143,23 @@ export function brandName(b: CaseBrand): string {
     "未命名品牌"
   );
 }
+const PROJECT_STATUS_LABELS: Record<string, string> = {
+  "Work In Progress": "進行中",
+  "Project Done": "已完成",
+  "Case Closed": "已結案",
+};
+
+export function projectStatusLabel(status: string | null | undefined): string {
+  if (!status) return "未設定";
+  return PROJECT_STATUS_LABELS[status] || status;
+}
+
+export function caseMoney(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value)))
+    return "—";
+  return `$${Number(value).toLocaleString("en-HK", { maximumFractionDigits: 0 })}`;
+}
+
 export function caseDate(raw: string | null | undefined): string {
   if (!raw || Number.isNaN(Date.parse(raw))) return "—";
   return new Intl.DateTimeFormat("zh-HK", {
