@@ -30,6 +30,8 @@ export interface CaseExportItem {
   note: string;
   /** PM 名稱是否顯示（BR-CASE-07：預設隱藏）。 */
   showPm: boolean;
+  /** 日期是否顯示（AC-004-2：預設隱藏）。 */
+  showDates: boolean;
   /** 訂單數據項目：同組訂單列（已脫敏，僅對外欄位進入導出）。 */
   orders?: CaseOrder[];
   /** 完工相片項目。 */
@@ -68,6 +70,7 @@ export function buildExportItem(
       title: orders[0]?.project_name || orders[0]?.project_code || '未命名項目',
       note: '',
       showPm: false,
+      showDates: false,
       orders,
       photos: photoUrls(orders[0]?.completion_photos).map((url) => ({
         url,
@@ -83,6 +86,7 @@ export function buildExportItem(
       title: project.project_name || project.project_code || '未命名項目',
       note: '',
       showPm: false,
+      showDates: false,
       photoProject: project,
       photos: photoUrls(project.completion_photos).map((url) => ({
         url,
@@ -97,6 +101,7 @@ export function buildExportItem(
     title: brand.brand_name_cn || brand.brand_name_en || brand.company_name || brand.display_name || '未命名品牌',
     note: '',
     showPm: false,
+    showDates: false,
     brand,
   };
 }
