@@ -196,10 +196,23 @@ export async function uploadSupplierCatalog(input: {
 
 }
 
-export async function openSupplierCatalog(storagePath: string): Promise<void> {
+/** Open supplier PDF in a new tab. Quote/price_list paths require admin/uploader (canManage). */
+export async function openSupplierDocumentPdf(
+  storagePath: string,
+  options?: { quoteSensitive?: boolean },
+): Promise<void> {
+  if (options?.quoteSensitive) {
+    const canManage = await canManageSupplierDocuments().catch(() => false);
+    if (!canManage) throw new Error('沒有權限查看報價單');
+  }
   const { data, error } = await supabase.storage
     .from(SUPPLIER_DOCUMENT_BUCKET)
     .createSignedUrl(storagePath, 60);
   if (error || !data?.signedUrl) throw new Error(error?.message || '無法建立下載連結');
   window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+}
+
+/** Catalog-only open (callers must gate quote/price_list themselves or use quoteSensitive). */
+export async function openSupplierCatalog(storagePath: string): Promise<void> {
+  return openSupplierDocumentPdf(storagePath);
 }

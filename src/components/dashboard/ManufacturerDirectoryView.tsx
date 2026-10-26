@@ -22,7 +22,7 @@ import {
 import { toast } from 'sonner';
 import { motion, useReducedMotion } from 'framer-motion';
 import { loadManufacturerDirectory, type DirectoryDocumentLink, type DirectoryFactory } from '@/lib/manufacturerDirectory';
-import { catalogStatusLabel, listCatalogRows, openSupplierCatalog } from '@/lib/supplierCatalog';
+import { catalogStatusLabel, listCatalogRows, openSupplierDocumentPdf } from '@/lib/supplierCatalog';
 import { canManageSupplierDocuments, enqueueSupplierDocumentParse } from '@/lib/supplierDocuments';
 import {
   Select,
@@ -144,6 +144,26 @@ function attachDirectoryFiles(
   return next;
 }
 
+/** Designer/PM may see quote years but must not receive storage paths for signed URLs. */
+function redactQuotePathsForReadOnly(
+  summary: Record<string, CatalogSummary>,
+  canManage: boolean,
+): Record<string, CatalogSummary> {
+  if (canManage) return summary;
+  const next: Record<string, CatalogSummary> = {};
+  for (const [factoryId, row] of Object.entries(summary)) {
+    if (!row.priceListFile?.storagePath) {
+      next[factoryId] = row;
+      continue;
+    }
+    next[factoryId] = {
+      ...row,
+      priceListFile: { ...row.priceListFile, storagePath: '' },
+    };
+  }
+  return next;
+}
+
 function linkToFile(link: DirectoryDocumentLink | null | undefined): CatalogFileRef | null {
   if (!link?.storage_path) return null;
   return {
@@ -162,23 +182,27 @@ function preferFile(current: CatalogFileRef | null, next: CatalogFileRef): Catal
   return next.createdAt > current.createdAt ? next : current;
 }
 
+type DirectoryDocumentAccess = 'catalog' | 'price_list';
+
 function DocumentYearCell({
   file,
   year,
-  allowOpen = true,
+  access,
+  canManageDocs,
   onOpen,
 }: {
   file: CatalogFileRef | null;
   year: number | null | undefined;
-  /** Designer/PM may open catalog PDFs only; quote/price_list need admin/uploader. */
-  allowOpen?: boolean;
+  access: DirectoryDocumentAccess;
+  canManageDocs: boolean;
   onOpen: (storagePath: string) => void;
 }) {
   const documentYear = usableYear(file?.year);
   const listedYear = usableYear(year);
   const uploadedYear = shanghaiYearOf(file?.createdAt);
   const labelYear = documentYear ?? listedYear ?? uploadedYear;
-  const canOpen = allowOpen && Boolean(file?.storagePath);
+  const canOpen =
+    Boolean(file?.storagePath) && (access === 'catalog' || canManageDocs);
   if (!canOpen) {
     return (
       <span className={cn('font-mono-data text-[11px]', labelYear != null ? 'text-foreground' : 'text-muted-foreground')}>
@@ -296,10 +320,14 @@ export function ManufacturerDirectoryView({
           }
           summary[factoryId] = current;
         }
-        setCatalogByFactory(attachDirectoryFiles(summary, rows, canManage));
+        setCatalogByFactory(
+          redactQuotePathsForReadOnly(attachDirectoryFiles(summary, rows, canManage), canManage),
+        );
       } catch (catalogError) {
         console.error('[ManufacturerDirectory] Catalog summary failed:', catalogError);
-        setCatalogByFactory(attachDirectoryFiles({}, rows, canManage));
+        setCatalogByFactory(
+          redactQuotePathsForReadOnly(attachDirectoryFiles({}, rows, canManage), canManage),
+        );
       }
       setCanManageDocs(canManage);
     } catch (err) {
@@ -372,11 +400,16 @@ export function ManufacturerDirectoryView({
     onOpenUpload(factory);
   };
 
-  const openFile = (storagePath: string) => {
-    void openSupplierCatalog(storagePath).catch((error: unknown) => {
-      toast.error(error instanceof Error ? error.message : '無法打開文件');
-    });
-  };
+  const openDirectoryDocument = useCallback(
+    (access: DirectoryDocumentAccess) => (storagePath: string) => {
+      void openSupplierDocumentPdf(storagePath, { quoteSensitive: access === 'price_list' }).catch(
+        (error: unknown) => {
+          toast.error(error instanceof Error ? error.message : '無法打開文件');
+        },
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!canManageDocs) return;
@@ -635,15 +668,18 @@ export function ManufacturerDirectoryView({
                     <DocumentYearCell
                       file={catalog?.catalogFile ?? null}
                       year={catalogYear}
-                      onOpen={openFile}
+                      access="catalog"
+                      canManageDocs={canManageDocs}
+                      onOpen={openDirectoryDocument('catalog')}
                     />
                   </TableCell>
                   <TableCell>
                     <DocumentYearCell
                       file={catalog?.priceListFile ?? null}
                       year={quoteYear}
-                      allowOpen={canManageDocs}
-                      onOpen={openFile}
+                      access="price_list"
+                      canManageDocs={canManageDocs}
+                      onOpen={openDirectoryDocument('price_list')}
                     />
                   </TableCell>
                   <TableCell>
