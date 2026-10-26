@@ -81,9 +81,6 @@ import type { Product } from "@/types/product";
 import { hasPmsQuotePrefillParams } from "@/lib/pmsQuotePrefill";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
-const AIProcessorView = lazy(() =>
-  import("./AIProcessorView").then((mod) => ({ default: mod.AIProcessorView }))
-);
 const ListedProductsView = lazy(() =>
   import("./ListedProductsView").then((mod) => ({ default: mod.ListedProductsView }))
 );
@@ -1099,14 +1096,7 @@ function AppShellContent() {
           <DashboardView onNavigate={handleViewChange} />
         );
       case "ai-processor":
-        return (
-          <AIProcessorView
-            onAddProduct={store.addProduct}
-            onNavigateToPublish={() => store.setCurrentView("ready-to-publish")}
-            selectedModel={store.settings.aiModel}
-            geminiProxyUrl={store.settings.geminiProxyUrl}
-          />
-        );
+        return <ManufacturerDirectoryView />;
       case "furniture-group-check":
         return (
           <FurnitureGroupCheckView

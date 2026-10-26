@@ -90,6 +90,166 @@ async function requireDirectoryUser(req: Request): Promise<{ email: string } | R
   return { email: (userResult.data.user.email ?? "").trim().slice(0, 120) };
 }
 
+const MATERIAL_TYPE_RE = /material|物料/i;
+
+type SupplierKind = "furniture" | "material" | "both";
+
+type DirectorySignals = {
+  quote_names?: string[];
+  catalogs?: Array<{ factory_code?: string | null; factory_name?: string | null; year?: number | null }>;
+  documents?: Array<{
+    factory_id?: string | null;
+    factory_name?: string | null;
+    doc_type?: string | null;
+    year?: number | null;
+  }>;
+};
+
+function normName(value: string | null | undefined): string {
+  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function codeTokens(value: string | null | undefined): string[] {
+  return (value || "")
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter((token) => token.length >= 3);
+}
+
+function shanghaiYear(): number {
+  const year = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+  }).format(new Date());
+  return Number(year);
+}
+
+function kindFromDisplays(displays: string[]): SupplierKind | null {
+  let material = false;
+  let furniture = false;
+  for (const display of displays) {
+    if (!display) continue;
+    if (MATERIAL_TYPE_RE.test(display)) material = true;
+    else furniture = true;
+  }
+  if (material && furniture) return "both";
+  if (material) return "material";
+  if (furniture) return "furniture";
+  return null;
+}
+
+function bumpYear(map: Map<string, number>, factoryId: string | null, year: number | null | undefined) {
+  if (!factoryId || year == null || !Number.isFinite(year)) return;
+  const prev = map.get(factoryId);
+  if (prev == null || year > prev) map.set(factoryId, year);
+}
+
+async function loadDirectorySignals(
+  masterSupabase: ReturnType<typeof createClient>,
+  factories: Array<{ id: string; display_name?: string | null; factory_code?: string | null; key_product_categories?: string | null }>,
+) {
+  const kindById = new Map<string, SupplierKind | null>();
+  const usedIds = new Set<string>();
+  const catalogYear = new Map<string, number>();
+  const quotePdfYear = new Map<string, number>();
+
+  const byId = new Map(factories.map((factory) => [factory.id, factory]));
+  const byName = new Map<string, string>();
+  const byCode = new Map<string, string>();
+  for (const factory of factories) {
+    const name = normName(factory.display_name);
+    if (name && !byName.has(name)) byName.set(name, factory.id);
+    const code = (factory.factory_code || "").trim().toUpperCase();
+    if (code && code !== "-" && !byCode.has(code)) byCode.set(code, factory.id);
+  }
+
+  const resolveFactoryId = (name: string | null | undefined, codeOrId: string | null | undefined): string | null => {
+    const raw = (codeOrId || "").trim();
+    if (raw && byId.has(raw)) return raw;
+    const code = raw.toUpperCase();
+    if (code && byCode.has(code)) return byCode.get(code) || null;
+    const normalized = normName(name);
+    if (normalized && byName.has(normalized)) return byName.get(normalized) || null;
+    const tokens = new Set([
+      ...codeTokens(name),
+      ...(code.length >= 3 ? [code] : []),
+    ]);
+    let match: string | null = null;
+    for (const token of tokens) {
+      const id = byCode.get(token);
+      if (!id) continue;
+      if (match && match !== id) return null;
+      match = id;
+    }
+    return match;
+  };
+
+  try {
+    const { data: types, error } = await masterSupabase
+      .from("product_types")
+      .select("id, bubble_id, display");
+    if (error) {
+      console.error("[fetch-manufacturer-directory] Failed to fetch product types:", error.message);
+    } else {
+      const displayByKey = new Map<string, string>();
+      for (const row of types || []) {
+        if (row.bubble_id) displayByKey.set(String(row.bubble_id), row.display || "");
+        if (row.id) displayByKey.set(String(row.id), row.display || "");
+      }
+      for (const factory of factories) {
+        const ids = String(factory.key_product_categories || "")
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const displays = ids
+          .map((id) => displayByKey.get(id))
+          .filter((display): display is string => Boolean(display));
+        kindById.set(factory.id, kindFromDisplays(displays));
+      }
+    }
+  } catch (error) {
+    console.error("[fetch-manufacturer-directory] Exception fetching product types:", (error as Error).message);
+  }
+
+  const furnitureUrl = Deno.env.get("SUPABASE_URL") || "";
+  const furnitureKey =
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
+    Deno.env.get("BWF_SUPABASE_SERVICE_ROLE_KEY") ||
+    "";
+  if (!furnitureUrl || !furnitureKey) {
+    console.error("[fetch-manufacturer-directory] Furniture service role is not configured; directory signals skipped");
+    return { kindById, usedIds, catalogYear, quotePdfYear };
+  }
+
+  try {
+    const furniture = createClient(furnitureUrl, furnitureKey);
+    const { data, error } = await furniture.rpc("manufacturer_directory_signals", {
+      p_year: shanghaiYear(),
+    });
+    if (error) {
+      console.error("[fetch-manufacturer-directory] Signals RPC failed:", error.message);
+      return { kindById, usedIds, catalogYear, quotePdfYear };
+    }
+    const signals = (data || {}) as DirectorySignals;
+    for (const name of signals.quote_names || []) {
+      const id = resolveFactoryId(name, null);
+      if (id) usedIds.add(id);
+    }
+    for (const row of signals.catalogs || []) {
+      bumpYear(catalogYear, resolveFactoryId(row.factory_name, row.factory_code), row.year);
+    }
+    for (const row of signals.documents || []) {
+      const id = resolveFactoryId(row.factory_name, row.factory_id);
+      if (row.doc_type === "quote" || row.doc_type === "price_list") bumpYear(quotePdfYear, id, row.year);
+      else if (row.doc_type === "catalog") bumpYear(catalogYear, id, row.year);
+    }
+  } catch (error) {
+    console.error("[fetch-manufacturer-directory] Exception loading directory signals:", (error as Error).message);
+  }
+
+  return { kindById, usedIds, catalogYear, quotePdfYear };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders, status: 200 });
@@ -133,7 +293,7 @@ Deno.serve(async (req: Request) => {
     if (body.action === "list") {
       let listQuery = masterSupabase
         .from("factories")
-        .select(FACTORY_COLUMNS)
+        .select(`${FACTORY_COLUMNS}, key_product_categories`)
         .ilike("status", "active")
         .order("display_name", { ascending: true });
 
@@ -153,8 +313,21 @@ Deno.serve(async (req: Request) => {
         throw new Error(`Failed to fetch factories: ${listResult.error.message}`);
       }
 
-      console.log(`[fetch-manufacturer-directory] list: ${listResult.data?.length || 0} factories`);
-      return jsonResponse({ factories: listResult.data || [] });
+      const rows = listResult.data || [];
+      const signals = await loadDirectorySignals(masterSupabase, rows);
+      const factories = rows.map((factory) => {
+        const { key_product_categories: _categories, ...rest } = factory;
+        return {
+          ...rest,
+          supplier_kind: signals.kindById.get(factory.id) ?? null,
+          used_this_year: signals.usedIds.has(factory.id),
+          catalog_year: signals.catalogYear.get(factory.id) ?? null,
+          quote_pdf_year: signals.quotePdfYear.get(factory.id) ?? null,
+        };
+      });
+
+      console.log(`[fetch-manufacturer-directory] list: ${factories.length} factories`);
+      return jsonResponse({ factories });
     }
 
     // Handle save feedback action. PMS factory_id is factories.id (uuid).
@@ -209,7 +382,7 @@ Deno.serve(async (req: Request) => {
     // Master DB stores title-case status values (e.g. "Active"); ilike matches user-facing "active".
     let factoriesQuery = masterSupabase
       .from("factories")
-      .select(FACTORY_COLUMNS)
+      .select(`${FACTORY_COLUMNS}, key_product_categories`)
       .ilike("status", "active")
       .order("display_name", { ascending: true });
 
@@ -341,9 +514,21 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    const signals = await loadDirectorySignals(masterSupabase, factories || []);
+    const enrichedFactories = (factories || []).map((factory) => {
+      const { key_product_categories: _categories, ...rest } = factory;
+      return {
+        ...rest,
+        supplier_kind: signals.kindById.get(factory.id) ?? null,
+        used_this_year: signals.usedIds.has(factory.id),
+        catalog_year: signals.catalogYear.get(factory.id) ?? null,
+        quote_pdf_year: signals.quotePdfYear.get(factory.id) ?? null,
+      };
+    });
+
     return new Response(
       JSON.stringify({
-        factories: factories || [],
+        factories: enrichedFactories,
         comments: enrichedComments,
         products,
         factory_linked_projects: factoryLinkedProjectsResponse,

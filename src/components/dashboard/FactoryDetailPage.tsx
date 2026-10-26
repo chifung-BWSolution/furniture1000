@@ -37,6 +37,7 @@ import {
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { inkEase, NavInk } from '@/components/motion/NavInk';
+import { FactoryCatalogPanel } from '@/components/dashboard/FactoryCatalogPanel';
 
 // ─── Standalone route wrapper ─────────────────────────────────────────────────
 export function FactoryDetailPage() {
@@ -110,7 +111,7 @@ export function FactoryDetailView({
   const [linkedProjects, setLinkedProjects] = useState<LinkedProjectRecord[]>([]);
   const [stats, setStats] = useState<{ order_count: number; comment_count: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'info' | 'orders' | 'comments' | 'products'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'orders' | 'comments' | 'products' | 'catalogs'>('info');
   const [urlCopied, setUrlCopied] = useState(false);
   const reduceMotion = useReducedMotion();
 
@@ -220,6 +221,7 @@ export function FactoryDetailView({
           label: `客戶意見 (${(stats?.comment_count ?? comments.length)})`,
           icon: MessageSquare,
         },
+        { id: 'catalogs' as const, label: '圖冊／報價單', icon: FileText },
         { id: 'products' as const, label: `產品PDF (${products.length})`, icon: FileText },
       ]
     : [];
@@ -388,6 +390,9 @@ export function FactoryDetailView({
                 factory={factory}
                 onFeedbackAdded={handleCommentAdded}
               />
+            )}
+            {activeTab === 'catalogs' && (
+              <FactoryCatalogPanel factoryId={factory.id} factoryName={factory.display_name} />
             )}
             {activeTab === 'products' && <FactoryProductsTab products={products} />}
           </motion.div>

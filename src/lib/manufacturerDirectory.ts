@@ -21,6 +21,10 @@ export interface DirectoryFactory {
   working_folder: string | null;
   join_date: string | null;
   created_at: string | null;
+  supplier_kind?: 'furniture' | 'material' | 'both' | null;
+  used_this_year?: boolean;
+  catalog_year?: number | null;
+  quote_pdf_year?: number | null;
 }
 
 /** 前端實際呼叫的 slug 在前；裸 slug 是同源的舊 alias。 */
