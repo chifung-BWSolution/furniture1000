@@ -19,7 +19,6 @@ import {
   Factory,
   RefreshCw,
   X,
-  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -501,7 +500,7 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                 <TableHead className="font-display text-xs font-semibold w-[110px]">
                   加入日期
                 </TableHead>
-                <TableHead className="font-display text-xs font-semibold w-[168px] text-right">
+                <TableHead className="font-display text-xs font-semibold w-[210px] text-right">
                   操作
                 </TableHead>
               </TableRow>
@@ -627,16 +626,15 @@ export function ManufacturerDirectoryView({ onOpenFactory }: { onOpenFactory: (c
                         上傳圖冊/報價單
                       </Button>
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        className="h-7 px-2"
+                        className="h-7 px-2 text-[11px]"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleViewDetail(factory);
                         }}
                       >
-                        <ChevronRight className="h-4 w-4" />
-                        <span className="ml-1 text-xs">查看</span>
+                        查看
                       </Button>
                     </div>
                   </TableCell>
