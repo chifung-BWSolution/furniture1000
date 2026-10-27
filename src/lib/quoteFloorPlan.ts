@@ -8,14 +8,45 @@ import { DEFAULT_GEMINI_MODEL } from '@/lib/geminiModel';
 
 export const MAX_ZONE_IMAGES = 8;
 
+/** One floor plan keeps at most this many labeled regions (FDS-13). */
+export const MAX_FLOOR_PLAN_ZONES = 24;
+
 /** Images uploaded on the quote before any 分區. Not a section-title id. */
 export const UNZONED_QUOTE_IMAGE_KEY = 'unzoned';
+
+/** Rectangle as percentages of the floor-plan preview (0–100). */
+export type QuoteZoneRect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+/** Suggested or confirmed range for one quote section title. */
+export type QuoteZoneRegion = {
+  zoneId: string;
+  rect: QuoteZoneRect;
+  /** False after the floor plan file changes, until the user confirms again. */
+  confirmed: boolean;
+};
+
+export type DetectedFloorZone = {
+  name: string;
+  rect: QuoteZoneRect | null;
+};
+
+export type ZoneManagerRow = {
+  id: string;
+  name: string;
+  rect: QuoteZoneRect | null;
+};
 
 export type QuoteFloorPlan = {
   url: string;
   mimeType: string;
   fileName: string;
   previewUrl: string | null;
+  regions: QuoteZoneRegion[];
 };
 
 export type QuoteZoneImageMap = Record<string, string[]>;
@@ -33,7 +64,127 @@ export function parseQuoteFloorPlan(value: unknown): QuoteFloorPlan | null {
     mimeType: mimeType || 'application/octet-stream',
     fileName: fileName || '平面圖',
     previewUrl: isHttpImageUrl(previewRaw) ? previewRaw : null,
+    regions: parseQuoteZoneRegions(row.regions),
   };
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function rectParts(value: unknown): { x: number; y: number; w: number; h: number } | null {
+  if (Array.isArray(value) && value.length >= 4) {
+    const [x, y, w, h] = value.map(readNumber);
+    if (x == null || y == null || w == null || h == null) return null;
+    return { x, y, w, h };
+  }
+  if (!value || typeof value !== 'object') return null;
+  const row = value as Record<string, unknown>;
+  const nested = row.rect && row.rect !== value ? rectParts(row.rect) : null;
+  if (nested) return nested;
+  const box = row.box ?? row.bbox ?? row.bounds;
+  if (box && box !== value) {
+    const fromBox = rectParts(box);
+    if (fromBox) return fromBox;
+  }
+  const x = readNumber(row.x ?? row.left);
+  const y = readNumber(row.y ?? row.top);
+  const w = readNumber(row.w ?? row.width);
+  const h = readNumber(row.h ?? row.height);
+  if (x == null || y == null || w == null || h == null) return null;
+  return { x, y, w, h };
+}
+
+/** Keep a box inside the preview. Drop it when it is too small to use. */
+export function normalizeZoneRect(value: unknown, minSize = 2): QuoteZoneRect | null {
+  const parts = rectParts(value);
+  if (!parts) return null;
+  let { x, y, w, h } = parts;
+  if (w <= 1 && h <= 1) {
+    x *= 100;
+    y *= 100;
+    w *= 100;
+    h *= 100;
+  }
+  x = Math.min(100, Math.max(0, x));
+  y = Math.min(100, Math.max(0, y));
+  w = Math.min(100 - x, Math.max(0, w));
+  h = Math.min(100 - y, Math.max(0, h));
+  if (w < minSize || h < minSize) return null;
+  return { x: round1(x), y: round1(y), w: round1(w), h: round1(h) };
+}
+
+export function parseQuoteZoneRegions(value: unknown): QuoteZoneRegion[] {
+  if (!Array.isArray(value)) return [];
+  const regions: QuoteZoneRegion[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const zoneId = typeof row.zoneId === 'string' ? row.zoneId.trim() : '';
+    if (!zoneId || seen.has(zoneId)) continue;
+    const rect = normalizeZoneRect(row.rect ?? row);
+    if (!rect) continue;
+    seen.add(zoneId);
+    regions.push({ zoneId, rect, confirmed: row.confirmed === true });
+    if (regions.length >= MAX_FLOOR_PLAN_ZONES) break;
+  }
+  return regions;
+}
+
+export function unconfirmZoneRegions(regions: QuoteZoneRegion[]): QuoteZoneRegion[] {
+  return regions.map((region) => ({ ...region, confirmed: false }));
+}
+
+/** Confirmed ranges for the zones the user kept. Names without a box stay name-only. */
+export function regionsFromZoneRows(rows: ZoneManagerRow[]): QuoteZoneRegion[] {
+  const regions: QuoteZoneRegion[] = [];
+  for (const row of rows) {
+    if (!row.rect) continue;
+    const rect = normalizeZoneRect(row.rect);
+    if (!rect) continue;
+    regions.push({ zoneId: row.id, rect, confirmed: true });
+    if (regions.length >= MAX_FLOOR_PLAN_ZONES) break;
+  }
+  return regions;
+}
+
+/** Match detected labels onto existing zones. New rooms are inserted first, up to 24. */
+export function applyDetectedZones(
+  existing: ZoneManagerRow[],
+  detected: DetectedFloorZone[],
+  createId: () => string,
+): { rows: ZoneManagerRow[]; added: number } {
+  const rows = existing.map((row) => ({
+    ...row,
+    rect: row.rect ? { ...row.rect } : null,
+  }));
+  const fresh: ZoneManagerRow[] = [];
+  const seen = new Set<string>();
+  for (const zone of detected) {
+    const name = zone.name.trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    const found = rows.find((row) => row.name.trim().toLowerCase() === key)
+      ?? fresh.find((row) => row.name.trim().toLowerCase() === key);
+    if (found) {
+      if (zone.rect) found.rect = zone.rect;
+      continue;
+    }
+    if (rows.length + fresh.length >= MAX_FLOOR_PLAN_ZONES) continue;
+    fresh.push({ id: createId(), name, rect: zone.rect });
+  }
+  return { rows: [...fresh, ...rows], added: fresh.length };
 }
 
 export function parseQuoteZoneImages(value: unknown): QuoteZoneImageMap {
@@ -93,7 +244,7 @@ export async function imageBlobToJpegBase64(blob: Blob, maxDim = 1600): Promise<
   }
 }
 
-function zoneNamesFromModelText(text: string): string[] {
+function zonesFromModelText(text: string): DetectedFloorZone[] {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
@@ -112,7 +263,7 @@ function zoneNamesFromModelText(text: string): string[] {
     : raw && typeof raw === 'object' && Array.isArray((raw as { zones?: unknown }).zones)
       ? (raw as { zones: unknown[] }).zones
       : [];
-  const names: string[] = [];
+  const zones: DetectedFloorZone[] = [];
   const seen = new Set<string>();
   for (const entry of list) {
     const name = (typeof entry === 'string'
@@ -125,14 +276,15 @@ function zoneNamesFromModelText(text: string): string[] {
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    names.push(name);
-    if (names.length >= 24) break;
+    const rect = typeof entry === 'string' ? null : normalizeZoneRect(entry);
+    zones.push({ name, rect });
+    if (zones.length >= MAX_FLOOR_PLAN_ZONES) break;
   }
-  return names;
+  return zones;
 }
 
-/** Read room / zone labels off a floor-plan JPEG. Returns [] when nothing is labeled. */
-export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<string[]> {
+/** Read labeled rooms and their boxes off a floor-plan JPEG. Returns [] when nothing is labeled. */
+export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<DetectedFloorZone[]> {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !supabaseAnonKey) {
@@ -147,8 +299,10 @@ export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<str
     '- 去掉純尺寸、圖例、公司名、指北針、比例尺',
     '- 名稱保留房間名（例如 老闆房、會議室、開放辦公區）',
     '- 最多 24 個，由左至右、由上至下',
+    '- 每個區域加一個包住該房間的矩形：x、y 是左上角相對整張圖的百分比，w、h 是寬高百分比，範圍 0 到 100',
+    '- 看不清邊界就只留 name，不要猜一個框',
     '- 完全看不出分區時 zones 為空陣列',
-    '只回 JSON：{"zones":[{"name":"老闆房"}]}',
+    '只回 JSON：{"zones":[{"name":"老闆房","x":10,"y":20,"w":30,"h":25}]}',
   ].join('\n');
 
   const response = await fetch(`${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`, {
@@ -180,5 +334,9 @@ export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<str
   }
   const text = String(data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
   if (!text) return [];
-  return zoneNamesFromModelText(text);
+  try {
+    return zonesFromModelText(text);
+  } catch {
+    return [];
+  }
 }
