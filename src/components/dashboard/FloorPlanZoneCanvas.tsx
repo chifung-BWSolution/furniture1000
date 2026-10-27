@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { X } from 'lucide-react';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { blankZoneManagerRow, MAX_FLOOR_PLAN_ZONES, normalizeZoneRect, type QuoteZoneRect, type ZoneManagerRow } from '@/lib/quoteFloorPlan';
@@ -96,6 +96,7 @@ export function FloorPlanZoneCanvas({
   deleteLabel = '刪除空間',
   className,
 }: FloorPlanZoneCanvasProps) {
+  const maskId = useId().replace(/:/g, '');
   const frameRef = useRef<HTMLDivElement>(null);
   const zonesRef = useRef(zones);
   zonesRef.current = zones;
@@ -247,6 +248,25 @@ export function FloorPlanZoneCanvas({
         />
         {ready ? (
           <div className="absolute inset-0">
+            <svg
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              aria-hidden
+            >
+              <defs>
+                <mask id={maskId}>
+                  <rect x="0" y="0" width="100" height="100" fill="white" />
+                  {zones.map((zone) => zone.rect ? (
+                    <rect key={zone.id} x={zone.rect.x} y={zone.rect.y} width={zone.rect.w} height={zone.rect.h} fill="black" />
+                  ) : null)}
+                  {draft ? (
+                    <rect x={draft.rect.x} y={draft.rect.y} width={draft.rect.w} height={draft.rect.h} fill="black" />
+                  ) : null}
+                </mask>
+              </defs>
+              <rect x="0" y="0" width="100" height="100" fill="rgba(15,23,42,0.38)" mask={`url(#${maskId})`} />
+            </svg>
             {zones.map((zone, index) => {
               if (!zone.rect) return null;
               const color = floorPlanZoneColor(index);
@@ -265,16 +285,32 @@ export function FloorPlanZoneCanvas({
                     boxShadow: active ? `0 0 0 1px ${color}` : undefined,
                   }}
                 >
+                  {disabled ? null : (
+                    <>
+                      <span className="absolute inset-x-0 top-0 z-[2] h-2 cursor-move" />
+                      <span className="absolute inset-x-0 bottom-0 z-[2] h-2 cursor-move" />
+                      <span className="absolute inset-y-0 left-0 z-[2] w-2 cursor-move" />
+                      <span className="absolute inset-y-0 right-0 z-[2] w-2 cursor-move" />
+                    </>
+                  )}
+                  {zone.name ? (
+                    <span
+                      className="pointer-events-none absolute left-0 top-0 z-[1] max-w-full truncate px-1 py-0.5 font-body text-[10px] font-medium leading-none text-white"
+                      style={{ background: color }}
+                    >
+                      {zone.name}
+                    </span>
+                  ) : null}
                   <span
-                    className="pointer-events-none absolute left-0 top-0 max-w-full truncate px-1 py-0.5 font-body text-[10px] font-medium leading-none text-white"
+                    className="pointer-events-none absolute left-1/2 top-1/2 z-[1] flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full font-body text-xs font-semibold leading-none text-white shadow-sm"
                     style={{ background: color }}
                   >
-                    {index + 1}{zone.name ? ` ${zone.name}` : ''}
+                    {index + 1}
                   </span>
                   {(['nw', 'ne', 'sw', 'se'] as Corner[]).map((corner) => (
                     <span
                       key={corner}
-                      className="absolute h-2.5 w-2.5 border border-white"
+                      className={`absolute z-[3] h-2.5 w-2.5 border border-white ${corner === 'nw' || corner === 'se' ? 'cursor-nwse-resize' : 'cursor-nesw-resize'}`}
                       style={{
                         background: color,
                         left: corner === 'nw' || corner === 'sw' ? -5 : undefined,

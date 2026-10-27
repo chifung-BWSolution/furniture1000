@@ -6593,8 +6593,8 @@ export function QuotationDraftEditor({
                   </button>
                 )}
                 {zoneRecognitionActive ? (
-                  <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center" role="status" aria-live="polite">
-                    <div className="w-[min(18rem,78%)] space-y-1.5">
+                  <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-slate-900/40" role="status" aria-live="polite">
+                    <div className="w-[min(18rem,78%)] space-y-1.5 rounded-xl bg-white px-4 py-3 shadow-lg">
                       <div className="flex items-center justify-between gap-3 font-body text-xs text-foreground">
                         <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
                         <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
