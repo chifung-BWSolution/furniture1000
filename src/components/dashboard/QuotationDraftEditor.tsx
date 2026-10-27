@@ -6399,9 +6399,6 @@ export function QuotationDraftEditor({
                   className="h-[220px] w-[220px]"
                 />
               ) : null}
-              <p className="mt-2 text-center font-body text-sm font-medium text-foreground">
-                {formatSettings.qrCaption}
-              </p>
             </div>
             <label className="mb-1 block font-body text-xs text-muted-foreground">
               網址連結
