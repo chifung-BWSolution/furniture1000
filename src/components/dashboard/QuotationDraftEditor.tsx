@@ -1207,7 +1207,6 @@ function QuoteProductItemCard({
   zoneOptions?: { id: string; label: string }[];
   onAssignZone?: (zoneTitleId: string) => void;
 }) {
-  const [cardCollapsed, setCardCollapsed] = useState(false);
   const dimensionMode = item.dimensionMode ?? 'lwh';
   const registryLocked =
     Boolean(item.productId?.trim()) && Boolean(item.productCategoryId?.trim());
@@ -1218,6 +1217,7 @@ function QuoteProductItemCard({
   const registrySelectClass =
     "h-[34px] w-full min-w-0 cursor-pointer rounded-md border border-border bg-background px-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60";
   const isDiameterHeight = dimensionMode === 'dh';
+  const unitLocale = labels.unit === 'Unit' ? 'en' : 'zh';
   const uploadProductImage = useCallback(
     (file: File) => uploadQuoteImageFile(file, quoteImageScope, item.id, 'product'),
     [quoteImageScope, item.id],
@@ -1239,83 +1239,41 @@ function QuoteProductItemCard({
         draggingItemId,
         dropInsertIndex,
         cutItemId,
-        "quote-product-row border border-border/80 bg-card",
+        "rounded-lg border border-border bg-background p-4",
       )}
       onDragOver={(e) => onDragOver(e, index)}
       onDrop={onDrop}
     >
-      <div className="quote-product-row-head flex flex-wrap items-start gap-3">
-        <QuoteRowDragHandle
-          itemId={item.id}
-          serialNumber={serialNumber}
-          serialLabel={zonePrefix ?? undefined}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-        />
-        {onAssignZone ? (
-          <QuoteItemZoneSelect
-            zoneTitleId={zoneTitleId}
-            zoneOptions={zoneOptions}
-            labels={labels}
-            onAssign={onAssignZone}
+      <div className={QUOTE_CARD_GRID}>
+        <div className="col-start-1 row-start-1 flex justify-center pt-4 min-[900px]:row-span-2">
+          <QuoteRowDragHandle
+            itemId={item.id}
+            serialNumber={serialNumber}
+            serialLabel={zonePrefix ?? undefined}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
           />
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <input
-            type="text"
-            value={item.name || ""}
-            placeholder={labels.productNamePlaceholder}
-            onChange={(e) => updateItem(item.id, "name", e.target.value)}
-            className="w-full bg-transparent font-display text-sm font-semibold text-foreground placeholder:text-muted-foreground/40 focus:outline-none"
-            aria-label="產品名稱"
-          />
-          <div className="mt-1 flex flex-wrap gap-1">
-            {item.productId?.trim() ? (
-              <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
-                已連結
-              </span>
-            ) : null}
-            {item.isOptional ? (
-              <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                {labels.optionalProduct}
-              </span>
-            ) : null}
-            {item.hideInPdf ? (
-              <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                {labels.hideInPdf}
-              </span>
-            ) : null}
-          </div>
         </div>
-        <div className="quote-product-row-totals">
-          <span><small>{labels.quantity}</small>{item.quantity} {quoteUnitLabel(item.unit, labels.unit === 'Unit' ? 'en' : 'zh')}</span>
-          <span><small>{labels.hkdUnitPrice}</small>${item.unitPrice.toLocaleString()}</span>
-          <span><small>{labels.hkdSubtotal}</small><strong>${quoteItemLineSubtotal(item).toLocaleString()}</strong></span>
-        </div>
-        <QuoteRowActionButtons
-          itemId={item.id}
-          cutItemId={cutItemId}
-          onCut={cutItem}
-          onDuplicate={duplicateItem}
-          onRemove={removeItem}
-          onOpenProduct={() => onOpenProductLink(item)}
-          productLinked={Boolean(item.productId?.trim())}
-          labels={labels}
-          onMoveUp={onMoveUp}
-          onMoveDown={onMoveDown}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          collapsed={cardCollapsed}
-          onToggleCollapse={() => setCardCollapsed((v) => !v)}
-        />
-      </div>
 
-      {cardCollapsed ? null : (
-        <div className="quote-product-row-body">
-        <div className="quote-product-row-fields">
-          <section className="quote-item-group">
-            <h3>{labels.unit === 'Unit' ? 'Classification' : '分類與類別'}</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="col-start-2 min-w-0 w-full space-y-2 min-[900px]:row-start-1">
+          {onAssignZone ? (
+            <QuoteItemZoneSelect
+              zoneTitleId={zoneTitleId}
+              zoneOptions={zoneOptions}
+              labels={labels}
+              onAssign={onAssignZone}
+            />
+          ) : null}
+          <QuoteFieldBlock label={labels.productNamePlaceholder}>
+            <input
+              type="text"
+              value={item.name || ""}
+              placeholder={labels.productNamePlaceholder}
+              onChange={(e) => updateItem(item.id, "name", e.target.value)}
+              className={QUOTE_INPUT_CLASS}
+              aria-label={labels.productNamePlaceholder}
+            />
+          </QuoteFieldBlock>
           <QuoteFieldBlock label={labels.level1Category}>
             <Select
               value={level1Value || "__none__"}
@@ -1375,137 +1333,25 @@ function QuoteProductItemCard({
               </SelectContent>
             </Select>
           </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.category} className="sm:col-span-2">
-            <Input
+          <QuoteFieldBlock
+            label={labels.category}
+            trailing={
+              <QuoteItemFlagToggles
+                item={item}
+                updateItem={updateItem}
+                labels={labels}
+                className="min-[900px]:hidden"
+              />
+            }
+          >
+            <textarea
               value={item.category || ""}
               placeholder="—"
+              rows={2}
               onChange={(e) => updateItem(item.id, "category", e.target.value)}
-              className={QUOTE_INPUT_CLASS}
+              className={`${QUOTE_INPUT_CLASS} min-h-[34px] resize-y leading-relaxed`}
             />
           </QuoteFieldBlock>
-            </div>
-          </section>
-          <section className="quote-item-group">
-            <h3>{labels.unit === 'Unit' ? 'Attributes' : '屬性'}</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <QuoteFieldBlock label={labels.quantity}>
-            <input
-              type="number"
-              value={item.quantity || ""}
-              placeholder="1"
-              min={1}
-              onChange={(e) =>
-                updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.unit}>
-            <input
-              type="text"
-              value={quoteUnitLabel(item.unit, labels.unit === 'Unit' ? 'en' : 'zh')}
-              placeholder="—"
-              maxLength={4}
-              onChange={(e) => updateItem(item.id, "unit", e.target.value)}
-              className={QUOTE_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.factory}>
-            <QuoteFactoryField
-              labels={labels}
-              value={item.factoryName || ""}
-              locked={Boolean(item.factoryFromCatalog)}
-              factories={factories}
-              loading={factoriesLoading}
-              onChange={(name) => updateItem(item.id, "factoryName", name)}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.sku}>
-            <input
-              type="text"
-              value={item.sku || ""}
-              placeholder="—"
-              onChange={(e) => updateItem(item.id, "sku", e.target.value)}
-              className={QUOTE_INPUT_CLASS}
-              aria-label={labels.sku}
-            />
-          </QuoteFieldBlock>
-            </div>
-          </section>
-          <section className="quote-item-group">
-            <h3>{labels.unit === 'Unit' ? 'Cost & Selling Price' : '成本與售價'}</h3>
-            <div className="quote-item-pricing grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <QuoteFieldBlock label={labels.cnyCost}>
-            <input
-              type="number"
-              value={item.costPrice ?? ""}
-              placeholder="—"
-              min={0}
-              onChange={(e) =>
-                updateItem(
-                  item.id,
-                  "costPrice",
-                  e.target.value ? parseFloat(e.target.value) : null,
-                )
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.exchangeRate}>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
-              placeholder="—"
-              onChange={(e) => updateExchangeRate(item.id, e.target.value)}
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.hkdCost}>
-            <input
-              type="number"
-              value={item.hkdCostPrice == null ? "" : Math.ceil(item.hkdCostPrice)}
-              placeholder="—"
-              min={0}
-              step={1}
-              onChange={(e) =>
-                updateItem(
-                  item.id,
-                  "hkdCostPrice",
-                  e.target.value === "" ? null : parseFloat(e.target.value),
-                )
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-              aria-label={labels.hkdCost}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.hkdUnitPrice}>
-            <input
-              type="number"
-              value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
-              placeholder="0"
-              min={0}
-              onChange={(e) =>
-                updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.hkdSubtotal} className="quote-item-subtotal">
-            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/40 px-2">
-              <span
-                className={cn(
-                  "truncate font-mono-data text-xs font-medium",
-                  item.isOptional ? "text-muted-foreground" : "text-foreground",
-                )}
-              >
-                ${quoteItemLineSubtotal(item).toLocaleString()}
-              </span>
-            </div>
-          </QuoteFieldBlock>
-            </div>
-          </section>
-          <div className="quote-item-dimensions">
           <div className="min-w-0">
             <div className="mb-1 flex min-h-[22px] flex-wrap items-center gap-1.5 font-body text-xs font-medium text-muted-foreground">
               <span className="shrink-0 leading-normal">{labels.dimensionsMm}</span>
@@ -1593,36 +1439,30 @@ function QuoteProductItemCard({
               className={QUOTE_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-          </div>
-          <section className="quote-item-group quote-item-description">
-            <h3>{labels.unit === 'Unit' ? 'Description' : '說明'}</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <QuoteFieldBlock label={labels.material}>
-            <MaterialRichEditor
-              value={item.material || ""}
-              placeholder={labels.unit === 'Unit' ? 'Materials & details…' : '材質及明細…'}
-              onChange={(html) => updateItem(item.id, "material", html)}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.remarks}>
-            <RemarksRichEditor
-              singleLine
-              locale={labels.unit === 'Unit' ? 'en' : 'zh'}
-              placeholder={labels.unit === 'Unit' ? 'Remarks…' : '備註文字…'}
-              key={item.id}
-              compact
-              value={item.remarks || ""}
-              legacyImage={item.remarksImage}
-              onChange={(val) => updateItem(item.id, "remarks", val)}
-              uploadImage={uploadRemarksImage}
-            />
-          </QuoteFieldBlock>
-
-            </div>
-          </section>
         </div>
-        <div className="quote-product-row-images">
-          <QuoteFieldBlock label={labels.image}>
+
+        <QuoteFieldBlock
+          label={labels.material}
+          className={cn(
+            "col-start-2 min-w-0 min-[900px]:col-span-2 min-[900px]:col-start-3 min-[900px]:row-start-1",
+            QUOTE_CARD_MEDIA_XL_SHIFT,
+          )}
+        >
+          <MaterialRichEditor
+            value={item.material || ""}
+            placeholder={unitLocale === "en" ? "Materials & details…" : "材質及明細..."}
+            onChange={(html) => updateItem(item.id, "material", html)}
+          />
+        </QuoteFieldBlock>
+
+        <div className="col-start-2 grid grid-cols-2 gap-3 min-[900px]:contents">
+          <QuoteFieldBlock
+            label={labels.image}
+            className={cn(
+              "min-w-0 min-[900px]:col-start-3 min-[900px]:row-start-2",
+              QUOTE_CARD_MEDIA_XL_SHIFT,
+            )}
+          >
             <ReferenceImageCell
               value={item.image || ""}
               onChange={(url) => updateItem(item.id, "image", url)}
@@ -1634,7 +1474,13 @@ function QuoteProductItemCard({
               photoZones={photoZones}
             />
           </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.referenceImage}>
+          <QuoteFieldBlock
+            label={labels.referenceImage}
+            className={cn(
+              "min-w-0 min-[900px]:col-start-4 min-[900px]:row-start-2",
+              QUOTE_CARD_MEDIA_XL_SHIFT,
+            )}
+          >
             <ReferenceImageCell
               value={item.referenceImage || ""}
               onChange={(url) => updateItem(item.id, "referenceImage", url)}
@@ -1646,19 +1492,202 @@ function QuoteProductItemCard({
               photoZones={photoZones}
             />
           </QuoteFieldBlock>
+        </div>
 
-        </div>
-        </div>
-      )}
-      {!cardCollapsed && (
-          <div className="quote-product-row-footer">
-            <QuoteItemFlagToggles
-              item={item}
-              updateItem={updateItem}
+        <QuoteFieldBlock label={labels.remarks} className="col-start-2 min-w-0 min-[900px]:row-start-2">
+          <RemarksRichEditor
+            key={item.id}
+            compact
+            locale={unitLocale}
+            placeholder={unitLocale === "en" ? "Remarks…" : "備註文字…"}
+            value={item.remarks || ""}
+            legacyImage={item.remarksImage}
+            onChange={(val) => updateItem(item.id, "remarks", val)}
+            uploadImage={uploadRemarksImage}
+          />
+        </QuoteFieldBlock>
+
+        <div className="col-start-2 grid grid-cols-1 gap-3 min-[650px]:grid-cols-2 min-[900px]:contents">
+          <div
+            className={cn(
+              "flex min-h-0 flex-col self-stretch min-[900px]:col-start-5 min-[900px]:row-start-1",
+              QUOTE_QTY_COST_FIELD_CLASS,
+            )}
+          >
+            <QuoteFieldBlock label={labels.quantity} className="shrink-0">
+              <input
+                type="number"
+                value={item.quantity || ""}
+                placeholder="1"
+                min={1}
+                onChange={(e) =>
+                  updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
+                }
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <div className="flex min-h-0 flex-1 items-center">
+              <QuoteFieldBlock label={labels.factory} className="w-full">
+                <QuoteFactoryField
+                  labels={labels}
+                  value={item.factoryName || ""}
+                  locked={Boolean(item.factoryFromCatalog)}
+                  factories={factories}
+                  loading={factoriesLoading}
+                  onChange={(name) => updateItem(item.id, "factoryName", name)}
+                />
+              </QuoteFieldBlock>
+            </div>
+          </div>
+
+          <div
+            className={cn(
+              "flex min-h-0 flex-col self-stretch min-[900px]:col-start-5 min-[900px]:row-start-2",
+              QUOTE_QTY_COST_FIELD_CLASS,
+            )}
+          >
+            <QuoteFieldBlock label={labels.cnyCost} className="shrink-0">
+              <input
+                type="number"
+                value={item.costPrice ?? ""}
+                placeholder="—"
+                min={0}
+                onChange={(e) =>
+                  updateItem(
+                    item.id,
+                    "costPrice",
+                    e.target.value ? parseFloat(e.target.value) : null,
+                  )
+                }
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <div className="relative z-10 flex min-h-0 flex-1 items-center py-0.5">
+              <QuoteFieldBlock label={labels.exchangeRate} className="w-max">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
+                  placeholder="—"
+                  onChange={(e) => updateExchangeRate(item.id, e.target.value)}
+                  className={cn(QUOTE_COMPACT_NUMBER_INPUT_CLASS, "w-[6em] min-w-[6em] shrink-0")}
+                />
+              </QuoteFieldBlock>
+            </div>
+            <QuoteFieldBlock label={labels.hkdCost} className="shrink-0">
+              <input
+                type="number"
+                value={item.hkdCostPrice == null ? "" : Math.ceil(item.hkdCostPrice)}
+                placeholder="—"
+                min={0}
+                step={1}
+                onChange={(e) =>
+                  updateItem(
+                    item.id,
+                    "hkdCostPrice",
+                    e.target.value === "" ? null : parseFloat(e.target.value),
+                  )
+                }
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+                aria-label={labels.hkdCost}
+              />
+            </QuoteFieldBlock>
+          </div>
+
+          <div
+            className={cn(
+              "flex min-h-0 min-w-0 flex-col self-stretch min-[900px]:col-span-3 min-[900px]:col-start-6 min-[900px]:row-start-1",
+              QUOTE_CARD_PRICING_XL_SHIFT,
+            )}
+          >
+            <div className="flex min-w-0 shrink-0 items-end gap-3">
+              <QuoteFieldBlock label={labels.unit} className={QUOTE_PRICE_FIELD_CLASS}>
+                <input
+                  type="text"
+                  value={quoteUnitLabel(item.unit, unitLocale)}
+                  placeholder="—"
+                  maxLength={4}
+                  onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                  className={QUOTE_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <div className="hidden min-w-0 flex-1 items-end pb-0.5 min-[900px]:flex">
+                <QuoteItemFlagToggles
+                  item={item}
+                  updateItem={updateItem}
+                  labels={labels}
+                />
+              </div>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center">
+              <QuoteFieldBlock
+                label={labels.sku}
+                className="w-full max-w-full shrink-0 min-[900px]:w-[14.75em] [&_label]:whitespace-nowrap"
+              >
+                <input
+                  type="text"
+                  value={item.sku || ""}
+                  placeholder="—"
+                  onChange={(e) => updateItem(item.id, "sku", e.target.value)}
+                  className={QUOTE_INPUT_CLASS}
+                  aria-label={labels.sku}
+                  title="SKU（僅草稿編輯，不顯示於 PDF）"
+                />
+              </QuoteFieldBlock>
+            </div>
+          </div>
+
+          <div
+            className={cn(
+              "flex min-w-0 items-start gap-3 min-[900px]:col-span-3 min-[900px]:col-start-6 min-[900px]:row-start-2",
+              QUOTE_CARD_PRICING_XL_SHIFT,
+            )}
+          >
+            <QuoteFieldBlock label={labels.hkdUnitPrice} className={QUOTE_PRICE_FIELD_CLASS}>
+              <input
+                type="number"
+                value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
+                placeholder="0"
+                min={0}
+                onChange={(e) =>
+                  updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
+                }
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label={labels.hkdSubtotal} className={QUOTE_PRICE_FIELD_CLASS}>
+              <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+                <span
+                  className={cn(
+                    "truncate font-mono-data text-xs font-medium",
+                    item.isOptional ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  ${quoteItemLineSubtotal(item).toLocaleString()}
+                </span>
+              </div>
+            </QuoteFieldBlock>
+          </div>
+
+          <div className="shrink-0 min-[650px]:col-span-2 min-[900px]:col-span-1 min-[900px]:col-start-9 min-[900px]:row-start-2">
+            <div className="mb-1 hidden h-4 min-[900px]:block" aria-hidden="true" />
+            <QuoteRowActionButtons
+              itemId={item.id}
+              cutItemId={cutItemId}
+              onCut={cutItem}
+              onDuplicate={duplicateItem}
+              onRemove={removeItem}
+              onOpenProduct={() => onOpenProductLink(item)}
+              productLinked={Boolean(item.productId?.trim())}
               labels={labels}
+              onMoveUp={onMoveUp}
+              onMoveDown={onMoveDown}
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
             />
           </div>
-      )}
+        </div>
+      </div>
     </div>
   );
 }
