@@ -5,14 +5,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight, CheckCircle2, ExternalLink, FileText, Link2, Loader2,
-  Presentation as PresentationIcon, RefreshCcw, Save, Trash2,
+  ArrowRight, Building2, Check, CheckCircle2, ChevronLeft, ChevronRight,
+  ExternalLink, FileText, FolderKanban, Hash, Languages, Lightbulb, Link2,
+  ListChecks, Loader2, MoreHorizontal, Package, Palette, Presentation as PresentationIcon,
+  RefreshCcw, Save, Settings2, Trash2, Unlink, ZoomIn, ZoomOut,
 } from 'lucide-react';
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import {
+  Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
+} from '@/components/ui/sheet';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +38,7 @@ import {
   clientContentDefault,
   clientPurposeDefault,
   loadPresentationClients,
+  loadPresentationProjects,
   nextFieldValue,
   projectContentDefault,
   projectOptionHint,
@@ -45,7 +53,7 @@ import {
   type CanvaDesignBrief, type CanvaDesignExportRow, type CanvaDesignSession,
   type CanvaSessionVersionRow,
 } from '@/lib/canvaNativeDesign';
-import { Checkbox } from '@/components/ui/checkbox';
+import { MultiSelect } from '@/components/ui/multi-select';
 import { fetchCaseShowcase, type CaseBrand } from '@/lib/caseShowcase';
 import { fetchZones } from '@/lib/solutionsApi';
 import {
@@ -56,6 +64,15 @@ import {
   type PresentationCompanyProfile,
 } from '@/lib/presentationFiveSection';
 
+// 傢俬官網與 Branding Works 設計工程／集團官網、HKPIDA 名錄資料整理。
+const WEBSITE_COMPANY_PROFILE: PresentationCompanyProfile = {
+  background: 'BW Furniture（Branding Works Furniture & Office Design）專注香港辦公室及商業傢俬方案，擁有超過 16 年行業經驗、逾 1,000 個空間實績，已服務超過 3,000 家香港企業與機構，整合空間設計、裝修工程與傢俬配置。',
+  strengths: '自設「老木匠」傢俬廠房，採用工廠直供模式，配合一對一專員服務。提供超過 1,000 款傢俬，結合現貨及度身訂造選擇，並由產品開發、設計及客戶服務團隊協作跟進。',
+  services: '免費上門度尺、空間規劃、報價預算、辦公室設計及裝修配套、傢俬訂製、送貨與安裝；接受企業、機構及政府部門的報價邀請與投標文件，並支援 P-Card 採購付款。',
+  qualifications: 'Branding Works 設計工程業務的專業資歷：志豐集團官網記載，志豐商業工程設計於 2020 年獲得 ISO 9001:2015 品質管理體系認證；香港專業室內設計師協會（HKPIDA）企業會員名錄列有 Branding Works 志豐設計工程中心，會員編號 C2604-5。',
+  capabilities: '整合辦公室動線、空間規劃、固定裝潢及活動傢俬，提供辦公枱、會議枱、辦公椅、儲物櫃、接待家具與靜音艙等配置。訂造可選微甲醛 E0 板材，並提供阻燃、防刮材料選項及電腦定位排孔工序；按產品及項目需要確認規格。',
+};
+
 const MAX_ITEMS = 30;
 const PRESENTATION_PATH = '/fds/pm/presentation';
 const TITLE_MAX = 100;
@@ -64,25 +81,39 @@ const CONTENT_MAX = 1000;
 const SIDEBAR_PREVIEW = 3;
 const AI_DOC_HREF = 'https://github.com/chifung-BWSolution/furniture1000/blob/develop/docs/prd/FDS-2.1-Canva-AI生成.md';
 const LANGUAGE_OPTIONS = ['繁體中文', '簡體中文', 'English', '中英對照'];
-const STYLE_OPTIONS = ['專業、簡潔', '簡約現代', '高端精品', '活潑清晰'];
+const STYLE_OPTIONS = ['專業、簡潔', '現代、簡約、專業', '簡約現代', '高端精品', '活潑清晰'];
 const WIZARD_STEPS = [
   {
     title: '簡報內容與設計要求',
-    hint: '填寫標題、客戶、目的、語言、風格與原文。這些內容會交給 Canva AI。',
+    subtitle: '填寫專業資訊與設計需求',
+    hint: '請填寫專業資訊與設計需求，這些內容將作為 Canva AI 生成簡報的依據，協助產出更符合需求的專業簡報。',
   },
   {
     title: '確認五段大綱',
-    hint: '順序固定為封面、公司介紹、平面圖、方案、參考案例。沒有平面圖時略過該段。公司介紹會保存下來，下一份簡報繼續用。',
+    subtitle: '生成簡報內容框架',
+    hint: '系統已根據您填寫的需求資料，為您生成簡報的五段內容大綱。您可以核對各段落，或重新整理大綱。',
   },
   {
     title: '帶入 FDS 產品',
-    hint: '可選。點選產品卡片加入，每一件已選產品會成為自己的一頁。',
+    subtitle: '選擇產品加入簡報',
+    hint: '可選。點選產品卡片加入，每一件已選產品會成為自己的一頁，並帶入簡報中。',
   },
   {
     title: 'AI 生成與匯出',
-    hint: '請先連接 Canva。已有設計時用「新版本」另建，避免覆蓋 Canva 內的修改。',
+    subtitle: '產生 Canva 簡報並匯出',
+    hint: '點擊「開始 AI 生成」，系統將根據前面設定的內容，在 Canva 中建立專業簡報，生成完成後可進行編輯與匯出。',
   },
 ] as const;
+
+const OUTLINE_CARDS = [
+  { title: '封面', body: '專案名稱、客戶名稱、日期、品牌標識與封面主視覺。' },
+  { title: '公司介紹', body: '公司背景、服務優勢、設計理念與過往經驗。' },
+  { title: '平面圖', body: '空間平面配置圖、動線規劃與功能分區說明。' },
+  { title: '方案', body: '設計方案構想、材質選用、傢俬配置、風格參考與預算範圍。' },
+  { title: '參考案例', body: '選擇相似案例，展示實際完工效果與設計亮點。' },
+] as const;
+
+const GEN_PHASES = ['解析需求', '生成內容', '建立 Canva 簡報', '完成並預覽'] as const;
 
 type Status = 'idle' | 'creating' | 'exporting';
 
@@ -117,10 +148,6 @@ function CanvaMark({ className }: { className?: string }) {
 function sessionTitle(session: CanvaDesignSession): string {
   const title = (session.brief as CanvaDesignBrief | null)?.title?.trim();
   return title || '未命名';
-}
-
-function sessionClient(session: CanvaDesignSession): string {
-  return (session.brief as CanvaDesignBrief | null)?.client?.trim() || '—';
 }
 
 /** Canva thumbnail URLs expire about 15 minutes after they are issued. */
@@ -215,6 +242,40 @@ function formatRecentTime(iso: string): string {
   return `${month}月${day}日 ${time}`;
 }
 
+function formatStamp(iso?: string | null): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${pick('year')}年${pick('month')}月${pick('day')}日 ${pick('hour')}:${pick('minute')}`;
+}
+
+function versionStatusLabel(status: string): { label: string; dot: string } {
+  if (status === 'creating' || status === 'exporting') return { label: status === 'exporting' ? '匯出中' : '生成中', dot: 'bg-orange-400' };
+  if (status === 'exported') return { label: '已匯出', dot: 'bg-sky-500' };
+  if (status === 'ready') return { label: '已完成', dot: 'bg-emerald-500' };
+  if (status === 'failed') return { label: '生成失敗', dot: 'bg-red-500' };
+  return { label: '草稿', dot: 'bg-slate-300' };
+}
+
+function generationPhase(session: CanvaDesignSession | null, generating: boolean): number {
+  if (session?.canva_design_id) return 4;
+  const job = String(session?.populate_report?.generation_status ?? '');
+  if (job === 'in_progress' || job === 'success') return 3;
+  if (session?.populate_report?.generation_job_id || job === 'queued' || job === 'accepted') return 2;
+  if (generating || session?.status === 'creating') return 1;
+  return 0;
+}
+
 function StepIndicator({
   step,
   onSelect,
@@ -223,44 +284,229 @@ function StepIndicator({
   onSelect: (next: number) => void;
 }) {
   return (
-    <ol aria-label="簡報步驟" className="mb-6 grid gap-2 sm:grid-cols-4">
+    <ol aria-label="簡報步驟" className="grid h-full min-w-0 grid-cols-1 gap-1.5 rounded-2xl border border-border/80 bg-card p-1.5 shadow-sm sm:grid-cols-[repeat(4,minmax(0,1fr))]">
       {WIZARD_STEPS.map((item, index) => {
         const n = index + 1;
         const current = n === step;
         const done = n < step;
         return (
-          <li key={item.title}>
+          <li key={item.title} className="min-w-0">
             <button
               type="button"
               aria-current={current ? 'step' : undefined}
               onClick={() => onSelect(n)}
-              className={`flex h-full w-full items-start gap-2 rounded-xl border px-2.5 py-2 text-left ${
+              className={cn(
+                'flex h-full w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors',
                 current
-                  ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/40'
+                  ? 'border-indigo-500 bg-indigo-50 shadow-sm dark:bg-indigo-950/50'
                   : done
-                    ? 'border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/30'
-                    : 'border-border bg-background'
-              }`}
+                    ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40'
+                    : 'border-transparent bg-muted/50',
+              )}
             >
               <span
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                className={cn(
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold',
                   current
                     ? 'bg-indigo-600 text-white'
                     : done
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-muted text-muted-foreground'
-                }`}
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300',
+                )}
               >
-                {n}
+                {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : n}
               </span>
-              <span className={`text-xs font-medium leading-snug ${current ? 'text-foreground' : 'text-muted-foreground'}`}>
-                {item.title}
+              <span className="min-w-0">
+                <span className={cn(
+                  'block truncate text-[13px] font-semibold leading-tight',
+                  current ? 'text-indigo-950 dark:text-indigo-50' : done ? 'text-emerald-950 dark:text-emerald-50' : 'text-muted-foreground',
+                )}
+                >
+                  {item.title}
+                </span>
+                <span className="mt-0.5 hidden truncate text-[11px] leading-tight text-muted-foreground xl:block">
+                  {item.subtitle}
+                </span>
               </span>
             </button>
           </li>
         );
       })}
     </ol>
+  );
+}
+
+function Tip({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex gap-2 rounded-xl bg-indigo-50 px-3 py-2.5 text-xs leading-relaxed text-indigo-950 dark:bg-indigo-950/40 dark:text-indigo-100">
+      <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
+      <p><span className="font-semibold">小提醒：</span>{children}</p>
+    </div>
+  );
+}
+
+function SectionIntro({ icon, title, hint }: { icon: ReactNode; title: string; hint: string }) {
+  return (
+    <div className="mb-4 flex gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-200">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <h3 className="text-base font-bold text-foreground">{title}</h3>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{hint}</p>
+      </div>
+    </div>
+  );
+}
+
+function CanvaConnectionCard({
+  compact,
+  canva,
+  connected,
+  canImport,
+  disabled,
+  showGenerationWarning,
+  generationProbe,
+  onConnect,
+  onRefresh,
+  onDisconnect,
+}: {
+  compact: boolean;
+  canva: CanvaStatus | null;
+  connected: boolean;
+  canImport: boolean;
+  disabled: boolean;
+  showGenerationWarning: boolean;
+  generationProbe: { ok?: boolean; message?: string; missing_scopes?: string[] } | null;
+  onConnect: () => void;
+  onRefresh: () => void;
+  onDisconnect: () => void;
+}) {
+  const reduce = useReducedMotion();
+  const account = `${canva?.account_name || 'chifung.login'}（admin / 傢俬組）`;
+  const statusKey = !canva ? 'loading' : showGenerationWarning ? 'warn' : connected ? 'on' : 'off';
+  const spring = reduce ? { duration: 0 } : { type: 'spring' as const, stiffness: 280, damping: 30 };
+
+  return (
+    <motion.section
+      layout
+      layoutId="canva-connection"
+      transition={spring}
+      id="canva-connection"
+      className={cn(
+        'relative overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm',
+        compact ? 'px-3 py-2' : 'p-4',
+      )}
+    >
+      <motion.span
+        key={compact ? 'compact-ring' : 'full-ring'}
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-2xl"
+        initial={reduce ? false : {
+          boxShadow: connected
+            ? 'inset 0 0 0 2px rgba(16,185,129,0.65)'
+            : 'inset 0 0 0 2px rgba(99,102,241,0.4)',
+        }}
+        animate={{ boxShadow: 'inset 0 0 0 0px rgba(16,185,129,0)' }}
+        transition={{ duration: 0.85, ease: 'easeOut' }}
+      />
+      <div className={cn('flex', compact ? 'h-full items-center gap-2' : 'flex-col items-center gap-3 text-center')}>
+        <motion.div
+          layout
+          className={cn(
+            'flex shrink-0 items-center justify-center rounded-full bg-white shadow-md ring-4 dark:bg-indigo-950',
+            compact ? 'h-8 w-8 ring-2 ring-emerald-100 dark:ring-emerald-500/20' : 'h-16 w-16 ring-indigo-50 dark:ring-indigo-500/20',
+            connected && !compact ? 'ring-emerald-100' : '',
+          )}
+        >
+          <CanvaMark className={compact ? 'h-auto w-6' : 'h-auto w-14'} />
+        </motion.div>
+        <div className={cn('min-w-0', compact ? 'flex-1 text-left' : '')}>
+          <div className={cn('flex items-center gap-1.5', compact ? 'flex-nowrap' : 'flex-wrap justify-center')}>
+            <h3 className={cn('font-bold text-foreground', compact ? 'truncate text-xs' : 'text-base')}>Canva 連接</h3>
+            <AnimatePresence mode="wait">
+              {connected && (
+                <motion.span
+                  key={statusKey}
+                  initial={reduce ? false : { opacity: 0, scale: 0.82, y: 6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={reduce ? undefined : { opacity: 0, scale: 0.9, y: -4 }}
+                  transition={spring}
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[11px] font-semibold',
+                    showGenerationWarning
+                      ? 'bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-200'
+                      : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200',
+                  )}
+                >
+                  <CheckCircle2 className="h-3 w-3" />
+                  {showGenerationWarning ? '需要設定' : '已連接'}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+          <p className={cn('truncate text-muted-foreground', compact ? 'text-[10px] leading-tight' : 'mt-1 text-sm')}>{account}</p>
+          {!compact && (
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              AI 生成需要帳戶具備 Canva AI 與 Magic Design 功能。
+            </p>
+          )}
+        </div>
+        {compact && connected && (
+          <div className="flex shrink-0 items-center">
+            <Button type="button" variant="ghost" className="h-8 w-8 px-0" aria-label="重新檢查" onClick={onRefresh}>
+              <RefreshCcw className="h-3.5 w-3.5" />
+            </Button>
+            <Button type="button" variant="ghost" className="h-8 w-8 px-0" aria-label="解除連接" onClick={onDisconnect} disabled={disabled}>
+              <Unlink className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
+      </div>
+      {!compact && (
+        <div className="mt-4 space-y-2">
+          {!canva && (
+            <p className="text-center text-sm text-muted-foreground">
+              <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />
+              偵測中…
+            </p>
+          )}
+          {canva && (!canva.configured || !canImport) && (
+            <ConnectionHint content={!canva.configured ? (
+              <p>請設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，並在 Canva 設定 redirect URI：{`${window.location.origin}${PRESENTATION_PATH}`}。 <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看設定文件</a></p>
+            ) : '僅 admin／傢俬組可使用 Canva 簡報功能。'}>
+              <Button type="button" variant="outline" className="w-full">{!canva.configured ? '尚未配置' : '權限不足'}</Button>
+            </ConnectionHint>
+          )}
+          {canva?.configured && canImport && !connected && (
+            <Button type="button" className="w-full bg-indigo-600 text-white hover:bg-indigo-500" onClick={onConnect} disabled={disabled}>
+              <Link2 className="h-4 w-4" /> 連接 Canva
+            </Button>
+          )}
+          {connected && (
+            <div className="grid grid-cols-2 gap-2">
+              <ConnectionHint content={showGenerationWarning ? (
+                <p>{generationProbe?.message ?? '無法確認 Canva AI 生成權限。'}{generationProbe?.missing_scopes?.length ? ` 缺少 scope：${generationProbe.missing_scopes.join(', ')}。` : ''} <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a></p>
+              ) : generationProbe?.ok ? '已連接 Canva，可以 AI 生成簡報。' : '已連接 Canva，正在確認 AI 生成權限。'}>
+                <Button type="button" variant="outline" className="h-9 w-full bg-background px-1 text-xs" onClick={onRefresh}>
+                  <RefreshCcw className="h-3.5 w-3.5" />
+                  重新檢查
+                </Button>
+              </ConnectionHint>
+              <Button type="button" variant="outline" className="h-9 bg-background px-1 text-xs" onClick={onDisconnect} disabled={disabled}>
+                <Unlink className="h-3.5 w-3.5" />
+                解除連接
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      {compact && canva?.configured && canImport && !connected && (
+        <Button type="button" className="mt-3 w-full bg-indigo-600 text-white hover:bg-indigo-500" onClick={onConnect} disabled={disabled}>
+          <Link2 className="h-4 w-4" /> 連接 Canva
+        </Button>
+      )}
+    </motion.section>
   );
 }
 
@@ -300,12 +546,15 @@ export function PresentationView() {
   const [status, setStatus] = useState<Status>('idle');
   const [canvaLink, setCanvaLink] = useState<{ edit_url: string; title?: string } | null>(null);
   const oauthHandledRef = useRef(false);
+  const statusRequestRef = useRef(0);
 
   const [brief, setBrief] = useState<CanvaDesignBrief>(() => defaultBrief());
   const briefRef = useRef(brief);
   briefRef.current = brief;
   const [companyProfile, setCompanyProfile] = useState<PresentationCompanyProfile>(EMPTY_COMPANY_PROFILE);
   const [companySaving, setCompanySaving] = useState(false);
+  const [companyPage, setCompanyPage] = useState(false);
+  const [companyDraft, setCompanyDraft] = useState<PresentationCompanyProfile>(EMPTY_COMPANY_PROFILE);
   const [floorZones, setFloorZones] = useState<{ code: string | null; name: string }[]>([]);
   const [floorPresent, setFloorPresent] = useState(false);
   const [caseBrands, setCaseBrands] = useState<CaseBrand[]>([]);
@@ -332,6 +581,9 @@ export function PresentationView() {
   const [clients, setClients] = useState<PresentationClientOption[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientsError, setClientsError] = useState('');
+  const [projects, setProjects] = useState<PresentationProjectOption[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState('');
   const [wizardStep, setWizardStep] = useState(1);
   const [outline, setOutline] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -344,31 +596,57 @@ export function PresentationView() {
   const [generationPending, setGenerationPending] = useState(false);
   const [generationError, setGenerationError] = useState('');
   const [statusReadError, setStatusReadError] = useState('');
-  const [showAllDrafts, setShowAllDrafts] = useState(false);
-  const [showAllDesigns, setShowAllDesigns] = useState(false);
+  const [listDrawer, setListDrawer] = useState<null | 'drafts' | 'designs'>(null);
+  const [previewZoom, setPreviewZoom] = useState(100);
+  const [previewPage, setPreviewPage] = useState(0);
+  const sessionLimitRef = useRef(12);
 
   useEffect(() => {
     let cancelled = false;
-    loadPresentationClients()
-      .then((rows) => {
-        if (!cancelled) setClients(rows);
-      })
-      .catch((err) => {
-        if (!cancelled) setClientsError(err instanceof Error ? err.message : '載入客戶失敗');
-      })
-      .finally(() => {
-        if (!cancelled) setClientsLoading(false);
-      });
+    setClientsLoading(true);
+    setClientsError('');
+    setClients([]);
+    const timer = window.setTimeout(() => {
+      void loadPresentationClients(brief.client ?? '')
+        .then((rows) => {
+          if (!cancelled) setClients(rows);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) setClientsError(err instanceof Error ? err.message : '載入 PMS 客戶失敗');
+        })
+        .finally(() => {
+          if (!cancelled) setClientsLoading(false);
+        });
+    }, 250);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, []);
+  }, [brief.client]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProjectsLoading(true);
+    setProjectsError('');
+    setProjects([]);
+    const timer = window.setTimeout(() => {
+      void loadPresentationProjects({ search: brief.project ?? '', customerId: brief.pmsClientId })
+        .then((rows) => { if (!cancelled) setProjects(rows); })
+        .catch((err: unknown) => {
+          if (!cancelled) setProjectsError(err instanceof Error ? err.message : '載入 PMS 專案失敗');
+        })
+        .finally(() => { if (!cancelled) setProjectsLoading(false); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [brief.project, brief.pmsClientId]);
 
   const refreshStatus = useCallback(async () => {
+    const requestId = ++statusRequestRef.current;
     const [statusValue, role] = await Promise.all([
       fetchCanvaStatus(),
       supabase.rpc('bwf_has_role', { p_roles: ['admin', 'uploader'] }),
     ]);
+    if (requestId !== statusRequestRef.current) return;
     setCanva(statusValue);
     const allowed = Boolean(role.data);
     setCanImport(allowed);
@@ -380,9 +658,11 @@ export function PresentationView() {
     }
   }, []);
 
-  const refreshSessions = useCallback(async () => {
+  const refreshSessions = useCallback(async (limit?: number) => {
+    const next = limit ?? sessionLimitRef.current;
+    sessionLimitRef.current = next;
     try {
-      const rows = await listCanvaDesignSessions(12);
+      const rows = await listCanvaDesignSessions(next);
       setSessions(rows);
     } catch {
       setSessions([]);
@@ -459,6 +739,8 @@ export function PresentationView() {
       try {
         const redirectUri = `${window.location.origin}${PRESENTATION_PATH}`;
         const connected = await exchangeCanvaCode(code, cb.verifier, redirectUri);
+        statusRequestRef.current += 1;
+        setCanva((current) => ({ ...current, ...connected, configured: current?.configured ?? true }));
         toast.success('Canva 已連接', { description: connected.account_name ? `帳戶：${connected.account_name}` : 'chifung.login' });
       } catch (err) {
         toast.error('Canva 授權失敗', { description: errorText(err) });
@@ -808,12 +1090,15 @@ export function PresentationView() {
 
   const selectClient = (client: PresentationClientOption) => {
     const filled = applyAuto(clientPurposeDefault(client), clientContentDefault(client));
-    const projectStillThere = client.projects.some((project) => project.id === briefRef.current.projectId);
+    const sameClient = briefRef.current.pmsClientId === client.id;
     setBrief({
       ...briefRef.current,
       client: client.name,
-      clientId: client.id,
-      projectId: projectStillThere ? briefRef.current.projectId : undefined,
+      clientId: undefined,
+      pmsClientId: client.id,
+      project: sameClient ? briefRef.current.project : '',
+      projectId: undefined,
+      pmsProjectId: sameClient ? briefRef.current.pmsProjectId : undefined,
       purpose: filled.purpose,
       content: filled.content,
     });
@@ -821,23 +1106,21 @@ export function PresentationView() {
 
   const selectProject = (project: PresentationProjectOption) => {
     const current = briefRef.current;
-    const owner = clients.find((row) => row.projects.some((item) => item.id === project.id)) ?? null;
-    const adoptClient = !current.client?.trim() && owner != null;
-    const contactClient = adoptClient
-      ? owner
-      : clients.find((row) => row.id === current.clientId) ?? null;
+    const owner = project.client ?? null;
     const filled = applyAuto(
       projectPurposeDefault(project),
-      contactClient
-        ? projectContentDefault(contactClient, project)
+      owner
+        ? projectContentDefault(owner, project)
         : (project.note ? `客戶備註：${project.note}` : ''),
     );
     setBrief({
       ...current,
-      client: adoptClient && owner ? owner.name : current.client,
-      clientId: adoptClient && owner ? owner.id : current.clientId,
+      client: owner ? owner.name : current.client,
+      clientId: undefined,
+      pmsClientId: owner ? owner.id : current.pmsClientId,
       project: project.name,
-      projectId: project.id,
+      projectId: undefined,
+      pmsProjectId: project.id,
       purpose: filled.purpose,
       content: filled.content,
     });
@@ -859,39 +1142,200 @@ export function PresentationView() {
   const titleCount = brief.title.length;
   const purposeCount = (brief.purpose ?? '').length;
   const contentCount = (brief.content ?? '').length;
-  const selectedClient = clients.find((row) => row.id === brief.clientId) ?? null;
-  const projectChoices = useMemo(() => {
-    const rows = selectedClient
-      ? selectedClient.projects.map((project) => ({ project, clientName: null as string | null }))
-      : clients.flatMap((client) => client.projects.map((project) => ({ project, clientName: client.name })));
-    const seen = new Set<string>();
-    return rows.filter(({ project }) => {
-      if (seen.has(project.id)) return false;
-      seen.add(project.id);
-      return true;
-    });
-  }, [clients, selectedClient]);
   const draftSessions = useMemo(() => sessions.filter((s) => !isCanvaDesign(s)), [sessions]);
   const designSessions = useMemo(() => sessions.filter(isCanvaDesign), [sessions]);
-  const visibleDrafts = showAllDrafts ? draftSessions : draftSessions.slice(0, SIDEBAR_PREVIEW);
-  const visibleDesigns = showAllDesigns ? designSessions : designSessions.slice(0, SIDEBAR_PREVIEW);
+  const visibleDrafts = draftSessions.slice(0, SIDEBAR_PREVIEW);
+  const visibleDesigns = designSessions.slice(0, SIDEBAR_PREVIEW);
+  const phase = generationPhase(activeSession, generating);
+  const previewPages = activeSession?.canva_design_id
+    ? Math.max(1, activeSession.brief?.pageCount ?? brief.pageCount ?? 1)
+    : 1;
+  const previewIndex = Math.min(previewPage, previewPages - 1);
+  const openList = (kind: 'drafts' | 'designs') => {
+    setListDrawer(kind);
+    void refreshSessions(40);
+  };
   const languageOptions = optionsWithCurrent(LANGUAGE_OPTIONS, brief.language);
   const styleOptions = optionsWithCurrent(STYLE_OPTIONS, brief.style);
   const showGenerationWarning = Boolean(canImport && generationProbe && !generationProbe.ok);
 
+  if (companyPage) {
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl space-y-6 fds-page-padding">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-5">
+            <div className="space-y-1.5">
+              <h2 className="text-xl font-bold">公司介紹配置</h2>
+              <p className="text-sm text-muted-foreground">統一管理簡報的公司介紹，保存後套用至所有新簡報。</p>
+            </div>
+            <Button type="button" variant="outline" disabled={companySaving} onClick={() => setCompanyPage(false)}>返回簡報</Button>
+          </div>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">可直接編輯下方內容，或套用官網整理的介紹。</p>
+              <Button type="button" variant="outline" disabled={companySaving} onClick={() => setCompanyDraft({ ...WEBSITE_COMPANY_PROFILE })}>
+                套用官網介紹
+              </Button>
+            </div>
+            <details className="rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+              <summary className="cursor-pointer font-medium text-foreground">資料來源與套用說明</summary>
+              <div className="mt-3 space-y-2 text-xs leading-relaxed text-muted-foreground">
+                <p>套用會替換編輯中的內容，保存後才會生效。</p>
+                <p className="flex flex-wrap gap-x-4 gap-y-2">
+                  <a className="underline underline-offset-4" href="https://brandingworks-furniture.com/" target="_blank" rel="noreferrer">傢俬官網</a>
+                  <a className="underline underline-offset-4" href="https://www.bwoffice.asia/pages/contact-bwoffice-team" target="_blank" rel="noreferrer">公司實績與服務</a>
+                  <a className="underline underline-offset-4" href="https://www.bwoffice.asia/pages/furniture-factory" target="_blank" rel="noreferrer">自設廠房與材料</a>
+                  <a className="underline underline-offset-4" href="https://www.chifung-asia.com/pages/history" target="_blank" rel="noreferrer">集團認證紀錄</a>
+                  <a className="underline underline-offset-4" href="https://www.hkpida.org/member/member-designcompany.html" target="_blank" rel="noreferrer">HKPIDA 企業會員名錄</a>
+                </p>
+              </div>
+            </details>
+          </div>
+          <div className="grid gap-6">
+            {([
+              ['background', '背景'], ['strengths', '優勢'], ['services', '主要服務'],
+              ['qualifications', '專業資質'], ['capabilities', '相關能力'],
+            ] as const).map(([key, label]) => (
+              <Field key={key} label={label} counter={`${companyDraft[key].length}/2000`} hint={key === 'qualifications' ? '資歷來源為 Branding Works 設計工程業務；證書有效期及適用範圍以實際文件為準。' : undefined}>
+                <Textarea aria-label={label} className="min-h-[7rem] resize-y rounded-lg bg-card text-sm leading-7" maxLength={2000}
+                  value={companyDraft[key]} onChange={(event) => setCompanyDraft((current) => ({
+                    ...current, [key]: event.target.value.slice(0, 2000),
+                  }))} />
+              </Field>
+            ))}
+          </div>
+        </div>
+        </div>
+        <div className="shrink-0 border-t bg-card">
+          <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+            <p className="text-xs text-muted-foreground">保存後供所有新簡報共用</p>
+          <Button type="button" className="shrink-0" disabled={companySaving} onClick={() => {
+            setCompanySaving(true);
+            void savePresentationCompanyProfile(companyDraft)
+              .then(() => {
+                setCompanyProfile({ ...companyDraft });
+                setCompanyPage(false);
+                toast.success('公司介紹已保存');
+              })
+              .catch((err: unknown) => toast.error('公司介紹未能保存', { description: errorText(err) }))
+              .finally(() => setCompanySaving(false));
+          }}>
+            {companySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            保存公司介紹
+          </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const canvaCard = (
+    <CanvaConnectionCard
+      compact={wizardStep === 4}
+      canva={canva}
+      connected={connected}
+      canImport={canImport}
+      disabled={disabled}
+      showGenerationWarning={showGenerationWarning}
+      generationProbe={generationProbe}
+      onConnect={() => { void connect(); }}
+      onRefresh={() => { void refreshStatus(); }}
+      onDisconnect={() => { void disconnect(); }}
+    />
+  );
+
+  const draftList = (rows: CanvaDesignSession[]) => (
+    rows.length === 0 ? (
+      <p className="py-6 text-center text-sm text-muted-foreground">尚無草稿</p>
+    ) : (
+      <ul className="space-y-1">
+        {rows.map((s) => (
+          <li key={s.id}>
+            <button
+              type="button"
+              onClick={() => { loadSession(s); setListDrawer(null); }}
+              className="flex w-full items-start gap-3 rounded-xl px-1 py-2 text-left hover:bg-muted/60"
+            >
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">
+                <FileText className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-start justify-between gap-2">
+                  <span className="truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
+                  <Badge className="shrink-0 border-transparent bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200">{s.status === 'creating' ? '生成中' : s.status === 'failed' ? '生成失敗' : '草稿'}</Badge>
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    )
+  );
+
+  const designList = (rows: CanvaDesignSession[]) => (
+    rows.length === 0 ? (
+      <p className="py-6 text-center text-sm text-muted-foreground">尚無 Canva 設計</p>
+    ) : (
+      <ul className="space-y-1">
+        {rows.map((s) => (
+          <li key={s.id}>
+            <div className="flex items-start gap-1 rounded-xl hover:bg-muted/60">
+              <button type="button" onClick={() => { loadSession(s); setListDrawer(null); setWizardStep(4); }} className="flex min-w-0 flex-1 items-start gap-3 px-1 py-2 text-left">
+                <DesignThumbnail url={sessionThumbnail(s)} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{designStatusLine(s)}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="mt-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label={`開啟 ${sessionTitle(s)}`}
+                onClick={() => openDesignRow(s)}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    )
+  );
+
+  const recentCard = (title: string, kind: 'drafts' | 'designs', preview: ReactNode) => (
+    <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-bold text-foreground">{title}</h3>
+        <button type="button" className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300" onClick={() => openList(kind)}>
+          查看全部
+        </button>
+      </div>
+      {preview}
+    </section>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-none">
-      <div className="mx-auto grid w-full max-w-none items-start gap-5 fds-page-padding lg:grid-cols-3">
-        <div className="flex min-w-0 flex-col lg:col-span-2">
-          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
-            <StepIndicator step={wizardStep} onSelect={goToStep} />
-            <div className="mb-5">
-              <h3 className="text-base font-bold text-foreground">{WIZARD_STEPS[wizardStep - 1].title}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{WIZARD_STEPS[wizardStep - 1].hint}</p>
+      <LayoutGroup id="presentation-canva">
+      <div className={cn('mx-auto grid w-full max-w-none items-start gap-5 fds-page-padding', wizardStep === 4 ? '' : 'lg:grid-cols-3')}>
+        <div className={cn(wizardStep === 4 ? 'grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(300px,0.95fr)]' : 'flex min-w-0 flex-col gap-4 lg:col-span-2')}>
+          {wizardStep === 4 ? (
+            <div className="grid items-start gap-3 xl:col-span-2 xl:grid-cols-[minmax(0,1fr)_16rem]">
+              <div className="min-w-0"><StepIndicator step={wizardStep} onSelect={goToStep} /></div>
+              {canvaCard}
             </div>
+          ) : (
+            <StepIndicator step={wizardStep} onSelect={goToStep} />
+          )}
+          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
             {wizardStep === 1 && (
             <div className="space-y-4">
+              <SectionIntro icon={<FileText className="h-5 w-5" />} title={WIZARD_STEPS[0].title} hint={WIZARD_STEPS[0].hint} />
+              <Tip>填寫越完整，AI 生成的簡報內容會越貼近您的需求，包含內容架構、設計風格與產品建議。</Tip>
               <Field label="簡報標題" required counter={`${titleCount}/${TITLE_MAX}`}>
                 <Input
                   className="h-10 rounded-lg bg-background"
@@ -903,12 +1347,16 @@ export function PresentationView() {
                 />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="客戶" hint="可搜尋現有客戶，或直接輸入新客戶">
+                <Field label="客戶" hint="搜尋 PMS 客戶，或直接輸入新客戶">
+                  <div className="relative">
+                    <Building2 className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <PresentationSearchCombobox
+                    inputClassName="pl-9"
                     ariaLabel="客戶"
                     value={brief.client ?? ''}
                     placeholder="請輸入客戶名稱"
                     loading={clientsLoading}
+                    filterLocally={false}
                     emptyText={clientsError || '沒有相符客戶，可直接使用輸入的名稱'}
                     options={clients.map((client) => ({
                       id: client.id,
@@ -921,60 +1369,71 @@ export function PresentationView() {
                       ...current,
                       client: value,
                       clientId: current.client === value ? current.clientId : undefined,
+                      pmsClientId: current.client === value ? current.pmsClientId : undefined,
+                      project: current.client === value ? current.project : '',
+                      projectId: current.client === value ? current.projectId : undefined,
+                      pmsProjectId: current.client === value ? current.pmsProjectId : undefined,
                     }))}
                     onPick={(option) => {
                       const client = clients.find((row) => row.id === option.id);
                       if (client) selectClient(client);
                     }}
                   />
+                  </div>
                 </Field>
                 <Field
                   label="專案"
-                  hint={brief.clientId ? '顯示此客戶的設計專案，也可直接輸入' : '可搜尋設計專案，或直接輸入'}
+                  hint={brief.pmsClientId ? '搜尋此客戶的 PMS 專案，也可直接輸入' : '搜尋 PMS 專案名稱或編號，或直接輸入'}
                 >
+                  <div className="relative">
+                    <FolderKanban className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <PresentationSearchCombobox
+                    inputClassName="pl-9"
                     ariaLabel="專案"
                     value={brief.project ?? ''}
                     placeholder="請輸入專案名稱"
-                    loading={clientsLoading}
-                    emptyText={
-                      selectedClient && selectedClient.projects.length === 0
-                        ? '此客戶沒有已登記專案，可直接輸入'
-                        : '沒有相符專案，可直接輸入'
-                    }
-                    options={projectChoices.map(({ project, clientName }) => ({
+                    loading={projectsLoading}
+                    filterLocally={false}
+                    emptyText={projectsError || (brief.pmsClientId
+                      ? '此客戶沒有相符 PMS 專案，可直接輸入'
+                      : '沒有相符 PMS 專案，可直接輸入')}
+                    options={projects.map((project) => ({
                       id: project.id,
                       label: project.name,
-                      hint: [clientName, projectOptionHint(project)].filter(Boolean).join(' · ') || null,
+                      hint: [project.code, project.client?.name || project.customerName, projectOptionHint(project)].filter(Boolean).join(' · ') || null,
                     }))}
                     onText={(value) => setBrief((current) => ({
                       ...current,
                       project: value,
                       projectId: current.project === value ? current.projectId : undefined,
+                      pmsProjectId: current.project === value ? current.pmsProjectId : undefined,
                     }))}
                     onPick={(option) => {
-                      const project = projectChoices.find((row) => row.project.id === option.id)?.project;
+                      const project = projects.find((row) => row.id === option.id);
                       if (project) selectProject(project);
                     }}
                   />
+                  </div>
                 </Field>
               </div>
-              <Field label="匯報目的" counter={`${purposeCount}/${PURPOSE_MAX}`}>
+              <Field label="簡報目的" counter={`${purposeCount}/${PURPOSE_MAX}`}>
                 <Textarea
                   className="min-h-[5.5rem] rounded-lg bg-background"
                   value={brief.purpose ?? ''}
                   maxLength={PURPOSE_MAX}
                   onChange={(e) => setBrief((b) => ({ ...b, purpose: e.target.value.slice(0, PURPOSE_MAX) }))}
-                  placeholder="例：向客戶說明本季方案重點、報價範圍與下一步"
+                  placeholder="向客戶介紹方案重點、空間規劃、風格與預算說明"
                 />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <Field label="語言">
+                  <div className="relative">
+                    <Languages className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Select
                     value={brief.language || '繁體中文'}
                     onValueChange={(value) => setBrief((b) => ({ ...b, language: value }))}
                   >
-                    <SelectTrigger className="h-10 rounded-lg bg-background">
+                    <SelectTrigger className="h-10 rounded-lg bg-background pl-9">
                       <SelectValue placeholder="選擇語言" />
                     </SelectTrigger>
                     <SelectContent>
@@ -983,13 +1442,16 @@ export function PresentationView() {
                       ))}
                     </SelectContent>
                   </Select>
+                  </div>
                 </Field>
                 <Field label="風格">
+                  <div className="relative">
+                    <Palette className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Select
                     value={brief.style || '專業、簡潔'}
                     onValueChange={(value) => setBrief((b) => ({ ...b, style: value }))}
                   >
-                    <SelectTrigger className="h-10 rounded-lg bg-background">
+                    <SelectTrigger className="h-10 rounded-lg bg-background pl-9">
                       <SelectValue placeholder="選擇風格" />
                     </SelectTrigger>
                     <SelectContent>
@@ -998,12 +1460,13 @@ export function PresentationView() {
                       ))}
                     </SelectContent>
                   </Select>
+                  </div>
                 </Field>
-              </div>
-              <div className="sm:w-1/2">
                 <Field label="期望頁數" hint="建議 8–20 頁">
+                  <div className="relative">
+                    <Hash className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    className="h-10 rounded-lg bg-background"
+                    className="h-10 rounded-lg bg-background pl-9"
                     type="number"
                     min={4}
                     max={40}
@@ -1011,357 +1474,373 @@ export function PresentationView() {
                     onChange={(e) => setBrief((b) => ({ ...b, pageCount: Number(e.target.value) || undefined }))}
                     placeholder="12"
                   />
+                  </div>
                 </Field>
               </div>
-              <Field label="匯報原文" counter={`${contentCount}/${CONTENT_MAX}`}>
+              <Field label="簡報原文" counter={`${contentCount}/${CONTENT_MAX}`}>
                 <Textarea
                   className="min-h-[8rem] rounded-lg bg-background"
                   value={brief.content ?? ''}
                   maxLength={CONTENT_MAX}
                   onChange={(e) => setBrief((b) => ({ ...b, content: e.target.value.slice(0, CONTENT_MAX) }))}
-                  placeholder="可貼上客戶提供的匯報原文"
+                  placeholder="可貼上客戶提供的簡報原文、聯絡方式或補充說明"
                 />
               </Field>
             </div>
             )}
             {wizardStep === 2 && (
               <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  {floorPresent ? '此項目有平面圖，會放在公司介紹之後。' : '此項目沒有平面圖，這一段會略過。'}
-                  {selected.length > 10 ? ' 產品超過 10 件，建議再分區，仍可生成。' : ''}
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {([
-                    ['background', '背景'],
-                    ['strengths', '優勢'],
-                    ['services', '主要服務'],
-                    ['qualifications', '專業資質'],
-                    ['capabilities', '相關能力'],
-                  ] as const).map(([key, label]) => (
-                    <Field key={key} label={label}>
-                      <Textarea
-                        className="min-h-[5rem] rounded-lg bg-background"
-                        maxLength={2000}
-                        value={companyProfile[key]}
-                        onChange={(event) => setCompanyProfile((current) => ({
-                          ...current,
-                          [key]: event.target.value.slice(0, 2000),
-                        }))}
-                      />
-                    </Field>
-                  ))}
+                <SectionIntro icon={<ListChecks className="h-5 w-5" />} title={WIZARD_STEPS[1].title} hint={WIZARD_STEPS[1].hint} />
+                <Tip>簡報順序固定為封面、公司介紹、平面圖、方案、參考案例。沒有平面圖時略過該段。公司介紹會保存下來，下一份簡報繼續用。</Tip>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold">公司介紹</p>
+                    <p className="text-xs text-muted-foreground">所有簡報共用已保存的公司介紹。</p>
+                  </div>
+                  <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => {
+                    setCompanyDraft(Object.values(companyProfile).some((value) => value.trim())
+                      ? { ...companyProfile } : { ...WEBSITE_COMPANY_PROFILE });
+                    setCompanyPage(true);
+                  }}>
+                    <Settings2 className="h-4 w-4" />
+                    配置公司介紹
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="bg-background"
-                  disabled={companySaving || disabled}
-                  onClick={() => {
-                    setCompanySaving(true);
-                    void savePresentationCompanyProfile(companyProfile)
-                      .then(() => toast.success('公司介紹已保存'))
-                      .catch((err: unknown) => toast.error('公司介紹未能保存', { description: errorText(err) }))
-                      .finally(() => setCompanySaving(false));
-                  }}
-                >
-                  {companySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  保存公司介紹
-                </Button>
-                <div>
-                  <p className="mb-2 text-sm font-medium">參考案例（最多 8 個）</p>
-                  {caseNote ? <p className="text-sm text-destructive">{caseNote}</p> : null}
-                  {caseBrands.length === 0 && !caseNote ? (
-                    <p className="text-sm text-muted-foreground">沒有可選案例。</p>
-                  ) : (
-                    <ul className="max-h-40 space-y-1 overflow-auto">
-                      {caseBrands.map((item) => {
-                        const name = item.display_name || item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例';
-                        const checked = selectedCaseIds.includes(item.id);
-                        return (
-                          <li key={item.id} className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={(value) => {
-                                setSelectedCaseIds((current) => {
-                                  if (value === true) return current.includes(item.id) || current.length >= 8 ? current : [...current, item.id];
-                                  return current.filter((id) => id !== item.id);
-                                });
-                              }}
-                            />
-                            <span className="truncate">{name}{item.industries?.[0] ? ` · ${item.industries[0]}` : ''}</span>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                <Field label="參考案例（最多 8 個）" counter={`${selectedCaseIds.length}/8`}>
+                  {caseNote ? <p className="text-sm text-destructive">{caseNote}</p> : (
+                    <MultiSelect label="參考案例" placeholder={caseBrands.length ? '搜尋並選擇參考案例' : '沒有可選案例'}
+                      options={caseBrands.map((item) => ({
+                        value: item.id,
+                        label: item.display_name || item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
+                        description: item.industries?.join(' · '),
+                      }))}
+                      value={selectedCaseIds} onValueChange={setSelectedCaseIds} maxSelected={8} disabled={disabled || !caseBrands.length} />
                   )}
+                </Field>
+                <div className="rounded-xl border">
+                  <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+                    <p className="text-sm font-semibold">簡報大綱內容</p>
+                    <Button type="button" variant="outline" className="h-8 bg-background text-xs" disabled={disabled} onClick={() => { syncOutline(); toast.success('已重新整理五段大綱'); }}>
+                      <RefreshCcw className="h-3.5 w-3.5" />
+                      重新生成大綱
+                    </Button>
+                  </div>
+                  <ol className="divide-y">
+                    {OUTLINE_CARDS.map((card, index) => {
+                      const skipped = card.title === '平面圖' && !floorPresent;
+                      const extra = card.title === '封面'
+                        ? [brief.title, brief.client].filter(Boolean).join(' · ')
+                        : card.title === '方案'
+                          ? (selected.length ? `已選 ${selected.length} 件產品` : '尚未選擇產品')
+                          : card.title === '參考案例'
+                            ? (selectedCaseIds.length ? `已選 ${selectedCaseIds.length} 個案例` : '尚未選擇案例')
+                            : card.title === '平面圖'
+                              ? (floorPresent ? (floorZones.length ? floorZones.map((zone) => zone.name).filter(Boolean).join('、') : '已有平面圖') : '此項目沒有平面圖，生成時略過')
+                              : '';
+                      return (
+                        <li key={card.title} className={cn('flex gap-3 px-4 py-3', skipped && 'opacity-60')}>
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">{index + 1}</span>
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-foreground">{card.title}</span>
+                            <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{extra || card.body}</span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ol>
                 </div>
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-xs text-foreground">
-                  {composeFive()}
-                </pre>
               </div>
             )}
             {wizardStep === 3 && (
-              <PresentationProductPicker
-                key={pickerNonce}
-                selected={selected}
-                maxItems={MAX_ITEMS}
-                onChange={setSelected}
-              />
+              <div className="space-y-4">
+                <SectionIntro icon={<Package className="h-5 w-5" />} title={WIZARD_STEPS[2].title} hint={WIZARD_STEPS[2].hint} />
+                <PresentationProductPicker
+                  key={pickerNonce}
+                  selected={selected}
+                  maxItems={MAX_ITEMS}
+                  onChange={setSelected}
+                />
+              </div>
             )}
             {wizardStep === 4 && (
             <div className="space-y-4">
+              <SectionIntro icon={<PresentationIcon className="h-5 w-5" />} title={WIZARD_STEPS[3].title} hint={WIZARD_STEPS[3].hint} />
               <Field label="新版本備註">
                 <Input
                   className="h-10 rounded-lg bg-background"
                   value={versionNote}
                   onChange={(e) => setVersionNote(e.target.value)}
-                  placeholder="例：客戶回饋後第二稿"
+                  placeholder="例：調整設計風格，加入最新產品圖片"
                 />
               </Field>
-              {activeSession?.canva_design_id && (
-                <div>
-                  <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => newVersion(activeSession)}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="min-w-0 flex-1">
+                  <Field label="版本名稱">
+                    <Input
+                      className="h-10 rounded-lg bg-background"
+                      value={`v${activeSession?.content_version ?? 1}`}
+                      readOnly
+                    />
+                  </Field>
+                </div>
+                <Button
+                  type="button"
+                  className="h-10 bg-indigo-600 px-6 text-white hover:bg-indigo-500 sm:mb-0"
+                  disabled={!canCreateNative || disabled || Boolean(activeSession?.canva_design_id)}
+                  onClick={createNative}
+                >
+                  {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <PresentationIcon className="h-4 w-4" />}
+                  {generating ? '生成中' : '開始 AI 生成'}
+                </Button>
+                {activeSession?.canva_design_id && (
+                  <Button type="button" variant="outline" className="h-10 bg-background" disabled={disabled} onClick={() => newVersion(activeSession)}>
                     新版本
                   </Button>
-                </div>
-              )}
-              {(generating || activeSession?.canva_design_id || activeSession?.status === 'failed' || generationError) && (
-                <div role="status" aria-live="polite" className="space-y-1 text-sm">
-                  <p className="font-medium">
-                    {activeSession?.status === 'failed' ? 'Canva 生成失敗'
-                      : activeSession?.canva_design_id ? 'Canva 簡報已完成'
-                      : activeSession?.populate_report?.generation_job_id
-                        ? activeSession.populate_report.generation_status === 'queued' ? 'Canva 任務排隊中' : 'Canva 已接收任務，正在生成簡報'
-                        : generating ? '正在提交 Canva 生成任務' : '無法確認生成結果'}
-                  </p>
-                  {activeSession?.status === 'creating' && !activeSession.populate_report?.generation_job_id && (
-                    <p className="text-muted-foreground">後端正在處理請求，尚未收到 Canva 任務編號。</p>
+                )}
+              </div>
+              {(phase > 0 || activeSession?.status === 'failed' || generationError) && (
+                <div role="status" aria-live="polite" className="space-y-3 rounded-xl border bg-muted/30 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {activeSession?.status === 'failed' ? 'Canva 生成失敗' : phase >= 4 ? 'Canva 簡報已完成' : '正在生成簡報…'}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {phase >= 4 ? '您的 Canva 簡報已成功生成，可前往編輯或匯出檔案。' : 'AI 正在根據您的內容於 Canva 中建立簡報，請稍候。'}
+                      </p>
+                    </div>
+                    {phase > 0 && phase < 4 && (
+                      <p className="text-xs text-muted-foreground">每 3 秒自動更新一次</p>
+                    )}
+                    {phase >= 4 && activeSession?.updated_at && (
+                      <p className="text-xs text-muted-foreground">完成時間：{formatStamp(activeSession.updated_at)}</p>
+                    )}
+                  </div>
+                  {phase > 0 && phase < 4 && (
+                    <ol className="grid gap-2 sm:grid-cols-4">
+                      {GEN_PHASES.map((label, index) => {
+                        const n = index + 1;
+                        const done = phase > n;
+                        const current = phase === n;
+                        return (
+                          <li key={label} className="min-w-0">
+                            <div className={cn('mb-1 h-1 rounded-full', done || current ? 'bg-indigo-500' : 'bg-muted')} />
+                            <p className={cn('truncate text-[11px] font-medium', current ? 'text-indigo-700 dark:text-indigo-200' : 'text-muted-foreground')}>
+                              {n}. {label}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">{done ? '已完成' : current ? '進行中' : '等待中'}</p>
+                          </li>
+                        );
+                      })}
+                    </ol>
                   )}
-                  {activeSession?.populate_report?.generation_job_id && (
+                  {activeSession?.populate_report?.generation_job_id && phase < 4 && (
                     <p className="break-all text-xs text-muted-foreground">
-                      Canva 任務：{String(activeSession.populate_report.generation_job_id)} · 狀態：{({ accepted: '已接收', queued: '排隊中', in_progress: '生成中', success: '已完成', failed: '失敗' } as Record<string, string>)[String(activeSession.populate_report.generation_status)] ?? String(activeSession.populate_report.generation_status ?? '已接收')}
+                      Canva 任務：{String(activeSession.populate_report.generation_job_id)}
                     </p>
                   )}
-                  {generating && <p className="text-xs text-muted-foreground">每 3 秒查詢任務狀態，毋須再次按「AI 生成」。</p>}
                   {(activeSession?.error || generationError) && !activeSession?.canva_design_id && (
-                    <p className="break-words text-destructive">{activeSession?.error || generationError}</p>
+                    <p className="break-words text-sm text-destructive">{activeSession?.error || generationError}</p>
                   )}
-                  {statusReadError && <p className="break-words text-amber-700 dark:text-amber-300">{statusReadError}</p>}
+                  {statusReadError && <p className="break-words text-xs text-amber-700 dark:text-amber-300">{statusReadError}</p>}
                 </div>
               )}
               {!canvaPathReady && canImport && (
                 <p className="text-xs text-amber-700 dark:text-amber-300">請先連接 Canva 後再建立設計。</p>
               )}
-              {canvaLink && (
-                <a
-                  href={canvaLink.edit_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-50 p-3 text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/70"
-                >
-                  <ExternalLink className="h-4 w-4 shrink-0" />
-                  <span className="truncate">在 Canva 編輯：{canvaLink.title ?? '設計'}</span>
-                </a>
-              )}
               {activeSession?.canva_design_id && (
-                <div className="space-y-2 rounded-xl border bg-muted/40 p-3">
-                  <p className="text-xs text-muted-foreground">
-                    請先在 Canva 保存修改，再匯出；連結約 24 小時有效。專業說明 PDF（R5.2）共用內容、獨立版面：
-                    <a className="ml-1 underline" href={proPdfHandoffPath(brief)}>開啟專業 PDF 頁</a>
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="secondary" disabled={disabled} onClick={() => exportPptx(activeSession.id)}>
-                      {status === 'exporting' && <Loader2 className="h-4 w-4 animate-spin" />}
-                      匯出 PPTX（驗收用）
-                    </Button>
-                    <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => exportPdf(activeSession.id)}>
-                      匯出 PDF（附加）
-                    </Button>
+                <div className="flex flex-wrap gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Canva 簡報已完成</p>
+                    <p className="text-xs text-emerald-800/80 dark:text-emerald-200/80">
+                      請先在 Canva 保存修改，再匯出。連結約 24 小時有效。
+                      <a className="ml-1 underline" href={proPdfHandoffPath(brief)}>開啟專業 PDF 頁</a>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {canvaLink && (
+                        <Button className="bg-emerald-600 text-white hover:bg-emerald-500" asChild>
+                          <a href={canvaLink.edit_url} target="_blank" rel="noreferrer">
+                            <ExternalLink className="h-4 w-4" />
+                            在 Canva 編輯
+                          </a>
+                        </Button>
+                      )}
+                      <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => exportPptx(activeSession.id)}>
+                        {status === 'exporting' && <Loader2 className="h-4 w-4 animate-spin" />}
+                        匯出 PPTX（驗收用）
+                      </Button>
+                      <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => exportPdf(activeSession.id)}>
+                        匯出 PDF（附加）
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
-              {(versionRows.length > 0 || exportRows.length > 0) && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {versionRows.length > 0 && (
-                    <div className="rounded-xl border bg-background p-3 text-sm">
-                      <p className="mb-2 font-medium">版本鏈</p>
-                      <ul className="space-y-1 text-xs">
-                        {versionRows.map((v) => (
-                          <li key={v.id} className="flex justify-between gap-2">
-                            <span className="min-w-0 truncate">v{v.content_version ?? '?'}{v.version_note ? ` · ${v.version_note}` : ''}</span>
-                            <span className="shrink-0 text-muted-foreground">{v.status}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {exportRows.length > 0 && (
-                    <div className="rounded-xl border bg-background p-3 text-sm">
-                      <p className="mb-2 font-medium">匯出紀錄</p>
-                      <ul className="space-y-1 text-xs">
-                        {exportRows.map((e) => {
-                          const expired = e.url_expires_at && new Date(e.url_expires_at) < new Date();
-                          return (
-                            <li key={e.id} className="flex flex-wrap items-center gap-2">
-                              <span className="uppercase">{e.format}</span>
-                              <span className="text-muted-foreground">{new Date(e.created_at).toLocaleString()}</span>
-                              {e.download_url && !expired ? (
-                                <a className="underline" href={e.download_url} target="_blank" rel="noreferrer">下載</a>
-                              ) : (
-                                <span className="text-muted-foreground">{e.error ?? '連結已過期'}</span>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
+              {versionRows.length > 0 && (
+                <div className="rounded-xl border">
+                  <div className="flex items-center justify-between border-b px-4 py-3">
+                    <p className="text-sm font-semibold">版本記錄</p>
+                  </div>
+                  <ul className="divide-y">
+                    {versionRows.map((v) => {
+                      const meta = versionStatusLabel(v.status);
+                      return (
+                        <li key={v.id}>
+                          <button type="button" className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/50" onClick={() => {
+                            const known = sessions.find((row) => row.id === v.id);
+                            if (known) loadSession(known);
+                          }}>
+                            <span className={cn('h-2 w-2 shrink-0 rounded-full', meta.dot)} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">v{v.content_version ?? '?'}{v.version_note ? ` · ${v.version_note}` : ''}</span>
+                              <span className="block text-xs text-muted-foreground">{formatStamp(v.updated_at || v.created_at)}</span>
+                            </span>
+                            <span className="shrink-0 text-xs text-muted-foreground">{meta.label}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+              {exportRows.length > 0 && (
+                <div className="rounded-xl border bg-background p-3 text-sm">
+                  <p className="mb-2 font-medium">匯出紀錄</p>
+                  <ul className="space-y-1 text-xs">
+                    {exportRows.map((e) => {
+                      const expired = e.url_expires_at && new Date(e.url_expires_at) < new Date();
+                      return (
+                        <li key={e.id} className="flex flex-wrap items-center gap-2">
+                          <span className="uppercase">{e.format}</span>
+                          <span className="text-muted-foreground">{formatStamp(e.created_at)}</span>
+                          {e.download_url && !expired ? (
+                            <a className="underline" href={e.download_url} target="_blank" rel="noreferrer">下載</a>
+                          ) : (
+                            <span className="text-muted-foreground">{e.error ?? '連結已過期'}</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
               )}
             </div>
             )}
           </section>
+
+          {wizardStep === 4 && (
+            <div className="space-y-4">
+              <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold text-foreground">Canva 簡報預覽</h3>
+                  <div className="flex items-center gap-2">
+                    {versionRows.length > 0 && (
+                      <Select
+                        value={activeSession?.id && versionRows.some((row) => row.id === activeSession.id) ? activeSession.id : undefined}
+                        onValueChange={(id) => {
+                          const known = sessions.find((row) => row.id === id);
+                          if (known) loadSession(known);
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-28 bg-background" aria-label="預覽版本">
+                          <SelectValue placeholder="版本" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {versionRows.map((row) => (
+                            <SelectItem key={row.id} value={row.id}>v{row.content_version ?? '?'}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {(activeSession?.edit_url || activeSession?.view_url) && (
+                      <a className="text-xs font-medium text-indigo-600 hover:underline" href={activeSession.edit_url || activeSession.view_url || '#'} target="_blank" rel="noreferrer">
+                        在新分頁打開
+                      </a>
+                    )}
+                  </div>
+                </div>
+                <div className="relative overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-900">
+                  {activeSession && sessionThumbnail(activeSession) ? (
+                    <div className="transition-transform" style={{ transform: `scale(${previewZoom / 100})` }}>
+                      <LoadingImage
+                        hd
+                        src={sessionThumbnail(activeSession)}
+                        alt=""
+                        className="aspect-[16/10] w-full bg-slate-100"
+                        imgClassName="object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex aspect-[16/10] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <PresentationIcon className="h-8 w-8 opacity-40" />
+                      生成完成後在此預覽 Canva 簡報
+                    </div>
+                  )}
+                  {activeSession?.brief?.title && sessionThumbnail(activeSession) && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/70 to-transparent p-4 text-white">
+                      <p className="text-lg font-bold">{activeSession.brief.title}</p>
+                      <p className="text-xs text-white/80">{[activeSession.brief.client, activeSession.brief.project].filter(Boolean).join(' · ')}</p>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1">
+                    <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="上一頁" disabled={previewIndex === 0} onClick={() => setPreviewPage((page) => Math.max(0, page - 1))}>
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="下一頁" disabled={previewIndex >= previewPages - 1} onClick={() => setPreviewPage((page) => Math.min(previewPages - 1, page + 1))}>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <span className="text-xs tabular-nums text-muted-foreground">{previewIndex + 1} / {previewPages}</span>
+                  <div className="flex items-center gap-1">
+                    <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="縮小" onClick={() => setPreviewZoom((zoom) => Math.max(60, zoom - 10))}>
+                      <ZoomOut className="h-4 w-4" />
+                    </Button>
+                    <span className="w-10 text-center text-xs tabular-nums">{previewZoom}%</span>
+                    <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="放大" onClick={() => setPreviewZoom((zoom) => Math.min(160, zoom + 10))}>
+                      <ZoomIn className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                {previewPages > 1 && (
+                  <p className="mt-2 text-center text-[11px] text-muted-foreground">分頁以 Canva 為準，這裡顯示目前封面縮圖。</p>
+                )}
+              </section>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
+                {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
+              </div>
+            </div>
+          )}
 
         </div>
 
-
-        <aside className="min-w-0 space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:self-start lg:overflow-y-auto">
-          <section id="canva-connection" className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
-            <div className="flex flex-col items-center text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white shadow-md ring-4 ring-indigo-50 dark:bg-indigo-950 dark:ring-indigo-500/20">
-                <CanvaMark className="h-auto w-14" />
-              </div>
-              <h3 className="mt-3 text-base font-bold text-foreground">Canva 連接</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                公司帳戶 {canva?.account_name || 'chifung.login'}（admin / 傢俬組）
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                AI 生成需要帳戶具備 Canva AI 與 Magic Design。點數用完時會暫停生成。
-              </p>
-            </div>
-            <div className="mt-4 space-y-2">
-              {!canva && (
-                <p className="text-center text-sm text-muted-foreground">
-                  <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />
-                  偵測中…
-                </p>
-              )}
-              {canva && (!canva.configured || !canImport) && (
-                <ConnectionHint content={!canva.configured ? (
-                  <p>請設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，並在 Canva 設定 redirect URI：{`${window.location.origin}${PRESENTATION_PATH}`}。 <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看設定文件</a></p>
-                ) : '僅 admin／傢俬組可使用 Canva 簡報功能。'}>
-                  <Button type="button" variant="outline" className="w-full">{!canva.configured ? '尚未配置' : '權限不足'}</Button>
-                </ConnectionHint>
-              )}
-              {canva?.configured && canImport && !connected && (
-                <Button type="button" className="w-full bg-indigo-600 text-white hover:bg-indigo-500" onClick={connect} disabled={disabled}>
-                  <Link2 className="h-4 w-4" /> 連接 Canva
-                </Button>
-              )}
-              {connected && (
-                <div className="grid grid-cols-3 gap-2">
-                  <ConnectionHint content={showGenerationWarning ? (
-                    <p>{generationProbe?.message ?? '無法確認 Canva AI 生成權限。'}{generationProbe?.missing_scopes?.length ? ` 缺少 scope：${generationProbe.missing_scopes.join(', ')}。` : ''} <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a></p>
-                  ) : generationProbe?.ok ? '已連接 Canva，可以 AI 生成簡報。' : '已連接 Canva，正在確認 AI 生成權限。'}>
-                    <button type="button" className={`inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border text-xs font-medium ${showGenerationWarning ? 'border-orange-400 bg-orange-50 text-orange-800 dark:bg-orange-950/40 dark:text-orange-200' : 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'}`}>
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      {showGenerationWarning ? '需要設定' : '已連接'}
-                    </button>
-                  </ConnectionHint>
-                  <Button type="button" variant="outline" className="h-9 bg-background px-1 text-xs" onClick={refreshStatus}>
-                    <RefreshCcw className="h-3.5 w-3.5" />
-                    重新檢查
-                  </Button>
-                  <Button type="button" variant="outline" className="h-9 bg-background px-1 text-xs" onClick={disconnect} disabled={disabled}>
-                    <RefreshCcw className="h-3.5 w-3.5" />
-                    解除連接
-                  </Button>
-                </div>
-              )}
-
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-foreground">最近草稿</h3>
-              <button
-                type="button"
-                className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
-                onClick={() => setShowAllDrafts((open) => !open)}
-              >
-                {showAllDrafts ? '收起' : '查看全部'}
-              </button>
-            </div>
-            {draftSessions.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">尚無草稿</p>
-            ) : (
-              <ul className="space-y-2">
-                {visibleDrafts.map((s) => (
-                  <li key={s.id}>
-                    <button
-                      type="button"
-                      onClick={() => loadSession(s)}
-                      className="flex w-full items-start gap-3 rounded-xl border border-transparent px-1 py-2 text-left hover:bg-muted/60"
-                    >
-                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">
-                        <FileText className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-start justify-between gap-2">
-                          <span className="truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
-                          <Badge className="shrink-0 border-transparent bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200">{s.status === 'creating' ? 'Canva 任務進行中' : s.status === 'failed' ? '生成失敗' : '草稿'}</Badge>
-                        </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">客戶：{sessionClient(s)}</span>
-                        <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-foreground">最近 Canva 設計</h3>
-              <button
-                type="button"
-                className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
-                onClick={() => setShowAllDesigns((open) => !open)}
-              >
-                {showAllDesigns ? '收起' : '查看全部'}
-              </button>
-            </div>
-            {designSessions.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">尚無 Canva 設計</p>
-            ) : (
-              <ul className="space-y-2">
-                {visibleDesigns.map((s) => {
-                  const thumb = sessionThumbnail(s);
-                  return (
-                    <li key={s.id}>
-                      <button
-                        type="button"
-                        onClick={() => openDesignRow(s)}
-                        className="flex w-full items-start gap-3 rounded-xl border border-transparent px-1 py-2 text-left hover:bg-muted/60"
-                      >
-                        <DesignThumbnail url={thumb} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
-                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{designStatusLine(s)}</span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </aside>
+        {wizardStep < 4 && (
+          <aside className="min-w-0 space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:self-start lg:overflow-y-auto">
+            {canvaCard}
+            {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
+            {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
+          </aside>
+        )}
       </div>
+      </LayoutGroup>
       </div>
+      <Sheet open={listDrawer !== null} onOpenChange={(open) => { if (!open) setListDrawer(null); }}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+          <SheetHeader className="space-y-1 border-b px-5 py-4 pr-12 text-left">
+            <SheetTitle>{listDrawer === 'designs' ? '最近 Canva 設計' : '最近草稿'}</SheetTitle>
+            <SheetDescription>
+              共 {listDrawer === 'designs' ? designSessions.length : draftSessions.length} 筆
+            </SheetDescription>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+            {listDrawer === 'designs' ? designList(designSessions) : draftList(draftSessions)}
+          </div>
+        </SheetContent>
+      </Sheet>
+
           <div className="z-20 shrink-0 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-12px_rgba(15,23,42,0.35)] sm:px-6">
             <Button
               type="button"
@@ -1410,7 +1889,7 @@ export function PresentationView() {
                   disabled={!canCreateNative || disabled || Boolean(activeSession?.canva_design_id)}
                   onClick={createNative}
                 >
-                  {generating ? 'Canva 任務進行中' : activeSession?.canva_design_id ? '已有 Canva 設計' : 'AI 生成簡報'}
+                  {generating ? 'Canva 任務進行中' : activeSession?.canva_design_id ? '已有 Canva 設計' : '開始 AI 生成'}
                 </Button>
               )}
             </div>
