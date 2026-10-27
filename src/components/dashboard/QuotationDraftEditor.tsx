@@ -106,6 +106,7 @@ import { fetchFactoriesWithIds } from "@/lib/factorySupabase";
 import { CopyQuoteItemsModal } from "@/components/dashboard/CopyQuoteItemsModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Modal, ModalButton } from "@/components/ui/modal";
+import { Progress } from "@/components/ui/progress";
 import { LoadingImage } from "@/components/ui/loading-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -2637,6 +2638,7 @@ export function QuotationDraftEditor({
   const [photoLibrary, setPhotoLibrary] = useState<QuotePhotoAsset[]>([]);
   const [floorPlanBusy, setFloorPlanBusy] = useState(false);
   const [recognizingZones, setRecognizingZones] = useState(false);
+  const [zoneRecognitionProgress, setZoneRecognitionProgress] = useState(0);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
   const [zoneManagerOpen, setZoneManagerOpen] = useState(false);
   const [zoneManagerDraft, setZoneManagerDraft] = useState<ZoneManagerRow[]>([]);
@@ -3919,6 +3921,25 @@ export function QuotationDraftEditor({
     setZoneManagerOpen(true);
   };
 
+  const zoneRecognitionActive = floorPlanBusy || recognizingZones;
+
+  useEffect(() => {
+    if (!zoneRecognitionActive) {
+      setZoneRecognitionProgress(0);
+      return;
+    }
+    setZoneRecognitionProgress((value) => (value > 0 ? value : 8));
+    const timer = window.setInterval(() => {
+      setZoneRecognitionProgress((value) => {
+        const cap = floorPlanBusy ? 36 : 92;
+        if (value >= cap) return value;
+        const step = value < cap * 0.5 ? 3.5 : 1.1;
+        return Math.min(cap, Math.round((value + step) * 10) / 10);
+      });
+    }, 350);
+    return () => window.clearInterval(timer);
+  }, [zoneRecognitionActive, floorPlanBusy]);
+
   const saveZoneManager = () => {
     itemsUserEditedRef.current = true;
     const drafts = zoneManagerDraft;
@@ -3987,6 +4008,11 @@ export function QuotationDraftEditor({
       toast.error(quoteLocale === "en" ? "Upload a PDF, JPG or PNG" : "請上傳 PDF / JPG / PNG");
       return;
     }
+    if (!zoneManagerOpenRef.current) {
+      setZoneManagerDraft(zoneRowsFromItems(itemsRef.current, floorPlanRef.current?.regions ?? []));
+      setActiveZoneId(null);
+    }
+    setZoneManagerOpen(true);
     setFloorPlanBusy(true);
     try {
       const uploaded = await uploadProjectFloorPlanFile(quoteImageScope || "quote", file);
@@ -4014,6 +4040,7 @@ export function QuotationDraftEditor({
           new Promise<void>((resolve) => window.setTimeout(resolve, 30000)),
         ]);
       }
+      setRecognizingZones(true);
       setFloorPlanBusy(false);
       await detectZonesFromBlob(visionBlob, priorRegions);
     } catch (error) {
@@ -5008,23 +5035,17 @@ export function QuotationDraftEditor({
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
-                  disabled={floorPlanBusy || recognizingZones}
+                  disabled={zoneRecognitionActive}
                   onClick={() => floorPlanInputRef.current?.click()}
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
                 >
-                  {floorPlanBusy || recognizingZones ? (
+                  {zoneRecognitionActive ? (
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
                   ) : (
                     <Upload className="h-4 w-4 shrink-0" />
                   )}
                   <span className="truncate">
-                    {floorPlanBusy
-                      ? t.uploadingFloorPlan
-                      : recognizingZones
-                        ? t.recognizingZones
-                        : floorPlan
-                          ? t.replaceFloorPlan
-                          : t.uploadFloorPlan}
+                    {floorPlan ? t.replaceFloorPlan : t.uploadFloorPlan}
                   </span>
                 </button>
                 <button
@@ -6496,24 +6517,24 @@ export function QuotationDraftEditor({
         size={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "xl" : "md"}
         icon={<FolderKanban className="h-5 w-5" />}
         title={t.manageZones}
-        description={t.manageZonesHint}
+        description={zoneRecognitionActive ? t.recognizingZonesDetail : t.manageZonesHint}
         footer={
           <>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
               {t.cancel}
             </ModalButton>
-            <ModalButton onClick={saveZoneManager}>{t.confirm}</ModalButton>
+            <ModalButton onClick={saveZoneManager} disabled={zoneRecognitionActive}>{t.confirm}</ModalButton>
           </>
         }
       >
         <div className="space-y-3">
           <button
             type="button"
-            disabled={floorPlanBusy || recognizingZones}
+            disabled={zoneRecognitionActive}
             onClick={() => floorPlanInputRef.current?.click()}
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
           >
-            {floorPlanBusy || recognizingZones ? (
+            {zoneRecognitionActive ? (
               <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
             ) : (
               <Upload className="h-4 w-4 shrink-0" />
@@ -6528,6 +6549,17 @@ export function QuotationDraftEditor({
                     : t.uploadFloorPlanRecognize}
             </span>
           </button>
+          {zoneRecognitionActive ? (
+            <div className="space-y-1.5" role="status" aria-live="polite">
+              <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
+                <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
+                <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
+              </div>
+              <Progress value={zoneRecognitionProgress} />
+            </div>
+          ) : (
+            <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
+          )}
           {floorPlan?.regions.some((region) => !region.confirmed) ? (
             <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}
