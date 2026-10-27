@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { X } from 'lucide-react';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { blankZoneManagerRow, MAX_FLOOR_PLAN_ZONES, normalizeZoneRect, type QuoteZoneRect, type ZoneManagerRow } from '@/lib/quoteFloorPlan';
 
@@ -23,6 +24,7 @@ type FloorPlanZoneCanvasProps = {
   onChange: (zones: ZoneManagerRow[]) => void;
   onActive: (id: string) => void;
   disabled?: boolean;
+  deleteLabel?: string;
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -90,14 +92,20 @@ export function FloorPlanZoneCanvas({
   onChange,
   onActive,
   disabled = false,
+  deleteLabel = '刪除空間',
 }: FloorPlanZoneCanvasProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const zonesRef = useRef(zones);
   zonesRef.current = zones;
   const dragRef = useRef<Drag | null>(null);
-  const activeRef = useRef(activeId);
-  activeRef.current = activeId;
+  const draftRef = useRef<{ id: string; rect: QuoteZoneRect } | null>(null);
+  const [draft, setDraft] = useState<{ id: string; rect: QuoteZoneRect } | null>(null);
   const [ready, setReady] = useState(false);
+
+  const setDraftRect = (value: { id: string; rect: QuoteZoneRect } | null) => {
+    draftRef.current = value;
+    setDraft(value);
+  };
 
   useEffect(() => {
     setReady(false);
@@ -114,8 +122,15 @@ export function FloorPlanZoneCanvas({
     onChange(next);
   };
 
+  const removeZone = (id: string) => {
+    const next = zonesRef.current.filter((row) => row.id !== id);
+    zonesRef.current = next;
+    onChange(next);
+  };
+
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled || !ready || event.button !== 0) return;
+    if ((event.target as HTMLElement).closest('[data-zone-delete]')) return;
     const frame = frameRef.current;
     if (!frame) return;
     const point = pointerPct(event, frame);
@@ -146,12 +161,11 @@ export function FloorPlanZoneCanvas({
       event.preventDefault();
       return;
     }
-    const unboxed = zonesRef.current.find((row) => row.id === activeRef.current && !row.rect);
-    if (!unboxed && zonesRef.current.length >= MAX_FLOOR_PLAN_ZONES) return;
-    const id = unboxed?.id ?? createId();
+    if (zonesRef.current.length >= MAX_FLOOR_PLAN_ZONES) return;
+    const id = createId();
+    const rect = { x: point.x, y: point.y, w: 0, h: 0 };
     dragRef.current = { kind: 'draw', id, x0: point.x, y0: point.y };
-    commit(id, { x: point.x, y: point.y, w: 0.8, h: 0.8 }, !unboxed);
-    onActive(id);
+    setDraftRect({ id, rect });
     frame.setPointerCapture(event.pointerId);
     event.preventDefault();
   };
@@ -175,18 +189,27 @@ export function FloorPlanZoneCanvas({
     }
     const x = Math.min(drag.x0, point.x);
     const y = Math.min(drag.y0, point.y);
-    commit(drag.id, {
-      x,
-      y,
-      w: Math.abs(point.x - drag.x0),
-      h: Math.abs(point.y - drag.y0),
-    }, true);
+    setDraftRect({
+      id: drag.id,
+      rect: { x, y, w: Math.abs(point.x - drag.x0), h: Math.abs(point.y - drag.y0) },
+    });
   };
 
   const onPointerUp = () => {
     const drag = dragRef.current;
     dragRef.current = null;
     if (!drag) return;
+    if (drag.kind === 'draw') {
+      const pending = draftRef.current;
+      setDraftRect(null);
+      const rect = pending ? normalizeZoneRect(pending.rect, 3) : null;
+      if (!rect || zonesRef.current.length >= MAX_FLOOR_PLAN_ZONES) return;
+      const next = [...zonesRef.current, { ...blankZoneManagerRow(pending.id), rect }];
+      zonesRef.current = next;
+      onChange(next);
+      onActive(pending.id);
+      return;
+    }
     const current = zonesRef.current.find((row) => row.id === drag.id);
     const rect = current?.rect ? normalizeZoneRect(current.rect) : null;
     if (!rect) {
@@ -206,7 +229,7 @@ export function FloorPlanZoneCanvas({
         ref={frameRef}
         role="application"
         aria-label="Floor plan zones"
-        className="relative inline-block max-w-full touch-none select-none"
+        className={`relative inline-block max-w-full touch-none select-none ${disabled ? '' : 'cursor-crosshair'}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -259,9 +282,37 @@ export function FloorPlanZoneCanvas({
                       }}
                     />
                   ))}
+                  {disabled ? null : (
+                    <button
+                      type="button"
+                      data-zone-delete={zone.id}
+                      aria-label={deleteLabel}
+                      className="absolute -right-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-white text-rose-500 shadow"
+                      onPointerDown={(pointerEvent) => {
+                        pointerEvent.stopPropagation();
+                      }}
+                      onClick={(clickEvent) => {
+                        clickEvent.stopPropagation();
+                        removeZone(zone.id);
+                      }}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               );
             })}
+            {draft ? (
+              <div
+                className="pointer-events-none absolute box-border border-2 border-dashed border-violet-500 bg-violet-500/15"
+                style={{
+                  left: `${draft.rect.x}%`,
+                  top: `${draft.rect.y}%`,
+                  width: `${draft.rect.w}%`,
+                  height: `${draft.rect.h}%`,
+                }}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>

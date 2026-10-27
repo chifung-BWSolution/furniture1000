@@ -6522,6 +6522,7 @@ export function QuotationDraftEditor({
         open={zoneManagerOpen}
         onOpenChange={setZoneManagerOpen}
         size={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "4xl" : "3xl"}
+        className={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "max-w-6xl" : undefined}
         icon={<FolderKanban className="h-5 w-5" />}
         title={t.manageZones}
         description={zoneRecognitionActive ? t.recognizingZonesDetail : t.manageZonesHint}
@@ -6538,15 +6539,15 @@ export function QuotationDraftEditor({
               ) : (
                 <Upload className="h-4 w-4 shrink-0" />
               )}
-              <span className="truncate">
-                {floorPlanBusy
-                  ? t.uploadingFloorPlan
-                  : recognizingZones
-                    ? t.recognizingZones
-                    : floorPlan
-                      ? t.reuploadFloorPlanRecognize
-                      : t.uploadFloorPlanRecognize}
-              </span>
+            <span className="truncate">
+              {floorPlanBusy
+                ? t.uploadingFloorPlan
+                : recognizingZones
+                  ? t.recognizingZones
+                  : floorPlan
+                    ? t.replaceFloorPlan
+                    : t.uploadFloorPlanRecognize}
+            </span>
             </button>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
               {t.cancel}
@@ -6559,24 +6560,41 @@ export function QuotationDraftEditor({
           {floorPlan?.regions.some((region) => !region.confirmed) ? (
             <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}
-          {floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? (
-            <FloorPlanZoneCanvas
-              src={(floorPlan.previewUrl || floorPlan.url) as string}
-              zones={zoneManagerDraft}
-              activeId={activeZoneId}
-              createId={generateId}
-              disabled={floorPlanBusy || recognizingZones}
-              onChange={setZoneManagerDraft}
-              onActive={setActiveZoneId}
-            />
+          {zoneRecognitionActive ? (
+            <div className="space-y-1.5" role="status" aria-live="polite">
+              <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
+                <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
+                <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
+              </div>
+              <Progress value={zoneRecognitionProgress} />
+            </div>
           ) : null}
+          <div className={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]" : "space-y-3"}>
+          {floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? (
+            <div className="space-y-2">
+              <FloorPlanZoneCanvas
+                src={(floorPlan.previewUrl || floorPlan.url) as string}
+                zones={zoneManagerDraft}
+                activeId={activeZoneId}
+                createId={generateId}
+                disabled={floorPlanBusy || recognizingZones}
+                deleteLabel={quoteLocale === "en" ? "Delete space" : "刪除空間"}
+                onChange={setZoneManagerDraft}
+                onActive={setActiveZoneId}
+              />
+              {zoneRecognitionActive ? null : (
+                <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
+              )}
+            </div>
+          ) : null}
+          <div className="min-w-0 space-y-3">
           {zoneManagerDraft.length === 0 ? (
             <p className="font-body text-sm text-muted-foreground">
               {quoteLocale === "en" ? "No zones yet." : "尚未有分區。"}
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[40rem] space-y-2">
+            <div className="min-w-0 overflow-x-auto">
+              <div className="min-w-[28rem] space-y-2 lg:min-w-0">
                 <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1.15fr)_4.5rem_2rem] gap-2 px-0.5">
                   <span className="font-body text-xs text-muted-foreground">{t.zoneSpaceName}</span>
                   <span className="font-body text-xs text-muted-foreground">{t.zoneNameEn}</span>
@@ -6587,7 +6605,7 @@ export function QuotationDraftEditor({
                 {zoneManagerDraft.map((zone) => (
                   <div
                     key={zone.id}
-                    className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1.15fr)_4.5rem_2rem] items-center gap-2"
+                    className={`grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1.15fr)_4.5rem_2rem] items-center gap-2 rounded-xl ${zone.id === activeZoneId ? "ring-2 ring-violet-300" : ""}`}
                   >
                     <Input
                       value={zone.name}
@@ -6669,17 +6687,11 @@ export function QuotationDraftEditor({
             <Plus className="h-3 w-3" />
             {t.addSectionTitle}
           </button>
-          {zoneRecognitionActive ? (
-            <div className="space-y-1.5" role="status" aria-live="polite">
-              <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
-                <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
-                <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
-              </div>
-              <Progress value={zoneRecognitionProgress} />
-            </div>
-          ) : (
+          {floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? null : (
             <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
           )}
+          </div>
+          </div>
         </div>
       </Modal>
 
