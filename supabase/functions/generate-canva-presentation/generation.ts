@@ -166,6 +166,7 @@ export function buildGenerationRequest(
     style ? `風格：${style}` : "",
     Number.isFinite(pageCount) && pageCount > 0 ? `期望頁數：${pageCount}` : "",
     "參考案例：大綱裡每一個案例標題各做一頁，只寫品牌與用過的傢俬，不要寫項目名稱、項目編號或地址。",
+    "公司介紹頁必須同時顯示「超過 1,000 款傢俬」、「超過 16 年行業經驗」和專業資質，不可省略。",
   ].filter(Boolean).join("\n");
 
   const productBlock = products.length

@@ -61,17 +61,9 @@ import {
   EMPTY_COMPANY_PROFILE,
   loadPresentationCompanyProfile,
   savePresentationCompanyProfile,
+  WEBSITE_COMPANY_PROFILE,
   type PresentationCompanyProfile,
 } from '@/lib/presentationFiveSection';
-
-// 傢俬官網與 Branding Works 設計工程／集團官網、HKPIDA 名錄資料整理。
-const WEBSITE_COMPANY_PROFILE: PresentationCompanyProfile = {
-  background: 'BW Furniture（Branding Works Furniture & Office Design）專注香港辦公室及商業傢俬方案，擁有超過 16 年行業經驗、逾 1,000 個空間實績，已服務超過 3,000 家香港企業與機構，整合空間設計、裝修工程與傢俬配置。',
-  strengths: '自設「老木匠」傢俬廠房，採用工廠直供模式，配合一對一專員服務。提供超過 1,000 款傢俬，結合現貨及度身訂造選擇，並由產品開發、設計及客戶服務團隊協作跟進。',
-  services: '免費上門度尺、空間規劃、報價預算、辦公室設計及裝修配套、傢俬訂製、送貨與安裝；接受企業、機構及政府部門的報價邀請與投標文件，並支援 P-Card 採購付款。',
-  qualifications: 'Branding Works 設計工程業務的專業資歷：志豐集團官網記載，志豐商業工程設計於 2020 年獲得 ISO 9001:2015 品質管理體系認證；香港專業室內設計師協會（HKPIDA）企業會員名錄列有 Branding Works 志豐設計工程中心，會員編號 C2604-5。',
-  capabilities: '整合辦公室動線、空間規劃、固定裝潢及活動傢俬，提供辦公枱、會議枱、辦公椅、儲物櫃、接待家具與靜音艙等配置。訂造可選微甲醛 E0 板材，並提供阻燃、防刮材料選項及電腦定位排孔工序；按產品及項目需要確認規格。',
-};
 
 const MAX_ITEMS = 30;
 const PRESENTATION_PATH = '/fds/pm/presentation';
@@ -107,7 +99,7 @@ const WIZARD_STEPS = [
 
 const OUTLINE_CARDS = [
   { title: '封面', body: '專案名稱、客戶名稱、日期、品牌標識與封面主視覺。' },
-  { title: '公司介紹', body: '公司背景、服務優勢、設計理念與過往經驗。' },
+  { title: '公司介紹', body: '必須列出超過 1,000 款傢俬、超過 16 年行業經驗，以及專業資質。' },
   { title: '平面圖', body: '空間平面配置圖、動線規劃與功能分區說明。' },
   { title: '方案', body: '設計方案構想、材質選用、傢俬配置、風格參考與預算範圍。' },
   { title: '參考案例', body: '每個案例獨立一頁，只列出該案例用過的傢俬，不顯示項目名稱。' },
@@ -1578,6 +1570,8 @@ export function PresentationView() {
                       const skipped = card.title === '平面圖' && !floorPresent;
                       const extra = card.title === '封面'
                         ? [brief.title, brief.client].filter(Boolean).join(' · ')
+                        : card.title === '公司介紹'
+                          ? '超過 1,000 款傢俬 · 超過 16 年行業經驗 · 專業資質'
                         : card.title === '方案'
                           ? (selected.length ? `已選 ${selected.length} 件產品` : '尚未選擇產品')
                           : card.title === '參考案例'
