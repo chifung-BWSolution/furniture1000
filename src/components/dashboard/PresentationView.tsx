@@ -284,7 +284,7 @@ function StepIndicator({
   onSelect: (next: number) => void;
 }) {
   return (
-    <ol aria-label="簡報步驟" className="grid h-full min-w-0 grid-cols-1 gap-1.5 rounded-2xl border border-border/80 bg-card p-1.5 shadow-sm sm:grid-cols-[repeat(4,minmax(0,1fr))]">
+    <ol aria-label="簡報步驟" className="grid h-16 min-w-0 grid-cols-1 gap-1.5 rounded-2xl border border-border/80 bg-card p-1.5 shadow-sm sm:grid-cols-[repeat(4,minmax(0,1fr))]">
       {WIZARD_STEPS.map((item, index) => {
         const n = index + 1;
         const current = n === step;
@@ -395,7 +395,7 @@ function CanvaConnectionCard({
       id="canva-connection"
       className={cn(
         'relative overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm',
-        compact ? 'px-3 py-2' : 'p-4',
+        compact ? 'h-16 px-3 py-0' : 'p-4',
       )}
     >
       <motion.span
@@ -1321,16 +1321,9 @@ export function PresentationView() {
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-none">
       <LayoutGroup id="presentation-canva">
-      <div className={cn('mx-auto grid w-full max-w-none items-start gap-5 fds-page-padding', wizardStep === 4 ? '' : 'lg:grid-cols-3')}>
-        <div className={cn(wizardStep === 4 ? 'grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(300px,0.95fr)]' : 'flex min-w-0 flex-col gap-4 lg:col-span-2')}>
-          {wizardStep === 4 ? (
-            <div className="grid items-start gap-3 xl:col-span-2 xl:grid-cols-[minmax(0,1fr)_16rem]">
-              <div className="min-w-0"><StepIndicator step={wizardStep} onSelect={goToStep} /></div>
-              {canvaCard}
-            </div>
-          ) : (
-            <StepIndicator step={wizardStep} onSelect={goToStep} />
-          )}
+      <div className="mx-auto grid w-full max-w-none items-start gap-5 fds-page-padding lg:grid-cols-3">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+          <StepIndicator step={wizardStep} onSelect={goToStep} />
           <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
             {wizardStep === 1 && (
             <div className="space-y-4">
@@ -1728,8 +1721,11 @@ export function PresentationView() {
             </div>
             )}
           </section>
+        </div>
 
-          {wizardStep === 4 && (
+        <aside className="min-w-0 space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:self-start lg:overflow-y-auto">
+          {canvaCard}
+          {wizardStep === 4 ? (
             <div className="space-y-4">
               <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1808,22 +1804,16 @@ export function PresentationView() {
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">分頁以 Canva 為準，這裡顯示目前封面縮圖。</p>
                 )}
               </section>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
-                {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
-              </div>
+              {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
+              {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
             </div>
+          ) : (
+            <>
+              {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
+              {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
+            </>
           )}
-
-        </div>
-
-        {wizardStep < 4 && (
-          <aside className="min-w-0 space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:self-start lg:overflow-y-auto">
-            {canvaCard}
-            {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
-            {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
-          </aside>
-        )}
+        </aside>
       </div>
       </LayoutGroup>
       </div>
