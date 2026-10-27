@@ -6551,7 +6551,7 @@ export function QuotationDraftEditor({
               <div
                 className={cn(
                   "relative h-[440px] overflow-hidden rounded-lg",
-                  floorPlanDragOver && "ring-2 ring-sky-400",
+                  floorPlanDragOver && "ring-2 ring-violet-400",
                 )}
                 onDragOver={(event) => {
                   if (zoneRecognitionActive || ![...event.dataTransfer.types].includes("Files")) return;
@@ -6586,7 +6586,7 @@ export function QuotationDraftEditor({
                     type="button"
                     disabled={zoneRecognitionActive}
                     onClick={() => floorPlanInputRef.current?.click()}
-                    className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center font-body text-sm text-muted-foreground hover:bg-muted/50 disabled:cursor-default"
+                    className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-violet-500 bg-muted/30 px-6 text-center font-body text-sm text-muted-foreground hover:bg-violet-50 disabled:cursor-default"
                   >
                     {t.dropFloorPlan}
                     <span className="ml-1 text-sky-600 underline underline-offset-2">{t.dropFloorPlanAction}</span>
