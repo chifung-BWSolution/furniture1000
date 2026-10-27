@@ -351,3 +351,115 @@ export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<Det
     return [];
   }
 }
+
+const ZONE_SCENE_STYLE =
+  '寫實室內設計效果圖，淺色物料，暖白燈光，乾淨構圖，無人、無文字、無商標，鏡頭平視';
+
+export type ZoneSceneFurniture = {
+  name: string;
+  /** 傢俬功能，例如座椅、接待櫃。 */
+  role: string;
+  /** 這件傢俬的產品圖。點分區時用來勾選參考圖。 */
+  imageUrl?: string;
+};
+
+export type ZoneSceneInput = {
+  name: string;
+  /** 分區功能，例如會議室、接待處。 */
+  spaceType: string;
+  furniture: ZoneSceneFurniture[];
+};
+
+function furniturePhrase(item: ZoneSceneFurniture): string {
+  const name = item.name.trim();
+  const role = item.role.trim();
+  if (name && role && role !== name) return `${name}（${role}）`;
+  return name || role;
+}
+
+/** 模型沒回應時，用分區和傢俬直接拼一段場景描述。 */
+export function fallbackZoneScenePrompt(zone: ZoneSceneInput, referenceFurniture: ZoneSceneFurniture[] = []): string {
+  const name = zone.name.trim();
+  const spaceType = zone.spaceType.trim();
+  const place = name && spaceType && spaceType !== name ? `${name}，用作${spaceType}` : (name || spaceType || '室內空間');
+  const referenced = referenceFurniture.length ? referenceFurniture : zone.furniture;
+  const pieces = referenced.map(furniturePhrase).filter(Boolean);
+  const furnishing = pieces.length ? `場景裡要清楚看到參考圖中的${pieces.join('、')}。` : '';
+  return `${place}。${furnishing}${ZONE_SCENE_STYLE}`.replace(/\s+/g, ' ').trim();
+}
+
+function withReferenceFurniture(text: string, furniture: ZoneSceneFurniture[]): string {
+  const missing = furniture.filter((item) => {
+    const name = item.name.trim();
+    return name && !text.includes(name);
+  });
+  if (!missing.length) return text.replace(/\s+/g, ' ').trim();
+  const extra = `場景裡要清楚看到參考圖中的${missing.map(furniturePhrase).filter(Boolean).join('、')}。`;
+  const body = text.replace(/\s+/g, ' ').trim();
+  return `${body}${body.endsWith('。') ? '' : '。'}${extra}`;
+}
+
+function plainSceneText(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^["「『]+|["」』]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 按分區功能和裡面傢俬的功能，寫一段圖像描述。參考圖裡的傢俬一定會寫進描述。 */
+export async function generateZoneScenePrompt(
+  zone: ZoneSceneInput,
+  referenceFurniture: ZoneSceneFurniture[] = [],
+): Promise<string> {
+  const fallback = withReferenceFurniture(fallbackZoneScenePrompt(zone, referenceFurniture), referenceFurniture);
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) return fallback;
+
+  const list = (items: ZoneSceneFurniture[]) => items
+    .map((item) => {
+      const phrase = furniturePhrase(item);
+      return phrase ? `- ${phrase}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
+  const referenced = list(referenceFurniture);
+  const furniture = list(zone.furniture);
+  const prompt = [
+    '你是室內設計效果圖的提示詞助手。根據這個分區的功能，以及裡面已選傢俬的功能，寫一段給圖像模型的中文場景描述。',
+    `分區名稱：${zone.name.trim() || '未命名'}`,
+    `分區功能：${zone.spaceType.trim() || '按名稱判斷'}`,
+    furniture ? `分區裡的傢俬：\n${furniture}` : '分區裡的傢俬：沒有',
+    referenced ? `參考圖裡的傢俬（每一件的名稱都必須寫進描述，不能漏）：\n${referenced}` : '參考圖裡的傢俬：沒有',
+    '要求：',
+    '- 只寫一段話，220 字以內',
+    '- 先寫這個空間做什麼，再寫傢俬如何擺在這個空間裡',
+    '- 參考圖裡的每一件傢俬都要寫出名稱',
+    '- 沒有傢俬時只描述空間本身',
+    `- 結尾必須包含：${ZONE_SCENE_STYLE}`,
+    '- 不要編號、不要引號、不要解釋',
+  ].join('\n');
+
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        apikey: supabaseAnonKey,
+      },
+      body: JSON.stringify({
+        model: DEFAULT_GEMINI_MODEL,
+        feature: 'quote_zone_photo_prompt',
+        contents: [{ parts: [{ text: prompt }] }],
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) return fallback;
+    const text = plainSceneText(String(data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''));
+    return withReferenceFurniture(text || fallback, referenceFurniture);
+  } catch {
+    return fallback;
+  }
+}

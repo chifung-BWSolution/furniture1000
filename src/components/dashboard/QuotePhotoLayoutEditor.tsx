@@ -39,7 +39,7 @@ import {
   type QuotePhotoAsset,
   type QuotePhotoRef,
 } from '@/lib/quotePhotoLibrary';
-import { QuotePhotoGenerateDialog, type GenerateChoice } from '@/components/dashboard/QuotePhotoGenerateDialog';
+import { QuotePhotoGenerateDialog, type GenerateChoice, type QuotePhotoZone } from '@/components/dashboard/QuotePhotoGenerateDialog';
 import {
   AI_REFERENCE_LABEL,
   CAPTION_MAX,
@@ -522,6 +522,7 @@ export function QuotePhotoLayoutEditor({
   groupId,
   assets,
   productPhotos = [],
+  photoZones = [],
   photos,
   canManage,
   onUploaded,
@@ -536,6 +537,8 @@ export function QuotePhotoLayoutEditor({
   assets: QuotePhotoAsset[];
   /** 報價明細的產品圖：預設就放進素材區，不用每次去圖片庫找。 */
   productPhotos?: { id: string; title: string; url: string }[];
+  /** 平面圖分區。有分區時，AI 描述改由分區和裡面的傢俬生成。 */
+  photoZones?: QuotePhotoZone[];
   /** 這張報價已選的圖片，用來餵素材區。 */
   photos: QuotePhotoRef[];
   canManage: boolean;
@@ -1452,6 +1455,7 @@ export function QuotePhotoLayoutEditor({
           open
           onClose={() => setGenerateOpen(false)}
           choices={generateChoices}
+          zones={photoZones}
           libraryCount={library.length}
           onGenerated={onGenerated}
         />

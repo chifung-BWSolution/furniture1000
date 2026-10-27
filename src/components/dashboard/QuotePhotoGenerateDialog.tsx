@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, LoaderCircle, Sparkles, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Modal } from '@/components/ui/modal';
+import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { generateZoneScenePrompt, type ZoneSceneInput } from '@/lib/quoteFloorPlan';
 import {
   QUOTE_PHOTO_GENERATE_MAX_REFERENCES,
   QUOTE_PHOTO_GENERATE_MODELS,
@@ -46,10 +48,13 @@ const GENERATE_PROMPT_PRESETS: Array<{ label: string; prompt: string }> = [
 
 export type GenerateChoice = { id: string; title: string; previewUrl: string; /** 傳給模型的參考圖 URL（產品圖絕對 URL）。 */ referenceUrl: string };
 
+export type QuotePhotoZone = ZoneSceneInput & { id: string };
+
 export function QuotePhotoGenerateDialog({
   open,
   onClose,
   choices,
+  zones = [],
   libraryCount,
   onGenerated,
 }: {
@@ -57,6 +62,8 @@ export function QuotePhotoGenerateDialog({
   onClose: () => void;
   /** 可以做參考圖的產品圖（報價明細帶來的圖）。 */
   choices: GenerateChoice[];
+  /** 平面圖識別出的分區。沒有分區時改顯示常用描述。 */
+  zones?: QuotePhotoZone[];
   /** 圖片庫現有張數，用來擋上限。 */
   libraryCount: number;
   onGenerated: (asset: QuotePhotoAsset) => void;
@@ -66,6 +73,25 @@ export function QuotePhotoGenerateDialog({
   const [model, setModel] = useState<QuotePhotoGenerateModel>(QUOTE_PHOTO_GENERATE_MODELS[0].id);
   const [refs, setRefs] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [prompting, setPrompting] = useState(false);
+  const [promptProgress, setPromptProgress] = useState(0);
+  const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!prompting) {
+      setPromptProgress(0);
+      return;
+    }
+    setPromptProgress((value) => (value > 0 ? value : 8));
+    const timer = window.setInterval(() => {
+      setPromptProgress((value) => {
+        if (value >= 92) return value;
+        const step = value < 50 ? 4 : 1.2;
+        return Math.min(92, Math.round((value + step) * 10) / 10);
+      });
+    }, 280);
+    return () => window.clearInterval(timer);
+  }, [prompting]);
 
   if (!open) return null;
 
@@ -80,6 +106,39 @@ export function QuotePhotoGenerateDialog({
       }
       return [...current, id];
     });
+  }
+
+  function referenceIdsForZone(zone: QuotePhotoZone): { ids: string[]; furniture: QuotePhotoZone['furniture'] } {
+    const ids: string[] = [];
+    const furniture: QuotePhotoZone['furniture'] = [];
+    for (const item of zone.furniture) {
+      const url = item.imageUrl?.trim();
+      if (!url) continue;
+      const choice = choices.find((entry) => entry.referenceUrl === url || entry.previewUrl === url);
+      if (!choice || ids.includes(choice.id)) continue;
+      if (ids.length >= QUOTE_PHOTO_GENERATE_MAX_REFERENCES) break;
+      ids.push(choice.id);
+      furniture.push(item);
+    }
+    return { ids, furniture };
+  }
+
+  async function writeZonePrompt(zone: QuotePhotoZone) {
+    const { ids, furniture } = referenceIdsForZone(zone);
+    const pictured = new Set(zone.furniture.map((item) => item.imageUrl?.trim()).filter(Boolean));
+    if (pictured.size > QUOTE_PHOTO_GENERATE_MAX_REFERENCES) {
+      toast.message(`這個分區有 ${pictured.size} 張產品圖，參考圖最多選 ${QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張。`);
+    }
+    setRefs(ids);
+    setActiveZoneId(zone.id);
+    setPrompting(true);
+    try {
+      const text = await generateZoneScenePrompt(zone, furniture);
+      setPrompt(text.slice(0, QUOTE_PHOTO_PROMPT_MAX));
+      setPromptProgress(100);
+    } finally {
+      setPrompting(false);
+    }
   }
 
   async function generate() {
@@ -119,7 +178,7 @@ export function QuotePhotoGenerateDialog({
     <Modal
       open
       onOpenChange={(next) => {
-        if (!next && !generating) onClose();
+        if (!next && !generating && !prompting) onClose();
       }}
       icon={<Wand2 className="h-6 w-6" />}
       title="AI 生成參考圖"
@@ -127,10 +186,10 @@ export function QuotePhotoGenerateDialog({
       size="3xl"
       footer={
         <>
-          <Button type="button" variant="outline" disabled={generating} onClick={onClose}>
+          <Button type="button" variant="outline" disabled={generating || prompting} onClick={onClose}>
             取消
           </Button>
-          <Button type="button" disabled={generating || !cleanPrompt} onClick={() => void generate()}>
+          <Button type="button" disabled={generating || prompting || !cleanPrompt} onClick={() => void generate()}>
             {generating ? <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" /> : <Sparkles className="mr-1.5 h-4 w-4" />}
             {generating ? '生成中…' : '生成'}
           </Button>
@@ -145,7 +204,7 @@ export function QuotePhotoGenerateDialog({
               <button
                 key={entry.id}
                 type="button"
-                disabled={generating}
+                disabled={generating || prompting}
                 aria-pressed={model === entry.id}
                 onClick={() => setModel(entry.id)}
                 className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
@@ -162,18 +221,41 @@ export function QuotePhotoGenerateDialog({
         </div>
 
         <div>
-          <p className="text-sm font-semibold text-foreground">常用描述</p>
+          <p className="text-sm font-semibold text-foreground">{zones.length > 0 ? '分區' : '常用描述'}</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {GENERATE_PROMPT_PRESETS.map((preset) => {
+            {zones.length > 0 ? zones.map((zone) => {
+              const selected = activeZoneId === zone.id;
+              const detail = [zone.spaceType, ...zone.furniture.map((item) => item.role || item.name)].filter(Boolean).join('、');
+              return (
+                <button
+                  key={zone.id}
+                  type="button"
+                  disabled={generating || prompting}
+                  aria-pressed={selected}
+                  title={detail || zone.name}
+                  onClick={() => void writeZonePrompt(zone)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                    selected
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border bg-card text-foreground/80 hover:border-primary/60 hover:text-primary'
+                  }`}
+                >
+                  {zone.name}
+                </button>
+              );
+            }) : GENERATE_PROMPT_PRESETS.map((preset) => {
               const selected = cleanPrompt === preset.prompt;
               return (
                 <button
                   key={preset.label}
                   type="button"
-                  disabled={generating}
+                  disabled={generating || prompting}
                   aria-pressed={selected}
                   title={preset.prompt}
-                  onClick={() => setPrompt(preset.prompt)}
+                  onClick={() => {
+                    setActiveZoneId(null);
+                    setPrompt(preset.prompt);
+                  }}
                   className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
                     selected
                       ? 'border-primary bg-primary text-primary-foreground'
@@ -189,15 +271,31 @@ export function QuotePhotoGenerateDialog({
 
         <label className="block text-sm font-semibold text-foreground">
           描述
-          <textarea
-            value={prompt}
-            maxLength={QUOTE_PHOTO_PROMPT_MAX}
-            rows={4}
-            disabled={generating}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="例如：現代診所接待處，淺木色櫃檯，暖白燈光"
-            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal text-foreground"
-          />
+          <div className="relative mt-1">
+            <textarea
+              value={prompt}
+              maxLength={QUOTE_PHOTO_PROMPT_MAX}
+              rows={4}
+              disabled={generating || prompting}
+              onChange={(event) => {
+                setActiveZoneId(null);
+                setPrompt(event.target.value);
+              }}
+              placeholder="例如：現代診所接待處，淺木色櫃檯，暖白燈光"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal text-foreground disabled:opacity-60"
+            />
+            {prompting ? (
+              <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-slate-900/40 px-4" role="status" aria-live="polite">
+                <div className="w-full max-w-xs space-y-1.5 rounded-xl bg-white px-4 py-3 shadow-lg">
+                  <div className="flex items-center justify-between gap-3 text-xs text-foreground">
+                    <span>正在寫描述…</span>
+                    <span className="font-mono-data tabular-nums">{Math.round(promptProgress)}%</span>
+                  </div>
+                  <Progress value={promptProgress} />
+                </div>
+              </div>
+            ) : null}
+          </div>
           <span className="mt-1 block text-right text-xs font-normal text-muted-foreground">
             {prompt.length} / {QUOTE_PHOTO_PROMPT_MAX}
           </span>
@@ -220,7 +318,7 @@ export function QuotePhotoGenerateDialog({
                       <li key={choice.id}>
                         <button
                           type="button"
-                          disabled={generating}
+                          disabled={generating || prompting}
                           aria-pressed={selected}
                           title={choice.title}
                           aria-label={`${selected ? '取消選取' : '選取'}產品圖「${choice.title}」`}
@@ -245,7 +343,7 @@ export function QuotePhotoGenerateDialog({
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">比例</p>
-            <Select value={ratio} disabled={generating} onValueChange={(value) => setRatio(value as PhotoRatio)}>
+            <Select value={ratio} disabled={generating || prompting} onValueChange={(value) => setRatio(value as PhotoRatio)}>
               <SelectTrigger className="mt-1" aria-label="生成比例">
                 <SelectValue />
               </SelectTrigger>

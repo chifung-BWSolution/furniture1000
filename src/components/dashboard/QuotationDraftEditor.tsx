@@ -60,6 +60,7 @@ import {
 import {
   QuotePhotoGenerateDialog,
   type GenerateChoice,
+  type QuotePhotoZone,
 } from "@/components/dashboard/QuotePhotoGenerateDialog";
 import {
   groupGeometry,
@@ -618,6 +619,7 @@ function ImageUploadModal({
   previewUrl,
   uploadImage,
   aiChoices = [],
+  photoZones = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -628,6 +630,7 @@ function ImageUploadModal({
   uploadImage?: (file: File) => Promise<string>;
   /** AI 生成候選（報價明細產品圖）；空的話仍可純描述生成。 */
   aiChoices?: GenerateChoice[];
+  photoZones?: QuotePhotoZone[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLButtonElement>(null);
@@ -779,6 +782,7 @@ function ImageUploadModal({
       <QuotePhotoGenerateDialog
         open={aiOpen}
         choices={aiChoices}
+        zones={photoZones}
         libraryCount={libraryCount}
         onClose={() => setAiOpen(false)}
         onGenerated={(asset) => {
@@ -803,6 +807,7 @@ function ReferenceImageCell({
   fluid = false,
   uploadImage,
   aiChoices,
+  photoZones,
 }: {
   value: string;
   onChange: (url: string) => void;
@@ -814,6 +819,7 @@ function ReferenceImageCell({
   uploadImage?: (file: File) => Promise<string>;
   /** AI 生成候選（報價明細產品圖）— 傳入才會顯示「用 AI 生成圖片」入口。 */
   aiChoices?: GenerateChoice[];
+  photoZones?: QuotePhotoZone[];
 }) {
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -860,6 +866,7 @@ function ReferenceImageCell({
         previewUrl={value || undefined}
         uploadImage={uploadImage}
         aiChoices={aiChoices}
+        photoZones={photoZones}
       />
     </>
   );
@@ -1130,6 +1137,7 @@ function QuoteProductItemCard({
   serialNumber,
   zonePrefix,
   aiChoices,
+  photoZones,
   draggingItemId,
   dropInsertIndex,
   cutItemId,
@@ -1167,6 +1175,7 @@ function QuoteProductItemCard({
   zonePrefix?: string | null;
   /** AI 生成候選（報價明細產品圖），供圖片欄的「用 AI 生成圖片」。 */
   aiChoices?: GenerateChoice[];
+  photoZones?: QuotePhotoZone[];
   draggingItemId: string | null;
   dropInsertIndex: number | null;
   cutItemId: string | null;
@@ -1622,6 +1631,7 @@ function QuoteProductItemCard({
               fluid
               uploadImage={uploadProductImage}
               aiChoices={aiChoices}
+              photoZones={photoZones}
             />
           </QuoteFieldBlock>
           <QuoteFieldBlock label={labels.referenceImage}>
@@ -1633,6 +1643,7 @@ function QuoteProductItemCard({
               fluid
               uploadImage={uploadReferenceImage}
               aiChoices={aiChoices}
+              photoZones={photoZones}
             />
           </QuoteFieldBlock>
 
@@ -3038,6 +3049,31 @@ export function QuotationDraftEditor({
     return photos;
   }, [items]);
   /** AI 生成候選（同 QMS）：只限報價明細的產品圖，AI 按產品圖把產品放進描述場景。 */
+  const quotePhotoZones = useMemo<QuotePhotoZone[]>(() => {
+    if (!floorPlan) return [];
+    const zones: QuotePhotoZone[] = [];
+    let current: QuotePhotoZone | null = null;
+    for (const item of items) {
+      if (item.isSectionTitle) {
+        if (current?.name.trim()) zones.push(current);
+        current = {
+          id: item.id,
+          name: (item.name || "").trim(),
+          spaceType: (item.category || "").trim(),
+          furniture: [],
+        };
+        continue;
+      }
+      if (!current || item.isCustomTerm) continue;
+      const name = (item.name || "").trim();
+      if (!name) continue;
+      const role = (item.category || item.registryLevel2 || item.registryLevel1 || "").trim();
+      const imageUrl = (item.image || "").trim();
+      current.furniture.push(imageUrl ? { name, role, imageUrl } : { name, role });
+    }
+    if (current?.name.trim()) zones.push(current);
+    return zones;
+  }, [floorPlan, items]);
   const quoteAiChoices = useMemo<GenerateChoice[]>(
     () =>
       quoteProductPhotos.flatMap((photo) => {
@@ -5653,7 +5689,7 @@ export function QuotationDraftEditor({
                     onClick={() => setCatalogDialogOpen(true)}
                     className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
                   >
-                    {ui('選擇整頁', 'Choose pages')}
+                    {ui('選擇頁面', 'Choose pages')}
                   </button>
                 </div>
                 <p className="mb-4 border-b border-border/80 pb-3 text-xs text-muted-foreground">
@@ -5768,6 +5804,7 @@ export function QuotationDraftEditor({
                           serialNumber={productSerialAt(items, index)}
                           zonePrefix={zonePrefix}
                           aiChoices={quoteAiChoices}
+                          photoZones={quotePhotoZones}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
                           cutItemId={cutItemId}
@@ -6062,6 +6099,7 @@ export function QuotationDraftEditor({
                   layouts={quotePhotoLayouts}
                   assets={quotePhotoAssets}
                   productPhotos={quoteProductPhotos}
+                  photoZones={quotePhotoZones}
                   canManage={canManagePhotos}
                   onChange={(groups, usedAssets) => {
                     setQuotePhotoLayouts(groups);
@@ -6532,6 +6570,7 @@ export function QuotationDraftEditor({
           groupId={zoneLayoutEditor.groupId}
           assets={photoLibrary}
           productPhotos={quoteProductPhotos}
+          photoZones={quotePhotoZones}
           photos={quotePhotoAssets.map((asset) => ({
             assetId: asset.id,
             title: asset.title,
