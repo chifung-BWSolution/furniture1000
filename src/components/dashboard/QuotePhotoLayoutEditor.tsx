@@ -505,13 +505,13 @@ function CropDialog({
               </label>
             ) : null}
             <div className="mt-3 space-y-1">
-              {hidden ? <p className="text-xs text-amber-700">部分內容將隱藏，PDF 只輸出框內範圍。</p> : null}
+              {hidden ? <p className="text-xs text-amber-700">超出框外的部分不會印在報價單上。</p> : null}
               {lowRes ? (
                 <p className="text-xs text-amber-700">
-                  圖片解析度偏低（{natural?.w}×{natural?.h}），PDF 可能不夠清晰。
+                  這張圖不夠清晰（{natural?.w}×{natural?.h}），印出來可能會糊。
                 </p>
               ) : null}
-              {!cover ? <p className="text-xs text-muted-foreground">完整顯示會保留整張圖片，槽位留白的部分不會裁走內容。</p> : null}
+              {!cover ? <p className="text-xs text-muted-foreground">完整顯示會保留整張圖片，空白的地方不會裁掉內容。</p> : null}
             </div>
       </div>
     </Modal>
@@ -666,7 +666,7 @@ export function QuotePhotoLayoutEditor({
     const target = selectedSlot && !placementAt(selectedSlot) ? selectedSlot : slotIds.find((slotId) => !placementAt(slotId));
     if (target) requestPlace(target, assetId);
     else if (selectedSlot) requestPlace(selectedSlot, assetId);
-    else toast.info('所有槽位已有圖片；先在畫布選擇要替換的槽位。');
+    else toast.info('每個位置都已有圖片。請先在畫布點選要換掉的那一格。');
   }
 
   function swap(from: string, to: string) {
@@ -827,7 +827,7 @@ export function QuotePhotoLayoutEditor({
       <div
         role="button"
         tabIndex={0}
-        aria-label={placement ? `槽位 ${index}：${photo?.title ?? '圖片'}，按下裁剪` : `槽位 ${index}：空，按下選取`}
+        aria-label={placement ? `位置 ${index}：${photo?.title ?? '圖片'}，按一下可裁剪` : `位置 ${index}：還沒有圖片，按一下可選取`}
         draggable={Boolean(placement)}
         onDragStart={(event) => {
           event.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ kind: 'slot', slotId: slot.id } satisfies DragPayload));
@@ -881,10 +881,10 @@ export function QuotePhotoLayoutEditor({
           >
             <PhotoConfirmButton
               className="h-7 w-7 rounded-md bg-card/95 text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-              ariaLabel={`移出槽位 ${index}`}
-              title="移出槽位"
+              ariaLabel={`移出位置 ${index}`}
+              title="移出這個位置"
               confirmLabel="移出"
-              description={`從槽位 ${index} 移出「${quotePhotoShortTitle(photo?.title ?? '圖片')}」。圖片留在素材區；按「套用到報價單」後才更新報價。`}
+              description={`把「${quotePhotoShortTitle(photo?.title ?? '圖片')}」從位置 ${index} 移出。圖片會留在旁邊的素材區，按「套用到報價單」後才會更新。`}
               onConfirm={() => {
                 setGroup((current) => ({
                   ...current,
@@ -921,7 +921,7 @@ export function QuotePhotoLayoutEditor({
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-muted/30 p-4 lg:overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-xs font-semibold text-muted-foreground">所選槽位比例</span>
+            <span className="mr-1 text-xs font-semibold text-muted-foreground">這張圖怎樣顯示</span>
             <button
               type="button"
               disabled={!selectedPlacement}
@@ -1063,7 +1063,7 @@ export function QuotePhotoLayoutEditor({
                   ) : null}
                 </div>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">拖動槽位可互相對調；按圖片開啟裁剪。</p>
+              <p className="mt-1 text-xs text-muted-foreground">拖動圖片可以對調位置；按一下圖片可以裁剪。</p>
               <div className="mt-3">
                 {chosen ? (
                   <PhotoLayoutBlock
@@ -1098,7 +1098,7 @@ export function QuotePhotoLayoutEditor({
                           value={placement?.caption ?? ''}
                           maxLength={CAPTION_MAX}
                           disabled={!placement}
-                          placeholder={placement ? '例如：大堂入口現況' : '槽位未放圖片'}
+                          placeholder={placement ? '例如：大堂入口現況' : '這個位置還沒有圖片'}
                           onChange={(event) => updatePlacement(slotId, { caption: event.target.value })}
                           className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal text-foreground disabled:bg-muted/50"
                         />
@@ -1188,7 +1188,7 @@ export function QuotePhotoLayoutEditor({
                   disabled={!canManage || library.length >= QUOTE_PHOTO_LIBRARY_LIMIT}
                   title={
                     canManage
-                      ? '用 Grok 4.7 或 Gemini 3.8 按描述生成參考圖'
+                      ? '按描述生成一張參考圖'
                       : '只有管理員或上載員可以生成圖片'
                   }
                   onClick={() => setGenerateOpen(true)}
@@ -1202,7 +1202,7 @@ export function QuotePhotoLayoutEditor({
               {productPhotos.length > 0
                 ? `報價的 ${productPhotos.length} 張產品圖已預設加入。`
                 : 'JPG、PNG 或 WebP，每張最多 15 MB。'}
-              把圖片拖到排版畫布的槽位，或按「放入」。
+              把圖片拖到畫布上的位置，或按「放入」。
             </p>
 
             {trayIds.length === 0 ? null : (
@@ -1264,7 +1264,7 @@ export function QuotePhotoLayoutEditor({
                               </span>
                             ) : null}
                             {lowRes ? (
-                              <span className="inline-flex items-center gap-0.5 text-xs text-amber-700" title="解析度偏低，PDF 可能不夠清晰">
+                              <span className="inline-flex items-center gap-0.5 text-xs text-amber-700" title="這張圖不夠清晰，印出來可能會糊">
                                 <AlertTriangle className="h-3 w-3" aria-hidden />
                                 解析度低
                               </span>
@@ -1322,7 +1322,7 @@ export function QuotePhotoLayoutEditor({
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/80 bg-card px-5 py-3">
         <p className="text-xs text-muted-foreground">
-          {!chosen ? '尚未選擇佈局' : emptySlots > 0 ? `仍有 ${emptySlots} 個空槽` : '所有槽位已放入圖片'}
+          {!chosen ? '尚未選擇版面' : emptySlots > 0 ? `還有 ${emptySlots} 個空位` : '每個位置都已放入圖片'}
         </p>
         <div className="flex gap-2">
           <Button type="button" variant="outline" onClick={requestClose}>
@@ -1353,7 +1353,7 @@ export function QuotePhotoLayoutEditor({
       <ConfirmDialog
         open={pendingReplace !== null}
         title="取代這個位置的圖片？"
-        description="這個槽位已有圖片，放入後原本那張會留在素材區，不會從圖片庫刪除。"
+        description="這個位置已有圖片。放入後，原本那張會留在旁邊的素材區，不會從圖片庫刪除。"
         confirmLabel="取代"
         onCancel={() => setPendingReplace(null)}
         onConfirm={() => {
@@ -1364,8 +1364,8 @@ export function QuotePhotoLayoutEditor({
 
       <ConfirmDialog
         open={confirm === 'empty'}
-        title="仍有空槽，仍要套用？"
-        description={`這個佈局有 ${emptySlots} 個空槽，PDF 上會留白。`}
+        title="還有空位，仍要套用？"
+        description={`這個版面還有 ${emptySlots} 個空位，報價單上會留白。`}
         confirmLabel="仍要套用"
         onCancel={() => setConfirm(null)}
         onConfirm={apply}

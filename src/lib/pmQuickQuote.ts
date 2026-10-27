@@ -57,7 +57,7 @@ type PgError = { message?: string; code?: string } | null;
 export function pmQuoteErrorMessage(error: PgError): string {
   const message = error?.message || '';
   if (error?.code === '42P01' || error?.code === '42703') {
-    return '資料庫尚未部署 BWA 關聯欄（bwa_*）。請先跑 20261024100000_fds21_bwa_quote_link。';
+    return '這項功能還沒準備好，暫時不能儲存。請聯絡管理員。';
   }
   if (message.includes('duplicate key')) return '已有同一編號的報價單，請重新儲存。';
   if (error?.code === '42501') return '沒有權限。';

@@ -61,7 +61,7 @@ export function inquiryErrorMessage(error: PostgrestError): string {
     || message.includes('bwa_save_furniture_inquiry')
     || message.includes('bwa_pitching_id')
   ) {
-    return '詢價資料尚未部署。這次沒有改正式資料庫。';
+    return '詢價暫時不能使用。已保存的資料沒有被改動。';
   }
   if (error?.code === '42501' || message.includes('permission_denied')) return '沒有權限。';
   if (message.includes('need_items')) return '至少要有一項有名稱的傢俬。';

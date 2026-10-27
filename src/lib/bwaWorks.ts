@@ -29,7 +29,7 @@ function asOption(value: unknown): BwaWorkOption | null {
 export async function searchBwaWorks(search: string): Promise<{ items: BwaWorkOption[]; error: string }> {
   const body = { search: search.trim(), limit: 15 };
   const slugs = ['supabase-functions-fetch-bwa-works', 'fetch-bwa-works'];
-  let lastError = 'BWA 工程清單尚未部署。可以先手填編號和名稱。';
+  let lastError = '工程清單暫時讀不到。可以先自己填編號和名稱。';
   for (const slug of slugs) {
     const { data, error } = await supabase.functions.invoke(slug, { body });
     if (error) {

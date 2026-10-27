@@ -92,13 +92,13 @@ export function FactoryLoginView() {
           <p className="fds-page-description">
             {isSupplier
               ? '你的上載會先進入傢俬組審核，不會直接寫進圖冊。'
-              : '邀請廠家用自己的電郵登入。帳號角色是 supplier，並綁定一間 PMS 廠家。上載先入審核佇列。'}
+              : '邀請廠家用自己的電郵登入，並指定所屬廠家。他們上載的資料會先給傢俬組審核。'}
           </p>
         </section>
 
         {missingTable && (
           <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
-            supplier_logins 或 fds_supplier_review_documents 尚未部署。邀請要等 migration 和 invite-supplier 都上線。
+            廠家登入還沒準備好，暫時不能發邀請。請聯絡管理員。
           </section>
         )}
         {error && (

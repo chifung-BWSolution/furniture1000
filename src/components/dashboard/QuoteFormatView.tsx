@@ -44,7 +44,7 @@ export function QuoteFormatView() {
     setSaving(false);
     if (result.missingTable) {
       setMissingTable(true);
-      toast.error(result.error || '資料表尚未部署');
+      toast.error(result.error || '格式設定還沒準備好，暫時不能儲存');
       return;
     }
     if (!result.ok) {
@@ -75,7 +75,7 @@ export function QuoteFormatView() {
         )}
         {missingTable && (
           <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
-            資料表 quote_format_settings 尚未部署。畫面顯示的是已決議的預設值，儲存要等 migration 套用之後。
+            格式設定還沒準備好，暫時不能儲存。畫面顯示的是預設內容。請聯絡管理員。
           </section>
         )}
 

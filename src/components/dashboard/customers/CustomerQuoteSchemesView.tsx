@@ -3269,7 +3269,7 @@ export function CustomerQuoteSchemesView() {
           </div>
         ) : null
       }
-      subtitle="查看自己的 HTML 報價、切換版本、按工程分區批核產品，並回覆整張報價。"
+      subtitle="查看自己的報價、切換版本、按房間批核產品，並回覆整張報價。"
       maxWidthClass="max-w-none"
       actions={
         showDetail && active ? (

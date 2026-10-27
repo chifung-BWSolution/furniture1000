@@ -482,7 +482,13 @@ async function analyzeImageWithAI(
         try { const ed = await response.json(); errorBody = ed?.error || JSON.stringify(ed); }
         catch { errorBody = `HTTP ${response.status} ${response.statusText}`; }
         console.error(`[analyzeImageWithAI] HTTP ${response.status} error:`, errorBody);
-        error = { message: `Edge Function error (${response.status}): ${errorBody}` };
+        if (errorBody.includes('relay') || errorBody.includes('Failed to send') || errorBody.includes('FunctionsFetchError') || errorBody.includes('Failed to fetch')) {
+          throw new Error('連線失敗。請改用較小的圖片，或檢查網絡後再試。');
+        }
+        if (errorBody.includes('GEMINI_API_KEY')) {
+          throw new Error('圖片分析暫時不能使用，請聯絡管理員。');
+        }
+        error = { message: '處理失敗，請稍後再試。' };
       } else {
         data = await response.json();
       }
@@ -491,12 +497,12 @@ async function analyzeImageWithAI(
         const errMsg = error.message || String(error);
         // Detect network/payload errors
         if (errMsg.includes('relay') || errMsg.includes('Failed to send') || errMsg.includes('FunctionsFetchError') || errMsg.includes('Failed to fetch')) {
-          throw new Error(`Network request failed (~${(payloadSizeBytes / 1024 / 1024).toFixed(1)}MB payload). Try uploading a smaller image or check your internet connection.`);
+          throw new Error('連線失敗。請改用較小的圖片，或檢查網絡後再試。');
         }
         if (errMsg.includes('GEMINI_API_KEY')) {
-          throw new Error('GEMINI_API_KEY is not configured in Supabase Edge Function secrets.');
+          throw new Error('圖片分析暫時不能使用，請聯絡管理員。');
         }
-        throw new Error(`Edge Function error: ${errMsg}`);
+        throw new Error(errMsg.startsWith('處理失敗') || errMsg.startsWith('連線失敗') || errMsg.startsWith('圖片分析暫時') ? errMsg : '處理失敗，請稍後再試。');
       }
 
       if (data?.error) {
@@ -1428,8 +1434,8 @@ async function analyzePDFCatalogBatched(
   if (!isLargeFile) {
     onProgress({
       phase: 'analyzing',
-      message: `Rendering ${estimatedPages} page(s) & sending to ${modelName} (~${estimatedMB} MB)...`,
-      detail: 'AI is scanning every page to identify products. This may take 2-5 minutes.',
+      message: `正在讀取 ${estimatedPages} 頁（約 ${estimatedMB} MB）…`,
+      detail: '正在逐頁找出產品，可能需要幾分鐘。',
     });
 
     // Render all pages to images for bounding-box cropping
@@ -1497,20 +1503,19 @@ async function analyzePDFCatalogBatched(
       console.error(`[AIProcessor] Error name:`, fetchErr?.name, `| Message:`, fetchErr?.message);
       const errMsg = fetchErr?.message || String(fetchErr);
       if (errMsg.includes('relay') || errMsg.includes('Failed to send') || errMsg.includes('FunctionsFetchError') || errMsg.includes('Failed to fetch')) {
-        const payloadMB = (totalFileSizeBytes / (1024 * 1024)).toFixed(1);
-        throw new Error(`Network request failed (~${payloadMB}MB payload). The PDF may be too large to process in a single request. Processing will auto-retry page-by-page.`);
+        throw new Error('這份 PDF 太大，一次讀不完。系統會改為逐頁再試。');
       }
       throw fetchErr;
     }
 
     if (data?.error) throw new Error(data.error);
 
-    const partialWarning = data?.partial_results ? ` (partial — ${data.chunks_successful}/${data.chunks_total} chunks succeeded)` : '';
+    const partialWarning = data?.partial_results ? `（有部分頁面未完成，已完成 ${data.chunks_successful}/${data.chunks_total}）` : '';
 
     onProgress({
       phase: 'extracting',
-      message: `AI analysis complete${partialWarning}. Cropping individual product images...`,
-      detail: `Found ${data?.products?.length || 0} items in ${(data?.elapsed_seconds || 0).toFixed(1)}s. Now cropping each product...`,
+      message: `分析完成${partialWarning}，正在裁出每件產品的圖片…`,
+      detail: `找到 ${data?.products?.length || 0} 件，正在裁出每件產品的圖片…`,
     });
 
     // V6: Frontend-side cropping — crop each product individually from page images
@@ -1545,7 +1550,7 @@ async function analyzePDFCatalogBatched(
 
     onProgress({
       phase: 'complete',
-      message: `Successfully extracted ${products.length} products (${withImages.length} with unique 1:1 square crops)${partialWarning}`,
+      message: `已抽出 ${products.length} 件產品（${withImages.length} 張圖片）${partialWarning}`,
       detail: data?.catalog_summary || '',
     });
 
@@ -1556,8 +1561,8 @@ async function analyzePDFCatalogBatched(
 
   onProgress({
     phase: 'analyzing',
-    message: `Large file detected (~${estimatedMB} MB, ~${estimatedPages} pages). Processing ${totalBatches} pages with ${PARALLEL_CONCURRENCY} parallel workers...`,
-    detail: 'Each page is processed individually for maximum stability.',
+    message: `檔案較大（約 ${estimatedMB} MB、${estimatedPages} 頁），正在分批處理…`,
+    detail: '會逐頁處理，比較穩妥。',
   });
 
   const allProducts: CatalogProduct[] = [];
@@ -1713,8 +1718,8 @@ async function analyzePDFCatalogBatched(
 
     onProgress({
       phase: 'analyzing',
-      message: `Processing Page ${wave[0]} of ${estimatedPages}...` + (wave.length > 1 ? ` (${wave.length} in parallel)` : ''),
-      detail: `${allProducts.length} products found so far · ${successfulBatches} pages complete · ${elapsedSeconds.toFixed(0)}s elapsed`,
+      message: `正在處理第 ${wave[0]} / ${estimatedPages} 頁…`,
+      detail: `目前已找到 ${allProducts.length} 件，已完成 ${successfulBatches} 頁。`,
     });
 
     // Fire all pages in this wave concurrently
@@ -1763,18 +1768,18 @@ async function analyzePDFCatalogBatched(
 
   if (allProducts.length === 0 && batchErrors.length > 0) {
     throw new Error(
-      `All ${estimatedPages} pages failed. Errors:\n${batchErrors.map(e => `  Page ${e.batch}: ${e.error}`).join('\n')}`
+      `這 ${estimatedPages} 頁都讀不到。請稍後再試，或改傳較小的檔案。`
     );
   }
 
-  const partialWarning = batchErrors.length > 0 ? ` (partial — ${successfulBatches}/${estimatedPages} pages succeeded)` : '';
+  const partialWarning = batchErrors.length > 0 ? `（有部分頁面未完成，已完成 ${successfulBatches}/${estimatedPages} 頁）` : '';
 
   onProgress({
     phase: 'complete',
-    message: `Extracted ${allProducts.length} products in ${totalElapsed}s${partialWarning}`,
+    message: `已抽出 ${allProducts.length} 件產品${partialWarning}`,
     detail: batchErrors.length > 0
-      ? `${batchErrors.length} page(s) failed but ${allProducts.length} products were saved.`
-      : `All ${estimatedPages} pages completed successfully.`,
+      ? `有 ${batchErrors.length} 頁沒讀到，已保留 ${allProducts.length} 件產品。`
+      : `${estimatedPages} 頁都已讀完。`,
   });
 
   return allProducts;
@@ -3457,7 +3462,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       setAddedCount(0);
       setBatchProgress(null);
       setProcessingMode('excel-pdf-crossref');
-      setProcessingProgress({ phase: 'uploading', message: '📎 Cross-Reference Mode: PDF (圖片) + Excel (數據)...' });
+      setProcessingProgress({ phase: 'uploading', message: '正在對照目錄 PDF 和 Excel…' });
 
       try {
         // ── Step 1: Parse Excel for structured data ──────────────────
@@ -3486,7 +3491,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // This approach is COLUMN-AGNOSTIC — Excel's fromCol is unreliable.
         // Visual similarity is the sole matching criterion.
         // ══════════════════════════════════════════════════════════════════════
-        setProcessingProgress({ phase: 'extracting', message: `🔍 PDF視覺特徵提取 + 全域Excel圖片搜尋: ${parseResult.products.length} 個產品...` });
+        setProcessingProgress({ phase: 'extracting', message: `正在為 ${parseResult.products.length} 件產品對圖…` });
 
         const pdfFile = pdfFilesInUpload[0];
         const pdfArrayBuffer = await pdfFile.arrayBuffer();
@@ -3572,7 +3577,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // ══════════════════════════════════════════════════════════════════════
         setProcessingProgress({
           phase: 'extracting',
-          message: `📄 PDF頁面渲染中: 提取產品視覺特徵模板...`,
+          message: '正在讀取目錄每一頁…',
         });
 
         const pdfThumbnails: Map<number, { base64: string; mime: string }> = new Map();
@@ -3583,7 +3588,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
           setProcessingProgress({
             phase: 'extracting',
-            message: `📄 PDF頁面 ${pageNumber}/${pdfPageCount}: 提取 ${pageProducts.length} 個產品縮略圖...`,
+            message: `正在讀取第 ${pageNumber} / ${pdfPageCount} 頁，共 ${pageProducts.length} 件產品…`,
           });
 
           const pageImage = await renderPdfPageToImage(new Uint8Array(pdfArrayBuffer).buffer, pageNumber);
@@ -3645,7 +3650,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // ══════════════════════════════════════════════════════════════════════
         setProcessingProgress({
           phase: 'extracting',
-          message: `🤖 Gemini視覺匹配: ${pdfThumbnails.size} 個PDF縮略圖 vs ${allExcelImages.length} 個Excel圖片...`,
+          message: `正在比對 ${pdfThumbnails.size} 件產品和 ${allExcelImages.length} 張表格圖片…`,
         });
 
         const productImageSources: Map<number, { url: string; source: 'excel' | 'pdf'; validated: boolean }> = new Map();
@@ -3744,7 +3749,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           
           setProcessingProgress({
             phase: 'extracting',
-            message: `🤖 Gemini視覺匹配 ${batchStart + 1}-${Math.min(batchStart + VISUAL_BATCH_SIZE, pdfProductsForApi.length)}/${pdfProductsForApi.length}...`,
+            message: `正在比對圖片 ${batchStart + 1}–${Math.min(batchStart + VISUAL_BATCH_SIZE, pdfProductsForApi.length)} / ${pdfProductsForApi.length}…`,
           });
 
           try {
@@ -3807,7 +3812,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                 let errorBody: string;
                 try { const ed = await vmResponse.json(); errorBody = ed?.error || JSON.stringify(ed); }
                 catch { errorBody = `HTTP ${vmResponse.status}`; }
-                matchError = { message: `visual-match HTTP ${vmResponse.status}: ${errorBody}` };
+                console.error('[CrossRef] visual match failed', errorBody);
+                matchError = { message: '圖片比對失敗，請稍後再試。' };
               } else {
                 matchResult = await vmResponse.json();
               }
@@ -3816,7 +3822,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               const errMsg = invokeErr?.message || String(invokeErr);
               if (errMsg.includes('relay') || errMsg.includes('Failed to send') || errMsg.includes('FunctionsFetchError') || errMsg.includes('Failed to fetch')) {
                 console.error(`[CrossRef] ❌ Network error (payload ~${(estimatedPayloadSize / 1024 / 1024).toFixed(1)}MB): ${errMsg}`);
-                matchError = { message: `Network error (~${(estimatedPayloadSize / 1024 / 1024).toFixed(1)}MB payload). Try uploading smaller images.` };
+                matchError = { message: '圖片太大，比對失敗。請改用較小的圖片再試。' };
               } else {
                 matchError = { message: errMsg };
               }
@@ -3951,7 +3957,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
         if (imagesArray.length > 0 || isPJSFactory || (excelFiles.length > 0 && pdfFilesInUpload.length > 0)) {
           try {
-            setProcessingProgress({ phase: 'extracting', message: '使用 Gemini AI 生成雙語名稱...' });
+            setProcessingProgress({ phase: 'extracting', message: '正在產生中英文名稱…' });
             const productsContext = parseResult.products.map(p => ({
               title: p.title,
               modelNumber: p.modelNumber,
@@ -4111,13 +4117,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const fallbackDetail = totalPdfFallbacks > 0 ? ` + ${totalPdfFallbacks} PDF回退` : '';
         setProcessingProgress({
           phase: 'complete',
-          message: `✅ 全域視覺搜尋完成: ${catalogProds.length} 個產品 | ${matchDetail}${fallbackDetail} | 無圖片: ${totalNoImage}${correctionNote}`,
+          message: `✅ 已對好 ${catalogProds.length} 件產品｜${matchDetail}${fallbackDetail}｜沒有圖片：${totalNoImage}${correctionNote}`,
         });
         setIsProcessing(false);
       } catch (error: any) {
         setIsProcessing(false);
         setAiError(error.message || 'Cross-reference processing failed.');
-        setProcessingProgress({ phase: 'error', message: error.message || 'Cross-Reference 失敗' });
+        setProcessingProgress({ phase: 'error', message: error.message || '對照失敗' });
       }
       return;
     }
@@ -5444,11 +5450,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                   <div className="flex items-center gap-2">
                     <BarChart3 className="h-3.5 w-3.5 text-amber-500/70" />
                     <span className="font-mono-data text-[10px] text-amber-400">
-                      Page {batchProgress.currentBatch} / {batchProgress.totalBatches}
+                      第 {batchProgress.currentBatch} / {batchProgress.totalBatches} 頁
                     </span>
                   </div>
                   <span className="font-mono-data text-[10px] text-muted-foreground">
-                    {batchProgress.productsFoundSoFar} items found · {batchProgress.elapsedSeconds.toFixed(0)}s
+                    已找到 {batchProgress.productsFoundSoFar} 件
                   </span>
                 </div>
                 <Progress
@@ -5457,12 +5463,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                 />
                 <div className="flex items-center justify-between">
                   <span className="font-mono-data text-[9px] text-muted-foreground/60">
-                    Page {batchProgress.startPage} of ~{batchProgress.totalPages}
+                    第 {batchProgress.startPage} 頁，約 {batchProgress.totalPages} 頁
                   </span>
                   <span className="font-mono-data text-[9px] text-muted-foreground/60">
-                    {batchProgress.successfulBatches} OK
+                    {batchProgress.successfulBatches} 頁成功
                     {batchProgress.batchErrors.length > 0 && (
-                      <span className="text-rose-400"> · {batchProgress.batchErrors.length} failed</span>
+                      <span className="text-rose-400"> · {batchProgress.batchErrors.length} 頁失敗</span>
                     )}
                   </span>
                 </div>
@@ -5470,7 +5476,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                   <div className="flex items-center gap-2 rounded-md bg-amber-500/10 px-2.5 py-1.5 mt-1">
                     <AlertTriangle className="h-3 w-3 text-amber-500/70 flex-shrink-0" />
                     <p className="font-body text-[10px] text-amber-400/80">
-                      Large file detected. Processing one page at a time ({PARALLEL_CONCURRENCY} in parallel) for maximum stability.
+                      檔案較大，會逐頁處理，比較穩妥。
                     </p>
                   </div>
                 )}
@@ -5480,7 +5486,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                       <div key={i} className="flex items-center gap-1.5 rounded bg-rose-500/10 px-2 py-1">
                         <X className="h-2.5 w-2.5 text-rose-400 flex-shrink-0" />
                         <span className="font-mono-data text-[9px] text-rose-400 truncate">
-                          Batch {err.batch}: {err.error.substring(0, 80)}
+                          第 {err.batch} 頁：{err.error.substring(0, 80)}
                         </span>
                       </div>
                     ))}
@@ -5498,7 +5504,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                       processingProgress.phase === phase ? 'bg-amber-500 animate-pulse' :
                       ['uploading', 'analyzing', 'extracting', 'complete'].indexOf(processingProgress.phase) > i ? 'bg-amber-500' : 'bg-muted-foreground/20'
                     )} />
-                    <span className={cn('font-mono-data text-[9px]', processingProgress.phase === phase ? 'text-amber-400' : 'text-muted-foreground/40')}>{phase}</span>
+                    <span className={cn('font-mono-data text-[9px]', processingProgress.phase === phase ? 'text-amber-400' : 'text-muted-foreground/40')}>{phase === 'uploading' ? '上載' : phase === 'analyzing' ? '分析' : phase === 'extracting' ? '抽出' : '完成'}</span>
                   </div>
                 ))}
               </div>
@@ -5536,9 +5542,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <Badge className="bg-cyan-500/15 text-cyan-500 border border-cyan-500/30 font-mono-data text-[10px] gap-1">
-                    🔍 Visual Search
+                    以圖對照
                   </Badge>
-                  <span className="font-mono-data text-[10px] text-muted-foreground">PDF → 視覺模板 | Excel → 全域圖片搜尋</span>
+                  <span className="font-mono-data text-[10px] text-muted-foreground">用目錄上的產品圖，去表格裡找同一件</span>
                 </div>
                 <p className="font-display text-sm font-bold text-cyan-400">{processingProgress.message}</p>
                 {processingProgress.detail && <p className="text-xs text-muted-foreground font-body mt-0.5">{processingProgress.detail}</p>}
@@ -5552,7 +5558,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-start gap-3 rounded-xl border border-rose-500/30 bg-rose-500/5 p-4">
             <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-rose-500" />
             <div className="flex-1">
-              <p className="font-display text-sm font-bold text-rose-500">處理失敗 — Error Details</p>
+              <p className="font-display text-sm font-bold text-rose-500">處理失敗</p>
               <p className="mt-1 text-xs text-rose-400/80 font-body whitespace-pre-line break-all">{aiError}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" className="gap-1.5 border-rose-500/30 text-rose-500 hover:bg-rose-500/10 font-body text-xs"
@@ -5560,8 +5566,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                   <RotateCcw className="h-3 w-3" /> 重新分析
                 </Button>
                 <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground hover:text-foreground font-body text-xs"
-                  onClick={() => { navigator.clipboard.writeText(aiError || ''); toast.success('Error copied to clipboard'); }}>
-                  📋 Copy Error
+                  onClick={() => { navigator.clipboard.writeText(aiError || ''); toast.success('已複製錯誤內容'); }}>
+                  複製錯誤內容
                 </Button>
               </div>
             </div>

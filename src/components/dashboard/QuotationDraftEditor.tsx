@@ -916,11 +916,7 @@ function QuoteItemFlagToggles({
       </label>
       <label
         className="inline-flex cursor-pointer items-center gap-1"
-        title={
-          item.hideInPdf
-            ? "已於 PDF／預覽隱藏（草稿仍顯示）"
-            : "勾選後此產品不出現在報價單預覽／PDF"
-        }
+        title={item.hideInPdf ? labels.hideInPdfOn : labels.hideInPdfOff}
       >
         <Checkbox
           checked={item.hideInPdf ?? false}
@@ -1417,7 +1413,7 @@ function QuoteProductItemCard({
               onChange={(e) => updateItem(item.id, "sku", e.target.value)}
               className={QUOTE_INPUT_CLASS}
               aria-label={labels.sku}
-              title="SKU（僅草稿編輯，不顯示於 PDF）"
+              title={labels.skuHint}
             />
           </QuoteFieldBlock>
             </div>
@@ -3643,10 +3639,10 @@ export function QuotationDraftEditor({
 
   const handleOpenSubmitReview = () => {
     if (existingQuote?.quoteUuid && !itemsLoadedFromDb) {
-      toast.error(quoteLocale === "en" ? "Line items are still loading" : "報價明細仍在載入", {
+      toast.error(quoteLocale === "en" ? "The quotation is still loading" : "報價內容仍在載入", {
         description: quoteLocale === "en"
-          ? "Wait until the saved lines finish loading before submitting."
-          : "請等既有明細載入完成再提交，避免用不完整明細覆寫報價。",
+          ? "Wait until everything has loaded before sending it for review."
+          : "請等報價內容載入完成再送出，以免漏掉項目。",
       });
       return;
     }
@@ -3672,14 +3668,14 @@ export function QuotationDraftEditor({
     if (contentItems.length === 0) {
       toast.error("無法提交審核", {
         description:
-          "目前沒有報價內容（總額可能為 HK$0）。若剛才頁面曾異常，請先按「保存現有版本」或重新整理以恢復草稿。",
+          "還沒有報價內容，總金額可能是 HK$0。如果剛才頁面出過問題，請先按「保存現有版本」，或重新整理取回剛才的內容。",
       });
       return;
     }
     if (totalAmount <= 0) {
       toast.error("無法提交審核", {
         description:
-          "報價總金額為 HK$0。請確認品項單價／數量後再提交；若資料異常消失，請重新整理以恢復草稿。",
+          "總金額是 HK$0。請檢查單價和數量後再送出。如果內容不見了，請重新整理取回剛才的內容。",
       });
       return;
     }
@@ -3703,7 +3699,7 @@ export function QuotationDraftEditor({
     if (!chainId) {
       toast.error("缺少報價單號", {
         description:
-          "無法確認 PMS Pitching 報價單號。請返回選擇 Pitching，或重新整理後再提交審核。",
+          "找不到這張報價的單號。請返回重新選擇提案，或重新整理後再送出審核。",
       });
       return;
     }
@@ -3738,7 +3734,7 @@ export function QuotationDraftEditor({
         const product = await fetchProductForQuoteDetail(linkedId);
         if (!product) {
           toast.error("找不到關聯產品", {
-            description: "products 表可能已刪除該產品，可重新建立並連結。",
+            description: "這件產品可能已從目錄刪除，可以重新建立並連回去。",
           });
           return;
         }
@@ -3920,53 +3916,60 @@ export function QuotationDraftEditor({
   };
 
   const openZoneManager = () => {
-    setZoneManagerDraft(sectionZonesOf(items));
+    setZoneManagerDraft(zoneRowsFromItems(items, floorPlan?.regions ?? []));
+    setActiveZoneId(null);
     setZoneManagerOpen(true);
   };
 
   const saveZoneManager = () => {
     itemsUserEditedRef.current = true;
     const drafts = zoneManagerDraft;
-    setItems((prev) => applyZoneManager(prev, drafts));
+    const existingIds = new Set(
+      items.filter((item) => item.isSectionTitle).map((item) => item.id),
+    );
+    const kept = drafts.filter((row) => row.name.trim() || existingIds.has(row.id));
+    setItems((prev) => applyZoneManager(prev, kept));
     setZoneImages((prev) =>
-      pruneQuoteZoneImages(prev, drafts.map((row) => row.id)),
+      pruneQuoteZoneImages(prev, kept.map((row) => row.id)),
     );
     setZonePhotoLayouts((prev) =>
-      pruneZonePhotoLayouts(prev, [...drafts.map((row) => row.id), UNZONED_QUOTE_IMAGE_KEY]),
+      pruneZonePhotoLayouts(prev, [...kept.map((row) => row.id), UNZONED_QUOTE_IMAGE_KEY]),
     );
+    setFloorPlan((prev) => (
+      prev ? { ...prev, regions: regionsFromZoneRows(kept) } : prev
+    ));
     setZoneManagerOpen(false);
   };
 
-  const detectZonesFromBlob = async (blob: Blob) => {
+  const detectZonesFromBlob = async (blob: Blob, priorRegions: QuoteZoneRegion[]) => {
     setRecognizingZones(true);
     try {
       const jpeg = await imageBlobToJpegBase64(blob);
-      const names = await detectZonesFromJpegBase64(jpeg);
-      const sourceItems = itemsRef.current;
-      const existing = new Set(
-        sourceItems
-          .filter((item) => item.isSectionTitle)
-          .map((item) => item.name.trim().toLowerCase()),
-      );
-      const fresh = names.filter((name) => name.trim() && !existing.has(name.trim().toLowerCase()));
-      setZoneManagerDraft([
-        ...fresh.map((name) => ({ id: generateId(), name: name.trim() })),
-        ...sectionZonesOf(sourceItems),
-      ]);
+      const detected = await detectZonesFromJpegBase64(jpeg);
+      const base = zoneManagerOpenRef.current
+        ? zoneManagerDraftRef.current
+        : zoneRowsFromItems(itemsRef.current, priorRegions);
+      const { rows, added } = applyDetectedZones(base, detected, generateId);
+      setZoneManagerDraft(rows);
+      setActiveZoneId(added > 0 ? rows[0]?.id ?? null : null);
       setZoneManagerOpen(true);
-      if (!names.length) {
+      if (!detected.length) {
         toast.message(
           quoteLocale === "en"
-            ? "No labeled zones were found. Add them here."
-            : "平面圖上看不到可辨識的分區，可在這裡手動新增",
+            ? "No labeled rooms were found. Draw them on the plan, or add them below."
+            : "平面圖上看不到已標名稱的房間，可以在圖上自己畫，或在下面新增",
         );
-      } else if (!fresh.length) {
-        toast.message(quoteLocale === "en" ? "Those zones are already on this quote" : "這些分區已經在報價裡");
+      } else if (!added) {
+        toast.message(
+          quoteLocale === "en"
+            ? "These rooms are already on the quote. Adjust the areas, then confirm."
+            : "這些房間已經在報價裡，可以調整範圍後再確認",
+        );
       } else {
         toast.success(
           quoteLocale === "en"
-            ? `Found ${fresh.length} zone${fresh.length === 1 ? "" : "s"}. Confirm to add them.`
-            : `已識別 ${fresh.length} 個分區，確認後加入報價`,
+            ? `Found ${added} room${added === 1 ? "" : "s"}. Adjust the areas, then confirm.`
+            : `已找到 ${added} 個房間，可以調整範圍後再確認加入`,
         );
       }
     } catch (error) {
@@ -3996,11 +3999,13 @@ export function QuotationDraftEditor({
         previewUrl = await uploadProjectFloorPlanPreview(quoteImageScope || "quote", rendered.blob);
         visionBlob = rendered.blob;
       }
+      const priorRegions = floorPlanRef.current?.regions ?? [];
       setFloorPlan({
         url: uploaded.url,
         mimeType: uploaded.mimeType,
         fileName: uploaded.fileName,
         previewUrl,
+        regions: unconfirmZoneRegions(priorRegions),
       });
       toast.success(quoteLocale === "en" ? "Floor plan uploaded. Detecting zones…" : "已上傳平面圖，正在識別分區");
       // Floor plan metadata is not a line-item edit. Marking items edited while
@@ -4012,7 +4017,7 @@ export function QuotationDraftEditor({
         ]);
       }
       setFloorPlanBusy(false);
-      await detectZonesFromBlob(visionBlob);
+      await detectZonesFromBlob(visionBlob, priorRegions);
     } catch (error) {
       toast.error(quoteLocale === "en" ? "Could not upload the floor plan" : "平面圖上傳失敗", {
         description: error instanceof Error ? error.message : undefined,
@@ -4328,10 +4333,10 @@ export function QuotationDraftEditor({
   /** Save current editor state to Supabase (update open version, or create v1). */
   const handleSaveExistingVersion = async () => {
     if (existingQuote?.quoteUuid && !itemsLoadedFromDb) {
-      toast.error(quoteLocale === "en" ? "Line items are still loading" : "報價明細仍在載入", {
+      toast.error(quoteLocale === "en" ? "The quotation is still loading" : "報價內容仍在載入", {
         description: quoteLocale === "en"
-          ? "Wait until the saved lines finish loading before saving."
-          : "請等既有明細載入完成再保存，避免用不完整明細覆寫報價。",
+          ? "Wait until everything has loaded before saving."
+          : "請等報價內容載入完成再保存，以免漏掉項目。",
       });
       return;
     }
@@ -4366,7 +4371,7 @@ export function QuotationDraftEditor({
     if (!chainId) {
       toast.error("缺少報價單號", {
         description:
-          "無法確認 PMS Pitching 報價單號。請返回選擇 Pitching，或重新整理後再保存。",
+          "找不到這張報價的單號。請返回重新選擇提案，或重新整理後再保存。",
       });
       return;
     }
@@ -4431,7 +4436,7 @@ export function QuotationDraftEditor({
       setAutoSaveFailed(false);
       toast.success(
         !existingQuote?.quoteUuid && result.version === "v1"
-          ? "已保存為 v1"
+          ? "已保存為第 1 版"
           : persistMode === "new-version"
             ? "已保存為新版本"
             : "已保存現有版本",
@@ -4442,7 +4447,7 @@ export function QuotationDraftEditor({
       onQuotePersisted?.(result);
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : "無法保存至伺服器，請稍後再試";
+        err instanceof Error ? err.message : "暫時存不了，請稍後再試";
       toast.error("保存失敗", { description: message });
     } finally {
       setIsSavingDraft(false);
@@ -4983,7 +4988,7 @@ export function QuotationDraftEditor({
                   title={t.autoSaveHint}
                 >
                   {autoSaveFailed
-                    ? "本機備份失敗；請按「保存現有版本」寫入伺服器"
+                    ? t.autoSaveFailed
                     : lastLocalSavedAt
                       ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString(quoteLocale === "en" ? "en-GB" : "zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
                       : t.autoSaveHint}
@@ -5912,8 +5917,8 @@ export function QuotationDraftEditor({
                             <button
                               type="button"
                               className="text-muted-foreground"
-                              title="以 HKD 成本（沒有則用 CNY 成本）乘此倍率，四捨五入後寫入單價。標題列與增值服務不會套用。"
-                              aria-label="倍率說明"
+                              title={t.priceMultiplierHint}
+                              aria-label={t.priceMultiplierHint}
                             >
                               <CircleHelp className="h-3.5 w-3.5" />
                             </button>
@@ -5965,15 +5970,15 @@ export function QuotationDraftEditor({
               <section id="quote-sec-photos" className="order-5 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
                 <h2 className="font-display text-base font-bold text-foreground">{t.quotePhotos}</h2>
                 <p className="mb-3 mt-1 font-body text-sm text-muted-foreground">
-                  排版時會預設帶入報價明細的產品圖，也可由報價設定的圖片庫選圖；內容內頁的圖印在總價之後、訂單確認及交付細節之前。
+                  排版時會先帶入這張報價的產品圖，也可以從「報價設定 › 圖片庫」選圖。這些圖會印在總價之後、訂單確認之前。
                   {quoteContentPages.length > 0
-                    ? `另有 ${quoteContentPages.length} 張內頁獨立整頁（圖片庫設定），每次出 PDF 會插在指定的正文頁數之後。`
+                    ? `另有 ${quoteContentPages.length} 張獨立整頁，產生報價單時會插在你指定的那一頁後面。`
                     : ''}
                   {quoteCoverPages.length > 0
-                    ? `另有 ${quoteCoverPages.filter((page) => page.placement === 'cover').length} 張封面、${quoteCoverPages.filter((page) => page.placement === 'back').length} 張封底（圖片庫設定），每次出 PDF 會各自插入一整頁。`
+                    ? `另有 ${quoteCoverPages.filter((page) => page.placement === 'cover').length} 張封面、${quoteCoverPages.filter((page) => page.placement === 'back').length} 張封底，產生報價單時會各佔一整頁。`
                     : quoteContentPages.length === 0
-                      ? '封面／封底及內頁獨立整頁在報價設定的「圖片庫」設定，每次出 PDF 會各自插入一整頁。'
-                      : '封面／封底在報價設定的「圖片庫」設定，每次出 PDF 會各自插入一整頁。'}
+                      ? '封面、封底和獨立整頁在「報價設定 › 圖片庫」設定，產生報價單時會各佔一整頁。'
+                      : '封面和封底在「報價設定 › 圖片庫」設定，產生報價單時會各佔一整頁。'}
                 </p>
                 <QuotePhotoPages
                   layouts={quotePhotoLayouts}
@@ -6511,7 +6516,7 @@ export function QuotationDraftEditor({
       <Modal
         open={zoneManagerOpen}
         onOpenChange={setZoneManagerOpen}
-        size="md"
+        size={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "xl" : "md"}
         icon={<FolderKanban className="h-5 w-5" />}
         title={t.manageZones}
         description={t.manageZonesHint}
@@ -6524,7 +6529,43 @@ export function QuotationDraftEditor({
           </>
         }
       >
-        <div className="space-y-2">
+        <div className="space-y-3">
+          <button
+            type="button"
+            disabled={floorPlanBusy || recognizingZones}
+            onClick={() => floorPlanInputRef.current?.click()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
+          >
+            {floorPlanBusy || recognizingZones ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4 shrink-0" />
+            )}
+            <span className="truncate">
+              {floorPlanBusy
+                ? t.uploadingFloorPlan
+                : recognizingZones
+                  ? t.recognizingZones
+                  : floorPlan
+                    ? t.reuploadFloorPlanRecognize
+                    : t.uploadFloorPlanRecognize}
+            </span>
+          </button>
+          <p className="font-body text-xs text-muted-foreground">{t.floorPlanRecognizeHint}</p>
+          {floorPlan?.regions.some((region) => !region.confirmed) ? (
+            <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
+          ) : null}
+          {floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? (
+            <FloorPlanZoneCanvas
+              src={(floorPlan.previewUrl || floorPlan.url) as string}
+              zones={zoneManagerDraft}
+              activeId={activeZoneId}
+              createId={generateId}
+              disabled={floorPlanBusy || recognizingZones}
+              onChange={setZoneManagerDraft}
+              onActive={setActiveZoneId}
+            />
+          ) : null}
           {zoneManagerDraft.length === 0 ? (
             <p className="font-body text-sm text-muted-foreground">
               {quoteLocale === "en" ? "No zones yet." : "尚未有分區。"}
@@ -6532,13 +6573,17 @@ export function QuotationDraftEditor({
           ) : null}
           {zoneManagerDraft.map((zone, index) => (
             <div key={zone.id} className="flex items-center gap-2">
-              <span className="w-6 shrink-0 text-center font-mono-data text-xs text-muted-foreground">
+              <span
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded font-mono-data text-xs text-white"
+                style={{ background: floorPlanZoneColor(index) }}
+              >
                 {index + 1}
               </span>
               <Input
                 value={zone.name}
                 aria-label={t.sectionTitleLabel}
                 placeholder={t.sectionTitlePlaceholder}
+                onFocus={() => setActiveZoneId(zone.id)}
                 onChange={(e) =>
                   setZoneManagerDraft((prev) =>
                     prev.map((row) => (row.id === zone.id ? { ...row, name: e.target.value } : row)),
@@ -6546,6 +6591,9 @@ export function QuotationDraftEditor({
                 }
                 className={QUOTE_INPUT_CLASS}
               />
+              <span className="hidden w-16 shrink-0 text-center font-body text-[10px] text-muted-foreground sm:block">
+                {zone.rect ? t.zoneBoxed : t.zoneUnboxed}
+              </span>
               <button
                 type="button"
                 className="rounded-md p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
@@ -6594,7 +6642,7 @@ export function QuotationDraftEditor({
             type="button"
             className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-foreground/80 hover:bg-muted/50"
             onClick={() =>
-              setZoneManagerDraft((prev) => [...prev, { id: generateId(), name: "" }])
+              setZoneManagerDraft((prev) => [...prev, { id: generateId(), name: "", rect: null }])
             }
           >
             <Plus className="h-3 w-3" />

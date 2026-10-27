@@ -92,7 +92,7 @@ export function EmailNotificationsView() {
 
         {missingTable && (
           <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
-            資料表 email_notification_logs 尚未部署。部署 migration 和 send-upload-log-report-email 之後，新寄出的信才會出現在這裡。
+            寄信紀錄還沒準備好，暫時看不到。請聯絡管理員。
           </section>
         )}
         {error && (

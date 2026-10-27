@@ -119,7 +119,7 @@ export function QuotePhotoLibraryView() {
       toast.success(
         placement === 'content'
           ? '已改為內頁圖片，可在報價排版選用或設為獨立整頁'
-          : `已設為${QUOTE_PHOTO_PLACEMENT_LABELS[placement]}，每次出 PDF 自動插入`,
+          : `已設為${QUOTE_PHOTO_PLACEMENT_LABELS[placement]}，之後產生報價單時會自動放進去`,
       );
     } catch (placementError) {
       toast.error(quotePhotoErrorText(placementError));
@@ -256,7 +256,7 @@ export function QuotePhotoLibraryView() {
             圖片庫
           </h1>
           <p className="fds-page-description">
-            全公司共用一組可插入報價單的圖片；可以直接上載，也可以在報價編輯器的排版頁用 AI（Grok 4.7 或 Gemini 3.8）按描述生成參考圖。內容內頁的圖在報價編輯器排版，印在總價之後、訂單確認及交付細節之前；開啟「插入 PDF（獨立整頁）」並指定頁數後，每次產生 PDF 會自動插在正文第幾頁之後；標為封面／封底的圖，每次產生 PDF 會自動插入第 1 頁起／最後一頁。
+            全公司共用一組可放進報價單的圖片。可以直接上載，也可以在排版時用 AI 按描述生成參考圖。內容頁的圖會印在總價之後、訂單確認之前。勾選「獨立整頁」並指定頁數後，產生報價單時會插在該頁後面。標為封面或封底的圖，會自動放在第一頁或最後一頁。
             {canManage ? '上載、排序、插入位置及刪除限管理員。' : '你目前是唯讀，改動請找管理員。'}
           </p>
         </section>
@@ -268,7 +268,7 @@ export function QuotePhotoLibraryView() {
         )}
         {missingTable && (
           <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
-            資料表 quote_photo_assets 尚未部署。套用 migration 之後就可以上載圖片。
+            圖片庫還沒準備好，暫時不能上載。請聯絡管理員。
           </section>
         )}
 
@@ -610,7 +610,7 @@ export function QuotePhotoLibraryView() {
           <>
             從圖片庫移除「{deleteTarget?.title}」。
             <span className="mt-2 block text-xs text-muted-foreground">
-              已插入這張圖的報價單草稿仍會保留，但下次編輯時要重新選圖；已發出的報價版本與已分享連結不受影響。
+              還在編輯的報價單仍會留著這張圖，但下次再改時要重新選。已經發出的報價和分享連結不會變。
             </span>
           </>
         }

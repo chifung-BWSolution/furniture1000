@@ -96,7 +96,7 @@ const photoErrorMessages: Record<string, string> = {
   quote_photo_upload_failed: '圖片未能上載，請稍後再試。',
   quote_photo_record_failed: '圖片記錄未能保存，請稍後再試。',
   quote_photo_permission_denied: '只有管理員、上載員或 PM 可以修改圖片庫。',
-  quote_photo_library_unavailable: '圖片庫資料表尚未部署，請先套用 migration。',
+  quote_photo_library_unavailable: '圖片庫暫時不能使用，請聯絡管理員。',
   quote_photo_not_found: '找不到這張圖片，可能已被移除。',
   quote_photo_generate_invalid: `請輸入描述（最多 ${QUOTE_PHOTO_PROMPT_MAX} 字）並選擇比例。`,
   quote_photo_generate_reference_limit: `最多只可以選 ${QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張參考圖片。`,

@@ -91,7 +91,6 @@ export function QuotePhotoGenerateDialog({
       toast.error(quotePhotoErrorText(new Error('quote_photo_library_limit')));
       return;
     }
-    const label = QUOTE_PHOTO_GENERATE_MODELS.find((entry) => entry.id === model)?.label ?? 'AI';
     setGenerating(true);
     try {
       const referenceUrls = refs.flatMap((id) => {
@@ -108,7 +107,7 @@ export function QuotePhotoGenerateDialog({
       setPrompt('');
       setRefs([]);
       onClose();
-      toast.success(`已用 ${label} 生成參考圖，並加入圖片庫。`);
+      toast.success('已生成參考圖，並加入圖片庫。');
     } catch (error) {
       toast.error(quotePhotoErrorText(error));
     } finally {
@@ -161,7 +160,7 @@ export function QuotePhotoGenerateDialog({
             ))}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Grok 4.7 偏寫實效果圖；Gemini 3.8 走 Google 的 Gemini 3 影像模型（Nano Banana Pro），成品較接近實拍。生成失敗可以切換另一個再試。
+            第一個偏寫實效果圖，第二個較接近實拍。生成失敗可以換另一個再試。
           </p>
         </div>
 

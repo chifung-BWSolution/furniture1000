@@ -29,7 +29,7 @@ export function customerQuoteError(error: PostgrestError): string {
     || message.includes('list_customer_quotes')
     || message.includes('save_customer_quote_scheme')
   ) {
-    return '分享報價尚未部署。這次沒有改正式資料庫。';
+    return '分享報價暫時不能使用。已保存的資料沒有被改動。';
   }
   if (error?.code === '42501' || message.includes('permission_denied') || message.includes('invalid_token')) {
     return '分享連結無效或已撤銷。';
