@@ -47,7 +47,7 @@ import {
   type PresentationProjectOption,
 } from '@/lib/presentationClients';
 import {
-  createNativeCanvaDesign, fetchCanvaGenerationStatus, defaultBrief, exportCanvaSessionPdf,
+  createNativeCanvaDesign, fetchCanvaDesignPages, fetchCanvaGenerationStatus, defaultBrief, exportCanvaSessionPdf,
   exportCanvaSessionPptx, listCanvaDesignExports, listCanvaDesignSessions,
   listCanvaSessionVersions, probeCanvaNative, proPdfHandoffPath, saveCanvaDraft,
   type CanvaDesignBrief, type CanvaDesignExportRow, type CanvaDesignSession,
@@ -609,6 +609,9 @@ export function PresentationView() {
   const [listDrawer, setListDrawer] = useState<null | 'drafts' | 'designs'>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
   const [previewPage, setPreviewPage] = useState(0);
+  const [pageThumbs, setPageThumbs] = useState<(string | null)[]>([]);
+  const [pagesLoading, setPagesLoading] = useState(false);
+  const [pagesNote, setPagesNote] = useState('');
   const sessionLimitRef = useRef(12);
 
   useEffect(() => {
@@ -1157,10 +1160,43 @@ export function PresentationView() {
   const visibleDrafts = draftSessions.slice(0, SIDEBAR_PREVIEW);
   const visibleDesigns = designSessions.slice(0, SIDEBAR_PREVIEW);
   const phase = generationPhase(activeSession, generating);
-  const previewPages = activeSession?.canva_design_id
-    ? Math.max(1, activeSession.brief?.pageCount ?? brief.pageCount ?? 1)
-    : 1;
+  const previewPages = pageThumbs.length > 0 ? pageThumbs.length : 1;
   const previewIndex = Math.min(previewPage, previewPages - 1);
+  const previewSrc = pageThumbs[previewIndex] || (previewIndex === 0 ? (activeSession ? sessionThumbnail(activeSession) : null) : null);
+  useEffect(() => {
+    setPreviewPage(0);
+  }, [activeSession?.id]);
+  useEffect(() => {
+    const sessionId = activeSession?.id;
+    const designId = activeSession?.canva_design_id;
+    if (!sessionId || !designId || activeSession.status === 'creating') {
+      setPageThumbs([]);
+      setPagesNote('');
+      setPagesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPagesLoading(true);
+    setPagesNote('');
+    fetchCanvaDesignPages(sessionId)
+      .then((pages) => {
+        if (cancelled) return;
+        const last = pages.reduce((max, page) => Math.max(max, page.page), 0);
+        const thumbs: (string | null)[] = Array.from({ length: last }, () => null);
+        for (const page of pages) {
+          if (page.page >= 1 && page.page <= thumbs.length) thumbs[page.page - 1] = page.thumbnail_url;
+        }
+        setPageThumbs(thumbs);
+        if (thumbs.length <= 1 && !thumbs[0]) setPagesNote('尚未取得各頁預覽，暫時只顯示封面。');
+      })
+      .catch(() => {
+        if (!cancelled) setPagesNote('無法載入各頁預覽，暫時只顯示封面。');
+      })
+      .finally(() => {
+        if (!cancelled) setPagesLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeSession?.id, activeSession?.canva_design_id, activeSession?.status, activeSession?.thumbnail_url]);
   const openList = (kind: 'drafts' | 'designs') => {
     setListDrawer(kind);
     void refreshSessions(40);
@@ -1790,12 +1826,13 @@ export function PresentationView() {
                   </div>
                 </div>
                 <div className="relative overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-900">
-                  {activeSession && sessionThumbnail(activeSession) ? (
+                  {previewSrc ? (
                     <div className="transition-transform" style={{ transform: `scale(${previewZoom / 100})` }}>
                       <LoadingImage
+                        key={previewSrc}
                         hd
-                        src={sessionThumbnail(activeSession)}
-                        alt=""
+                        src={previewSrc}
+                        alt={`第 ${previewIndex + 1} 頁`}
                         className="aspect-[16/10] w-full bg-slate-100"
                         imgClassName="object-contain"
                       />
@@ -1803,26 +1840,20 @@ export function PresentationView() {
                   ) : (
                     <div className="flex aspect-[16/10] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
                       <PresentationIcon className="h-8 w-8 opacity-40" />
-                      生成完成後在此預覽 Canva 簡報
-                    </div>
-                  )}
-                  {activeSession?.brief?.title && sessionThumbnail(activeSession) && (
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/70 to-transparent p-4 text-white">
-                      <p className="text-lg font-bold">{activeSession.brief.title}</p>
-                      <p className="text-xs text-white/80">{[activeSession.brief.client, activeSession.brief.project].filter(Boolean).join(' · ')}</p>
+                      {pagesLoading ? '正在載入這一頁' : previewPages > 1 ? '這一頁的預覽還沒準備好' : '生成完成後在此預覽 Canva 簡報'}
                     </div>
                   )}
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
-                    <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="上一頁" disabled={previewIndex === 0} onClick={() => setPreviewPage((page) => Math.max(0, page - 1))}>
+                    <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="上一頁" disabled={(pagesLoading && pageThumbs.length === 0) || previewIndex === 0} onClick={() => setPreviewPage((page) => Math.max(0, page - 1))}>
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
-                    <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="下一頁" disabled={previewIndex >= previewPages - 1} onClick={() => setPreviewPage((page) => Math.min(previewPages - 1, page + 1))}>
+                    <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="下一頁" disabled={(pagesLoading && pageThumbs.length === 0) || previewIndex >= previewPages - 1} onClick={() => setPreviewPage((page) => Math.min(previewPages - 1, page + 1))}>
                       <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>
-                  <span className="text-xs tabular-nums text-muted-foreground">{previewIndex + 1} / {previewPages}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">{pagesLoading && pageThumbs.length === 0 ? '載入分頁' : `${previewIndex + 1} / ${previewPages}`}</span>
                   <div className="flex items-center gap-1">
                     <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="縮小" onClick={() => setPreviewZoom((zoom) => Math.max(60, zoom - 10))}>
                       <ZoomOut className="h-4 w-4" />
@@ -1833,8 +1864,8 @@ export function PresentationView() {
                     </Button>
                   </div>
                 </div>
-                {previewPages > 1 && (
-                  <p className="mt-2 text-center text-[11px] text-muted-foreground">分頁以 Canva 為準，這裡顯示目前封面縮圖。</p>
+                {pagesNote && (
+                  <p className="mt-2 text-center text-[11px] text-muted-foreground">{pagesNote}</p>
                 )}
               </motion.section>
           )}
