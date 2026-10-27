@@ -42,6 +42,8 @@ import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
 import { MaterialRichEditor } from "@/components/dashboard/MaterialRichEditor";
 import { QuotePhotoPages } from "@/components/dashboard/QuotePhotoPages";
+import { QuotePhotoLayoutEditor } from "@/components/dashboard/QuotePhotoLayoutEditor";
+import { PhotoLayoutBlock } from "@/components/dashboard/QuotePhotoLayoutView";
 import {
   canManageQuotePhotos,
   listQuoteContentPages,
@@ -50,6 +52,7 @@ import {
   parseQuotePhotoAssetRefs,
   quotePhotoObjectUrl,
   quotePhotoRefUrl,
+  type QuotePhotoAsset,
   type QuoteContentPage,
   type QuoteCoverPage,
   type QuotePhotoAssetRef,
@@ -58,23 +61,35 @@ import {
   QuotePhotoGenerateDialog,
   type GenerateChoice,
 } from "@/components/dashboard/QuotePhotoGenerateDialog";
-import { parsePhotoLayouts, type PhotoLayoutGroup } from "@/lib/quotePhotoLayouts";
+import {
+  groupGeometry,
+  parsePhotoLayouts,
+  parseZonePhotoLayouts,
+  pruneZonePhotoLayouts,
+  type PhotoLayoutGroup,
+} from "@/lib/quotePhotoLayouts";
 import { FloorPlanViewerModal } from "@/components/dashboard/solutions/FloorPlanViewerModal";
+import { FloorPlanZoneCanvas, floorPlanZoneColor } from "@/components/dashboard/FloorPlanZoneCanvas";
 import { renderPdfPageToJpegBlob } from "@/lib/floorPlanPdf";
 import {
   uploadProjectFloorPlanFile,
   uploadProjectFloorPlanPreview,
 } from "@/lib/imageStorage";
 import {
+  applyDetectedZones,
   detectZonesFromJpegBase64,
   imageBlobToJpegBase64,
   MAX_ZONE_IMAGES,
   parseQuoteFloorPlan,
   parseQuoteZoneImages,
   pruneQuoteZoneImages,
+  regionsFromZoneRows,
+  unconfirmZoneRegions,
   UNZONED_QUOTE_IMAGE_KEY,
   type QuoteFloorPlan,
   type QuoteZoneImageMap,
+  type QuoteZoneRegion,
+  type ZoneManagerRow,
 } from "@/lib/quoteFloorPlan";
 import { materialPlainText } from "@/lib/quotationMaterialHtml";
 import { toast } from "sonner";
@@ -2237,6 +2252,13 @@ function sectionZonesOf(items: QuotationItem[]): { id: string; name: string }[] 
     .map((item) => ({ id: item.id, name: item.name || "" }));
 }
 
+function zoneRowsFromItems(items: QuotationItem[], regions: QuoteZoneRegion[]): ZoneManagerRow[] {
+  return sectionZonesOf(items).map((zone) => ({
+    ...zone,
+    rect: regions.find((region) => region.zoneId === zone.id)?.rect ?? null,
+  }));
+}
+
 /** Rebuild the flat list from the zone-manager draft. Removed zones release their rows to 未分區. */
 function applyZoneManager(
   items: QuotationItem[],
@@ -2608,14 +2630,26 @@ export function QuotationDraftEditor({
   const [zoneImages, setZoneImages] = useState<QuoteZoneImageMap>(() =>
     parseQuoteZoneImages(savedProjectData.zoneImages),
   );
+  const [zonePhotoLayouts, setZonePhotoLayouts] = useState<Record<string, PhotoLayoutGroup[]>>(() =>
+    parseZonePhotoLayouts(savedProjectData.zonePhotoLayouts),
+  );
+  const [zoneLayoutEditor, setZoneLayoutEditor] = useState<{ zoneId: string; groupId: string | null } | null>(null);
+  const [photoLibrary, setPhotoLibrary] = useState<QuotePhotoAsset[]>([]);
   const [floorPlanBusy, setFloorPlanBusy] = useState(false);
   const [recognizingZones, setRecognizingZones] = useState(false);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
   const [zoneManagerOpen, setZoneManagerOpen] = useState(false);
-  const [zoneManagerDraft, setZoneManagerDraft] = useState<{ id: string; name: string }[]>([]);
+  const [zoneManagerDraft, setZoneManagerDraft] = useState<ZoneManagerRow[]>([]);
+  const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
   const [zoneImageTargetId, setZoneImageTargetId] = useState<string | null>(null);
   const [zoneLightbox, setZoneLightbox] = useState<{ urls: string[]; index: number } | null>(null);
   const floorPlanInputRef = useRef<HTMLInputElement>(null);
+  const floorPlanRef = useRef(floorPlan);
+  floorPlanRef.current = floorPlan;
+  const zoneManagerDraftRef = useRef(zoneManagerDraft);
+  zoneManagerDraftRef.current = zoneManagerDraft;
+  const zoneManagerOpenRef = useRef(zoneManagerOpen);
+  zoneManagerOpenRef.current = zoneManagerOpen;
   const [canManagePhotos, setCanManagePhotos] = useState(false);
   /**
    * 圖片庫標為封面／封底的圖（照 FCCD）：每次出 PDF 自動各佔一整頁，
@@ -2660,6 +2694,8 @@ export function QuotationDraftEditor({
     setFloorPlan((prev) => (JSON.stringify(prev) === JSON.stringify(nextFloorPlan) ? prev : nextFloorPlan));
     const nextZoneImages = parseQuoteZoneImages(projectData?.zoneImages);
     setZoneImages((prev) => (JSON.stringify(prev) === JSON.stringify(nextZoneImages) ? prev : nextZoneImages));
+    const nextZoneLayouts = parseZonePhotoLayouts(projectData?.zonePhotoLayouts);
+    setZonePhotoLayouts((prev) => (JSON.stringify(prev) === JSON.stringify(nextZoneLayouts) ? prev : nextZoneLayouts));
   }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
   // 報價 PDF 的 QR 指向這張單已有的客戶連結，不必每次開啟都重新生成。
@@ -3741,7 +3777,20 @@ export function QuotationDraftEditor({
         }),
     [items, quoteLocale],
   );
-  const unzonedImageUrls = zoneImages[UNZONED_QUOTE_IMAGE_KEY] || [];
+  const zonePhotoSources = useMemo(() => {
+    const map = new Map<string, { title: string; previewUrl: string }>();
+    for (const photo of quoteProductPhotos) {
+      if (photo.url) map.set(photo.id, { title: photo.title, previewUrl: photo.url });
+    }
+    for (const asset of quotePhotoAssets) {
+      const url = quotePhotoRefUrl(asset);
+      if (url) map.set(asset.id, { title: asset.title, previewUrl: url });
+    }
+    for (const asset of photoLibrary) {
+      map.set(asset.id, { title: asset.title, previewUrl: asset.url });
+    }
+    return map;
+  }, [photoLibrary, quotePhotoAssets, quoteProductPhotos]);
 
   const assignItemToZone = (itemId: string, value: string) => {
     itemsUserEditedRef.current = true;
@@ -3786,7 +3835,59 @@ export function QuotationDraftEditor({
   };
 
   const openZoneImageUpload = (zoneId: string | null) => {
-    setZoneImageTargetId(zoneId || UNZONED_QUOTE_IMAGE_KEY);
+    const id = zoneId || UNZONED_QUOTE_IMAGE_KEY;
+    const groups = zonePhotoLayouts[id] ?? [];
+    setZoneLayoutEditor({ zoneId: id, groupId: groups[0]?.id ?? null });
+    void listQuotePhotoAssets().then((result) => setPhotoLibrary(result.assets));
+  };
+
+  const renderZonePhotoTail = (zoneId: string) => {
+    const urls = zoneImages[zoneId] || [];
+    const layouts = (zonePhotoLayouts[zoneId] || []).filter((group) => group.placements.length > 0);
+    if (!urls.length && !layouts.length) return null;
+    return (
+      <div className="space-y-2 rounded-lg border border-dashed border-border bg-muted/20 p-3">
+        {layouts.map((group) => (
+          <button
+            key={group.id}
+            type="button"
+            onClick={() => openZoneImageUpload(zoneId)}
+            className="block w-full max-w-xl text-left"
+            aria-label={t.uploadZoneImage}
+          >
+            <PhotoLayoutBlock
+              geometry={groupGeometry(group)}
+              placements={group.placements}
+              photoFor={(assetId) => zonePhotoSources.get(assetId)}
+            />
+          </button>
+        ))}
+        {urls.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {urls.map((url, imageIndex) => (
+              <div key={url} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setZoneLightbox({ urls, index: imageIndex })}
+                  className="block overflow-hidden rounded-md border border-border bg-background"
+                  aria-label={quoteLocale === "en" ? `Image ${imageIndex + 1}` : `圖片 ${imageIndex + 1}`}
+                >
+                  <LoadingImage src={url} alt="" className="h-16 w-20" imgClassName="object-contain" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeZoneImage(zoneId, url)}
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"
+                  aria-label={t.removeZoneImage}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   const openZoneManager = () => {
@@ -3800,6 +3901,9 @@ export function QuotationDraftEditor({
     setItems((prev) => applyZoneManager(prev, drafts));
     setZoneImages((prev) =>
       pruneQuoteZoneImages(prev, drafts.map((row) => row.id)),
+    );
+    setZonePhotoLayouts((prev) =>
+      pruneZonePhotoLayouts(prev, [...drafts.map((row) => row.id), UNZONED_QUOTE_IMAGE_KEY]),
     );
     setZoneManagerOpen(false);
   };
@@ -4022,6 +4126,9 @@ export function QuotationDraftEditor({
         if ("zoneImages" in cachedRecord) {
           setZoneImages(parseQuoteZoneImages(cachedRecord.zoneImages));
         }
+        if ("zonePhotoLayouts" in cachedRecord) {
+          setZonePhotoLayouts(parseZonePhotoLayouts(cachedRecord.zonePhotoLayouts));
+        }
         if (cached.termsContent) {
           const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
           setTermsContent(
@@ -4098,6 +4205,7 @@ export function QuotationDraftEditor({
       quotePhotoAssets: quotePhotoAssets as unknown as Record<string, unknown>[],
       floorPlan: floorPlan as unknown as Record<string, unknown> | null,
       zoneImages: zoneImages as unknown as Record<string, unknown>,
+      zonePhotoLayouts: zonePhotoLayouts as unknown as Record<string, unknown>,
     }),
     [
       storageKey,
@@ -4119,6 +4227,7 @@ export function QuotationDraftEditor({
       quotePhotoAssets,
       floorPlan,
       zoneImages,
+      zonePhotoLayouts,
     ],
   );
 
@@ -4503,6 +4612,13 @@ export function QuotationDraftEditor({
         zoneImages,
         items.filter((item) => item.isSectionTitle).map((item) => item.id),
       ),
+      zonePhotoLayouts: pruneZonePhotoLayouts(
+        zonePhotoLayouts,
+        [
+          ...items.filter((item) => item.isSectionTitle).map((item) => item.id),
+          UNZONED_QUOTE_IMAGE_KEY,
+        ],
+      ),
     };
   };
 
@@ -4539,6 +4655,7 @@ export function QuotationDraftEditor({
       isCustomTerm: item.isCustomTerm,
       isOptional: item.isOptional,
       isSectionTitle: item.isSectionTitle,
+      id: item.isSectionTitle ? item.id : undefined,
       zoneImages: item.isSectionTitle ? zoneImages[item.id] : undefined,
       unit: item.unit,
     }));
@@ -4587,6 +4704,10 @@ export function QuotationDraftEditor({
       pageNumber: page.pageNumber,
     }));
     const pdfLeadImages = zoneImages[UNZONED_QUOTE_IMAGE_KEY] ?? [];
+    const pdfZonePhotoLayouts = pruneZonePhotoLayouts(zonePhotoLayouts, [
+      ...pdfSourceItems.filter((item) => item.isSectionTitle).map((item) => item.id),
+      UNZONED_QUOTE_IMAGE_KEY,
+    ]);
 
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
@@ -4621,6 +4742,7 @@ export function QuotationDraftEditor({
           fullHtml: enFullHtml,
         },
         leadImages: pdfLeadImages,
+        zonePhotoLayouts: pdfZonePhotoLayouts,
         items: pdfItems,
         subtotal: pdfSubtotal,
         discountNote,
@@ -4668,6 +4790,7 @@ export function QuotationDraftEditor({
       fullHtml: fullHtmlForPdf,
     },
     leadImages: pdfLeadImages,
+    zonePhotoLayouts: pdfZonePhotoLayouts,
     items: pdfItems,
     subtotal: pdfSubtotal,
     discountNote,
@@ -5416,36 +5539,6 @@ export function QuotationDraftEditor({
                   </button>
                 ) : null}
 
-                {unzonedImageUrls.length > 0 ? (
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {unzonedImageUrls.map((url, imageIndex) => (
-                      <div key={url} className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setZoneLightbox({ urls: unzonedImageUrls, index: imageIndex })}
-                          className="block overflow-hidden rounded-md border border-border bg-background"
-                          aria-label={quoteLocale === "en" ? `Image ${imageIndex + 1}` : `圖片 ${imageIndex + 1}`}
-                        >
-                          <LoadingImage
-                            src={url}
-                            alt=""
-                            className="h-16 w-20"
-                            imgClassName="object-contain"
-                          />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeZoneImage(UNZONED_QUOTE_IMAGE_KEY, url)}
-                          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"
-                          aria-label={t.removeZoneImage}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-
                 <div
                   className="space-y-3"
                   onDragOver={(e) => {
@@ -5464,11 +5557,15 @@ export function QuotationDraftEditor({
                     }
                   }}
                 >
+                  {items.length > 0 || !(zoneImages[UNZONED_QUOTE_IMAGE_KEY]?.length || zonePhotoLayouts[UNZONED_QUOTE_IMAGE_KEY]?.length)
+                    ? null
+                    : renderZonePhotoTail(UNZONED_QUOTE_IMAGE_KEY)}
                   {items.length > 0 ? null : (
                     <p className="py-8 text-center font-body text-sm text-muted-foreground">
                       尚未加入報價項目
                     </p>
                   )}
+                  {items[0]?.isSectionTitle ? renderZonePhotoTail(UNZONED_QUOTE_IMAGE_KEY) : null}
                   {items.map((item, index) => {
                     const zonePrefix = zoneItemPrefixAt(items, index);
                     return (
@@ -5501,7 +5598,6 @@ export function QuotationDraftEditor({
                           onMoveDown={() => nudgeItem(item.id, 1)}
                           canMoveUp={canNudge(index, -1)}
                           canMoveDown={canNudge(index, 1)}
-                          zoneImageUrls={zoneImages[item.id] || []}
                           onUploadZoneImage={() => openZoneImageUpload(item.id)}
                           onRemoveZoneImage={(url) => removeZoneImage(item.id, url)}
                           onPreviewZoneImage={(imageIndex) =>
@@ -5599,6 +5695,13 @@ export function QuotationDraftEditor({
                           )
                         }
                       />
+                      {index === items.length - 1 || items[index + 1]?.isSectionTitle
+                        ? renderZonePhotoTail(
+                            item.isSectionTitle
+                              ? item.id
+                              : (zoneTitleIdAt(items, index) ?? UNZONED_QUOTE_IMAGE_KEY),
+                          )
+                        : null}
                     </div>
                     );
                   })}
@@ -6314,6 +6417,51 @@ export function QuotationDraftEditor({
               每次按「生成」都會建立全新連結與 QR Code
             </div>
       </Modal>
+
+      {zoneLayoutEditor ? (
+        <QuotePhotoLayoutEditor
+          layouts={zonePhotoLayouts[zoneLayoutEditor.zoneId] ?? []}
+          groupId={zoneLayoutEditor.groupId}
+          assets={photoLibrary}
+          productPhotos={quoteProductPhotos}
+          photos={quotePhotoAssets.map((asset) => ({
+            assetId: asset.id,
+            title: asset.title,
+            objectPath: quotePhotoRefUrl(asset),
+          }))}
+          canManage={canManagePhotos}
+          onUploaded={(asset) =>
+            setPhotoLibrary((current) => (current.some((row) => row.id === asset.id) ? current : [...current, asset]))
+          }
+          onSave={(groups, usedAssets) => {
+            const zoneId = zoneLayoutEditor.zoneId;
+            setZonePhotoLayouts((prev) => ({ ...prev, [zoneId]: groups }));
+            const usedIds = new Set(groups.flatMap((group) => group.placements.map((placement) => placement.assetId)));
+            setQuotePhotoAssets((prev) => {
+              const next = [...prev];
+              const have = new Set(next.map((asset) => asset.id));
+              for (const asset of usedAssets) {
+                if (!usedIds.has(asset.id) || have.has(asset.id)) continue;
+                next.push({
+                  id: asset.id,
+                  title: asset.title,
+                  objectPath: asset.objectPath,
+                  ...(asset.isGenerated ? { isGenerated: true } : {}),
+                });
+                have.add(asset.id);
+              }
+              for (const photo of quoteProductPhotos) {
+                if (!usedIds.has(photo.id) || have.has(photo.id)) continue;
+                next.push({ id: photo.id, title: photo.title, url: photo.url });
+                have.add(photo.id);
+              }
+              return next;
+            });
+            setZoneLayoutEditor(null);
+          }}
+          onClose={() => setZoneLayoutEditor(null)}
+        />
+      ) : null}
 
       <ImageUploadModal
         open={zoneImageTargetId != null}

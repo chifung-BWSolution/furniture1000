@@ -93,6 +93,8 @@ export interface QuotationPDFData {
   locale?: 'zh' | 'en';
   /** Reference images uploaded before any zone. Shown above the line items. */
   leadImages?: string[];
+  /** Photo layouts printed under each zone subtotal. Key is the section-title id, or `unzoned`. */
+  zonePhotoLayouts?: Record<string, PhotoLayoutGroup[]>;
   items: {
     image: string;
     referenceImage?: string;
@@ -115,6 +117,8 @@ export interface QuotationPDFData {
     isOptional?: boolean;
     /** Omitted from PDF / Quotation Preview when true (still in draft editor). */
     hideInPdf?: boolean;
+    /** Section-title row id, used to attach images under that zone's subtotal. */
+    id?: string;
     /** Section heading (一、開放區) — full-width title row in PDF. */
     isSectionTitle?: boolean;
     /** Images uploaded on that zone heading. */
