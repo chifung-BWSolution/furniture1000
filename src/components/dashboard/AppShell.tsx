@@ -663,11 +663,6 @@ function AppShellContent() {
       return;
     }
 
-    if (!roleLoading && profileRole === 'pm') {
-      if (store.currentView !== 'fds2-pm-budget') store.setCurrentView('fds2-pm-budget');
-      return;
-    }
-
     const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
     const key = `${normalizedPath}${location.search}`;
     if (deepLinkHandledRef.current === key) return;

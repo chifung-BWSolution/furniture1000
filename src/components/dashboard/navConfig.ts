@@ -273,7 +273,7 @@ export function isImplementedLegacyView(view: ViewType): boolean {
 
 /**
  * 設計方案工作區（平面圖與房間、配置傢俬、邀請客戶）。
- * 不出現在側欄；PM 仍可開這些頁，其餘報價頁維持封鎖。
+ * 不出現在側欄；PM 與其他內部同事仍可開這些頁。
  */
 const SOLUTION_PAGES_IN_QUOTE: readonly ViewType[] = [
   'solution-project-list',
@@ -289,10 +289,7 @@ export function isSolutionPageInQuote(view: ViewType): boolean {
 }
 
 export function isPmBlockedQuoteView(view: ViewType): boolean {
-  if (isSolutionPageInQuote(view)) return false;
-  const linked = implementedPage(view);
-  if (linked && isSolutionPageInQuote(linked)) return false;
-  return findSection(view) === 'quote' || (linked != null && findSection(linked) === 'quote');
+  return view === 'fds2-quote-format';
 }
 
 export function navItemIsActive(itemView: ViewType, currentView: ViewType): boolean {
@@ -320,7 +317,7 @@ export function filterNavChildren(
     quoteShareGuest?: boolean;
     /** @deprecated use quoteShareGuest — previously locked to 報價方案 only */
     quoteShareOnly?: boolean;
-    /** PM 的傢俬報價只留方案頁，其餘報價頁維持不顯示。 */
+    /** PM 的傢俬報價只隱藏報價單格式設定。 */
     pm?: boolean;
   },
 ): SecondaryItem[] {
@@ -332,12 +329,7 @@ export function filterNavChildren(
   }
   list = list.filter((child) => !child.pinned);
   if (opts?.pm) {
-    const quoteSection = list.some(
-      (c) => c.view.startsWith('fds2-quote-') || isSolutionPageInQuote(c.view),
-    );
-    if (quoteSection) {
-      list = list.filter((c) => isSolutionPageInQuote(c.view));
-    }
+    list = list.filter((c) => !isPmBlockedQuoteView(c.view));
   }
   return list;
 }
