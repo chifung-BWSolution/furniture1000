@@ -227,7 +227,7 @@ async function generateWithGrok(
     prompt,
     aspect_ratio: aspectRatio,
     resolution: "1k",
-    quality: "low",
+    quality: "medium",
     response_format: "b64_json",
   };
   let endpoint = "https://api.x.ai/v1/images/generations";
@@ -476,7 +476,13 @@ Deno.serve(async (req: Request) => {
     raw.purpose === "orthographic"
       ? `產品 ${productModel}。以下為 AI 根據產品圖及產品描述自動分析的繪圖依據，並非使用者確認的要求：${JSON.stringify(analysis)}。綜合全部2至3張同款產品參考圖。只繪製一件家具，移除場景、配件及其他家具。在白底同一張圖上，以相同比例繪製互相一致的正面、右側及俯視正投影，標示 FRONT、RIGHT、TOP，不使用透視。準確保留圖片可見的外形、支撐數量、折彎及通空處；材質及功能參考產品描述。未知或衝突細節不能變成確定結構，不得憑空新增板件、腳架、插座位置或裝飾。不虛構數字尺寸，宣傳內容不轉成幾何。圖上註明「AI 推測三視圖：隱藏結構及尺寸未核實」，不可宣稱為實測施工圖。`
       : referenceUrls.length > 0
-      ? `${prompt}。上傳產品圖的順序與描述中的參考圖編號一致：${referenceUrls.map((_, index) => `第${index + 1}張上傳圖是參考圖${index + 1}`).join('，')}。如實保留每張產品圖的外觀、比例與顏色，把它們自然擺放進場景，不要改動產品設計，也不要加插參考圖以外的文字或商標`
+      ? [
+        `把上傳的產品圖原樣放進場景。${referenceUrls.map((_, index) => `第${index + 1}張上傳圖是參考圖${index + 1}`).join('，')}。`,
+        '每一張圖只代表一件傢俬。照抄它的輪廓、腳架數量和形狀、扶手、靠背、坐墊、抽屜、層板、開口、縫線、顏色和比例。',
+        '不要簡化結構，不要把兩件併成一件，不要換成更常見的款式，也不要因為房間偏淺色就改掉產品的顏色或物料。',
+        '只調整擺放和光影。不要加入產品圖以外的文字或商標。',
+        prompt,
+      ].join('')
       : prompt;
 
   // 生成

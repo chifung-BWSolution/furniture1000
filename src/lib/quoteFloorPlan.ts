@@ -353,7 +353,7 @@ export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<Det
 }
 
 const ZONE_SCENE_STYLE =
-  '寫實室內設計效果圖，淺色物料，暖白燈光，乾淨構圖，無人、無文字、無商標，鏡頭平視';
+  '寫實室內設計效果圖，牆身和地板用淺色，暖白燈光，乾淨構圖，無人、無文字、無商標，鏡頭平視。不要改寫傢俬本身的顏色、物料或結構';
 
 export type ZoneSceneFurniture = {
   name: string;
@@ -394,7 +394,7 @@ export function referenceImagePromptBlock(furniture: ZoneSceneFurniture[]): stri
     .map((item, index) => {
       const label = furniturePhrase(item) || '這件傢俬';
       const n = index + 1;
-      return `參考圖${n}是${label}，對應上傳的第${n}張產品圖，如實保留這張圖的外形、顏色和比例`;
+      return `參考圖${n}是${label}，原樣使用上傳的第${n}張產品圖，保留腳架、扶手、靠背、層板、開口和顏色，不可簡化或換成別的款`;
     })
     .filter(Boolean);
   if (!lines.length) return '';
@@ -465,8 +465,10 @@ export async function generateZoneScenePrompt(
     furniture ? `分區裡的傢俬：\n${furniture}` : '分區裡的傢俬：沒有',
     referenced ? `參考圖裡的傢俬（每一件的名稱都必須寫進描述，不能漏）：\n${referenced}` : '參考圖裡的傢俬：沒有',
     '要求：',
-    '- 只寫一段話，220 字以內',
-    '- 先寫這個空間做什麼，再寫傢俬如何擺在這個空間裡',
+    '- 只寫一段話，180 字以內',
+    '- 先寫這個空間做什麼，再寫每件傢俬放在哪裡',
+    '- 不要描寫傢俬的顏色、物料、腳數或外形，這些以產品圖為準',
+    '- 每件傢俬只出現一次，不要合併，也不要用另一款代替',
     '- 參考圖裡的每一件傢俬都要寫出名稱',
     '- 沒有傢俬時只描述空間本身',
     `- 結尾必須包含：${ZONE_SCENE_STYLE}`,
