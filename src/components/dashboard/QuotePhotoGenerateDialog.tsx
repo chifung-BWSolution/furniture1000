@@ -222,26 +222,43 @@ export function QuotePhotoGenerateDialog({
       }
     >
       <div className="space-y-4">
-        <div>
-          <p className="text-sm font-semibold text-foreground">模型</p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {QUOTE_PHOTO_GENERATE_MODELS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                disabled={generating || prompting}
-                aria-pressed={model === entry.id}
-                onClick={() => setModel(entry.id)}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
-                  model === entry.id
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border text-foreground/80 hover:border-primary/40'
-                }`}
-              >
-                {entry.label}
-                <span className="ml-1 text-xs font-normal text-muted-foreground">{entry.provider}</span>
-              </button>
-            ))}
+        <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
+          <div>
+            <p className="text-sm font-semibold text-foreground">模型</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {QUOTE_PHOTO_GENERATE_MODELS.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  disabled={generating || prompting}
+                  aria-pressed={model === entry.id}
+                  onClick={() => setModel(entry.id)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
+                    model === entry.id
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-foreground/80 hover:border-primary/40'
+                  }`}
+                >
+                  {entry.label}
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">{entry.provider}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">比例</p>
+            <Select value={ratio} disabled={generating || prompting} onValueChange={(value) => setRatio(value as PhotoRatio)}>
+              <SelectTrigger className="mt-1" aria-label="生成比例">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PHOTO_RATIOS.map((entry) => (
+                  <SelectItem key={entry} value={entry}>
+                    {entry} {PHOTO_RATIO_LABELS[entry]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -326,8 +343,7 @@ export function QuotePhotoGenerateDialog({
           </span>
         </label>
 
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
-          <div>
+        <div>
             <p className="text-sm font-semibold text-foreground">
               參考圖片（產品圖，可選，最多 {QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張）
             </p>
@@ -365,22 +381,6 @@ export function QuotePhotoGenerateDialog({
                 </ul>
               </div>
             )}
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">比例</p>
-            <Select value={ratio} disabled={generating || prompting} onValueChange={(value) => setRatio(value as PhotoRatio)}>
-              <SelectTrigger className="mt-1" aria-label="生成比例">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PHOTO_RATIOS.map((entry) => (
-                  <SelectItem key={entry} value={entry}>
-                    {entry} {PHOTO_RATIO_LABELS[entry]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
         </div>
       </div>
     </Modal>
