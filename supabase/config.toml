@@ -12,3 +12,11 @@ verify_jwt = true
 # 部署：SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy bwf-development-command-logs --project-ref <ref>
 [functions.bwf-development-command-logs]
 verify_jwt = false
+
+# 圖冊／報價單夜間解析。前端與 pg_cron 呼叫的是帶前綴的 slug。
+[functions.process-jobs]
+verify_jwt = false
+
+[functions.supabase-functions-process-jobs]
+verify_jwt = false
+entrypoint = "./functions/process-jobs/index.ts"

@@ -79,6 +79,7 @@ import {
   fetchSupplierCompare,
   mergeDuplicateProduct,
   moneyLabel,
+  resolveSupplierPriceConflict,
   searchProducts,
   sizeLabel,
   type PriceValidity,
@@ -876,6 +877,11 @@ function ProductCard({
   const thumbs = photos.slice(1, 5);
   const extraThumbs = Math.max(0, photos.length - 1 - thumbs.length);
   const quoteState = p.quote && p.quote.validity !== 'valid' ? p.quote.validity : null;
+  const supplierPriceLabel = p.price_status === 'conflict'
+    ? '價格衝突'
+    : p.price_status === 'unmatched' && p.middle_price == null && !p.quote
+      ? '未匹配價格'
+      : null;
   return (
     <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-shadow hover:shadow-md">
       <button type="button" onClick={onOpen} className="flex flex-1 flex-col text-left">
@@ -1014,6 +1020,11 @@ function ProductCard({
           )}
           <div className="mt-auto flex items-end justify-between gap-2 pt-1">
             <PriceLockup discount={p.middle_price} original={p.sale_price} />
+            {supplierPriceLabel && (
+              <Badge variant="outline" className="shrink-0 border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] font-normal text-amber-800">
+                {supplierPriceLabel}
+              </Badge>
+            )}
             {quoteState && (
               <Badge variant="outline" className={cn('shrink-0 px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[quoteState])}>
                 {VALIDITY_LABELS[quoteState]}
@@ -2654,6 +2665,20 @@ function ProductDetailPage({
   const [compare, setCompare] = useState<SupplierCompare | null>(null);
   const [modelFiles, setModelFiles] = useState<ProductModelFile[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
+  const [resolvingPriceId, setResolvingPriceId] = useState<string | null>(null);
+
+  const choosePrice = async (priceId: string) => {
+    setResolvingPriceId(priceId);
+    try {
+      await resolveSupplierPriceConflict(priceId);
+      toast.success('已採用這筆報價。同年其他價格仍保留，但不再當作有效價。');
+      setReloadKey((key) => key + 1);
+    } catch (err) {
+      toast.error('未能採用報價', { description: errorText(err) });
+    } finally {
+      setResolvingPriceId(null);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -2696,6 +2721,8 @@ function ProductDetailPage({
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 <th className="px-2 py-1.5 text-left font-medium">規格</th>
+                <th className="px-2 py-1.5 text-left font-medium">年份</th>
+                <th className="px-2 py-1.5 text-left font-medium">價格</th>
                 <th className="px-2 py-1.5 text-left font-medium">廠家</th>
                 <th className="px-2 py-1.5 text-left font-medium">單位／MOQ</th>
                 <th className="px-2 py-1.5 text-left font-medium">有效期</th>
@@ -2707,6 +2734,20 @@ function ProductDetailPage({
               {detail.prices.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
                   <td className="px-2 py-1.5">{row.variant_label ?? '標準'}</td>
+                  <td className="px-2 py-1.5">{row.quote_year ?? '—'}</td>
+                  <td className="px-2 py-1.5">
+                    <div>{row.cost != null ? `${row.currency ?? ''} ${row.cost}`.trim() : '—'}</div>
+                    {row.price_conflict && (
+                      <button
+                        type="button"
+                        className="mt-1 text-amber-800 underline-offset-2 hover:underline disabled:opacity-50"
+                        disabled={resolvingPriceId !== null}
+                        onClick={() => void choosePrice(row.id)}
+                      >
+                        {resolvingPriceId === row.id ? '採用中…' : '同年衝突，採用此價'}
+                      </button>
+                    )}
+                  </td>
                   <td className="px-2 py-1.5">{row.factory_name ?? '—'}</td>
                   <td className="px-2 py-1.5">
                     {[row.unit, row.moq != null ? `MOQ ${row.moq}` : null].filter(Boolean).join(' · ') || '—'}

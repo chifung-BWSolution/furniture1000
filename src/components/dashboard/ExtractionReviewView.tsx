@@ -46,6 +46,7 @@ import { Modal, ModalButton } from '@/components/ui/modal';
 import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
 import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
 import { importExtractedProducts } from '@/lib/productSearch';
+import { mapOfficialColors } from '@/lib/officialColor';
 import {
   EDITABLE_FIELDS,
   FLAG_LABELS,
@@ -95,7 +96,7 @@ const PHASE_LABEL: Record<Exclude<Phase, 'all'>, string> = {
 };
 
 /** Flags that are informational only; everything else is shown as a warning. */
-const INFO_FLAGS = new Set(['catalog_no_price', 'currency_from_document', 'ai_uncertain']);
+const INFO_FLAGS = new Set(['catalog_no_price', 'currency_from_document', 'ai_uncertain', 'custom_color']);
 const REVIEW_PAGE_SIZE = 100;
 
 /**
@@ -1650,7 +1651,17 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
   const buildCorrected = (): Partial<ExtractedProduct> => {
     const corrected: Record<string, unknown> = {};
     for (const f of EDITABLE_FIELDS) {
-      const next = inputToField(values[f.key] ?? '', f.kind);
+      let next = inputToField(values[f.key] ?? '', f.kind);
+      if (f.key === 'colors') {
+        const mapped = mapOfficialColors(Array.isArray(next) ? next as string[] : []);
+        if (mapped.unmapped.length > 0) {
+          throw new Error(`未能對上正式顏色：${mapped.unmapped.join('、')}。請改成既有顏色，或標成訂造。`);
+        }
+        next = mapped.colors;
+        if (mapped.custom_order !== (item.raw_json.custom_order === true)) {
+          corrected.custom_order = mapped.custom_order;
+        }
+      }
       const raw = item.raw_json[f.key] ?? (f.kind === 'list' ? [] : null);
       if (JSON.stringify(next) !== JSON.stringify(raw)) corrected[f.key] = next;
     }
@@ -1713,6 +1724,12 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
         </>
       }
     >
+      {(item.raw_json.original_colors?.length ?? 0) > 0 && (
+        <p className="text-xs text-muted-foreground">
+          原文顏色：<span className="font-mono">{item.raw_json.original_colors!.join('、')}</span>
+          {item.raw_json.custom_order ? ' · 訂造（不寫入正式色）' : ''}
+        </p>
+      )}
       {item.raw_json.price_text && (
         <p className="text-xs text-muted-foreground">
           原文價格：<span className="font-mono">{item.raw_json.price_text}</span>

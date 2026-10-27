@@ -21,6 +21,10 @@ export interface ExtractedProduct {
   dimensions_text?: string | null;
   material?: string | null;
   colors?: string[];
+  /** Color words copied from the document, before official mapping. */
+  original_colors?: string[];
+  /** True when the document marks the finish as custom-order, not a new palette entry. */
+  custom_order?: boolean;
   description?: string | null;
   unit?: string | null;
   moq?: number | null;
@@ -146,6 +150,9 @@ export const FLAG_LABELS: Record<string, string> = {
   merged_across_parts: '跨段合併',
   ai_uncertain: 'AI 不確定',
   low_confidence: '低置信度',
+  color_unmapped: '顏色未對上',
+  custom_color: '訂造',
+  price_year_conflict: '同年價格衝突',
 };
 
 const ITEM_COLUMNS = [

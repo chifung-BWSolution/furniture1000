@@ -14,6 +14,7 @@ import {
   PDFRawStream,
 } from "npm:pdf-lib@1.17.1";
 import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
+import { mapOfficialColors } from "../../../src/lib/officialColor.ts";
 
 /**
  * FDS 2.1 背景任務 worker（Edge 過渡版，C-09）。
@@ -628,10 +629,11 @@ Rules:
   document context; null if unknown.
 - Dimensions in millimetres: width_mm (W/L), depth_mm (D), height_mm (H). Convert cm or m to mm. Copy the printed
   size into dimensions_text.
-- colors: the product's colors. The first value is the main color. Use a color name printed on the page when there is one.
-  Otherwise name the dominant color of the product in its picture, in the document's language. Add at most two secondary
-  colors after the main one. If there is no picture and no printed color, leave colors empty and add "colors" to
-  uncertain_fields. Do not guess a color from the product category alone.
+- colors: copy the color words printed on the page, in the original language. The first value is the main color.
+  If no color is printed, name the dominant color visible in the product picture, still in the document's language.
+  Add at most two secondary colors after the main one. If there is no picture and no printed color, leave colors empty
+  and add "colors" to uncertain_fields. Do not invent a color from the product category, and do not translate the
+  name into another palette.
 - name and material in the original language. category in English (desk, meeting table, chair, sofa, cabinet, bookcase, ...).
 - valid_from / valid_to as YYYY-MM-DD when printed here or in the document context.
 - images: for each picture "IMAGE n" that shows this product give its index and type (main = clean product photo,
@@ -778,10 +780,21 @@ function assessItem(
   }
   if (item.uncertain_fields.length > 0) flags.push("ai_uncertain");
   if (confidence < ATTENTION_CONFIDENCE) flags.push("low_confidence");
+  const mapped = mapOfficialColors(item.colors);
+  if (mapped.unmapped.length > 0) flags.push("color_unmapped");
+  if (mapped.custom_order) flags.push("custom_color");
 
   const attention = confidence < ATTENTION_CONFIDENCE ||
-    flags.some((f) => ["missing_price", "price_not_in_source", "missing_model", "currency_missing", "dimension_suspicious"].includes(f));
-  return { flags, confidence: Math.round(confidence * 1000) / 1000, attention };
+    flags.some((f) => [
+      "missing_price", "price_not_in_source", "missing_model", "currency_missing",
+      "dimension_suspicious", "color_unmapped",
+    ].includes(f));
+  return {
+    flags,
+    confidence: Math.round(confidence * 1000) / 1000,
+    attention,
+    colors: mapped,
+  };
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -923,7 +936,61 @@ async function geminiStructure(
 }
 
 function modelKey(model: unknown): string {
-  return String(model ?? "").replace(/\s+/g, "").toLowerCase();
+  return String(model ?? "").replace(/[\s\-_./]+/g, "").toLowerCase();
+}
+
+function priceGroupKey(model: string | null, currency: string | null, unit: string | null): string | null {
+  const key = modelKey(model);
+  if (!key) return null;
+  return `${key}|${(currency ?? "").toUpperCase()}|${unit ?? ""}|`;
+}
+
+/** Same factory, model, year, currency and unit with a different price. Empty variant only. */
+async function yearPriceConflictKeys(
+  admin: SupabaseClient,
+  input: {
+    factoryId: string;
+    factoryName: string;
+    year: number | null;
+    rows: { key: string | null; price: number | null }[];
+  },
+): Promise<Set<string>> {
+  const conflicts = new Set<string>();
+  const priced = input.rows.filter((row): row is { key: string; price: number } => !!row.key && row.price !== null);
+  const amounts = new Map<string, Set<number>>();
+  for (const row of priced) {
+    const seen = amounts.get(row.key) ?? new Set<number>();
+    seen.add(row.price);
+    amounts.set(row.key, seen);
+  }
+  for (const [key, seen] of amounts) {
+    if (seen.size > 1) conflicts.add(key);
+  }
+  if (input.year === null || priced.length === 0) return conflicts;
+
+  const { data, error } = await admin.rpc("fds_lookup_year_prices", {
+    p_factory_id: input.factoryId,
+    p_factory_name: input.factoryName,
+    p_year: input.year,
+    p_model_keys: [...new Set(priced.map((row) => row.key.split("|")[0]))],
+  });
+  if (error) throw new Error(`year price lookup failed: ${error.message}`);
+  for (const row of (data ?? []) as {
+    model_key: string;
+    currency: string;
+    unit: string;
+    variant_label: string;
+    cost_price: number;
+  }[]) {
+    if (row.variant_label) continue;
+    const key = `${row.model_key}|${(row.currency ?? "").toUpperCase()}|${row.unit ?? ""}|`;
+    const local = amounts.get(key);
+    if (!local) continue;
+    for (const price of local) {
+      if (Number(row.cost_price) !== price) conflicts.add(key);
+    }
+  }
+  return conflicts;
 }
 
 async function buildStructureUnits(admin: SupabaseClient, documentId: string): Promise<StructureUnit[]> {
@@ -946,7 +1013,7 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
   const unit = state.units![state.cursor];
 
   const [{ data: doc }, { data: pages, error: pageErr }, { data: contextPages }, { data: reviewed }] = await Promise.all([
-    admin.from("supplier_documents").select("factory_name, currency, doc_type").eq("id", documentId).single(),
+    admin.from("supplier_documents").select("factory_id, factory_name, currency, doc_type, document_year").eq("id", documentId).single(),
     admin.from("supplier_document_pages")
       .select("page_no, content, text_source")
       .eq("document_id", documentId)
@@ -998,12 +1065,14 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
   const textByPage = new Map(target.map((p) => [p.page_no as number, String(p.content)]));
   const allText = target.map((p) => String(p.content)).join("\n");
   const now = new Date().toISOString();
+  const docYear = Number(doc?.document_year);
+  const year = Number.isInteger(docYear) && docYear >= 1990 && docYear <= 2100 ? docYear : null;
 
-  const rows = items
+  const drafted = items
     .filter((item) => !item.model || !reviewedModels.has(modelKey(item.model)))
     .map((item, i) => {
       const page = item.page >= unit.start && item.page <= unit.end ? item.page : unit.start;
-      const { flags, confidence, attention } = assessItem(
+      const { flags, confidence, attention, colors } = assessItem(
         item,
         textByPage.get(page) ?? allText,
         docCurrency,
@@ -1014,6 +1083,12 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
       const mainRef = item.images.find((ref) => ref.type === "main" && images[ref.index]);
       const cur = item.currency ?? currency;
       if (cur) state.currencies = { ...state.currencies, [cur]: (state.currencies?.[cur] ?? 0) + 1 };
+      const stored = {
+        ...item,
+        colors: colors.colors,
+        original_colors: colors.original_colors,
+        custom_order: colors.custom_order,
+      };
       return {
         job_id: job.id,
         document_id: documentId,
@@ -1023,15 +1098,29 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
         // The checkpoint is saved only after this write, so a failed batch repeats the unit.
         unit_item_key: `${documentId}:${unit.segment_id}:${unit.start}-${unit.end}:${i}`,
         page_no: page,
-        raw_json: item,
+        raw_json: stored,
         confidence,
         flags,
         needs_attention: attention,
         image_ids: [...new Set(imageIds)],
         main_image_id: mainRef ? images[mainRef.index].id : imageIds[0] ?? null,
         updated_at: now,
+        price_key: priceGroupKey(stored.model, cur, stored.unit),
+        price_amount: stored.price,
       };
     });
+
+  const conflictKeys = await yearPriceConflictKeys(admin, {
+    factoryId: (doc?.factory_id as string | null) ?? "",
+    factoryName: (doc?.factory_name as string | null) ?? "",
+    year,
+    rows: drafted.map((row) => ({ key: row.price_key, price: row.price_amount })),
+  });
+  const rows = drafted.map(({ price_key: priceKey, price_amount: _price, ...row }) => {
+    if (!priceKey || !conflictKeys.has(priceKey)) return row;
+    const flags = row.flags.includes("price_year_conflict") ? row.flags : [...row.flags, "price_year_conflict"];
+    return { ...row, flags, needs_attention: true };
+  });
 
   if (rows.length > 0) {
     const { error } = await admin.from("extraction_items").upsert(rows, {
