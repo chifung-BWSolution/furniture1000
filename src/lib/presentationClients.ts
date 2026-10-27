@@ -1,14 +1,15 @@
 import { supabase } from '@/lib/supabase';
+import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import { projectTypeLabel, type ProjectEngineeringType } from '@/lib/projectPartitionTemplates';
-
-/** Furniture client master. There is no page titled 客戶管理; this is the clients table. */
-export const PRESENTATION_CLIENT_TABLE = 'client_companies';
 
 export interface PresentationProjectOption {
   id: string;
   name: string;
   projectType: string | null;
   note: string | null;
+  code?: string | null;
+  customerName?: string | null;
+  client?: PresentationClientOption | null;
 }
 
 export interface PresentationClientOption {
@@ -22,14 +23,6 @@ export interface PresentationClientOption {
 }
 
 const KNOWN_TYPES = new Set<ProjectEngineeringType>(['office', 'school', 'clinic', 'hotel', 'other']);
-
-function norm(value: string | null | undefined): string {
-  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 export function nextFieldValue(
   current: string | undefined,
@@ -86,65 +79,25 @@ export function projectContentDefault(client: PresentationClientOption, project:
   return lines.join('\n');
 }
 
-interface CompanyRow {
-  id: string;
-  name: string | null;
-  contact_person: string | null;
-  contact_email: string | null;
-  contact_phone: string | null;
-  address: string | null;
+async function lookup<T>(body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke<T & { error?: string }>(
+    'supabase-functions-fetch-pms-pitchings', { body },
+  );
+  if (error) throw new Error(await parseInvokeError(error, data));
+  if (!data || data.error) throw new Error(data?.error || 'PMS 搜尋未回傳資料');
+  return data;
 }
 
-interface ProjectRow {
-  id: string;
-  name: string | null;
-  client_company: string | null;
-  project_type: string | null;
-  reply_note: string | null;
+export async function loadPresentationClients(search = ''): Promise<PresentationClientOption[]> {
+  const result = await lookup<{ clients: PresentationClientOption[] }>({ action: 'presentation_clients', search });
+  if (!Array.isArray(result.clients)) throw new Error('PMS 客戶搜尋服務尚未更新');
+  return result.clients;
 }
 
-export async function loadPresentationClients(): Promise<PresentationClientOption[]> {
-  const [companies, projects] = await Promise.all([
-    supabase
-      .from('client_companies')
-      .select('id, name, contact_person, contact_email, contact_phone, address')
-      .order('name', { ascending: true }),
-    supabase
-      .from('design_projects')
-      .select('id, name, client_company, project_type:meta->>projectType, reply_note:meta->clientQuoteReply->>note')
-      .order('updated_at', { ascending: false }),
-  ]);
-  if (companies.error) throw new Error(companies.error.message);
-  if (projects.error) throw new Error(projects.error.message);
-
-  const byCompany = new Map<string, PresentationProjectOption[]>();
-  for (const row of (projects.data ?? []) as ProjectRow[]) {
-    const key = norm(row.client_company);
-    const name = text(row.name);
-    if (!key || !name) continue;
-    const list = byCompany.get(key) ?? [];
-    list.push({
-      id: row.id,
-      name,
-      projectType: text(row.project_type) || null,
-      note: text(row.reply_note) || null,
-    });
-    byCompany.set(key, list);
-  }
-
-  return ((companies.data ?? []) as CompanyRow[])
-    .map((row) => {
-      const name = text(row.name);
-      if (!name) return null;
-      return {
-        id: row.id,
-        name,
-        contactPerson: text(row.contact_person) || null,
-        contactEmail: text(row.contact_email) || null,
-        contactPhone: text(row.contact_phone) || null,
-        address: text(row.address) || null,
-        projects: byCompany.get(norm(name)) ?? [],
-      };
-    })
-    .filter((row): row is PresentationClientOption => row !== null);
+export async function loadPresentationProjects(options: { search?: string; customerId?: string } = {}): Promise<PresentationProjectOption[]> {
+  const result = await lookup<{ projects: PresentationProjectOption[] }>({
+    action: 'presentation_projects', search: options.search ?? '', customer_id: options.customerId,
+  });
+  if (!Array.isArray(result.projects)) throw new Error('PMS 專案搜尋服務尚未更新');
+  return result.projects;
 }

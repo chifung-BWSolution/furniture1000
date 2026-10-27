@@ -7,6 +7,12 @@ export const PACKAGE_PRICE_NOTE =
 
 export interface PackageLine {
   id: string;
+  templateId?: string;
+  sourcePitchingId?: string;
+  sourceQuotationId?: string;
+  sourceSectionId?: string;
+  sourceItem?: string;
+  sourceDescription?: string;
   area: string;
   itemName: string;
   grade: string;

@@ -23,6 +23,7 @@ import {
   totalCents,
   type PackageLine,
 } from '@/lib/packagePricingMath';
+import { PackageImportPicker } from '@/components/dashboard/PackageImportPicker';
 import { buildPackageQuotePdf } from '@/components/dashboard/packageQuotePdf';
 
 function moneyInput(value: number | null): string {
@@ -36,6 +37,8 @@ export function PackagePricingView() {
   const quoteId = (params.get('quote') || '').trim();
   const [title, setTitle] = useState('套餐參考報價');
   const [lines, setLines] = useState<PackageLine[]>([]);
+  const [template, setTemplate] = useState<PackageLine[]>([]);
+  const [imported, setImported] = useState(false);
   const [saved, setSaved] = useState<SavedPackageQuote[]>([]);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +69,7 @@ export function PackagePricingView() {
         } else {
           setTitle(result.title || '套餐參考報價');
           setLines(result.lines);
+          setImported(true);
           setShareToken(result.shareToken);
         }
       } else {
@@ -76,7 +80,9 @@ export function PackagePricingView() {
           setLines([]);
         } else {
           setTitle('套餐參考報價');
-          setLines(result.lines);
+          setTemplate(result.lines);
+          setLines([]);
+          setImported(false);
           setShareToken(null);
         }
       }
@@ -135,7 +141,7 @@ export function PackagePricingView() {
     if (line.unitPrice == null) return;
     setBusy(true);
     setErrorMessage('');
-    const error = await savePackageBasePrice(line.id, line.unitPrice);
+    const error = await savePackageBasePrice(line.templateId || line.id, line.unitPrice);
     setBusy(false);
     setMessage(error ? '' : '基準價已更新，只影響之後新開的單。');
     if (error) setErrorMessage(packageQuoteErrorMessage(error));
@@ -198,6 +204,10 @@ export function PackagePricingView() {
   };
 
   const startNew = () => {
+    setImported(false);
+    setLines([]);
+    setTitle('套餐參考報價');
+    setShareToken(null);
     const next = new URLSearchParams(params);
     next.delete('quote');
     setParams(next, { replace: true });
@@ -207,7 +217,7 @@ export function PackagePricingView() {
     <div className="mx-auto max-w-6xl space-y-4 p-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">套餐計價</h1>
+          <h1 className="text-xl font-semibold">參考報價</h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{PACKAGE_PRICE_NOTE}</p>
         </div>
         <Button type="button" variant="outline" onClick={startNew}>
@@ -229,6 +239,8 @@ export function PackagePricingView() {
       </label>
 
       {loading ? <p className="text-sm">載入中…</p> : null}
+
+      {!loading && !quoteId && !imported ? <PackageImportPicker template={template} onImport={(importedLines, nextTitle) => { setLines(importedLines); setTitle(nextTitle); setImported(true); }} /> : null}
 
       {areas.map((area) => (
         <section key={area.area} className="overflow-x-auto rounded-lg border">
@@ -254,7 +266,7 @@ export function PackagePricingView() {
             <tbody>
               {lines.filter((line) => line.area === area.area).map((line) => (
                 <tr key={line.id} className="border-b">
-                  <td className="px-2 py-1">{line.itemName}</td>
+                  <td className="px-2 py-1">{line.itemName}{line.sourceItem ? <div className="text-xs text-muted-foreground">原項目：{line.sourceItem}{line.sourceDescription ? ` · ${line.sourceDescription}` : ''}</div> : null}</td>
                   <td className="px-2 py-1">{line.grade}</td>
                   <td className="px-2 py-1">{line.material}</td>
                   <td className="px-2 py-1">{line.dimension}</td>
@@ -299,13 +311,13 @@ export function PackagePricingView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-lg font-semibold">總額 {formatPackageMoney(total)}</p>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={busy || loading} onClick={() => void save()}>
+          <Button type="button" disabled={busy || loading || !imported || lines.length === 0} onClick={() => void save()}>
             儲存
           </Button>
-          <Button type="button" variant="outline" disabled={busy || loading} onClick={() => void share()}>
+          <Button type="button" variant="outline" disabled={busy || loading || !imported || lines.length === 0} onClick={() => void share()}>
             客戶連結
           </Button>
-          <Button type="button" variant="outline" disabled={busy || loading} onClick={() => void downloadPdf()}>
+          <Button type="button" variant="outline" disabled={busy || loading || !imported || lines.length === 0} onClick={() => void downloadPdf()}>
             下載 PDF
           </Button>
         </div>

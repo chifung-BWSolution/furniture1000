@@ -219,13 +219,13 @@ const QuoteTrashView = lazy(() =>
   import("./QuoteTrashView").then((mod) => ({ default: mod.QuoteTrashView }))
 );
 const PmBudgetView = lazy(() =>
-  import("./PmBudgetView").then((mod) => ({ default: mod.PmBudgetView }))
+  import("./PmBudgetWorkspace").then((mod) => ({ default: mod.PmBudgetWorkspace }))
 );
 const PmQuickView = lazy(() =>
   import("./PmQuickView").then((mod) => ({ default: mod.PmQuickView }))
 );
 const PackagePricingView = lazy(() =>
-  import("./PackagePricingView").then((mod) => ({ default: mod.PackagePricingView }))
+  import("./PmBudgetWorkspace").then((mod) => ({ default: () => <mod.PmBudgetWorkspace legacyPackage /> }))
 );
 const ProPdfView = lazy(() =>
   import("./ProPdfView").then((mod) => ({ default: mod.ProPdfView }))
@@ -906,11 +906,11 @@ function AppShellContent() {
           sectionPath === '/fds/pm/presentation' &&
           (params.has('code') || params.has('error'));
         const packageQuote = params.get('quote');
-        const keepPackageQuote = sectionPath === '/fds/pm/package' && packageQuote;
+        const keepPackageQuote = (sectionPath === '/fds/pm/package' || sectionPath === '/fds/pm/budget') && (packageQuote || params.has('mode'));
         target = keepCanvaOauth
           ? `${sectionPath}?${params.toString()}`
           : keepPackageQuote
-            ? `${sectionPath}?quote=${encodeURIComponent(packageQuote)}`
+            ? `${sectionPath}?${params.toString()}`
             : sectionPath;
       } else if (
         location.pathname.startsWith('/quote') ||

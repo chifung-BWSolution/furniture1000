@@ -143,10 +143,7 @@ export function PhotoConfirmButton({
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent className="max-w-md">
-        <AlertDialogHeader>
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600">
-            <AlertTriangle className="h-4 w-4" aria-hidden />
-          </span>
+        <AlertDialogHeader icon={<AlertTriangle aria-hidden />} iconSize="sm">
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription className="break-words leading-6">{description}</AlertDialogDescription>
         </AlertDialogHeader>
@@ -177,10 +174,7 @@ function ConfirmDialog({
   return (
     <AlertDialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
       <AlertDialogContent className="max-w-md">
-        <AlertDialogHeader>
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600">
-            <AlertTriangle className="h-4 w-4" aria-hidden />
-          </span>
+        <AlertDialogHeader icon={<AlertTriangle aria-hidden />} iconSize="sm">
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription className="break-words leading-6">{description}</AlertDialogDescription>
         </AlertDialogHeader>
@@ -912,7 +906,7 @@ export function QuotePhotoLayoutEditor({
       bodyClassName="p-0 sm:p-0"
     >
       <div className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-muted/30 p-4 lg:overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-muted/30 p-4 xl:overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="mr-1 text-xs font-semibold text-muted-foreground">這張圖怎樣顯示</span>
@@ -955,10 +949,10 @@ export function QuotePhotoLayoutEditor({
           </p>
         </div>
 
-        <div className="grid min-w-0 items-start gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:grid-rows-1 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)_minmax(0,20rem)]">
+        <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] xl:min-h-0 xl:flex-1 xl:items-stretch xl:grid-rows-1 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)_minmax(0,25rem)]">
           {/* 預設佈局 */}
           <section
-            className="flex min-w-0 flex-col rounded-xl border border-border bg-card p-3 lg:max-h-full lg:min-h-0 lg:overflow-hidden"
+            className="flex min-w-0 flex-col rounded-xl border border-border bg-card p-3 xl:max-h-full xl:min-h-0 xl:overflow-hidden"
             aria-labelledby="photo-layout-presets"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1014,7 +1008,7 @@ export function QuotePhotoLayoutEditor({
           </section>
 
           {/* 排版畫布 */}
-          <div className="min-w-0 lg:max-h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
+          <div className="min-w-0 xl:max-h-full xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain">
             <section className="rounded-xl border border-border bg-card p-3" aria-labelledby="photo-layout-canvas">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 id="photo-layout-canvas" className="text-sm font-bold text-foreground">
@@ -1134,7 +1128,7 @@ export function QuotePhotoLayoutEditor({
 
           {/* 圖片素材 */}
           <section
-            className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border bg-card p-3 ${
+            className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border bg-card p-3 xl:max-h-full ${
               trayDrop ? 'border-primary ring-2 ring-primary/20' : 'border-border'
             }`}
             aria-labelledby="photo-layout-tray"
@@ -1194,7 +1188,7 @@ export function QuotePhotoLayoutEditor({
             </p>
 
             {trayIds.length === 0 ? null : (
-              <div className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 max-lg:max-h-80">
+              <div className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 max-xl:max-h-80">
                 <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
                   {trayIds.map((assetId) => {
                     const photo = photoFor(assetId)!;

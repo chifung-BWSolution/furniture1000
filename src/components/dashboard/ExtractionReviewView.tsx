@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { ImageLightbox } from '@/components/ui/image-lightbox';
 import { toast } from 'sonner';
 import {
   AlertCircle,
@@ -16,6 +17,7 @@ import {
   PackagePlus,
   Pencil,
   PencilLine,
+  Plus,
   RefreshCw,
   Search,
   X,
@@ -47,6 +49,8 @@ import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
 import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
 import { importExtractedProducts } from '@/lib/productSearch';
 import { mapOfficialColors } from '@/lib/officialColor';
+import { COLOR_MAP } from '@/constants/color-map';
+import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
 import {
   EDITABLE_FIELDS,
   FLAG_LABELS,
@@ -250,6 +254,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<ExtractionItem | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [sourcePage, setSourcePage] = useState<number | null | undefined>(undefined);
   const itemsRequestRef = useRef({
     documentId: restored?.docId ?? null,
@@ -1134,12 +1139,14 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                                 </td>
                                 <td className="py-2.5">
                                   {main ? (
+                                    <button type="button" onClick={() => setPreviewImage(main.public_url)} aria-label={`查看${p.name ?? '產品'}圖片`} className="cursor-zoom-in rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                                     <LoadingImage
                                       src={main.public_url}
                                       alt={p.name ?? '產品圖片'}
                                       className="h-10 w-10 rounded-lg border border-border/60 object-cover"
                                       loading="lazy"
                                     />
+                                    </button>
                                   ) : (
                                     <div
                                       className="flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground"
@@ -1358,6 +1365,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
         </section>
       </div>
 
+      <ImageLightbox open={previewImage !== null} onClose={() => setPreviewImage(null)} images={previewImage ? [previewImage] : []} title="產品" thumbWidth={160} />
       {editing && (
         <EditItemDialog
           item={editing}
@@ -1642,26 +1650,36 @@ interface EditItemDialogProps {
 function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSaved }: EditItemDialogProps) {
   const current = effectiveProduct(item);
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(EDITABLE_FIELDS.map((f) => [f.key, fieldToInput(current[f.key], f.kind)])),
+    Object.fromEntries(EDITABLE_FIELDS.map((f) => [f.key, f.key === 'currency'
+      ? fieldToInput(current.currency ?? docCurrency ?? 'RMB', f.kind)
+      : fieldToInput(current[f.key], f.kind)])),
   );
   const [mainImageId, setMainImageId] = useState<string | null>(item.main_image_id);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [note, setNote] = useState(item.review_note ?? '');
   const [saving, setSaving] = useState(false);
+  const [newMaterial, setNewMaterial] = useState('');
+  const [newColor, setNewColor] = useState('');
+  const [addedMaterials, setAddedMaterials] = useState<string[]>([]);
+  const [addedColors, setAddedColors] = useState<string[]>([]);
 
   /** Only fields that differ from the AI original are stored in corrected_json. */
   const buildCorrected = (): Partial<ExtractedProduct> => {
     const corrected: Record<string, unknown> = {};
     for (const f of EDITABLE_FIELDS) {
       let next = inputToField(values[f.key] ?? '', f.kind);
+      if (f.key === 'sale_price' && (values[f.key] ?? '').trim() && (next === null || (next as number) < 0)) {
+        throw new Error('售價請輸入大於或等於零的數字。');
+      }
       if (f.key === 'colors') {
         const mapped = mapOfficialColors(Array.isArray(next) ? next as string[] : []);
-        if (mapped.unmapped.length > 0) {
-          throw new Error(`未能對上正式顏色：${mapped.unmapped.join('、')}。請改成既有顏色，或標成訂造。`);
-        }
-        next = mapped.colors;
-        if (mapped.custom_order !== (item.raw_json.custom_order === true)) {
-          corrected.custom_order = mapped.custom_order;
-        }
+        const original = Array.isArray(next) ? next as string[] : [];
+        if (original.length > 3) throw new Error('最多可選擇 3 個顏色。');
+        next = original.flatMap((color) => {
+          const single = mapOfficialColors([color]);
+          return [...single.colors, ...single.unmapped];
+        });
+        if (mapped.custom_order) corrected.custom_order = true;
       }
       const raw = item.raw_json[f.key] ?? (f.kind === 'list' ? [] : null);
       if (JSON.stringify(next) !== JSON.stringify(raw)) corrected[f.key] = next;
@@ -1671,8 +1689,8 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
 
   const save = async (status: ExtractionStatus) => {
     setSaving(true);
-    const corrected = buildCorrected();
     try {
+      const corrected = buildCorrected();
       await reviewExtractionItem({
         itemId: item.id,
         status,
@@ -1740,15 +1758,12 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {EDITABLE_FIELDS.map((f) => {
-          const aiValue = fieldToInput(item.raw_json[f.key], f.kind);
-          const changed = values[f.key] !== aiValue;
           const uncertain = item.raw_json.uncertain_fields?.includes(f.key);
           return (
             <div key={f.key} className={cn('space-y-1', f.key === 'description' && 'col-span-full')}>
               <Label className="flex items-center gap-1 text-xs">
-                {f.label}
+                {f.key === 'colors' ? '主要顏色（第一個為主色）' : f.label}
                 {uncertain && <span className="text-amber-600">（AI 不確定）</span>}
-                {(changed || isCorrected(item, f.key)) && <span className="text-sky-600">已修正</span>}
               </Label>
               {f.key === 'description' ? (
                 <Textarea
@@ -1756,6 +1771,68 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
                   value={values[f.key]}
                   onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                 />
+              ) : f.key === 'currency' ? (
+                <Select value={values.currency} onValueChange={(currency) => setValues((v) => ({ ...v, currency }))}>
+                  <SelectTrigger className="h-8 text-sm" aria-label="幣種"><SelectValue placeholder="選擇幣種" /></SelectTrigger>
+                  <SelectContent>
+                    {Array.from(new Set(['RMB', 'HKD', 'USD', 'EUR', values.currency].filter(Boolean))).map((currency) => (
+                      <SelectItem key={currency} value={currency}>{currency}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : f.key === 'material' ? (
+                <Select value={values.material || '__empty__'} onValueChange={(value) => setValues((v) => ({ ...v, material: value === '__empty__' ? '' : value }))}>
+                  <SelectTrigger className="h-8 text-sm" aria-label="選擇材質"><SelectValue placeholder="選擇材質" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__empty__">未指定</SelectItem>
+                    {values.material && ![...MATERIAL_TAG_RULES.map((rule) => rule.tag as string), ...addedMaterials].includes(values.material) && <SelectItem value={values.material}>{values.material}</SelectItem>}
+                    {[...MATERIAL_TAG_RULES.map((rule) => rule.tag as string), ...addedMaterials].map((material) => <SelectItem key={material} value={material}>{material}</SelectItem>)}
+                    <div className="flex gap-1 border-t p-1" onKeyDown={(e) => e.stopPropagation()}>
+                      <Input aria-label="新增材質名稱" placeholder="新增材質" value={newMaterial} onChange={(e) => setNewMaterial(e.target.value)} className="h-8" />
+                      <Button type="button" size="icon" variant="outline" className="h-8 w-8 shrink-0" aria-label="增加材質" disabled={!newMaterial.trim()} onClick={() => {
+                        const value = newMaterial.trim();
+                        if (!value) return;
+                        if (!MATERIAL_TAG_RULES.some((rule) => rule.tag === value)) setAddedMaterials((items) => items.includes(value) ? items : [...items, value]);
+                        setValues((v) => ({ ...v, material: value }));
+                        setNewMaterial('');
+                      }}><Plus className="h-4 w-4" /></Button>
+                    </div>
+                  </SelectContent>
+                </Select>
+              ) : f.key === 'unit' ? (
+                <Select value={values.unit || '__empty__'} onValueChange={(value) => setValues((v) => ({ ...v, unit: value === '__empty__' ? '' : value }))}>
+                  <SelectTrigger className="h-8 text-sm" aria-label="單位"><SelectValue placeholder="選擇單位" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__empty__">未指定</SelectItem>
+                    {values.unit && !['張', '個', '件', '隻', '把', '支', '套', '組', '米', '平方米', '平方呎', '項', '次'].includes(values.unit) && <SelectItem value={values.unit}>{values.unit}</SelectItem>}
+                    {['張', '個', '件', '隻', '把', '支', '套', '組', '米', '平方米', '平方呎', '項', '次'].map((unit) => <SelectItem key={unit} value={unit}>{unit}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : f.key === 'colors' ? (
+                <Select value="" onValueChange={(color) => setValues((v) => {
+                  const selected = (v.colors || '').split(/[,，]/).map((part) => part.trim()).filter(Boolean);
+                  if (selected.includes(color)) return { ...v, colors: selected.filter((item) => item !== color).join(', ') };
+                  if (selected.length >= 3) { toast.error('最多可選擇 3 個顏色'); return v; }
+                  return { ...v, colors: [...selected, color].join(', ') };
+                })}>
+                  <SelectTrigger className="h-8 text-sm" aria-label="選擇顏色"><span className="truncate">{values.colors || '選擇顏色'}</span></SelectTrigger>
+                  <SelectContent>
+                    {Array.from(new Set([...(values.colors || '').split(/[,，]/).map((part) => part.trim()).filter(Boolean), ...addedColors])).filter((color) => !COLOR_MAP.some((item) => item.en === color)).map((color) => <SelectItem key={color} value={color}>{color}{(values.colors || '').split(/[,，]/).map((part) => part.trim()).includes(color) ? ' ✓' : ''}</SelectItem>)}
+                    {COLOR_MAP.map((color) => <SelectItem key={color.en} value={color.en}>{color.cn} ({color.en}){(values.colors || '').split(/[,，]/).map((part) => part.trim()).includes(color.en) ? ' ✓' : ''}</SelectItem>)}
+                    <div className="flex gap-1 border-t p-1" onKeyDown={(e) => e.stopPropagation()}>
+                      <Input aria-label="新增顏色名稱" placeholder="新增顏色" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="h-8" />
+                      <Button type="button" size="icon" variant="outline" className="h-8 w-8 shrink-0" aria-label="增加顏色" disabled={!newColor.trim()} onClick={() => {
+                        const value = newColor.trim();
+                        const selected = (values.colors || '').split(/[,，]/).map((part) => part.trim()).filter(Boolean);
+                        if (!value || selected.includes(value)) return;
+                        if (selected.length >= 3) { toast.error('最多可選擇 3 個顏色'); return; }
+                        setAddedColors((items) => items.includes(value) ? items : [...items, value]);
+                        setValues((v) => ({ ...v, colors: [...selected, value].join(', ') }));
+                        setNewColor('');
+                      }}><Plus className="h-4 w-4" /></Button>
+                    </div>
+                  </SelectContent>
+                </Select>
               ) : (
                 <Input
                   type={f.kind === 'date' ? 'date' : 'text'}
@@ -1764,9 +1841,6 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
                   onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                   className="h-8 text-sm"
                 />
-              )}
-              {changed && (
-                <div className="truncate text-[11px] text-muted-foreground">AI：{aiValue || '（空）'}</div>
               )}
             </div>
           );
@@ -1792,24 +1866,21 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
           <p className="text-xs text-muted-foreground">AI 未找到此產品的圖片</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {images.map((img) => (
-              <button
-                key={img.id}
-                type="button"
-                onClick={() => setMainImageId(img.id)}
-                className={cn(
-                  'relative overflow-hidden rounded border-2',
-                  mainImageId === img.id ? 'border-primary' : 'border-transparent',
-                )}
-                title={`第 ${img.page_no} 頁 · ${img.image_type}`}
-              >
-                <LoadingImage src={img.public_url} alt="" className="h-20 w-20 object-cover" />
-              </button>
+            {images.map((img, index) => (
+              <div key={img.id} className="flex flex-col items-center gap-1">
+                <button type="button" onClick={() => setPreviewIndex(index)} aria-label={`查看第 ${img.page_no} 頁圖片`} className={cn('overflow-hidden rounded border-2 cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', mainImageId === img.id ? 'border-primary' : 'border-transparent')}>
+                  <LoadingImage src={img.public_url} alt="" className="h-20 w-20 object-cover" />
+                </button>
+                <Button type="button" variant={mainImageId === img.id ? 'secondary' : 'outline'} size="sm" className="h-7 text-xs" onClick={() => setMainImageId(img.id)}>
+                  {mainImageId === img.id ? '已選主圖' : '設為主圖'}
+                </Button>
+              </div>
             ))}
           </div>
         )}
       </div>
 
+      <ImageLightbox open={previewIndex !== null} onClose={() => setPreviewIndex(null)} images={images.map((image) => image.public_url)} startIndex={previewIndex ?? 0} title="提取圖片" thumbWidth={160} />
       <div className="space-y-1">
         <Label className="text-xs">審核備註</Label>
         <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />

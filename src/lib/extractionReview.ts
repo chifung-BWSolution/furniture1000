@@ -29,6 +29,7 @@ export interface ExtractedProduct {
   unit?: string | null;
   moq?: number | null;
   price?: number | null;
+  sale_price?: number | null;
   price_text?: string | null;
   currency?: string | null;
   other_prices?: { label: string; price: number }[];
@@ -130,6 +131,7 @@ export const EDITABLE_FIELDS: { key: keyof ExtractedProduct; label: string; kind
   { key: 'colors', label: '主要顏色（第一個為主色，逗號分隔）', kind: 'list' },
   { key: 'price', label: '成本價', kind: 'number' },
   { key: 'currency', label: '幣種', kind: 'text' },
+  { key: 'sale_price', label: '售價', kind: 'number' },
   { key: 'unit', label: '單位', kind: 'text' },
   { key: 'moq', label: 'MOQ', kind: 'number' },
   { key: 'lead_time_days', label: '交貨期（天）', kind: 'number' },

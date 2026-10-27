@@ -37,3 +37,8 @@ entrypoint = "./functions/quote-catalog-pages/index.ts"
 [functions.supabase-functions-fetch-bwa-works]
 verify_jwt = false
 entrypoint = "./functions/fetch-bwa-works/index.ts"
+
+# PMS 提案及簡報客戶／專案搜尋，函式內驗證登入與 FDS 職員角色。
+[functions.supabase-functions-fetch-pms-pitchings]
+verify_jwt = false
+entrypoint = "./functions/fetch-pms-pitchings/index.ts"

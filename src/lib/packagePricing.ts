@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import {
   PACKAGE_PRICE_NOTE,
   PACKAGE_PRICE_YEAR,
@@ -176,4 +177,30 @@ export async function loadSharedPackageQuote(token: string): Promise<{
   if (error) return { snapshot: null, error };
   if (!data || typeof data !== 'object') return { snapshot: null, error: null };
   return { snapshot: data as PackageQuoteSnapshot, error: null };
+}
+
+export interface PackagePitching { id: string; pitching_code: string | null; real_customer_display_name: string | null; real_building_name: string | null }
+export interface PackageSourceQuote { id: string; quotation_no: string | null; name: string | null; status: string | null; version_number: number | null; modified_date: string | null }
+export interface PackageSourceItem { id: string; section_id: string; item: string | null; description: string | null; quantity: number | string | null; unit: string | null }
+export interface PackageSourceSection { id: string; name: string }
+async function packageLookup<T>(body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke<T & { error?: string }>('supabase-functions-fetch-pms-pitchings', { body });
+  if (error) throw new Error(await parseInvokeError(error, data));
+  if (!data || data.error) throw new Error(data?.error || 'PMS 服務未回傳資料');
+  return data;
+}
+export async function searchPackagePitchings(search: string) {
+  const result = await packageLookup<{ pitchings: PackagePitching[] }>({ action: 'package_pitchings', search });
+  if (!Array.isArray(result.pitchings)) throw new Error('PMS 套餐計價服務尚未更新');
+  return result.pitchings;
+}
+export async function listPackageSourceQuotes(pitchingId: string) {
+  const result = await packageLookup<{ quotes: PackageSourceQuote[] }>({ action: 'package_quotes', pitching_id: pitchingId });
+  if (!Array.isArray(result.quotes)) throw new Error('PMS 套餐計價服務尚未更新');
+  return result.quotes;
+}
+export async function loadPackageSourceItems(pitchingId: string, quotationId: string) {
+  const result = await packageLookup<{ sections: PackageSourceSection[]; items: PackageSourceItem[] }>({ action: 'package_items', pitching_id: pitchingId, quotation_id: quotationId });
+  if (!Array.isArray(result.sections) || !Array.isArray(result.items)) throw new Error('PMS 套餐計價服務尚未更新');
+  return result;
 }
