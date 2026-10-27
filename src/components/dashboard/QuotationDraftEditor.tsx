@@ -5249,7 +5249,7 @@ export function QuotationDraftEditor({
           <div className="quote-editor-metrics" aria-label="報價金額摘要">
             {[
               { label: `${t.grandTotal} HKD`, value: `$${totalAmount.toLocaleString()}`, tone: "total" },
-              { label: "Cost", value: `$${totalProductCost.toLocaleString()}` },
+              { label: "Cost", value: `$${totalProductCost.toLocaleString()}`, tone: "cost" },
               { label: "GP", value: `$${gpValue.toLocaleString()} (${Math.round(gpPercent)}%)`, tone: "gp" },
               { label: "Ship", value: `$${gpSummary.ship.toLocaleString()}` },
               { label: "Installation", value: `$${gpSummary.installation.toLocaleString()}` },
