@@ -34,7 +34,16 @@ const RATIOS = new Set(["1:1", "3:4", "4:3", "16:9", "9:16"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 
-/** Host allowlist for referenceUrls — only this project's public Storage buckets. */
+/**
+ * 產品圖可能存在正式庫，開發分支的 function 仍要能拿去當參考圖。
+ * 只放行這兩個 Furniture 專案，以及 function 自己的網址。
+ */
+const REFERENCE_STORAGE_HOSTS = new Set([
+  "riaubhtruisbwdlwjzur.supabase.co",
+  "omxizeukbcqzsnjsuwod.supabase.co",
+]);
+
+/** Host allowlist for referenceUrls — public product / quote photo buckets only. */
 function isAllowedReferenceUrl(raw: string, supabaseUrl: string): boolean {
   let parsed: URL;
   try {
@@ -44,13 +53,14 @@ function isAllowedReferenceUrl(raw: string, supabaseUrl: string): boolean {
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
   if (parsed.username || parsed.password) return false;
-  let base: URL;
+  let ownHost = "";
   try {
-    base = new URL(supabaseUrl);
+    ownHost = new URL(supabaseUrl).host.toLowerCase();
   } catch {
     return false;
   }
-  if (parsed.host.toLowerCase() !== base.host.toLowerCase()) return false;
+  const host = parsed.host.toLowerCase();
+  if (host !== ownHost && !REFERENCE_STORAGE_HOSTS.has(host)) return false;
   // Only public object paths for product / quote photo buckets (no SSRF to other hosts).
   const path = parsed.pathname.replace(/\/+/g, "/");
   return /^\/storage\/v1\/object\/public\/(product-images|quote-photos)\//i.test(path);
