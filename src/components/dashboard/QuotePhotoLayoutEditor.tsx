@@ -511,7 +511,6 @@ function CropDialog({
                   這張圖不夠清晰（{natural?.w}×{natural?.h}），印出來可能會糊。
                 </p>
               ) : null}
-              {!cover ? <p className="text-xs text-muted-foreground">完整顯示會保留整張圖片，空白的地方不會裁掉內容。</p> : null}
             </div>
       </div>
     </Modal>
@@ -911,7 +910,6 @@ export function QuotePhotoLayoutEditor({
       }}
       variant="fullscreen"
       title="報價單圖片排版"
-      description="先選佈局，再放入圖片並按需要裁剪，最後套用到報價單。"
       /* fullscreen 預設是透明底白字（給燈箱用）；排版編輯器要正常白色頁面。 */
       className="bg-background text-foreground"
       headerClassName="border-b border-border/80 bg-background text-foreground"
@@ -1063,7 +1061,6 @@ export function QuotePhotoLayoutEditor({
                   ) : null}
                 </div>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">拖動圖片可以對調位置；按一下圖片可以裁剪。</p>
               <div className="mt-3">
                 {chosen ? (
                   <PhotoLayoutBlock
@@ -1186,11 +1183,7 @@ export function QuotePhotoLayoutEditor({
                   variant="outline"
                   className="h-8 px-2.5 text-xs"
                   disabled={!canManage || library.length >= QUOTE_PHOTO_LIBRARY_LIMIT}
-                  title={
-                    canManage
-                      ? '按描述生成一張參考圖'
-                      : '只有管理員或上載員可以生成圖片'
-                  }
+                  title={canManage ? undefined : '只有管理員或上載員可以生成圖片'}
                   onClick={() => setGenerateOpen(true)}
                 >
                   <Sparkles className="mr-1 h-3.5 w-3.5" aria-hidden />
@@ -1202,7 +1195,6 @@ export function QuotePhotoLayoutEditor({
               {productPhotos.length > 0
                 ? `報價的 ${productPhotos.length} 張產品圖已預設加入。`
                 : 'JPG、PNG 或 WebP，每張最多 15 MB。'}
-              把圖片拖到畫布上的位置，或按「放入」。
             </p>
 
             {trayIds.length === 0 ? null : (

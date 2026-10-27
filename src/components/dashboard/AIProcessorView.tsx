@@ -5540,12 +5540,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-cyan-500" />
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <Badge className="bg-cyan-500/15 text-cyan-500 border border-cyan-500/30 font-mono-data text-[10px] gap-1">
-                    以圖對照
-                  </Badge>
-                  <span className="font-mono-data text-[10px] text-muted-foreground">用目錄上的產品圖，去表格裡找同一件</span>
-                </div>
                 <p className="font-display text-sm font-bold text-cyan-400">{processingProgress.message}</p>
                 {processingProgress.detail && <p className="text-xs text-muted-foreground font-body mt-0.5">{processingProgress.detail}</p>}
               </div>

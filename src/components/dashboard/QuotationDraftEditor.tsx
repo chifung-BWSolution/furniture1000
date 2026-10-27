@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
-  CircleHelp,
   ClipboardPaste,
   Copy,
   Eye,
@@ -914,10 +913,7 @@ function QuoteItemFlagToggles({
           {labels.optionalProduct}
         </span>
       </label>
-      <label
-        className="inline-flex cursor-pointer items-center gap-1"
-        title={item.hideInPdf ? labels.hideInPdfOn : labels.hideInPdfOff}
-      >
+      <label className="inline-flex cursor-pointer items-center gap-1">
         <Checkbox
           checked={item.hideInPdf ?? false}
           onCheckedChange={(checked) =>
@@ -1413,7 +1409,6 @@ function QuoteProductItemCard({
               onChange={(e) => updateItem(item.id, "sku", e.target.value)}
               className={QUOTE_INPUT_CLASS}
               aria-label={labels.sku}
-              title={labels.skuHint}
             />
           </QuoteFieldBlock>
             </div>
@@ -4980,19 +4975,13 @@ export function QuotationDraftEditor({
                 </span>
                 <span>{t.currentVersion} <strong className="font-bold text-black">{shownVersion}</strong></span>
                 <span>{t.nextReviewVersion} <strong className="font-bold text-black">{currentVersion}</strong></span>
-                <span
-                  className={cn(
-                    "ml-2",
-                    autoSaveFailed ? "text-rose-500" : "text-emerald-600",
-                  )}
-                  title={t.autoSaveHint}
-                >
-                  {autoSaveFailed
-                    ? t.autoSaveFailed
-                    : lastLocalSavedAt
-                      ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString(quoteLocale === "en" ? "en-GB" : "zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
-                      : t.autoSaveHint}
-                </span>
+                {autoSaveFailed || lastLocalSavedAt ? (
+                  <span className={cn("ml-2", autoSaveFailed ? "text-rose-500" : "text-emerald-600")}>
+                    {autoSaveFailed
+                      ? t.autoSaveFailed
+                      : `${t.autoSavedAt} ${new Date(lastLocalSavedAt as number).toLocaleTimeString(quoteLocale === "en" ? "en-GB" : "zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`}
+                  </span>
+                ) : null}
               </p>
               </div>
             </div>
@@ -5066,7 +5055,6 @@ export function QuotationDraftEditor({
                   onClick={() => void handleSaveExistingVersion()}
                   disabled={isSavingDraft || !hasQuoteData}
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
-                  title={t.autoSaveHint}
                 >
                   {isSavingDraft ? (
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
@@ -5912,16 +5900,8 @@ export function QuotationDraftEditor({
                           </div>
                         </div>
                         <div>
-                          <div className="mb-1 flex items-center gap-1 text-xs font-medium text-indigo-700">
+                          <div className="mb-1 text-xs font-medium text-indigo-700">
                             {t.priceMultiplier}
-                            <button
-                              type="button"
-                              className="text-muted-foreground"
-                              title={t.priceMultiplierHint}
-                              aria-label={t.priceMultiplierHint}
-                            >
-                              <CircleHelp className="h-3.5 w-3.5" />
-                            </button>
                           </div>
                           <div className="flex items-center gap-2">
                             <input
@@ -5968,18 +5948,7 @@ export function QuotationDraftEditor({
 
               {/* 報價單圖片 / QUOTATION IMAGES */}
               <section id="quote-sec-photos" className="order-5 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
-                <h2 className="font-display text-base font-bold text-foreground">{t.quotePhotos}</h2>
-                <p className="mb-3 mt-1 font-body text-sm text-muted-foreground">
-                  排版時會先帶入這張報價的產品圖，也可以從「報價設定 › 圖片庫」選圖。這些圖會印在總價之後、訂單確認之前。
-                  {quoteContentPages.length > 0
-                    ? `另有 ${quoteContentPages.length} 張獨立整頁，產生報價單時會插在你指定的那一頁後面。`
-                    : ''}
-                  {quoteCoverPages.length > 0
-                    ? `另有 ${quoteCoverPages.filter((page) => page.placement === 'cover').length} 張封面、${quoteCoverPages.filter((page) => page.placement === 'back').length} 張封底，產生報價單時會各佔一整頁。`
-                    : quoteContentPages.length === 0
-                      ? '封面、封底和獨立整頁在「報價設定 › 圖片庫」設定，產生報價單時會各佔一整頁。'
-                      : '封面和封底在「報價設定 › 圖片庫」設定，產生報價單時會各佔一整頁。'}
-                </p>
+                <h2 className="mb-3 font-display text-base font-bold text-foreground">{t.quotePhotos}</h2>
                 <QuotePhotoPages
                   layouts={quotePhotoLayouts}
                   assets={quotePhotoAssets}
@@ -6260,7 +6229,6 @@ export function QuotationDraftEditor({
         size="sm"
         icon={<Percent className="h-5 w-5" />}
         title={t.unifyExchangeRate}
-        description={t.unifyRateHint}
         footer={
           <>
             <ModalButton
@@ -6519,7 +6487,6 @@ export function QuotationDraftEditor({
         size={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "xl" : "md"}
         icon={<FolderKanban className="h-5 w-5" />}
         title={t.manageZones}
-        description={t.manageZonesHint}
         footer={
           <>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
@@ -6551,7 +6518,6 @@ export function QuotationDraftEditor({
                     : t.uploadFloorPlanRecognize}
             </span>
           </button>
-          <p className="font-body text-xs text-muted-foreground">{t.floorPlanRecognizeHint}</p>
           {floorPlan?.regions.some((region) => !region.confirmed) ? (
             <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}

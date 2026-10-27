@@ -123,7 +123,7 @@ export function QuotePhotoGenerateDialog({
       }}
       icon={<Wand2 className="h-6 w-6" />}
       title="AI 生成參考圖"
-      description={`按描述生成一張室內示意圖，可選最多 ${QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張產品圖作參考。${AI_REFERENCE_LABEL}，不會當成現場實拍。`}
+      description={`${AI_REFERENCE_LABEL}，不會當成現場實拍。`}
       size="3xl"
       footer={
         <>
@@ -159,14 +159,10 @@ export function QuotePhotoGenerateDialog({
               </button>
             ))}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            第一個偏寫實效果圖，第二個較接近實拍。生成失敗可以換另一個再試。
-          </p>
         </div>
 
         <div>
           <p className="text-sm font-semibold text-foreground">常用描述</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">同一套淺色、暖白、無人效果圖。點一下填入，仍可再改。</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {GENERATE_PROMPT_PRESETS.map((preset) => {
               const selected = cleanPrompt === preset.prompt;

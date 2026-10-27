@@ -263,7 +263,6 @@ export function CopyQuoteItemsModal({
       size="4xl"
       icon={<Copy className="h-6 w-6" />}
       title={labels.copyFromOtherQuoteTitle}
-      description={labels.copyFromOtherQuoteHint}
       className="max-w-none w-[min(1100px,calc(100vw-1.5rem))]"
       footer={
         <>
