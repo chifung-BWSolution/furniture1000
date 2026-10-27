@@ -5594,64 +5594,6 @@ export function QuotationDraftEditor({
                             className="w-28 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
                           />
                         </label>
-                        <div className="quote-lrow">
-                          <span className="quote-lrow-op" aria-hidden="true"></span>
-                          <div className="quote-fee-note">
-                            <input
-                              type="text"
-                              readOnly={summaryLocked}
-                              value={installationFee.title}
-                              onChange={(e) =>
-                                setInstallationFee((prev) => ({ ...prev, title: e.target.value }))
-                              }
-                              className="w-full bg-transparent text-sm font-medium text-foreground focus:outline-none read-only:text-muted-foreground"
-                            />
-                            <input
-                              type="text"
-                              readOnly={summaryLocked}
-                              value={installationFee.subtitle}
-                              onChange={(e) =>
-                                setInstallationFee((prev) => ({ ...prev, subtitle: e.target.value }))
-                              }
-                              className="mt-1 w-full bg-transparent text-xs text-muted-foreground focus:outline-none"
-                            />
-                            <textarea
-                              readOnly={summaryLocked}
-                              value={installationFee.conditionText}
-                              onChange={(e) =>
-                                setInstallationFee((prev) => ({ ...prev, conditionText: e.target.value }))
-                              }
-                              rows={2}
-                              className="mt-2 w-full resize-none rounded-md border border-border/60 bg-background px-2 py-1 text-center text-xs text-muted-foreground focus:outline-none read-only:border-transparent read-only:bg-transparent"
-                            />
-                            <div className="mt-2 flex items-center justify-between gap-2">
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                                {installationFee.freeLabel || "—"}
-                              </span>
-                              {isFreeInstallation ? (
-                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                                  FREE
-                                </span>
-                              ) : (
-                                <input
-                                  type="number"
-                                  min={0}
-                                  readOnly={summaryLocked}
-                                  value={installationFee.amount ?? ""}
-                                  placeholder={installationFee.freeLabel || "另議"}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    setInstallationFee((prev) => ({
-                                      ...prev,
-                                      amount: raw === "" ? null : Math.max(0, parseFloat(raw) || 0),
-                                    }));
-                                  }}
-                                  className="w-24 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </div>
                         <label className="quote-lrow">
                           <span className="quote-lrow-op" aria-hidden="true">－</span>
                           <span className="quote-lrow-label">
@@ -5692,6 +5634,61 @@ export function QuotationDraftEditor({
                           </div>
                           <div className="quote-gp-bar" role="img" aria-label={`GP ${Math.round(gpPercent)}%`}>
                             <i style={{ width: `${Math.min(100, Math.max(0, gpPercent))}%` }} />
+                          </div>
+                        </div>
+                        <div className="quote-fee-note">
+                          <input
+                            type="text"
+                            readOnly={summaryLocked}
+                            value={installationFee.title}
+                            onChange={(e) =>
+                              setInstallationFee((prev) => ({ ...prev, title: e.target.value }))
+                            }
+                            className="w-full bg-transparent text-sm font-medium text-foreground focus:outline-none read-only:text-muted-foreground"
+                          />
+                          <input
+                            type="text"
+                            readOnly={summaryLocked}
+                            value={installationFee.subtitle}
+                            onChange={(e) =>
+                              setInstallationFee((prev) => ({ ...prev, subtitle: e.target.value }))
+                            }
+                            className="mt-1 w-full bg-transparent text-xs text-muted-foreground focus:outline-none"
+                          />
+                          <textarea
+                            readOnly={summaryLocked}
+                            value={installationFee.conditionText}
+                            onChange={(e) =>
+                              setInstallationFee((prev) => ({ ...prev, conditionText: e.target.value }))
+                            }
+                            rows={2}
+                            className="mt-2 w-full resize-none rounded-md border border-border/60 bg-background px-2 py-1 text-center text-xs text-muted-foreground focus:outline-none read-only:border-transparent read-only:bg-transparent"
+                          />
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                              {installationFee.freeLabel || "—"}
+                            </span>
+                            {isFreeInstallation ? (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                FREE
+                              </span>
+                            ) : (
+                              <input
+                                type="number"
+                                min={0}
+                                readOnly={summaryLocked}
+                                value={installationFee.amount ?? ""}
+                                placeholder={installationFee.freeLabel || "另議"}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  setInstallationFee((prev) => ({
+                                    ...prev,
+                                    amount: raw === "" ? null : Math.max(0, parseFloat(raw) || 0),
+                                  }));
+                                }}
+                                className="w-24 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
+                              />
+                            )}
                           </div>
                         </div>
                         <div>
