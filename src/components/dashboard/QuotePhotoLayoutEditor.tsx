@@ -729,24 +729,9 @@ export function QuotePhotoLayoutEditor({
     });
   }
 
-  /** 新加入的圖片：先進素材區，已選佈局就順手填未用的槽位。 */
-  function fillIntoSlots(added: string[]) {
-    if (added.length === 0) return;
+  /** 新圖片只加入素材區，由使用者選擇是否放進佈局。 */
+  function addToTray(added: string[]) {
     setTray((current) => [...current, ...added.filter((id) => !current.includes(id))]);
-    if (!chosen) return;
-    setGroup((current) => {
-      const slots = templateGeometry(current.templateId, current.gridSlots).slots;
-      let room = MAX_LAYOUT_PHOTOS - othersCount - current.placements.length;
-      const placements = [...current.placements];
-      const queue = [...added];
-      for (const slot of slots) {
-        if (room <= 0 || queue.length === 0) break;
-        if (placements.some((entry) => entry.slotId === slot.id)) continue;
-        placements.push(defaultPlacement(slot, queue.shift()!));
-        room -= 1;
-      }
-      return { ...current, placements };
-    });
   }
 
   async function upload(list: FileList | File[] | null) {
@@ -776,8 +761,8 @@ export function QuotePhotoLayoutEditor({
     }
     setUploading(0);
     if (added.length === 0) return;
-    // 上載後即時放入素材區；已有佈局就順手填空槽。
-    fillIntoSlots(added);
+    // 上載後放入素材區。
+    addToTray(added);
     toast.success(`已上載 ${added.length} 張圖片`);
   }
 
@@ -791,11 +776,11 @@ export function QuotePhotoLayoutEditor({
     [productPhotos],
   );
 
-  /** AI 生成完成：加入素材區，已選佈局就順手填空槽。 */
+  /** AI 生成完成：加入素材區。 */
   function onGenerated(asset: QuotePhotoAsset) {
     setLibrary((current) => (current.some((row) => row.id === asset.id) ? current : [...current, asset]));
     onUploaded?.(asset);
-    fillIntoSlots([asset.id]);
+    addToTray([asset.id]);
   }
 
   function apply() {
