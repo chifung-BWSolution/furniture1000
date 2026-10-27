@@ -1230,6 +1230,11 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
     });
     if (mergeErr) throw new Error(`merge part failed: ${mergeErr.message}`);
   }
+  const importDocumentId = head.parent_document_id ?? documentId;
+  const { data: autoImport, error: autoErr } = await admin.rpc("fds_auto_import_clear_extractions", {
+    p_document_id: importDocumentId,
+  });
+  if (autoErr) throw new Error(`auto import failed: ${autoErr.message}`);
   const currencySuggestion = Object.entries(state.currencies ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
   const { data: pageStats } = await admin
@@ -1252,12 +1257,15 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
       units: state.units?.length ?? 0,
       items: Number(summary?.items ?? 0),
       needs_attention: Number(summary?.needsAttention ?? 0),
+      auto_import: autoImport ?? null,
       currency_suggestion: currencySuggestion,
       ocr,
       empty_pages: emptyPages,
       worker: WORKER_NAME,
     },
-    p_document_status: "review",
+    p_document_status: !head.parent_document_id && Number((autoImport as { pending?: number } | null)?.pending ?? 1) === 0
+      ? "ready"
+      : "review",
     p_pages: state.page_count,
     p_ocr_pages: state.ocr_pages,
     p_tokens: state.tokens,

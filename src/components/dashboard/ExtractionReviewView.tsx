@@ -1619,6 +1619,7 @@ function itemTags(item: ExtractionItem): { label: string; tone: 'info' | 'warn' 
   };
 
   push(p.category, 'info');
+  if (item.review_note === 'auto_imported') push('自動入庫', 'info');
   for (const flag of item.flags) {
     push(FLAG_LABELS[flag] ?? flag, INFO_FLAGS.has(flag) ? 'info' : 'warn');
   }
