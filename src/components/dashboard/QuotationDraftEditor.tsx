@@ -70,7 +70,7 @@ import {
 import { FloorPlanViewerModal } from "@/components/dashboard/solutions/FloorPlanViewerModal";
 import { QuoteCatalogPagesDialog } from "@/components/dashboard/QuoteCatalogPagesDialog";
 import { parseQuoteCatalogPages, type QuoteCatalogPage } from "@/lib/quoteCatalogPages";
-import { FloorPlanZoneCanvas } from "@/components/dashboard/FloorPlanZoneCanvas";
+import { FloorPlanZoneCanvas, floorPlanZoneColor } from "@/components/dashboard/FloorPlanZoneCanvas";
 import { renderPdfPageToJpegBlob } from "@/lib/floorPlanPdf";
 import {
   uploadProjectFloorPlanFile,
@@ -2651,6 +2651,7 @@ export function QuotationDraftEditor({
   const [recognizingZones, setRecognizingZones] = useState(false);
   const [zoneRecognitionProgress, setZoneRecognitionProgress] = useState(0);
   const [floorPlanDragOver, setFloorPlanDragOver] = useState(false);
+  const [zoneSortId, setZoneSortId] = useState<string | null>(null);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
   const [zoneManagerOpen, setZoneManagerOpen] = useState(false);
   const [zoneManagerDraft, setZoneManagerDraft] = useState<ZoneManagerRow[]>([]);
@@ -6607,17 +6608,58 @@ export function QuotationDraftEditor({
           ) : (
             <div className="min-w-0 overflow-x-auto">
               <div className="min-w-[28rem] space-y-2 lg:min-w-0">
-                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_4.5rem_2rem] gap-2 px-0.5">
+                <div className="grid grid-cols-[1.25rem_1.5rem_minmax(0,1.4fr)_minmax(0,1.2fr)_4.5rem_2rem] gap-2 px-0.5">
+                  <span />
+                  <span />
                   <span className="font-body text-xs text-muted-foreground">{t.zoneSpaceName}</span>
                   <span className="font-body text-xs text-muted-foreground">{t.zoneSpaceType}</span>
                   <span className="font-body text-xs text-muted-foreground">{t.zoneQuantity}</span>
                   <span />
                 </div>
-                {zoneManagerDraft.map((zone) => (
+                {zoneManagerDraft.map((zone, index) => (
                   <div
                     key={zone.id}
-                    className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_4.5rem_2rem] items-center gap-2"
+                    className={`grid grid-cols-[1.25rem_1.5rem_minmax(0,1.4fr)_minmax(0,1.2fr)_4.5rem_2rem] items-center gap-2 ${zoneSortId === zone.id ? "opacity-50" : ""}`}
+                    onDragOver={(event) => {
+                      if (!zoneSortId) return;
+                      event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const fromId = event.dataTransfer.getData("text/plain") || zoneSortId;
+                      setZoneSortId(null);
+                      if (!fromId || fromId === zone.id) return;
+                      setZoneManagerDraft((prev) => {
+                        const from = prev.findIndex((row) => row.id === fromId);
+                        const to = prev.findIndex((row) => row.id === zone.id);
+                        if (from < 0 || to < 0) return prev;
+                        const next = [...prev];
+                        const [moved] = next.splice(from, 1);
+                        next.splice(to, 0, moved);
+                        return next;
+                      });
+                    }}
                   >
+                    <button
+                      type="button"
+                      draggable
+                      aria-label={quoteLocale === "en" ? "Reorder zone" : "調整順序"}
+                      className="flex h-10 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", zone.id);
+                        setZoneSortId(zone.id);
+                      }}
+                      onDragEnd={() => setZoneSortId(null)}
+                    >
+                      <GripVertical className="h-4 w-4" />
+                    </button>
+                    <span
+                      className="flex h-6 w-6 items-center justify-center rounded font-mono-data text-xs text-white"
+                      style={{ background: floorPlanZoneColor(index) }}
+                    >
+                      {index + 1}
+                    </span>
                     <Input
                       value={zone.name}
                       aria-label={t.zoneSpaceName}

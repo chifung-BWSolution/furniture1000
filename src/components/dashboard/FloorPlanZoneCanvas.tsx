@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { blankZoneManagerRow, MAX_FLOOR_PLAN_ZONES, normalizeZoneRect, type QuoteZoneRect, type ZoneManagerRow } from '@/lib/quoteFloorPlan';
 
-const ZONE_COLORS = ['#6d5efc', '#0284c7', '#d97706', '#059669', '#e11d48', '#7c3aed'];
+const ZONE_COLORS = ['#7c6cf0', '#3b82c4', '#e11d48', '#22a06b', '#e0a100', '#38bdf8', '#6366f1', '#f97316'];
 
 export function floorPlanZoneColor(index: number): string {
   return ZONE_COLORS[index % ZONE_COLORS.length];
