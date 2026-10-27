@@ -2428,6 +2428,28 @@ function QuoteAddRowButtonGroup({
   );
 }
 
+/** A section title with no product or service lines under it is omitted from the PDF. */
+function omitEmptyPdfZones(rows: QuotationItem[]): QuotationItem[] {
+  const keepTitle = new Set<number>();
+  let titleIndex = -1;
+  let hasBody = false;
+  const closeZone = () => {
+    if (titleIndex >= 0 && hasBody) keepTitle.add(titleIndex);
+    titleIndex = -1;
+    hasBody = false;
+  };
+  rows.forEach((item, index) => {
+    if (item.isSectionTitle) {
+      closeZone();
+      titleIndex = index;
+      return;
+    }
+    hasBody = true;
+  });
+  closeZone();
+  return rows.filter((item, index) => !item.isSectionTitle || keepTitle.has(index));
+}
+
 /** Rows created via 新建欄位 may have category/material but no product name — still export to PDF. */
 function hasQuoteItemContent(item: QuotationItem): boolean {
   if (item.isSectionTitle || item.isCustomTerm) {
@@ -4760,8 +4782,8 @@ export function QuotationDraftEditor({
     );
     const displayDate = formatQuoteDisplayDate(quoteMeta.date, quoteLocale);
     // 「於PDF 隱藏」lines stay in the editor but are omitted from preview / PDF totals.
-    const pdfSourceItems = items.filter(
-      (item) => hasQuoteItemContent(item) && !item.hideInPdf,
+    const pdfSourceItems = omitEmptyPdfZones(
+      items.filter((item) => hasQuoteItemContent(item) && !item.hideInPdf),
     );
     const pdfItems = pdfSourceItems.map((item) => ({
       image: item.image,
