@@ -317,7 +317,7 @@ export function QuotePhotoGenerateDialog({
             <textarea
               value={prompt}
               maxLength={QUOTE_PHOTO_PROMPT_MAX}
-              rows={4}
+              rows={8}
               disabled={generating || prompting}
               onChange={(event) => {
                 setActiveZoneId(null);
