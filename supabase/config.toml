@@ -20,3 +20,11 @@ verify_jwt = false
 [functions.supabase-functions-process-jobs]
 verify_jwt = false
 entrypoint = "./functions/process-jobs/index.ts"
+
+# 報價附件：只抽出所選圖冊頁，不回傳整份私有 PDF。
+[functions.quote-catalog-pages]
+verify_jwt = false
+
+[functions.supabase-functions-quote-catalog-pages]
+verify_jwt = false
+entrypoint = "./functions/quote-catalog-pages/index.ts"

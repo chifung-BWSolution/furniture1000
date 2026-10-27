@@ -8,6 +8,7 @@ import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
 import { renderQuotePdfPages, type QuotePdfPreviewPage } from '@/lib/quotationPdfCanvas';
 import { createCanvasTextMeasure, preloadImageSizes, setPdfTextMeasure } from '@/lib/quotationPdfText';
 import { QuotationDocument, collectQuotationPdfImageUrls } from './quotationPdfDocument';
+import { appendQuoteCatalogPages } from '@/lib/quoteCatalogPages';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -418,7 +419,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
       // 先把圖片原始比例與字體量測準備好 —— 分頁與圖例排版都依賴它們。
       await ensureMeasureFont();
       await preloadImageSizes(collectQuotationPdfImageUrls(pdfData), { timeoutMs: 8000, concurrency: 4 });
-      return await Promise.race([
+      const blob = await Promise.race([
         pdfMod
           .pdf(<QuotationDocument data={pdfData} pdfMod={pdfMod} showCnyTotal={showCnyTotal} />)
           .toBlob(),
@@ -429,6 +430,15 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
           );
         }),
       ]);
+      const pages = pdfData.catalogPages ?? [];
+      if (pages.length === 0) return blob;
+      const merged = await appendQuoteCatalogPages(
+        await blob.arrayBuffer(),
+        pages,
+        pdfData.showCatalogSource !== false,
+      );
+      const bytes = new Uint8Array(merged);
+      return new Blob([bytes.buffer], { type: 'application/pdf' });
     } finally {
       if (timer !== undefined) window.clearTimeout(timer);
     }

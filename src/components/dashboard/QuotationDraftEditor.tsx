@@ -68,6 +68,8 @@ import {
   type PhotoLayoutGroup,
 } from "@/lib/quotePhotoLayouts";
 import { FloorPlanViewerModal } from "@/components/dashboard/solutions/FloorPlanViewerModal";
+import { QuoteCatalogPagesDialog } from "@/components/dashboard/QuoteCatalogPagesDialog";
+import { parseQuoteCatalogPages, type QuoteCatalogPage } from "@/lib/quoteCatalogPages";
 import { FloorPlanZoneCanvas, floorPlanZoneColor } from "@/components/dashboard/FloorPlanZoneCanvas";
 import { renderPdfPageToJpegBlob } from "@/lib/floorPlanPdf";
 import {
@@ -2618,6 +2620,13 @@ export function QuotationDraftEditor({
   const [floorPlan, setFloorPlan] = useState<QuoteFloorPlan | null>(() =>
     parseQuoteFloorPlan(savedProjectData.floorPlan),
   );
+  const [catalogPages, setCatalogPages] = useState<QuoteCatalogPage[]>(() =>
+    parseQuoteCatalogPages((savedProjectData as Record<string, unknown>).catalogPageAttachments),
+  );
+  const [showCatalogSource, setShowCatalogSource] = useState(
+    () => (savedProjectData as Record<string, unknown>).showCatalogSource !== false,
+  );
+  const [catalogDialogOpen, setCatalogDialogOpen] = useState(false);
   const [zoneImages, setZoneImages] = useState<QuoteZoneImageMap>(() =>
     parseQuoteZoneImages(savedProjectData.zoneImages),
   );
@@ -2687,6 +2696,10 @@ export function QuotationDraftEditor({
     setZoneImages((prev) => (JSON.stringify(prev) === JSON.stringify(nextZoneImages) ? prev : nextZoneImages));
     const nextZoneLayouts = parseZonePhotoLayouts(projectData?.zonePhotoLayouts);
     setZonePhotoLayouts((prev) => (JSON.stringify(prev) === JSON.stringify(nextZoneLayouts) ? prev : nextZoneLayouts));
+    const nextCatalogPages = parseQuoteCatalogPages(projectData?.catalogPageAttachments);
+    setCatalogPages((prev) => (JSON.stringify(prev) === JSON.stringify(nextCatalogPages) ? prev : nextCatalogPages));
+    const nextShowSource = projectData?.showCatalogSource !== false;
+    setShowCatalogSource((prev) => (prev === nextShowSource ? prev : nextShowSource));
   }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
   // 報價 PDF 的 QR 指向這張單已有的客戶連結，不必每次開啟都重新生成。
@@ -4148,6 +4161,12 @@ export function QuotationDraftEditor({
         if ("zonePhotoLayouts" in cachedRecord) {
           setZonePhotoLayouts(parseZonePhotoLayouts(cachedRecord.zonePhotoLayouts));
         }
+        if ("catalogPageAttachments" in cachedRecord) {
+          setCatalogPages(parseQuoteCatalogPages(cachedRecord.catalogPageAttachments));
+        }
+        if ("showCatalogSource" in cachedRecord) {
+          setShowCatalogSource(cachedRecord.showCatalogSource !== false);
+        }
         if (cached.termsContent) {
           const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
           setTermsContent(
@@ -4225,6 +4244,8 @@ export function QuotationDraftEditor({
       floorPlan: floorPlan as unknown as Record<string, unknown> | null,
       zoneImages: zoneImages as unknown as Record<string, unknown>,
       zonePhotoLayouts: zonePhotoLayouts as unknown as Record<string, unknown>,
+      catalogPageAttachments: catalogPages as unknown as Record<string, unknown>[],
+      showCatalogSource,
     }),
     [
       storageKey,
@@ -4247,6 +4268,8 @@ export function QuotationDraftEditor({
       floorPlan,
       zoneImages,
       zonePhotoLayouts,
+      catalogPages,
+      showCatalogSource,
     ],
   );
 
@@ -4638,6 +4661,8 @@ export function QuotationDraftEditor({
           UNZONED_QUOTE_IMAGE_KEY,
         ],
       ),
+      catalogPageAttachments: catalogPages,
+      showCatalogSource,
     };
   };
 
@@ -4774,6 +4799,8 @@ export function QuotationDraftEditor({
           subtitle: pdfLabels.installSubtitle,
           conditionText: pdfLabels.installCondition,
         },
+        catalogPages,
+        showCatalogSource,
       };
     }
 
@@ -4817,6 +4844,8 @@ export function QuotationDraftEditor({
     quoteCoverPages: pdfCoverPages,
     quoteContentPages: pdfContentPages,
     installationFee,
+    catalogPages,
+    showCatalogSource,
   };
   };
 
@@ -5509,6 +5538,23 @@ export function QuotationDraftEditor({
                       openProductSelector(0);
                     }}
                   />
+                </div>
+                <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2">
+                  <p className="text-sm text-foreground">
+                    {ui('圖冊附件', 'Catalog pages')}
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {catalogPages.length > 0
+                        ? ui(`${catalogPages.length} 頁，會加在報價 PDF 後面`, `${catalogPages.length} pages, added after the quotation PDF`)
+                        : ui('可選不同圖冊的整頁', 'Whole pages from one or more catalogs')}
+                    </span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogDialogOpen(true)}
+                    className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
+                  >
+                    {ui('選擇整頁', 'Choose pages')}
+                  </button>
                 </div>
                 <p className="mb-4 border-b border-border/80 pb-3 text-xs text-muted-foreground">
                   {ui('產品項目', 'Products')} {productCount} · {ui('增值服務', 'Services')} {serviceCount} · {ui('備註標題', 'Titles')} {titleCount}{ui('；依報價單順序排列，可拖曳或上下移動調整位置。', '; drag or use the arrows to reorder items as they appear in the quotation.')}
@@ -6477,6 +6523,7 @@ export function QuotationDraftEditor({
         size={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "xl" : "md"}
         icon={<FolderKanban className="h-5 w-5" />}
         title={t.manageZones}
+        description={t.manageZonesHint}
         footer={
           <>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
@@ -6508,7 +6555,6 @@ export function QuotationDraftEditor({
                     : t.uploadFloorPlanRecognize}
             </span>
           </button>
-          <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
           {floorPlan?.regions.some((region) => !region.confirmed) ? (
             <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}
@@ -6615,6 +6661,18 @@ export function QuotationDraftEditor({
         type={floorPlan?.mimeType ?? null}
         previewUrl={floorPlan?.previewUrl}
         onClose={() => setFloorPlanViewerOpen(false)}
+      />
+
+      <QuoteCatalogPagesDialog
+        open={catalogDialogOpen}
+        pages={catalogPages}
+        showSource={showCatalogSource}
+        onOpenChange={setCatalogDialogOpen}
+        onConfirm={(nextPages, nextShowSource) => {
+          setCatalogPages(nextPages);
+          setShowCatalogSource(nextShowSource);
+          setCatalogDialogOpen(false);
+        }}
       />
 
       <ImageLightbox

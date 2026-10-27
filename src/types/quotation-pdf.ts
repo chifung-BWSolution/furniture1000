@@ -146,4 +146,15 @@ export interface QuotationPDFData {
     chargeLabel?: string;
     amount?: number | null;
   };
+  /** Whole catalog pages appended after the quotation. Cropping is a later step. */
+  catalogPages?: {
+    documentId: string;
+    pageNo: number;
+    factoryName: string;
+    title: string | null;
+    documentYear: number | null;
+    series: string | null;
+  }[];
+  /** When true, each catalog page keeps a bottom strip with its source label. */
+  showCatalogSource?: boolean;
 }
