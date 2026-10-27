@@ -6609,7 +6609,7 @@ export function QuotationDraftEditor({
                 {zoneManagerDraft.map((zone) => (
                   <div
                     key={zone.id}
-                    className={`grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1.15fr)_4.5rem_2rem] items-center gap-2 rounded-xl ${zone.id === activeZoneId ? "ring-2 ring-violet-300" : ""}`}
+                    className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1.15fr)_4.5rem_2rem] items-center gap-2"
                   >
                     <Input
                       value={zone.name}
