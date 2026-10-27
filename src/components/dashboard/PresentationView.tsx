@@ -391,13 +391,10 @@ function CanvaConnectionCard({
   const reduce = useReducedMotion();
   const account = `${canva?.account_name || 'chifung.login'}（admin / 傢俬組）`;
   const statusKey = !canva ? 'loading' : showGenerationWarning ? 'warn' : connected ? 'on' : 'off';
-  const spring = reduce ? { duration: 0 } : { type: 'spring' as const, stiffness: 280, damping: 30 };
+  const settle = reduce ? { duration: 0 } : { duration: 0.18, ease: 'easeOut' as const };
 
   return (
-    <motion.section
-      layout
-      layoutId="canva-connection"
-      transition={spring}
+    <section
       id="canva-connection"
       className={cn(
         'relative overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm',
@@ -417,17 +414,16 @@ function CanvaConnectionCard({
         transition={{ duration: 0.85, ease: 'easeOut' }}
       />
       <div className={cn('flex', compact ? 'h-full items-center gap-2' : 'flex-col items-center gap-3 text-center')}>
-        <motion.div
-          layout
+        <div
           className={cn(
-            'flex shrink-0 items-center justify-center rounded-full bg-white shadow-md ring-4 dark:bg-indigo-950',
+            'flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-md ring-4 dark:bg-indigo-950',
             compact ? 'h-8 w-8 ring-2 ring-emerald-100 dark:ring-emerald-500/20' : 'h-16 w-16 ring-indigo-50 dark:ring-indigo-500/20',
             connected && !compact ? 'ring-emerald-100' : '',
           )}
         >
           <CanvaMark className={compact ? 'h-auto w-6' : 'h-auto w-14'} />
-        </motion.div>
-        <div className={cn('min-w-0', compact ? 'flex-1 text-left' : '')}>
+        </div>
+        <div className={cn('relative z-10 min-w-0', compact ? 'flex-1 text-left' : '')}>
           <div className={cn('flex items-center gap-1.5', compact ? 'flex-nowrap' : 'flex-wrap justify-center')}>
             <h3 className={cn('font-bold text-foreground', compact ? 'truncate text-xs' : 'text-base')}>Canva 連接</h3>
             <AnimatePresence mode="wait">
@@ -437,7 +433,7 @@ function CanvaConnectionCard({
                   initial={reduce ? false : { opacity: 0, scale: 0.82, y: 6 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={reduce ? undefined : { opacity: 0, scale: 0.9, y: -4 }}
-                  transition={spring}
+                  transition={settle}
                   className={cn(
                     'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[11px] font-semibold',
                     showGenerationWarning
@@ -512,7 +508,7 @@ function CanvaConnectionCard({
           <Link2 className="h-4 w-4" /> 連接 Canva
         </Button>
       )}
-    </motion.section>
+    </section>
   );
 }
 
