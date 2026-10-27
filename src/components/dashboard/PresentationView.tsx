@@ -1607,27 +1607,27 @@ export function PresentationView() {
             {wizardStep === 4 && (
             <div className="space-y-4">
               <SectionIntro icon={<PresentationIcon className="h-5 w-5" />} title={WIZARD_STEPS[3].title} hint={WIZARD_STEPS[3].hint} />
-              <Field label="新版本備註">
-                <Input
-                  className="h-10 rounded-lg bg-background"
-                  value={versionNote}
-                  onChange={(e) => setVersionNote(e.target.value)}
-                  placeholder="例：調整設計風格，加入最新產品圖片"
-                />
-              </Field>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="min-w-0 flex-1">
-                  <Field label="版本名稱">
+                  <Field label="新版本備註">
                     <Input
                       className="h-10 rounded-lg bg-background"
-                      value={`v${activeSession?.content_version ?? 1}`}
-                      readOnly
+                      value={versionNote}
+                      onChange={(e) => setVersionNote(e.target.value)}
+                      placeholder="例：調整設計風格，加入最新產品圖片"
                     />
+                  </Field>
+                </div>
+                <div className="shrink-0">
+                  <Field label="版本名稱">
+                    <p className="flex h-10 items-center px-1 text-sm font-medium tabular-nums text-foreground">
+                      v{activeSession?.content_version ?? 1}
+                    </p>
                   </Field>
                 </div>
                 <Button
                   type="button"
-                  className="h-10 bg-indigo-600 px-6 text-white hover:bg-indigo-500 sm:mb-0"
+                  className="h-10 bg-indigo-600 px-6 text-white hover:bg-indigo-500"
                   disabled={!canCreateNative || disabled || Boolean(activeSession?.canva_design_id)}
                   onClick={createNative}
                 >
