@@ -15,10 +15,10 @@ vm.runInContext(
 const g = context.exports;
 
 const columns = g.PRODUCT_SELECT_COLUMNS.split(',');
-for (const name of ['dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm', 'factories_display_name', 'sale_price', 'price']) {
+for (const name of ['dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm', 'sale_price', 'price']) {
   assert.ok(columns.includes(name), name);
 }
-for (const name of ['middle_price', 'size_l', 'size_w', 'size_h', 'factory', 'images']) {
+for (const name of ['middle_price', 'size_l', 'size_w', 'size_h', 'factory', 'factories_display_name', 'images']) {
   assert.equal(columns.includes(name), false, name);
 }
 
@@ -54,6 +54,8 @@ assert.ok(built.brief.includes('季度匯報'));
 assert.ok(built.brief.includes('甲公司'));
 assert.ok(built.brief.includes('HK$12,800'));
 assert.ok(built.brief.includes('1800 × 900 × 750'));
+assert.equal(built.brief.includes('華座'), false);
+assert.equal(JSON.stringify(built.outline).includes('供應商'), false);
 assert.ok(built.brief.length <= 5000);
 assert.equal(built.design_type.type, 'preset');
 assert.equal(built.design_type.name, 'presentation');
