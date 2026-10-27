@@ -3841,6 +3841,16 @@ export function QuotationDraftEditor({
     void listQuotePhotoAssets().then((result) => setPhotoLibrary(result.assets));
   };
 
+  const removeZoneLayout = (zoneId: string, groupId: string) => {
+    setZonePhotoLayouts((prev) => {
+      const nextGroups = (prev[zoneId] || []).filter((group) => group.id !== groupId);
+      const next = { ...prev };
+      if (nextGroups.length) next[zoneId] = nextGroups;
+      else delete next[zoneId];
+      return next;
+    });
+  };
+
   const renderZonePhotoTail = (zoneId: string) => {
     const urls = zoneImages[zoneId] || [];
     const layouts = (zonePhotoLayouts[zoneId] || []).filter((group) => group.placements.length > 0);
@@ -3848,19 +3858,38 @@ export function QuotationDraftEditor({
     return (
       <div className="space-y-2 rounded-lg border border-dashed border-border bg-muted/20 p-3">
         {layouts.map((group) => (
-          <button
-            key={group.id}
-            type="button"
-            onClick={() => openZoneImageUpload(zoneId)}
-            className="block w-full max-w-xl text-left"
-            aria-label={t.uploadZoneImage}
-          >
-            <PhotoLayoutBlock
-              geometry={groupGeometry(group)}
-              placements={group.placements}
-              photoFor={(assetId) => zonePhotoSources.get(assetId)}
-            />
-          </button>
+          <div key={group.id} className="flex items-start gap-2">
+            <div className="relative min-w-0 max-w-xl flex-1">
+              <button
+                type="button"
+                onClick={() => openZoneImageUpload(zoneId)}
+                className="block w-full text-left"
+                aria-label={t.uploadZoneImage}
+              >
+                <PhotoLayoutBlock
+                  geometry={groupGeometry(group)}
+                  placements={group.placements}
+                  photoFor={(assetId) => zonePhotoSources.get(assetId)}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => removeZoneLayout(zoneId, group.id)}
+                className="absolute -right-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"
+                aria-label={t.removeZoneImage}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => removeZoneLayout(zoneId, group.id)}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2 py-1 font-body text-xs text-muted-foreground hover:border-destructive/40 hover:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t.removeZoneImage}
+            </button>
+          </div>
         ))}
         {urls.length > 0 ? (
           <div className="flex flex-wrap gap-2">
@@ -6432,7 +6461,12 @@ export function QuotationDraftEditor({
           }
           onSave={(groups, usedAssets) => {
             const zoneId = zoneLayoutEditor.zoneId;
-            setZonePhotoLayouts((prev) => ({ ...prev, [zoneId]: groups }));
+            setZonePhotoLayouts((prev) => {
+              const next = { ...prev };
+              if (groups.some((group) => group.placements.length > 0)) next[zoneId] = groups;
+              else delete next[zoneId];
+              return next;
+            });
             const usedIds = new Set(groups.flatMap((group) => group.placements.map((placement) => placement.assetId)));
             setQuotePhotoAssets((prev) => {
               const next = [...prev];

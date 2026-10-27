@@ -791,7 +791,11 @@ export function QuotePhotoLayoutEditor({
   function apply() {
     setConfirm(null);
     if (group.placements.length === 0) {
-      toast.error('請最少放入一張圖片才套用。');
+      if (!existing) {
+        toast.error('請最少放入一張圖片才套用。');
+        return;
+      }
+      onSave(layouts.filter((entry) => entry.id !== group.id), []);
       return;
     }
     const groups = existing ? layouts.map((entry) => (entry.id === group.id ? group : entry)) : [...layouts, group];
@@ -803,7 +807,11 @@ export function QuotePhotoLayoutEditor({
   }
 
   function onApplyClick() {
-    if (emptySlots > 0 && group.placements.length > 0) setConfirm('empty');
+    if (group.placements.length === 0) {
+      apply();
+      return;
+    }
+    if (emptySlots > 0) setConfirm('empty');
     else apply();
   }
 
@@ -1320,8 +1328,8 @@ export function QuotePhotoLayoutEditor({
           <Button type="button" variant="outline" onClick={requestClose}>
             取消
           </Button>
-          <Button type="button" disabled={!chosen || group.placements.length === 0} onClick={onApplyClick}>
-            套用到報價單
+          <Button type="button" disabled={!chosen || (group.placements.length === 0 && !existing)} onClick={onApplyClick}>
+            {existing && group.placements.length === 0 ? '從報價移除' : '套用到報價單'}
           </Button>
         </div>
       </div>
