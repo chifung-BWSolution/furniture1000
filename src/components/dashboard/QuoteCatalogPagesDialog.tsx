@@ -1,15 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type PointerEvent } from 'react';
 import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { LoadingImage } from '@/components/ui/loading-image';
 import {
+  CATALOG_BOTTOM_HALF,
+  CATALOG_TOP_HALF,
   QUOTE_CATALOG_PAGE_LIMIT,
   catalogPageKey,
   catalogPageLabel,
   fetchQuoteCatalogPdf,
   listQuoteCatalogs,
+  newCatalogPageId,
+  parseCatalogCrop,
+  type QuoteCatalogCrop,
   type QuoteCatalogOption,
   type QuoteCatalogPage,
 } from '@/lib/quoteCatalogPages';
@@ -23,14 +28,36 @@ interface QuoteCatalogPagesDialogProps {
   onConfirm: (pages: QuoteCatalogPage[], showSource: boolean) => void;
 }
 
-function pageFromCatalog(catalog: QuoteCatalogOption, pageNo: number): QuoteCatalogPage {
+interface PagePreview {
+  page: QuoteCatalogPage;
+  url: string;
+  width: number;
+  height: number;
+}
+
+function pageFromCatalog(
+  catalog: QuoteCatalogOption,
+  pageNo: number,
+  crop: QuoteCatalogCrop | null,
+): QuoteCatalogPage {
   return {
+    id: newCatalogPageId(),
     documentId: catalog.id,
     pageNo,
     factoryName: catalog.factory_name,
     title: catalog.title,
     documentYear: catalog.document_year,
     series: catalog.series,
+    crop,
+  };
+}
+
+function cropStyle(crop: QuoteCatalogCrop) {
+  return {
+    left: `${crop.x * 100}%`,
+    top: `${crop.y * 100}%`,
+    width: `${crop.width * 100}%`,
+    height: `${crop.height * 100}%`,
   };
 }
 
@@ -47,17 +74,21 @@ export function QuoteCatalogPagesDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [focusPageNo, setFocusPageNo] = useState(1);
   const [draftPages, setDraftPages] = useState<QuoteCatalogPage[]>([]);
   const [draftSource, setDraftSource] = useState(true);
   const [manualPage, setManualPage] = useState('');
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PagePreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  const [cropDraft, setCropDraft] = useState<QuoteCatalogCrop | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setDraftPages(pages);
     setDraftSource(showSource);
-    setPreviewUrl(null);
+    setPreview(null);
+    setCropDraft(null);
     setError(null);
     setManualPage('');
   }, [open, pages, showSource]);
@@ -90,20 +121,30 @@ export function QuoteCatalogPagesDialog({
   }, [open, debouncedQuery]);
 
   const active = catalogs.find((catalog) => catalog.id === activeId) ?? null;
-  const selectedKeys = new Set(draftPages.map(catalogPageKey));
 
-  const togglePage = (catalog: QuoteCatalogOption, pageNo: number) => {
-    const key = catalogPageKey({ documentId: catalog.id, pageNo });
+  const addAttachment = (pageNo: number, crop: QuoteCatalogCrop | null) => {
+    if (!active) return;
     setError(null);
     setDraftPages((current) => {
-      if (current.some((page) => catalogPageKey(page) === key)) {
-        return current.filter((page) => catalogPageKey(page) !== key);
-      }
       if (current.length >= QUOTE_CATALOG_PAGE_LIMIT) {
         setError(`一次最多 ${QUOTE_CATALOG_PAGE_LIMIT} 頁`);
         return current;
       }
-      return [...current, pageFromCatalog(catalog, pageNo)];
+      return [...current, pageFromCatalog(active, pageNo, crop)];
+    });
+  };
+
+  const toggleWholePage = (catalog: QuoteCatalogOption, pageNo: number) => {
+    setFocusPageNo(pageNo);
+    setError(null);
+    setDraftPages((current) => {
+      const whole = current.find((page) => page.documentId === catalog.id && page.pageNo === pageNo && !page.crop);
+      if (whole) return current.filter((page) => page.id !== whole.id);
+      if (current.length >= QUOTE_CATALOG_PAGE_LIMIT) {
+        setError(`一次最多 ${QUOTE_CATALOG_PAGE_LIMIT} 頁`);
+        return current;
+      }
+      return [...current, pageFromCatalog(catalog, pageNo, null)];
     });
   };
 
@@ -118,7 +159,7 @@ export function QuoteCatalogPagesDialog({
       setError('頁碼超出這份圖冊的頁數');
       return;
     }
-    togglePage(active, pageNo);
+    toggleWholePage(active, pageNo);
     setManualPage('');
   };
 
@@ -133,19 +174,33 @@ export function QuoteCatalogPagesDialog({
     });
   };
 
-  const previewPage = async (page: QuoteCatalogPage) => {
+  const showPage = async (page: QuoteCatalogPage) => {
     setPreviewing(true);
     setError(null);
+    setCropDraft(page.crop);
     try {
       const bytes = await fetchQuoteCatalogPdf([page]);
       const rendered = await renderQuotePdfPages(bytes);
-      setPreviewUrl(rendered[0]?.dataUrl ?? null);
-      if (!rendered[0]) setError('這一頁未能預覽');
+      const first = rendered[0];
+      if (!first) {
+        setError('這一頁未能預覽');
+        setPreview(null);
+        return;
+      }
+      setPreview({ page, url: first.dataUrl, width: first.width, height: first.height });
     } catch (err) {
       setError(err instanceof Error ? err.message : '這一頁未能預覽');
     } finally {
       setPreviewing(false);
     }
+  };
+
+  const pointInPreview = (event: PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
+    };
   };
 
   const pageNumbers = active?.page_count && active.page_count > 0
@@ -158,7 +213,7 @@ export function QuoteCatalogPagesDialog({
       onOpenChange={onOpenChange}
       size="5xl"
       title="圖冊附件"
-      description="選擇圖冊的整頁。頁碼可以不連續，也可以來自不同圖冊。框選裁剪稍後再做。"
+      description="可選整頁、上半頁、下半頁，或在預覽上拖出框選。頁面可以不連續，也可以來自不同圖冊。"
       footer={
         <>
           <ModalButton variant="secondary" onClick={() => onOpenChange(false)}>取消</ModalButton>
@@ -202,18 +257,22 @@ export function QuoteCatalogPagesDialog({
           )}
 
           {active ? (
-            <div>
+            <div className="space-y-2">
               {pageNumbers.length > 0 ? (
-                <div className="flex max-h-48 flex-wrap gap-1 overflow-auto">
+                <div className="flex max-h-40 flex-wrap gap-1 overflow-auto">
                   {pageNumbers.map((pageNo) => {
-                    const on = selectedKeys.has(catalogPageKey({ documentId: active.id, pageNo }));
+                    const picked = draftPages.some((page) => page.documentId === active.id && page.pageNo === pageNo);
                     return (
                       <button
                         key={pageNo}
                         type="button"
-                        onClick={() => togglePage(active, pageNo)}
+                        onClick={() => toggleWholePage(active, pageNo)}
                         className={`h-8 min-w-8 rounded border px-2 text-xs ${
-                          on ? 'border-primary bg-primary text-primary-foreground' : 'border-border'
+                          picked
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : focusPageNo === pageNo
+                              ? 'border-primary'
+                              : 'border-border'
                         }`}
                       >
                         {pageNo}
@@ -230,15 +289,89 @@ export function QuoteCatalogPagesDialog({
                     placeholder="頁碼"
                     className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm"
                   />
-                  <Button type="button" variant="outline" size="sm" onClick={addManualPage}>加入頁碼</Button>
+                  <Button type="button" variant="outline" size="sm" onClick={addManualPage}>加入整頁</Button>
                 </div>
               )}
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => void showPage(pageFromCatalog(active, focusPageNo, null))}>
+                  預覽第 {focusPageNo} 頁
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => addAttachment(focusPageNo, CATALOG_TOP_HALF)}>上半頁</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => addAttachment(focusPageNo, CATALOG_BOTTOM_HALF)}>下半頁</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!parseCatalogCrop(cropDraft)}
+                  onClick={() => {
+                    const crop = parseCatalogCrop(cropDraft);
+                    if (!crop) return;
+                    const source = preview?.page;
+                    if (!source) {
+                      addAttachment(focusPageNo, crop);
+                      return;
+                    }
+                    setDraftPages((current) => {
+                      if (current.length >= QUOTE_CATALOG_PAGE_LIMIT) {
+                        setError(`一次最多 ${QUOTE_CATALOG_PAGE_LIMIT} 頁`);
+                        return current;
+                      }
+                      return [...current, { ...source, id: newCatalogPageId(), crop }];
+                    });
+                  }}
+                >
+                  加入框選
+                </Button>
+              </div>
               {active.page_count != null && active.page_count > pageNumbers.length ? (
-                <p className="mt-2 text-xs text-muted-foreground">頁數較多，這裡先列出前 {pageNumbers.length} 頁。</p>
+                <p className="text-xs text-muted-foreground">頁數較多，這裡先列出前 {pageNumbers.length} 頁。</p>
               ) : null}
             </div>
           ) : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+          {previewing ? (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> 正在預覽</p>
+          ) : preview ? (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">在預覽上拖出範圍，再按「加入框選」。不拖則這一頁維持整頁。</p>
+              <div
+                className="relative w-full max-w-md touch-none"
+                style={{ aspectRatio: `${preview.width} / ${preview.height}` }}
+                onPointerDown={(event) => {
+                  const point = pointInPreview(event);
+                  setDragStart(point);
+                  setCropDraft({ x: point.x, y: point.y, width: 0, height: 0 });
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                }}
+                onPointerMove={(event) => {
+                  if (!dragStart) return;
+                  const point = pointInPreview(event);
+                  const x = Math.min(dragStart.x, point.x);
+                  const y = Math.min(dragStart.y, point.y);
+                  setCropDraft({
+                    x,
+                    y,
+                    width: Math.abs(point.x - dragStart.x),
+                    height: Math.abs(point.y - dragStart.y),
+                  });
+                }}
+                onPointerUp={() => setDragStart(null)}
+              >
+                <div className="absolute inset-0">
+                  <LoadingImage
+                    src={preview.url}
+                    alt="圖冊頁預覽"
+                    className="h-full w-full"
+                    imgClassName="object-fill"
+                  />
+                </div>
+                {cropDraft && cropDraft.width > 0 && cropDraft.height > 0 ? (
+                  <div className="pointer-events-none absolute border-2 border-primary bg-primary/20" style={cropStyle(cropDraft)} />
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-3">
@@ -246,25 +379,20 @@ export function QuoteCatalogPagesDialog({
             <span>頁底顯示來源</span>
             <Switch checked={draftSource} onCheckedChange={setDraftSource} />
           </label>
-          <p className="text-xs text-muted-foreground">已選 {draftPages.length} / {QUOTE_CATALOG_PAGE_LIMIT} 頁，順序即報價 PDF 附件順序。</p>
-          <ul className="max-h-52 space-y-1 overflow-auto">
+          <p className="text-xs text-muted-foreground">已選 {draftPages.length} / {QUOTE_CATALOG_PAGE_LIMIT} 項，順序即報價 PDF 附件順序。</p>
+          <ul className="max-h-72 space-y-1 overflow-auto">
             {draftPages.map((page, index) => (
               <li key={catalogPageKey(page)} className="flex items-center gap-1 rounded border border-border px-2 py-1">
                 <span className="min-w-0 flex-1 truncate text-xs">{catalogPageLabel(page)}</span>
-                <button type="button" className="text-muted-foreground" onClick={() => void previewPage(page)} aria-label="預覽">預覽</button>
+                <button type="button" className="text-xs text-muted-foreground" onClick={() => { setFocusPageNo(page.pageNo); void showPage(page); }}>預覽</button>
                 <button type="button" onClick={() => movePage(index, -1)} aria-label="上移"><ChevronUp className="h-4 w-4" /></button>
                 <button type="button" onClick={() => movePage(index, 1)} aria-label="下移"><ChevronDown className="h-4 w-4" /></button>
-                <button type="button" onClick={() => setDraftPages((current) => current.filter((_, item) => item !== index))} aria-label="移除">
+                <button type="button" onClick={() => setDraftPages((current) => current.filter((item) => item.id !== page.id))} aria-label="移除">
                   <X className="h-4 w-4" />
                 </button>
               </li>
             ))}
           </ul>
-          {previewing ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> 正在預覽</p>
-          ) : previewUrl ? (
-            <LoadingImage src={previewUrl} alt="圖冊頁預覽" className="max-h-64 w-full rounded-md bg-muted" imgClassName="object-contain" />
-          ) : null}
         </div>
       </div>
     </Modal>

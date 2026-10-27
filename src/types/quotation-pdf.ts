@@ -146,7 +146,7 @@ export interface QuotationPDFData {
     chargeLabel?: string;
     amount?: number | null;
   };
-  /** Whole catalog pages appended after the quotation. Cropping is a later step. */
+  /** Catalog pages appended after the quotation. crop is a top-left fraction of that page. */
   catalogPages?: {
     documentId: string;
     pageNo: number;
@@ -154,6 +154,7 @@ export interface QuotationPDFData {
     title: string | null;
     documentYear: number | null;
     series: string | null;
+    crop?: { x: number; y: number; width: number; height: number } | null;
   }[];
   /** When true, each catalog page keeps a bottom strip with its source label. */
   showCatalogSource?: boolean;
