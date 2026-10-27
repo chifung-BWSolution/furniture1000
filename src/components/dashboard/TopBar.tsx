@@ -80,7 +80,7 @@ export function TopBar({
   const showProductButtons = page === 'listed-products' || page === 'ready-to-publish' || page === 'product-catalog';
   // The upload-to-catalog action only appears on the 所有產品 / 待發佈 views
   const showUploadButton = page === 'listed-products' || page === 'ready-to-publish';
-  const uploadLabel = page === 'listed-products' ? '上傳到產品目錄' : '上傳到 Shopify';
+  const uploadLabel = page === 'listed-products' ? '上傳到圖冊' : '上傳到 Shopify';
 
   if (showPartitionSticky && designSticky) {
     const isQuoteSticky = stickyMode === 'quote';
@@ -303,7 +303,7 @@ export function TopBar({
             </Button>
           )}
 
-          {/* Upload Button (所有產品 → 上傳到產品目錄) */}
+          {/* Upload Button (所有產品 → 上傳到圖冊) */}
           {showUploadButton && (
             <div className="flex flex-col items-end gap-1.5">
               {isPublishing && publishProgress && publishProgress.total > 0 && (

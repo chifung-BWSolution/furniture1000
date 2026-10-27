@@ -2002,8 +2002,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>('');
   const [supplierDocsRefreshKey, setSupplierDocsRefreshKey] = useState(0);
   const [uploadMethod, setUploadMethod] = useState<'background' | 'instant'>('background');
-  const [documentType, setDocumentType] = useState<'quote' | 'catalog'>('quote');
-  const [documentCurrency, setDocumentCurrency] = useState('');
+  const [documentType, setDocumentType] = useState<'quote' | 'catalog'>('catalog');
+  const [documentCurrency, setDocumentCurrency] = useState('RMB');
+  const [documentYear, setDocumentYear] = useState(() => new Date().getFullYear());
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
   const documentUploadLock = useRef(false);
   const [documentUploads, setDocumentUploads] = useState<DocumentUploadStatus[]>([]);
@@ -2343,7 +2344,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       progress: { phase: 'preparing', uploadedBytes: 0, totalBytes: input.file.size },
     }]);
     try {
-      return await uploadSupplierDocument({ ...input, onProgress: progress => {
+      return await uploadSupplierDocument({ ...input, source: 'ai_processor', metadata: { ...input.metadata, document_year: documentYear }, onProgress: progress => {
         setDocumentUploads(previous => previous.map(item => item.id === id ? { ...item, progress } : item));
       } });
     } catch (error) {
@@ -2351,7 +2352,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         ? { ...item, error: '上載失敗，請重新選擇此文件以續傳' } : item));
       throw error;
     }
-  }, []);
+  }, [documentYear]);
 
   // ─── Add files to queue WITHOUT triggering processing ───────────────
   const addFilesToQueue = useCallback(async (fileList: FileList | File[]) => {
@@ -2762,7 +2763,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       const correctionNote = correctionCount > 0 ? ` (${correctionCount} learnt corrections applied)` : '';
       setProcessingProgress({
         phase: 'complete',
-        message: `✅ 成功生成 ${catalogProds.length} 個產品目錄結果 | ${withImages} 張圖片${correctionNote}`,
+        message: `✅ 成功生成 ${catalogProds.length} 個圖冊結果 | ${withImages} 張圖片${correctionNote}`,
       });
 
     } catch (error: any) {
@@ -3149,12 +3150,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         });
         setProcessingProgress({
           phase: 'complete',
-          message: `✅ ${successCount} 個產品已加入 Shopify 佇列及產品目錄`,
+          message: `✅ ${successCount} 個產品已加入 Shopify 佇列及圖冊`,
         });
 
       } else if (action === 'catalog-only') {
         // Persist DIRECTLY to the Supabase `products` table so items show up
-        // in 產品目錄 only — do NOT call onAddProduct (which would push them
+        // in 圖冊 only — do NOT call onAddProduct (which would push them
         // into the in-memory store and the 待上傳到 Shopify queue).
         //
         const nowIso = new Date().toISOString();
@@ -4289,7 +4290,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         setAiError(error.message || 'AI analysis failed.');
       }
     }
-  }, [selectedModel, selectedManufacturer, selectedFactoryId, categoryPairs, selectedProductCategory]);
+  }, [selectedModel, selectedManufacturer, selectedFactoryId, categoryPairs, selectedProductCategory, uploadMethod, documentType, documentCurrency, isProcessing, uploadWithProgress]);
 
   const handleGenerate = useCallback(async () => {
     if (uploadedFiles.length === 0) return;
@@ -5213,7 +5214,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       </>
       )}
 
-      {/* ══════ STEP 2: 上傳產品檔案 → 產品目錄 ══════ */}
+      {/* ══════ STEP 2: 上傳產品檔案 → 圖冊 ══════ */}
       {currentStep === 2 && (
       <>
       <div className="flex-shrink-0 p-6 max-w-none mx-auto w-full">
@@ -5269,6 +5270,23 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             </p>
             <div className="flex flex-wrap gap-3">
               <div className="space-y-1 text-xs text-muted-foreground">
+                <span id="pdf-year-label" className="block">PDF 年份</span>
+                <Select
+                  value={String(documentYear)}
+                  onValueChange={(value) => setDocumentYear(Number(value))}
+                  disabled={isUploadingDocuments || isProcessing || uploadedFiles.length > 0}
+                >
+                  <SelectTrigger aria-labelledby="pdf-year-label" className="h-9 w-full text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 111 }, (_, index) => 2100 - index).map(year => (
+                      <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1 text-xs text-muted-foreground">
                 <span className="block">PDF 文件類型</span>
                 <Select
                   value={documentType}
@@ -5280,7 +5298,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="quote">報價單</SelectItem>
-                    <SelectItem value="catalog">產品目錄</SelectItem>
+                    <SelectItem value="catalog">圖冊</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -5328,7 +5346,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               <Upload className={cn('h-6 w-6 transition-colors', isDragOver ? 'text-primary' : 'text-muted-foreground group-hover:text-primary')} />
             </div>
             <p className="mt-4 font-display text-sm font-bold">{isUploadingDocuments ? '正在上載 PDF…' : isDragOver ? '放開以上傳檔案' : '點擊選檔，或拖放檔案至此'}</p>
-            <p className="mt-1 text-center text-xs text-muted-foreground font-body">{uploadMethod === 'background' ? 'PDF 報價單或產品目錄 · 保存原檔並排隊，上海時間 23:00–翌日 09:00 解析' : 'PDF 目錄、Excel 表格或產品圖片 · 加入待提取檔案'}</p>
+            <p className="mt-1 text-center text-xs text-muted-foreground font-body">{uploadMethod === 'background' ? 'PDF 報價單或圖冊 · 保存原檔並排隊，上海時間 23:00–翌日 09:00 解析' : 'PDF 目錄、Excel 表格或產品圖片 · 加入待提取檔案'}</p>
             <p className="mt-1 font-mono-data text-[10px] text-muted-foreground/60">{uploadMethod === 'background' ? 'PDF · 支援多份文件' : 'PDF · XLSX · XLS · JPG · PNG · WEBP'}</p>
           </div>
         </div>

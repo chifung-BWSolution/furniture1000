@@ -411,7 +411,7 @@ function rowToDisplay(r: ShopifyProductRow, costFallback: number | null = null):
 const CATALOG_LIST_COLUMNS =
   'id, title, image_url, tags, price, sale_price, cost_price, factories_display_name, level1_category, level2_category, sku, product_sku, shopify_product_id, dimension_l_mm, dimension_w_mm, dimension_h_mm, created_at';
 
-/** Same lightweight columns as 產品目錄 list — ProductDetailModal lazy-loads heavy images. */
+/** Same lightweight columns as 圖冊 list — ProductDetailModal lazy-loads heavy images. */
 const CATALOG_DETAIL_COLUMNS = [
   'id', 'title', 'description', 'tags', 'price', 'compare_at_price',
   'collection', 'status', 'image_url',
@@ -1267,7 +1267,7 @@ export function PublishedProductsView({
   /** Pull live Shopify catalog → shopify_products mirror (reconcile + remove deleted). */
   const reconcileMirrorFromShopify = useCallback(async () => {
     setIsReconcilingMirror(true);
-    const toastId = toast.loading('正在從 Shopify 同步產品目錄…（約 1–3 分鐘）');
+    const toastId = toast.loading('正在從 Shopify 同步圖冊…（約 1–3 分鐘）');
     try {
       const { data, error } = await invokeEdgeFunctionDirect(
         'supabase-functions-sync-shopify-mirror',
@@ -2345,7 +2345,7 @@ export function PublishedProductsView({
               type="button"
               onClick={() => reconcileMirrorFromShopify()}
               disabled={isReconcilingMirror}
-              title="從 Shopify 讀取最新產品目錄，更新本頁列表，並移除 Shopify 已刪除的產品（含合併後的子產品）"
+              title="從 Shopify 讀取最新圖冊，更新本頁列表，並移除 Shopify 已刪除的產品（含合併後的子產品）"
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 text-xs font-semibold text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isReconcilingMirror ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Store className="h-3.5 w-3.5" />}
@@ -2543,7 +2543,7 @@ export function PublishedProductsView({
                     ? 'bg-emerald-600 text-white shadow-sm'
                     : 'bg-background text-emerald-500/70 hover:bg-emerald-50 hover:text-emerald-600',
                 )}
-                title="產品目錄全部產品（products）"
+                title="圖冊全部產品（products）"
               >
                 <Database className="h-3 w-3 shrink-0" />
                 B類 : 系統所有產品
@@ -2892,7 +2892,7 @@ export function PublishedProductsView({
                   : 'border-border text-muted-foreground hover:text-foreground',
                 catalogClass === 'B' && !statsReady && 'cursor-not-allowed opacity-50',
               )}
-              title="產品目錄全部產品，隱藏已出現在「已上載產品」的 A 類"
+              title="圖冊全部產品，隱藏已出現在「已上載產品」的 A 類"
             >
               已排除A類產品
             </button>

@@ -512,7 +512,7 @@ export function ProductReportView() {
                 ) : null}
               </div>
               <p className="fds-page-description">
-                只統計報價明細中能對應產品目錄（products）的現有產品；增值服務／清走等非產品列不計入
+                只統計報價明細中能對應圖冊（products）的現有產品；增值服務／清走等非產品列不計入
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -606,7 +606,7 @@ export function ProductReportView() {
                   <CompactEmptyState
                     icon={BarChart2}
                     title="此期間尚無報價產品使用紀錄"
-                    description="試試放寬日期區間，或先確認報價單明細的名稱能對應產品目錄。"
+                    description="試試放寬日期區間，或先確認報價單明細的名稱能對應圖冊。"
                     className="py-6"
                   />
                 ) : (

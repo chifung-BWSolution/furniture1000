@@ -230,7 +230,7 @@ const STAGE_PAGE_LABELS: Record<string, string> = {
   furniture_group_check: "傢俬組檢查",
   ready_to_publish: "準備上載",
   listed_products: "待處理產品",
-  product_catalog: "產品目錄",
+  product_catalog: "圖冊",
   ai_processor: "AI 處理",
   settings: "設定",
   general: "系統",

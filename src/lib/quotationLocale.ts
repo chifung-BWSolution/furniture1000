@@ -77,7 +77,7 @@ export const QUOTE_UI = {
     category: '類別',
     level1Category: '一級分類',
     level2Category: '二級分類',
-    productCategoryLockedHint: '已連結產品，分類跟隨產品目錄',
+    productCategoryLockedHint: '已連結產品，分類跟隨圖冊',
     dimensionsMm: '尺寸(mm),',
     dimLwh: '長 x 闊 x 高',
     dimDh: '直徑 x 高',

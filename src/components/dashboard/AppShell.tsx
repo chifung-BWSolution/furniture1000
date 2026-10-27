@@ -1005,7 +1005,7 @@ function AppShellContent() {
   }, []);
 
   const handleBulkPublish = useCallback(async () => {
-    // 所有產品頁：「上傳到產品目錄」— 把已選產品標記 in_catalog（寫入 Supabase，跨裝置共用）
+    // 所有產品頁：「上傳到圖冊」— 把已選產品標記 in_catalog（寫入 Supabase，跨裝置共用）
     if ((implementedPage(store.currentView) ?? store.currentView) === 'listed-products') {
       if (listedStats.selectedIds.length === 0) {
         toast.message('請先勾選產品');
@@ -1013,7 +1013,7 @@ function AppShellContent() {
       }
       const res = await addToCatalog(listedStats.selectedIds);
       if (res.ok) {
-        toast.success('已加入產品目錄', { description: `${listedStats.selectedIds.length} 件已寫入，所有裝置可見` });
+        toast.success('已加入圖冊', { description: `${listedStats.selectedIds.length} 件已寫入，所有裝置可見` });
       } else {
         toast.error('加入失敗', { description: res.error });
       }

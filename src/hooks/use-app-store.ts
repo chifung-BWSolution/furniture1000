@@ -1445,7 +1445,7 @@ function useAppStoreState() {
           });
           toast.success('產品已成功發佈至 Shopify', {
             action: {
-              label: '前往產品目錄',
+              label: '前往圖冊',
               onClick: () => setCurrentView('listed-products'),
             },
           });

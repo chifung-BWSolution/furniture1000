@@ -839,7 +839,7 @@ async function prioritizeActiveShopifyProducts(
 }
 
 /**
- * 客戶專區產品搜尋：唯讀載入產品目錄（in_catalog）＋分類／材質／尺寸欄位。
+ * 客戶專區產品搜尋：唯讀載入圖冊（in_catalog）＋分類／材質／尺寸欄位。
  * 不上傳、不修改 schema。優先 in_catalog；若為空則回退一般產品列表。
  */
 export async function fetchPortalBrowseProducts(limit = 600): Promise<SearchProduct[]> {

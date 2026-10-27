@@ -106,7 +106,7 @@ function columnsForWidth(width: number): number {
 
 const SCOPES: { id: SearchScope; label: string }[] = [
   { id: 'all', label: '全部產品' },
-  { id: 'catalog', label: '產品目錄' },
+  { id: 'catalog', label: '圖冊' },
   { id: 'shopify', label: '已上架' },
   { id: 'quoted', label: '有供應商報價' },
 ];

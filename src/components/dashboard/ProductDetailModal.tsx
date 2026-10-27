@@ -115,7 +115,7 @@ interface ProductDetailModalProps {
   onClose: () => void;
   onProductUpdated: (updatedProduct: ProductForDetail) => void;
   showAIImageTools?: boolean;
-  /** Audit log stage when saving from 待處理產品 / 產品目錄 */
+  /** Audit log stage when saving from 待處理產品 / 圖冊 */
   activityStage?: 'listed_products' | 'product_catalog';
   /** Insert a new products row on save (quote line → 建立產品). */
   mode?: 'edit' | 'create';
@@ -1147,7 +1147,7 @@ export function ProductDetailModal({
 
                 <Separator />
 
-                {/* AI Image Generation Buttons — shown only in 產品目錄 */}
+                {/* AI Image Generation Buttons — shown only in 圖冊 */}
                 {showAIImageTools && (
                   <div className="flex flex-col gap-2 pt-1">
                     <span className="font-mono-data text-xs uppercase tracking-widest text-muted-foreground">AI 圖片生成</span>

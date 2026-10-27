@@ -308,7 +308,7 @@ export function CustomerCustomFurnitureView() {
               </p>
               {suggestions.length === 0 ? (
                 <p className="mt-4 rounded-xl bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
-                  現有產品目錄未找到相近結果，建議保留圖片及詳細需求由 PM 跟進訂製。
+                  現有圖冊未找到相近結果，建議保留圖片及詳細需求由 PM 跟進訂製。
                 </p>
               ) : (
                 <div className="mt-4 space-y-3">

@@ -19,7 +19,7 @@ const ALL = '__all';
 
 const DOC_TYPES: { id: '' | CatalogDocType; label: string }[] = [
   { id: '', label: '全部 PDF' },
-  { id: 'catalog', label: '產品目錄' },
+  { id: 'catalog', label: '圖冊' },
   { id: 'quote', label: '報價 PDF' },
 ];
 
@@ -109,7 +109,7 @@ export function DesignerPdfView() {
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold">{selected.title || '未命名 PDF'}</div>
             <div className="truncate text-xs text-muted-foreground">
-              {[selected.factory_name, selected.doc_type === 'quote' ? '報價 PDF' : '產品目錄', selected.page_count ? `${selected.page_count} 頁` : null, `${selected.product_count} 件產品`]
+              {[selected.factory_name, selected.doc_type === 'quote' ? '報價 PDF' : '圖冊', selected.page_count ? `${selected.page_count} 頁` : null, `${selected.product_count} 件產品`]
                 .filter(Boolean)
                 .join(' · ')}
             </div>
@@ -234,7 +234,7 @@ export function DesignerPdfView() {
                           )}
                         </div>
                       </div>
-                      <span className="text-xs text-muted-foreground">{doc.doc_type === 'quote' ? '報價 PDF' : '產品目錄'}</span>
+                      <span className="text-xs text-muted-foreground">{doc.doc_type === 'quote' ? '報價 PDF' : '圖冊'}</span>
                       <span className="flex items-center gap-1.5 text-xs tabular-nums">
                         {doc.status === 'parsing' && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none text-primary" />}
                         {STATUS_LABEL[doc.status] ?? doc.status}

@@ -53,7 +53,7 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
    * Never persisted — hydrated from products table when linked to 設計專案.
    */
   galleryUrls?: string[];
-  /** Furniture products.id — set from 產品目錄 or backfilled via unique sku/title. */
+  /** Furniture products.id — set from 圖冊 or backfilled via unique sku/title. */
   productId?: string | null;
   /** FK to product_category.id (registry 一級/二級). */
   productCategoryId?: string | null;

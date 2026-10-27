@@ -841,7 +841,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                       ? docsError
                       : docs.length > 0
                         ? '請清除搜尋關鍵字，或把供應商／狀態篩選改回「全部」。'
-                        : '上載供應商報價單或產品目錄，AI 會抽出型號、尺寸與成本價，再交給你逐項核對。'}
+                        : '上載供應商報價單或圖冊，AI 會抽出型號、尺寸與成本價，再交給你逐項核對。'}
                   </p>
                   {docsError ? (
                     <Button className="mt-4" variant="outline" onClick={() => void reloadDocs()}>
@@ -877,7 +877,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                     <span>{doc.page_count ?? '?'} 頁</span>
                     <span>幣種：{doc.currency ?? '未設定'}</span>
                     <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px]">
-                      {doc.doc_type === 'catalog' ? '產品目錄' : '報價單'} · {PHASE_LABEL[docPhase(doc)]}
+                      {doc.doc_type === 'catalog' ? '圖冊' : '報價單'} · {PHASE_LABEL[docPhase(doc)]}
                     </span>
                   </div>
                 </div>
