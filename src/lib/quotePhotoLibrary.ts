@@ -260,6 +260,7 @@ export async function uploadQuotePhotoAsset(file: File): Promise<QuotePhotoAsset
       size_bytes: blob.size,
       sort_order: await nextSortOrder(),
       created_by: session.session?.user.id ?? null,
+      is_active: false,
     })
     .select(ASSET_COLUMNS)
     .single();

@@ -550,7 +550,7 @@ Deno.serve(async (req: Request) => {
       sort_order: nextSortOrder,
       created_by: userData.user.id,
       is_generated: true,
-      ...(raw.purpose === 'orthographic' ? { is_active: false } : {}),
+      is_active: false,
     })
     .select("id,title,object_path,mime_type,size_bytes,sort_order,placement,is_active,is_generated")
     .single();
