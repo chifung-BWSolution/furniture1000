@@ -39,12 +39,22 @@ import {
   type PresentationProjectOption,
 } from '@/lib/presentationClients';
 import {
-  buildOutlineFromBrief, createNativeCanvaDesign, fetchCanvaGenerationStatus, defaultBrief, exportCanvaSessionPdf,
+  createNativeCanvaDesign, fetchCanvaGenerationStatus, defaultBrief, exportCanvaSessionPdf,
   exportCanvaSessionPptx, listCanvaDesignExports, listCanvaDesignSessions,
   listCanvaSessionVersions, probeCanvaNative, proPdfHandoffPath, saveCanvaDraft,
   type CanvaDesignBrief, type CanvaDesignExportRow, type CanvaDesignSession,
   type CanvaSessionVersionRow,
 } from '@/lib/canvaNativeDesign';
+import { Checkbox } from '@/components/ui/checkbox';
+import { fetchCaseShowcase, type CaseBrand } from '@/lib/caseShowcase';
+import { fetchZones } from '@/lib/solutionsApi';
+import {
+  buildFiveSectionOutline,
+  EMPTY_COMPANY_PROFILE,
+  loadPresentationCompanyProfile,
+  savePresentationCompanyProfile,
+  type PresentationCompanyProfile,
+} from '@/lib/presentationFiveSection';
 
 const MAX_ITEMS = 30;
 const PRESENTATION_PATH = '/fds/pm/presentation';
@@ -61,8 +71,8 @@ const WIZARD_STEPS = [
     hint: '填寫標題、客戶、目的、語言、風格與原文。這些內容會交給 Canva AI。',
   },
   {
-    title: '確認大綱',
-    hint: '由上一步的欄位整理。可直接修改；每一段會成為一頁。',
+    title: '確認五段大綱',
+    hint: '順序固定為封面、公司介紹、平面圖、方案、參考案例。沒有平面圖時略過該段。公司介紹會保存下來，下一份簡報繼續用。',
   },
   {
     title: '帶入 FDS 產品',
@@ -294,6 +304,29 @@ export function PresentationView() {
   const [brief, setBrief] = useState<CanvaDesignBrief>(() => defaultBrief());
   const briefRef = useRef(brief);
   briefRef.current = brief;
+  const [companyProfile, setCompanyProfile] = useState<PresentationCompanyProfile>(EMPTY_COMPANY_PROFILE);
+  const [companySaving, setCompanySaving] = useState(false);
+  const [floorZones, setFloorZones] = useState<{ code: string | null; name: string }[]>([]);
+  const [floorPresent, setFloorPresent] = useState(false);
+  const [caseBrands, setCaseBrands] = useState<CaseBrand[]>([]);
+  const [caseNote, setCaseNote] = useState('');
+  const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
+  const fiveRef = useRef({
+    company: EMPTY_COMPANY_PROFILE,
+    floorZones: [] as { code: string | null; name: string }[],
+    floorPresent: false,
+    cases: [] as CaseBrand[],
+    caseIds: [] as string[],
+    products: [] as SearchProduct[],
+  });
+  fiveRef.current = {
+    company: companyProfile,
+    floorZones,
+    floorPresent,
+    cases: caseBrands,
+    caseIds: selectedCaseIds,
+    products: selected,
+  };
   const autoPurpose = useRef<string | null>(null);
   const autoContent = useRef<string | null>(null);
   const [clients, setClients] = useState<PresentationClientOption[]>([]);
@@ -442,6 +475,61 @@ export function PresentationView() {
     refreshSessions();
   }, [refreshStatus, refreshSessions]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void loadPresentationCompanyProfile()
+      .then((profile) => {
+        if (!cancelled) setCompanyProfile(profile);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) toast.error('公司介紹未能載入', { description: errorText(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchCaseShowcase<CaseBrand>('brands')
+      .then((result) => {
+        if (!cancelled) {
+          setCaseBrands(result.items.slice(0, 40));
+          setCaseNote('');
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setCaseNote(err instanceof Error ? err.message : '案例未能載入');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const projectId = brief.projectId;
+    if (!projectId) {
+      setFloorZones([]);
+      setFloorPresent(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const [zones, plan] = await Promise.all([
+        fetchZones(projectId),
+        supabase.from('design_projects').select('floor_plan_url').eq('id', projectId).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      const nextZones = zones.map((zone) => ({ code: zone.code, name: zone.name }));
+      const url = typeof plan.data?.floor_plan_url === 'string' ? plan.data.floor_plan_url.trim() : '';
+      setFloorZones(nextZones);
+      setFloorPresent(Boolean(url) || nextZones.length > 0);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [brief.projectId]);
+
   const disabled = status !== 'idle' || generating;
   const connected = canva?.connected ?? false;
   const canvaPathReady = Boolean(canva?.configured && canImport && connected);
@@ -450,17 +538,52 @@ export function PresentationView() {
   const nativeContentOk = Boolean(brief.content?.trim() || outline.trim());
   const canCreateNative = nativeTitleOk && nativeContentOk && canvaPathReady;
 
+  const composeFive = useCallback(() => {
+    const current = fiveRef.current;
+    const briefNow = briefRef.current;
+    const chosen = new Set(current.caseIds);
+    return buildFiveSectionOutline({
+      title: briefNow.title.trim() || briefNow.project?.trim() || '',
+      client: briefNow.client?.trim() || '',
+      date: new Intl.DateTimeFormat('zh-HK', {
+        timeZone: 'Asia/Hong_Kong',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date()),
+      company: current.company,
+      floorPlan: { present: current.floorPresent, zones: current.floorZones },
+      products: current.products.map((product) => {
+        const size = [product.dimension_l_mm, product.dimension_w_mm, product.dimension_h_mm]
+          .filter((value) => value != null)
+          .join('×');
+        const price = product.middle_price ?? product.sale_price;
+        return {
+          title: product.title,
+          model: product.model,
+          spec: size ? `${size} mm` : product.material,
+          price: price != null ? `參考價 ${price}` : null,
+        };
+      }),
+      cases: current.cases.filter((item) => chosen.has(item.id)).map((item) => ({
+        name: item.display_name || item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
+        client: item.company_name,
+        industry: item.industries?.[0] ?? null,
+      })),
+    });
+  }, []);
+
   const syncOutline = useCallback(() => {
-    const next = buildOutlineFromBrief({ ...brief, outline: undefined });
+    const next = composeFive();
     setOutline(next);
     setBrief((b) => ({ ...b, outline: next }));
-  }, [brief]);
+  }, [composeFive]);
 
   const saveDraft = useCallback(async () => {
     if (!canImport) return;
     setStatus('creating');
     try {
-      const confirmed = outline.trim() || buildOutlineFromBrief(brief);
+      const confirmed = composeFive();
       const payload: CanvaDesignBrief = {
         ...brief,
         outline: confirmed,
@@ -492,7 +615,7 @@ export function PresentationView() {
     setActiveSession(null);
     let taskSessionId: string | null = null;
     try {
-      const confirmed = outline.trim() || buildOutlineFromBrief(brief);
+      const confirmed = composeFive();
       const payload: CanvaDesignBrief = {
         ...brief,
         title: brief.title.trim() || `${brief.client ?? ''} ${brief.project ?? ''}`.trim() || '客戶簡報',
@@ -722,9 +845,9 @@ export function PresentationView() {
 
   const goToStep = useCallback((next: number) => {
     const target = Math.min(WIZARD_STEPS.length, Math.max(1, next));
-    if (wizardStep === 1 && target > 1 && !outline.trim()) syncOutline();
+    if (target > wizardStep) syncOutline();
     setWizardStep(target);
-  }, [outline, syncOutline, wizardStep]);
+  }, [syncOutline, wizardStep]);
 
   const openDesignRow = (session: CanvaDesignSession) => {
     loadSession(session);
@@ -902,12 +1025,80 @@ export function PresentationView() {
             </div>
             )}
             {wizardStep === 2 && (
-              <Textarea
-                className="min-h-[8rem] rounded-lg bg-background font-mono text-xs"
-                value={outline}
-                onChange={(e) => setOutline(e.target.value)}
-                placeholder="整理後的大綱；建立 Canva 前請確認"
-              />
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  {floorPresent ? '此項目有平面圖，會放在公司介紹之後。' : '此項目沒有平面圖，這一段會略過。'}
+                  {selected.length > 10 ? ' 產品超過 10 件，建議再分區，仍可生成。' : ''}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {([
+                    ['background', '背景'],
+                    ['strengths', '優勢'],
+                    ['services', '主要服務'],
+                    ['qualifications', '專業資質'],
+                    ['capabilities', '相關能力'],
+                  ] as const).map(([key, label]) => (
+                    <Field key={key} label={label}>
+                      <Textarea
+                        className="min-h-[5rem] rounded-lg bg-background"
+                        maxLength={2000}
+                        value={companyProfile[key]}
+                        onChange={(event) => setCompanyProfile((current) => ({
+                          ...current,
+                          [key]: event.target.value.slice(0, 2000),
+                        }))}
+                      />
+                    </Field>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-background"
+                  disabled={companySaving || disabled}
+                  onClick={() => {
+                    setCompanySaving(true);
+                    void savePresentationCompanyProfile(companyProfile)
+                      .then(() => toast.success('公司介紹已保存'))
+                      .catch((err: unknown) => toast.error('公司介紹未能保存', { description: errorText(err) }))
+                      .finally(() => setCompanySaving(false));
+                  }}
+                >
+                  {companySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  保存公司介紹
+                </Button>
+                <div>
+                  <p className="mb-2 text-sm font-medium">參考案例（最多 8 個）</p>
+                  {caseNote ? <p className="text-sm text-destructive">{caseNote}</p> : null}
+                  {caseBrands.length === 0 && !caseNote ? (
+                    <p className="text-sm text-muted-foreground">沒有可選案例。</p>
+                  ) : (
+                    <ul className="max-h-40 space-y-1 overflow-auto">
+                      {caseBrands.map((item) => {
+                        const name = item.display_name || item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例';
+                        const checked = selectedCaseIds.includes(item.id);
+                        return (
+                          <li key={item.id} className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(value) => {
+                                setSelectedCaseIds((current) => {
+                                  if (value === true) return current.includes(item.id) || current.length >= 8 ? current : [...current, item.id];
+                                  return current.filter((id) => id !== item.id);
+                                });
+                              }}
+                            />
+                            <span className="truncate">{name}{item.industries?.[0] ? ` · ${item.industries[0]}` : ''}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-xs text-foreground">
+                  {composeFive()}
+                </pre>
+              </div>
             )}
             {wizardStep === 3 && (
               <PresentationProductPicker
