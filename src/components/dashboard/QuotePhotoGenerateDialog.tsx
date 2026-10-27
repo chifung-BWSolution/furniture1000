@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Check, LoaderCircle, Sparkles, Wand2 } from 'lucide-react';
+import { LoaderCircle, Sparkles, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Modal } from '@/components/ui/modal';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { generateZoneScenePrompt, type ZoneSceneInput } from '@/lib/quoteFloorPlan';
+import { generateZoneScenePrompt, withReferenceImagePrompts, type ZoneSceneFurniture, type ZoneSceneInput } from '@/lib/quoteFloorPlan';
 import {
   QUOTE_PHOTO_GENERATE_MAX_REFERENCES,
   QUOTE_PHOTO_GENERATE_MODELS,
@@ -72,6 +72,8 @@ export function QuotePhotoGenerateDialog({
   const [ratio, setRatio] = useState<PhotoRatio>('4:3');
   const [model, setModel] = useState<QuotePhotoGenerateModel>(QUOTE_PHOTO_GENERATE_MODELS[0].id);
   const [refs, setRefs] = useState<string[]>([]);
+  /** 已選參考圖的說明，鍵是 choice id，順序跟 refs 一致時寫進提示詞。 */
+  const [refNotes, setRefNotes] = useState<Record<string, string>>({});
   const [generating, setGenerating] = useState(false);
   const [prompting, setPrompting] = useState(false);
   const [promptProgress, setPromptProgress] = useState(0);
@@ -97,15 +99,27 @@ export function QuotePhotoGenerateDialog({
 
   const cleanPrompt = prompt.replace(/\s+/g, ' ').trim();
 
+  function captionsFor(ids: string[]): ZoneSceneFurniture[] {
+    return ids.map((id) => ({
+      name: refNotes[id] || choices.find((entry) => entry.id === id)?.title || '這件傢俬',
+      role: '',
+    }));
+  }
+
   function toggleRef(id: string) {
-    setRefs((current) => {
-      if (current.includes(id)) return current.filter((item) => item !== id);
-      if (current.length >= QUOTE_PHOTO_GENERATE_MAX_REFERENCES) {
-        toast.error(quotePhotoErrorText(new Error('quote_photo_generate_reference_limit')));
-        return current;
-      }
-      return [...current, id];
-    });
+    if (refs.includes(id)) {
+      const next = refs.filter((item) => item !== id);
+      setRefs(next);
+      setPrompt((current) => withReferenceImagePrompts(current, captionsFor(next), QUOTE_PHOTO_PROMPT_MAX));
+      return;
+    }
+    if (refs.length >= QUOTE_PHOTO_GENERATE_MAX_REFERENCES) {
+      toast.error(quotePhotoErrorText(new Error('quote_photo_generate_reference_limit')));
+      return;
+    }
+    const next = [...refs, id];
+    setRefs(next);
+    setPrompt((current) => withReferenceImagePrompts(current, captionsFor(next), QUOTE_PHOTO_PROMPT_MAX));
   }
 
   function referenceIdsForZone(zone: QuotePhotoZone): { ids: string[]; furniture: QuotePhotoZone['furniture'] } {
@@ -129,6 +143,15 @@ export function QuotePhotoGenerateDialog({
     if (pictured.size > QUOTE_PHOTO_GENERATE_MAX_REFERENCES) {
       toast.message(`這個分區有 ${pictured.size} 張產品圖，參考圖最多選 ${QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張。`);
     }
+    const notes: Record<string, string> = {};
+    ids.forEach((id, index) => {
+      const item = furniture[index];
+      if (!item) return;
+      const name = item.name.trim();
+      const role = item.role.trim();
+      notes[id] = name && role && role !== name ? `${name}（${role}）` : (name || role);
+    });
+    setRefNotes(notes);
     setRefs(ids);
     setActiveZoneId(zone.id);
     setPrompting(true);
@@ -156,9 +179,11 @@ export function QuotePhotoGenerateDialog({
         const choice = choices.find((entry) => entry.id === id);
         return choice?.referenceUrl ? [choice.referenceUrl] : [];
       });
+      const promptToSend = withReferenceImagePrompts(cleanPrompt, captionsFor(refs), QUOTE_PHOTO_PROMPT_MAX);
+      setPrompt(promptToSend);
       const asset = await generateQuoteReferenceImage({
         model,
-        prompt: cleanPrompt,
+        prompt: promptToSend,
         aspectRatio: ratio,
         referenceUrls,
       });
@@ -306,7 +331,7 @@ export function QuotePhotoGenerateDialog({
             <p className="text-sm font-semibold text-foreground">
               參考圖片（產品圖，可選，最多 {QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張）
             </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">點選產品圖，AI 會把這些產品放進描述的場景。沒有選時只按描述生成。</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">點選產品圖，AI 會把這些產品放進描述的場景。圖片上的數字與描述裡的參考圖編號相同，並按這個順序上傳。</p>
             {choices.length === 0 ? (
               <p className="mt-2 text-sm text-muted-foreground">未有產品圖。報價明細加入有圖片的產品後，就可以在這裡選用。</p>
             ) : (
@@ -329,8 +354,8 @@ export function QuotePhotoGenerateDialog({
                         >
                           <LoadingImage src={choice.previewUrl} alt="" className="aspect-[4/3] w-full" />
                           {selected ? (
-                            <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                              <Check className="h-3 w-3" />
+                            <span className="absolute left-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold text-primary-foreground">
+                              {refs.indexOf(choice.id) + 1}
                             </span>
                           ) : null}
                         </button>

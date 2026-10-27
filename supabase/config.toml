@@ -6,6 +6,10 @@ verify_jwt = true
 [functions.generate-quote-reference-image]
 verify_jwt = true
 
+[functions.supabase-functions-generate-quote-reference-image]
+verify_jwt = true
+entrypoint = "./functions/generate-quote-reference-image/index.ts"
+
 # 每日指令記錄 › 外部工具匯入（opencode/Codex/Cursor/WorkBuddy）。
 # 驗證只靠共享 secret header x-fds-dev-log-secret（env FDS_DEV_COMMAND_LOG_SECRET），
 # 不帶 JWT，故 verify_jwt 必須關。

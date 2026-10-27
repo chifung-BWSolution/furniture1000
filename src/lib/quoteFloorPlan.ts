@@ -388,6 +388,35 @@ export function fallbackZoneScenePrompt(zone: ZoneSceneInput, referenceFurniture
   return `${place}。${furnishing}${ZONE_SCENE_STYLE}`.replace(/\s+/g, ' ').trim();
 }
 
+/** 每張參考圖一句提示，編號與上傳產品圖的順序相同。 */
+export function referenceImagePromptBlock(furniture: ZoneSceneFurniture[]): string {
+  const lines = furniture
+    .map((item, index) => {
+      const label = furniturePhrase(item) || '這件傢俬';
+      const n = index + 1;
+      return `參考圖${n}是${label}，對應上傳的第${n}張產品圖，如實保留這張圖的外形、顏色和比例`;
+    })
+    .filter(Boolean);
+  if (!lines.length) return '';
+  return `【參考圖】${lines.join('。')}。`;
+}
+
+/** 場景描述後面附上參考圖提示。超出字數時先縮短場景，保留每張圖的對應。 */
+export function withReferenceImagePrompts(
+  text: string,
+  furniture: ZoneSceneFurniture[],
+  max = 500,
+): string {
+  const block = referenceImagePromptBlock(furniture);
+  const base = text.replace(/【參考圖】[\s\S]*$/, '').replace(/\s+/g, ' ').trim();
+  if (!block) return base.slice(0, max);
+  const room = Math.max(0, max - block.length);
+  let head = base.slice(0, room).trim();
+  if (head && !/[。！？]$/.test(head)) head = `${head}。`;
+  const combined = `${head}${block}`;
+  return combined.length > max ? block.slice(0, max) : combined;
+}
+
 function withReferenceFurniture(text: string, furniture: ZoneSceneFurniture[]): string {
   const missing = furniture.filter((item) => {
     const name = item.name.trim();
@@ -412,7 +441,10 @@ export async function generateZoneScenePrompt(
   zone: ZoneSceneInput,
   referenceFurniture: ZoneSceneFurniture[] = [],
 ): Promise<string> {
-  const fallback = withReferenceFurniture(fallbackZoneScenePrompt(zone, referenceFurniture), referenceFurniture);
+  const fallback = withReferenceImagePrompts(
+    withReferenceFurniture(fallbackZoneScenePrompt(zone, referenceFurniture), referenceFurniture),
+    referenceFurniture,
+  );
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !supabaseAnonKey) return fallback;
@@ -458,8 +490,11 @@ export async function generateZoneScenePrompt(
     const data = await response.json().catch(() => null);
     if (!response.ok) return fallback;
     const text = plainSceneText(String(data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''));
-    return withReferenceFurniture(text || fallback, referenceFurniture);
+    return withReferenceImagePrompts(
+      withReferenceFurniture(text || fallback, referenceFurniture),
+      referenceFurniture,
+    );
   } catch {
-    return fallback;
+    return withReferenceImagePrompts(fallback, referenceFurniture);
   }
 }
