@@ -5396,17 +5396,17 @@ export function QuotationDraftEditor({
                   </>
                 }
               >
-                <div className="flex items-start gap-2">
-                  <label className="w-14 shrink-0 pt-2 font-body text-xs text-muted-foreground">
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
                     {ui('公司名稱', 'Company Name')}
                   </label>
-                  <textarea
+                  <input
+                    type="text"
                     value={clientInfo.name}
                     onChange={(e) =>
                       setClientInfo((p) => ({ ...p, name: e.target.value }))
                     }
-                    rows={2}
-                    className="min-w-0 flex-1 resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground [overflow-wrap:break-word] [word-break:normal] focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                   />
                 </div>
                 <div>
