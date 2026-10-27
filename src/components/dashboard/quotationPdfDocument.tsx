@@ -770,6 +770,38 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
 
 // ─── 其他區塊 ───────────────────────────────────────────────────────────────
 
+/** react-pdf ignores objectFit, so both axes on an Image stretch it. Fit from the real ratio instead. */
+function fittedImageBox(
+  frameW: number,
+  frameH: number,
+  imageRatio: number,
+  fit: 'contain' | 'cover',
+  offsetX: number,
+  offsetY: number,
+  scale: number,
+) {
+  const frameRatio = frameW / Math.max(frameH, 0.01);
+  const imageWider = imageRatio >= frameRatio;
+  let width = fit === 'cover'
+    ? (imageWider ? frameH * imageRatio : frameW)
+    : (imageWider ? frameW : frameH * imageRatio);
+  let height = width / imageRatio;
+  if (fit === 'cover') {
+    const zoom = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    width *= zoom;
+    height *= zoom;
+  }
+  const ox = fit === 'cover' ? offsetX : 0.5;
+  const oy = fit === 'cover' ? offsetY : 0.5;
+  return {
+    position: 'absolute' as const,
+    left: (frameW - width) * ox,
+    top: (frameH - height) * oy,
+    width,
+    height,
+  };
+}
+
 function buildLeadImageBlock(ctx: Ctx, imageUrls: string[] | undefined, key: string): PdfBlock | null {
   const P = ctx.P;
   const images = (imageUrls ?? []).filter((url) => url.startsWith('http')).slice(0, 6);
@@ -791,13 +823,16 @@ function buildLeadImageBlock(ctx: Ctx, imageUrls: string[] | undefined, key: str
         }}
       >
         <P.View style={{ height: heightPt, flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 6 }}>
-          {images.map((url) => (
-            <P.Image
-              key={url}
-              src={url}
-              style={{ width: 90, height: 66, objectFit: 'contain', marginRight: 6 }}
-            />
-          ))}
+          {images.map((url) => {
+            const size = peekImageSize(url);
+            const ratio = size && size.width > 0 && size.height > 0 ? size.width / size.height : 4 / 3;
+            const box = fittedImageBox(90, 66, ratio, 'contain', 0.5, 0.5, 1);
+            return (
+              <P.View key={url} style={{ width: 90, height: 66, marginRight: 6, position: 'relative' }}>
+                <P.Image src={url} style={box} />
+              </P.View>
+            );
+          })}
         </P.View>
       </P.View>
     ),
@@ -1095,12 +1130,24 @@ function buildPhotoBlocks(ctx: Ctx, options?: { frame?: boolean }): PdfBlock[] {
                         >
                           <P.Image
                             src={url}
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: placement.fitMode === 'cover' ? 'cover' : 'contain',
-                              objectPosition: `${placement.offsetX * 100}% ${placement.offsetY * 100}%`,
-                            }}
+                            style={(() => {
+                              const slotWpt = (slot.w / crop.w) * innerW;
+                              const slotHpt = (slot.h / crop.h) * innerH;
+                              const frameWpt = frame.width * slotWpt;
+                              const frameHpt = frame.height * slotHpt * imageShare;
+                              const size = peekImageSize(url);
+                              const ratio = size && size.width > 0 && size.height > 0 ? size.width / size.height : 0;
+                              if (!ratio || frameWpt <= 0 || frameHpt <= 0) return { width: '100%' };
+                              return fittedImageBox(
+                                frameWpt,
+                                frameHpt,
+                                ratio,
+                                placement.fitMode === 'cover' ? 'cover' : 'contain',
+                                placement.offsetX,
+                                placement.offsetY,
+                                placement.scale,
+                              );
+                            })()}
                           />
                         </P.View>
                       </P.View>
@@ -1202,10 +1249,17 @@ function buildPhotoBlocks(ctx: Ctx, options?: { frame?: boolean }): PdfBlock[] {
                 marginRight: cellIndex === row.cells.length - 1 ? 0 : 6 * PT_PER_MM,
               }}
             >
-              <P.Image
-                src={photo.url}
-                style={{ width: '100%', height: QUOTE_PHOTO_ROW_HEIGHT_PT, objectFit: 'contain' }}
-              />
+              <P.View style={{ width: '100%', height: QUOTE_PHOTO_ROW_HEIGHT_PT, position: 'relative' }}>
+                <P.Image
+                  src={photo.url}
+                  style={(() => {
+                    const size = peekImageSize(photo.url);
+                    const ratio = size && size.width > 0 && size.height > 0 ? size.width / size.height : 0;
+                    if (!ratio) return { width: '100%' };
+                    return fittedImageBox(cellWidth, QUOTE_PHOTO_ROW_HEIGHT_PT, ratio, 'contain', 0.5, 0.5, 1);
+                  })()}
+                />
+              </P.View>
               {row.captions ? (
                 <P.Text style={{ fontSize: 6.5, color: PDF_COLORS.muted, marginTop: 2 }}>
                   {pdfDisplayText(photo.caption || '')}
