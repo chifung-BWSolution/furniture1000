@@ -5456,93 +5456,6 @@ export function QuotationDraftEditor({
 
               <InfoPanelColumn
                 english={quoteLocale === 'en'}
-                title={ui('專案分類與需求', 'Project Categories & Requirements')}
-                icon={<FolderKanban className="h-4 w-4" />}
-                iconClassName="bg-amber-50 text-amber-700"
-                collapsed={collapseProject}
-                onToggle={() => setCollapseProject((v) => !v)}
-                summary={
-                  <>
-                    <LabelValueRow label={ui('客戶產業', 'Client Industry')}>
-                      <span className="inline-flex flex-wrap justify-end gap-1">
-                        {formData.clientIndustry.length === 0
-                          ? "—"
-                          : formData.clientIndustry.map((tag) => (
-                              <span
-                                key={tag}
-                                className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                      </span>
-                    </LabelValueRow>
-                    <LabelValueRow label={ui('辦公室傢俬級別', 'Furniture Grade')}>
-                      {formData.quotationType.length === 0
-                        ? "—"
-                        : formData.quotationType.join("、")}
-                    </LabelValueRow>
-                    <LabelValueRow label={ui('辦公室傢俬類別', 'Furniture Categories')}>
-                      {formData.serviceScope.length === 0
-                        ? "—"
-                        : formData.serviceScope.join("、")}
-                    </LabelValueRow>
-                    <LabelValueRow label={ui('工期需求', 'Lead Time')}>{formData.workPeriod || '—'}</LabelValueRow>
-                    <LabelValueRow label={ui('專案備註', 'Project Remarks')}>{formData.remarks || '—'}</LabelValueRow>
-                  </>
-                }
-              >
-                <QuoteMultiChoice
-                  english={quoteLocale === 'en'}
-                  label={ui('客戶產業', 'Client Industry')}
-                  values={formData.clientIndustry}
-                  options={industryOptions}
-                  onChange={(clientIndustry) => onFormDataChange({ clientIndustry })}
-                />
-                <QuoteFieldBlock label={ui('辦公室傢俬級別', 'Furniture Grade')}>
-                  <Input
-                    key={formData.quotationType.join('、')}
-                    aria-label={ui('辦公室傢俬級別', 'Furniture Grade')}
-                    defaultValue={formData.quotationType.join('、')}
-                    placeholder="以頓號分隔；未指定可留空"
-                    onBlur={(e) => onFormDataChange({ quotationType: [...new Set(e.target.value.split(/[、,，]/).map((value) => value.trim()).filter(Boolean))] })}
-                    className={QUOTE_PANEL_CONTROL_CLASS}
-                  />
-                </QuoteFieldBlock>
-                <QuoteMultiChoice
-                  english={quoteLocale === 'en'}
-                  label={ui('辦公室傢俬類別', 'Furniture Categories')}
-                  values={formData.serviceScope}
-                  options={serviceScopeOptions}
-                  onChange={(serviceScope) => onFormDataChange({ serviceScope })}
-                />
-                <QuoteFieldBlock label={ui('工期需求', 'Lead Time')}>
-                  <Select
-                    value={formData.workPeriod || '__none__'}
-                    onValueChange={(value) => onFormDataChange({ workPeriod: value === '__none__' ? '' : value })}
-                  >
-                    <SelectTrigger aria-label={ui('工期需求', 'Lead Time')} className={cn(QUOTE_PANEL_CONTROL_CLASS, "focus:ring-1")}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">未指定</SelectItem>
-                      {[...new Set([...workPeriodOptions, formData.workPeriod].filter(Boolean))].map((period) => (
-                        <SelectItem key={period} value={period}>{period}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </QuoteFieldBlock>
-                <QuoteFieldBlock label={ui('專案備註', 'Project Remarks')}>
-                  <Textarea
-                    aria-label={ui('專案備註', 'Project Remarks')}
-                    value={formData.remarks}
-                    onChange={(e) => onFormDataChange({ remarks: e.target.value })}
-                    rows={3}
-                    className="min-h-[4.75rem] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground shadow-none placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 md:text-xs"
-                  />
-                </QuoteFieldBlock>
-              </InfoPanelColumn>
-
-              <InfoPanelColumn
-                english={quoteLocale === 'en'}
                 title={t.quoteInfo}
                 icon={<FileText className="h-4 w-4" />}
                 iconClassName="bg-violet-50 text-violet-700"
@@ -5638,6 +5551,93 @@ export function QuotationDraftEditor({
                     className="min-h-[4.75rem] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                   />
                 </div>
+              </InfoPanelColumn>
+
+              <InfoPanelColumn
+                english={quoteLocale === 'en'}
+                title={ui('專案分類與需求', 'Project Categories & Requirements')}
+                icon={<FolderKanban className="h-4 w-4" />}
+                iconClassName="bg-amber-50 text-amber-700"
+                collapsed={collapseProject}
+                onToggle={() => setCollapseProject((v) => !v)}
+                summary={
+                  <>
+                    <LabelValueRow label={ui('客戶產業', 'Client Industry')}>
+                      <span className="inline-flex flex-wrap justify-end gap-1">
+                        {formData.clientIndustry.length === 0
+                          ? "—"
+                          : formData.clientIndustry.map((tag) => (
+                              <span
+                                key={tag}
+                                className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                      </span>
+                    </LabelValueRow>
+                    <LabelValueRow label={ui('辦公室傢俬級別', 'Furniture Grade')}>
+                      {formData.quotationType.length === 0
+                        ? "—"
+                        : formData.quotationType.join("、")}
+                    </LabelValueRow>
+                    <LabelValueRow label={ui('辦公室傢俬類別', 'Furniture Categories')}>
+                      {formData.serviceScope.length === 0
+                        ? "—"
+                        : formData.serviceScope.join("、")}
+                    </LabelValueRow>
+                    <LabelValueRow label={ui('工期需求', 'Lead Time')}>{formData.workPeriod || '—'}</LabelValueRow>
+                    <LabelValueRow label={ui('專案備註', 'Project Remarks')}>{formData.remarks || '—'}</LabelValueRow>
+                  </>
+                }
+              >
+                <QuoteMultiChoice
+                  english={quoteLocale === 'en'}
+                  label={ui('客戶產業', 'Client Industry')}
+                  values={formData.clientIndustry}
+                  options={industryOptions}
+                  onChange={(clientIndustry) => onFormDataChange({ clientIndustry })}
+                />
+                <QuoteFieldBlock label={ui('辦公室傢俬級別', 'Furniture Grade')}>
+                  <Input
+                    key={formData.quotationType.join('、')}
+                    aria-label={ui('辦公室傢俬級別', 'Furniture Grade')}
+                    defaultValue={formData.quotationType.join('、')}
+                    placeholder="以頓號分隔；未指定可留空"
+                    onBlur={(e) => onFormDataChange({ quotationType: [...new Set(e.target.value.split(/[、,，]/).map((value) => value.trim()).filter(Boolean))] })}
+                    className={QUOTE_PANEL_CONTROL_CLASS}
+                  />
+                </QuoteFieldBlock>
+                <QuoteMultiChoice
+                  english={quoteLocale === 'en'}
+                  label={ui('辦公室傢俬類別', 'Furniture Categories')}
+                  values={formData.serviceScope}
+                  options={serviceScopeOptions}
+                  onChange={(serviceScope) => onFormDataChange({ serviceScope })}
+                />
+                <QuoteFieldBlock label={ui('工期需求', 'Lead Time')}>
+                  <Select
+                    value={formData.workPeriod || '__none__'}
+                    onValueChange={(value) => onFormDataChange({ workPeriod: value === '__none__' ? '' : value })}
+                  >
+                    <SelectTrigger aria-label={ui('工期需求', 'Lead Time')} className={cn(QUOTE_PANEL_CONTROL_CLASS, "focus:ring-1")}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">未指定</SelectItem>
+                      {[...new Set([...workPeriodOptions, formData.workPeriod].filter(Boolean))].map((period) => (
+                        <SelectItem key={period} value={period}>{period}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </QuoteFieldBlock>
+                <QuoteFieldBlock label={ui('專案備註', 'Project Remarks')}>
+                  <Textarea
+                    aria-label={ui('專案備註', 'Project Remarks')}
+                    value={formData.remarks}
+                    onChange={(e) => onFormDataChange({ remarks: e.target.value })}
+                    rows={3}
+                    className="min-h-[4.75rem] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground shadow-none placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 md:text-xs"
+                  />
+                </QuoteFieldBlock>
               </InfoPanelColumn>
             </div>
             </section>
