@@ -224,6 +224,9 @@ const PmBudgetView = lazy(() =>
 const PmQuickView = lazy(() =>
   import("./PmQuickView").then((mod) => ({ default: mod.PmQuickView }))
 );
+const PackagePricingView = lazy(() =>
+  import("./PackagePricingView").then((mod) => ({ default: mod.PackagePricingView }))
+);
 const ProPdfView = lazy(() =>
   import("./ProPdfView").then((mod) => ({ default: mod.ProPdfView }))
 );
@@ -296,6 +299,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-quote-trash",
   "fds2-pm-budget",
   "fds2-pm-quick",
+  "fds2-pm-package",
   "fds2-pm-pro-pdf",
   "fds2-factory-sales",
   "fds2-quote-format",
@@ -901,7 +905,13 @@ function AppShellContent() {
         const keepCanvaOauth =
           sectionPath === '/fds/pm/presentation' &&
           (params.has('code') || params.has('error'));
-        target = keepCanvaOauth ? `${sectionPath}?${params.toString()}` : sectionPath;
+        const packageQuote = params.get('quote');
+        const keepPackageQuote = sectionPath === '/fds/pm/package' && packageQuote;
+        target = keepCanvaOauth
+          ? `${sectionPath}?${params.toString()}`
+          : keepPackageQuote
+            ? `${sectionPath}?quote=${encodeURIComponent(packageQuote)}`
+            : sectionPath;
       } else if (
         location.pathname.startsWith('/quote') ||
         isDesignProjectPath(location.pathname) ||
@@ -1076,6 +1086,7 @@ function AppShellContent() {
     if (store.currentView === 'fds2-quote-trash') return <QuoteTrashView />;
     if (store.currentView === 'fds2-pm-budget') return <PmBudgetView />;
     if (store.currentView === 'fds2-pm-quick') return <PmQuickView />;
+    if (store.currentView === 'fds2-pm-package') return <PackagePricingView />;
     if (store.currentView === 'fds2-pm-pro-pdf') return <ProPdfView />;
     if (store.currentView === 'fds2-factory-sales') return <FactoryReportView />;
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;

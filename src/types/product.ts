@@ -163,6 +163,7 @@ export type ViewType =
   | 'fds2-designer-3d'
   | 'fds2-pm-budget'
   | 'fds2-pm-quick'
+  | 'fds2-pm-package'
   | 'fds2-pm-pro-pdf'
   | 'fds2-pm-presentation'
   | 'fds2-cases-orders'

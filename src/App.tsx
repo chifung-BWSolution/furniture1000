@@ -19,6 +19,12 @@ const PmsSsoCallback = lazy(() =>
   })),
 );
 
+const PackageQuoteSharePage = lazy(() =>
+  import("./components/dashboard/PackageQuoteSharePage").then((m) => ({
+    default: m.PackageQuoteSharePage,
+  })),
+);
+
 /** Old share links opened a page outside the shell. Keep them, inside the app. */
 function LegacyManufacturerRedirect() {
   const { factoryCode = "" } = useParams();
@@ -102,6 +108,7 @@ function App() {
           <Routes>
             <Route path="/auth/shopify/callback" element={<ShopifyCallback />} />
             <Route path="/auth/pms/callback" element={<PmsSsoCallback />} />
+            <Route path="/package-quote/:token" element={<PackageQuoteSharePage />} />
             <Route path="/manufacturers/:factoryCode" element={<LegacyManufacturerRedirect />} />
             {/* Stable deep links for PMS Quote tab / SSO redirect_to */}
             <Route path="/quote/quick" element={<Home />} />
