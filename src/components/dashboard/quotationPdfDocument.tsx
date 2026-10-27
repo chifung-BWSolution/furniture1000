@@ -1035,7 +1035,7 @@ function buildPhotoBlocks(ctx: Ctx, options?: { frame?: boolean }): PdfBlock[] {
       const heightPt = innerH + pad * 2;
       const textArea = block.geometry.text;
       const first = block.placements[0];
-      const marginTop = index === 0 ? 12 : 8;
+      const marginTop = frameLayout ? (index === 0 ? 0 : 4) : (index === 0 ? 12 : 8);
 
       blocks.push({
         key: `photo-layout-${block.key}`,
