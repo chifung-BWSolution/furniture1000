@@ -11,6 +11,7 @@ import { logAiUsage } from "../_shared/usageLog.ts";
  * 前端再放進排版素材區。仍相容舊的 referenceAssetIds（圖片庫 asset id）。
  *
  * 兩個模型都走同一個 slug，前端用 { model: "grok" | "gemini" } 切換。
+ * 未傳 model，或傳了這兩個以外的值時，用 Gemini 3.8。
  * 權限跟圖片庫一致：只有 admin / uploader / pm 可以生成（RLS 同樣會擋）。
  *
  * 注意：函數刻意不 import `_shared/*`，單檔上傳（scripts/deploy-edge-functions.ps1）
@@ -393,7 +394,7 @@ Deno.serve(async (req: Request) => {
     ? createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false, autoRefreshToken: false } })
     : client;
 
-  const model: ModelId = raw.model === "gemini" ? "gemini" : "grok";
+  const model: ModelId = raw.model === "grok" ? "grok" : "gemini";
   const prompt = typeof raw.prompt === "string" ? raw.prompt.replace(/\s+/g, " ").trim() : "";
   const aspectRatio = typeof raw.aspectRatio === "string" ? raw.aspectRatio : "";
   const referenceIds = Array.isArray(raw.referenceAssetIds)

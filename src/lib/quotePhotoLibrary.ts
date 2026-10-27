@@ -35,10 +35,10 @@ export const QUOTE_PHOTO_PLACEMENT_LABELS: Record<QuotePhotoPlacement, string> =
 export type QuoteCoverPlacement = Exclude<QuotePhotoPlacement, 'content'>;
 export type QuoteCoverPage = QuotePhotoAsset & { placement: QuoteCoverPlacement };
 
-/** AI 生成參考圖可以切換的模型，順序＝介面顯示次序（預設第一個）。 */
+/** AI 生成參考圖可以切換的模型。第一個是打開對話框時的預設。 */
 export const QUOTE_PHOTO_GENERATE_MODELS = [
-  { id: 'grok', label: 'Grok 4.7', provider: 'xAI' },
   { id: 'gemini', label: 'Gemini 3.8', provider: 'Google' },
+  { id: 'grok', label: 'Grok 4.7', provider: 'xAI' },
 ] as const;
 export type QuotePhotoGenerateModel = (typeof QUOTE_PHOTO_GENERATE_MODELS)[number]['id'];
 /** 一次生成最多帶 5 張參考圖（跟 Edge function 的上限一致）。 */
@@ -282,7 +282,7 @@ const GENERATE_SLUGS = [
 ] as const;
 
 /**
- * AI 生成一張參考圖並寫入圖片庫（Grok 4.7 或 Gemini 3.8，可帶最多 5 張產品圖作參考）。
+ * AI 生成一張參考圖並寫入圖片庫（預設 Gemini 3.8，可改 Grok 4.7，可帶最多 5 張產品圖作參考）。
  * 生成結果 isGenerated = true，介面與 PDF 都會標示「僅供設計參考」。
  */
 export async function generateQuoteReferenceImage(input: {

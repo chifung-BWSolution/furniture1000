@@ -71,6 +71,10 @@ export function QuotePhotoGenerateDialog({
   const [prompt, setPrompt] = useState('');
   const [ratio, setRatio] = useState<PhotoRatio>('4:3');
   const [model, setModel] = useState<QuotePhotoGenerateModel>(QUOTE_PHOTO_GENERATE_MODELS[0].id);
+
+  useEffect(() => {
+    if (open) setModel(QUOTE_PHOTO_GENERATE_MODELS[0].id);
+  }, [open]);
   const [refs, setRefs] = useState<string[]>([]);
   /** 已選參考圖的說明，鍵是 choice id，順序跟 refs 一致時寫進提示詞。 */
   const [refNotes, setRefNotes] = useState<Record<string, string>>({});
