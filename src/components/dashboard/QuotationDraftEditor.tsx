@@ -5570,33 +5570,6 @@ export function QuotationDraftEditor({
                     if (file) void handleFloorPlanFile(file);
                   }}
                 />
-                {floorPlan ? (
-                  <button
-                    type="button"
-                    onClick={() => setFloorPlanViewerOpen(true)}
-                    className="mb-4 flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2 text-left hover:bg-muted/40"
-                  >
-                    {floorPlan.previewUrl || floorPlan.mimeType.startsWith("image/") ? (
-                      <LoadingImage
-                        src={floorPlan.previewUrl || floorPlan.url}
-                        alt={floorPlan.fileName}
-                        className="h-16 w-24 rounded-md bg-background"
-                        imgClassName="object-contain"
-                      />
-                    ) : (
-                      <span className="flex h-16 w-24 items-center justify-center rounded-md bg-background text-muted-foreground">
-                        <FileText className="h-6 w-6" />
-                      </span>
-                    )}
-                    <span className="min-w-0">
-                      <span className="block truncate font-body text-sm font-medium text-foreground">{floorPlan.fileName}</span>
-                      <span className="mt-0.5 block font-body text-xs text-muted-foreground">
-                        {ui('點擊查看平面圖', 'View floor plan')}
-                      </span>
-                    </span>
-                  </button>
-                ) : null}
-
                 <div
                   className="space-y-3"
                   onDragOver={(e) => {
