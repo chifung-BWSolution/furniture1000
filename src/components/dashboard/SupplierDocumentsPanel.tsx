@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { DocumentUploadProgress, type DocumentUploadStatus } from './DocumentUploadProgress';
 import { cn } from '@/lib/utils';
+import { documentQueueTiming } from '@/lib/documentQueueTiming';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -326,7 +327,7 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
                   <span className="min-w-0 flex-1 truncate font-body text-xs font-medium" title={doc.title ?? undefined}>
                     {doc.title || doc.storage_path}
                   </span>
-                  <Badge className={cn('border font-mono-data text-[10px]', status.className)}>{status.label}</Badge>
+                  <Badge className={cn('border font-mono-data text-[10px]', status.className)}>{doc.status === 'parsing' && job?.status === 'queued' ? '排隊中' : status.label}</Badge>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono-data text-[10px] text-muted-foreground">
                   <span>{formatTime(doc.created_at)}</span>
@@ -340,13 +341,16 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
                   {job && (
                     <span>
                       {job.job_type === 'needs_split' ? '拆檔' : '任務'}：{JOB_STATUS[job.status]}
-                      {job.job_type === 'needs_split' && active ? ' · 等待拆成較小的 PDF' : ''}
+                      {job.job_type === 'needs_split' && active ? job.status === 'running' ? ' · 正在拆成較小的 PDF' : ' · 等待拆成較小的 PDF' : ''}
                       {job.job_type !== 'needs_split' && active && jobProgressText(job) ? ` · ${jobProgressText(job)}` : ''}
                       {job.attempts > 1 ? `（第 ${job.attempts}/${job.max_attempts} 次）` : ''}
                     </span>
                   )}
                   {job && jobResultText(job) && <span>{jobResultText(job)}</span>}
                 </div>
+                {job?.status === 'queued' && active && ['needs_split', 'parse_pdf'].includes(job.job_type) && (
+                  <p className="font-body text-[11px] text-muted-foreground">{documentQueueTiming(job.run_after)}</p>
+                )}
                 {active && (doc.part_count ?? 0) > 0 && (
                   <Progress value={Math.round(((doc.parts_done ?? 0) / (doc.part_count ?? 1)) * 100)} className="h-1" />
                 )}
