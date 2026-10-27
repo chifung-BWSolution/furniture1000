@@ -2103,7 +2103,7 @@ function InfoPanelColumn({
 }) {
   const editing = !collapsed;
   return (
-    <section className="quote-info-panel self-start overflow-hidden rounded-xl border border-border/80 bg-card">
+    <section className="quote-info-panel flex h-full flex-col overflow-hidden rounded-xl border border-border/80 bg-card">
       <div className="flex items-center gap-2 px-3 py-3">
         <span
           className={cn(
@@ -2133,7 +2133,7 @@ function InfoPanelColumn({
           />
         </button>
       </div>
-      <div className="border-t border-border/60 px-3 pb-3 pt-1">
+      <div className="flex-1 border-t border-border/60 px-3 pb-3 pt-1">
         {editing ? <div className="space-y-3 pt-2">{children}</div> : summary}
       </div>
     </section>
@@ -5179,7 +5179,7 @@ export function QuotationDraftEditor({
               <p className="mb-4 mt-1 font-body text-sm text-muted-foreground">
                 {ui('編輯報價單的基礎資訊，包括公司、專案、客戶及報價設定。', 'Edit company, project, customer and quotation information.')}
               </p>
-            <div className="grid min-w-0 grid-cols-1 items-start gap-3 sm:grid-cols-2">
+            <div className="grid min-w-0 grid-cols-1 items-stretch gap-3 sm:grid-cols-2">
               <InfoPanelColumn
                 english={quoteLocale === 'en'}
                 title={ui('公司資訊', 'Company Information')}
