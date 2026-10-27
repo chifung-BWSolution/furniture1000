@@ -42,3 +42,8 @@ entrypoint = "./functions/fetch-bwa-works/index.ts"
 [functions.supabase-functions-fetch-pms-pitchings]
 verify_jwt = false
 entrypoint = "./functions/fetch-pms-pitchings/index.ts"
+
+# Canva 簡報。前端呼叫帶前綴的 slug；分頁預覽與大綱指示都在這個函式。
+[functions.supabase-functions-generate-canva-presentation]
+verify_jwt = false
+entrypoint = "./functions/generate-canva-presentation/index.ts"
