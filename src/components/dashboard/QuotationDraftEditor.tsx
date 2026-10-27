@@ -15,6 +15,7 @@ import {
   FolderKanban,
   GripVertical,
   ImagePlus,
+  Inbox,
   Loader2,
   PackagePlus,
   PackageSearch,
@@ -106,6 +107,7 @@ import {
 import { fetchFactoriesWithIds } from "@/lib/factorySupabase";
 import { CopyQuoteItemsModal } from "@/components/dashboard/CopyQuoteItemsModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Modal, ModalButton } from "@/components/ui/modal";
 import { Progress } from "@/components/ui/progress";
 import { LoadingImage } from "@/components/ui/loading-image";
@@ -6535,6 +6537,15 @@ export function QuotationDraftEditor({
         description={zoneRecognitionActive ? t.recognizingZonesDetail : t.manageZonesHint}
         footer={
           <>
+            <ModalButton
+              variant="secondary"
+              className="border-dashed sm:mr-auto"
+              disabled={zoneRecognitionActive}
+              onClick={() => setZoneManagerDraft((prev) => [...prev, blankZoneManagerRow(generateId())])}
+            >
+              <Plus className="h-4 w-4" />
+              {t.addZoneSpace}
+            </ModalButton>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
               {t.cancel}
             </ModalButton>
@@ -6588,8 +6599,7 @@ export function QuotationDraftEditor({
                     onClick={() => floorPlanInputRef.current?.click()}
                     className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-violet-500 bg-muted/30 px-6 text-center font-body text-sm text-muted-foreground hover:bg-violet-50 disabled:cursor-default"
                   >
-                    {t.dropFloorPlan}
-                    <span className="ml-1 text-sky-600 underline underline-offset-2">{t.dropFloorPlanAction}</span>
+                    {t.dropFloorPlan} {t.dropFloorPlanAction}
                   </button>
                 )}
                 {zoneRecognitionActive ? (
@@ -6608,9 +6618,14 @@ export function QuotationDraftEditor({
             </div>
           <div className="min-w-0 space-y-3">
           {zoneManagerDraft.length === 0 ? (
-            <p className="font-body text-sm text-muted-foreground">
-              {quoteLocale === "en" ? "No zones yet." : "尚未有分區。"}
-            </p>
+            <Empty className="h-[440px] border border-border bg-muted/20">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Inbox />
+                </EmptyMedia>
+                <EmptyTitle className="text-sm font-normal text-muted-foreground">{t.noZonesYet}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="min-w-0 overflow-x-auto">
               <div className="min-w-[28rem] space-y-2 lg:min-w-0">
@@ -6724,16 +6739,6 @@ export function QuotationDraftEditor({
               </div>
             </div>
           )}
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-foreground/80 hover:bg-muted/50"
-            onClick={() =>
-              setZoneManagerDraft((prev) => [...prev, blankZoneManagerRow(generateId())])
-            }
-          >
-            <Plus className="h-3 w-3" />
-            {t.addSectionTitle}
-          </button>
           </div>
           </div>
         </div>
