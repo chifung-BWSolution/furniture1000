@@ -28,7 +28,7 @@ interface SidebarNavProps {
    * show 客戶專區 pages except「機構採購帳號」.
    */
   quoteShareGuest?: boolean;
-  /** PM only sees the 傢俬方案 pages inside 傢俬報價. */
+  /** PM cannot access 報價單格式設定 inside 傢俬報價. */
   pm?: boolean;
 }
 
@@ -80,7 +80,6 @@ export function SidebarNav({
   });
   const pinnedChildren = section.children.filter((child) => {
     if (!child.pinned) return false;
-    if (pm && activeSection === 'quote') return false;
     if (!isAdmin && child.adminOnly) return false;
     if (
       quoteShareGuest &&

@@ -6,7 +6,7 @@
  * - 一張報價只記錄「選了哪幾張、怎麼排版」（`bwf_quote.project_data.quotePhotoLayouts`），
  *   另外在 `project_data.quotePhotoAssets` 存圖片庫快照（id / title / objectPath），
  *   所以之後把圖從圖片庫移除，已發出的報價版本仍然印得出來。
- * - 上載、排序、刪除都直接寫 Storage + 表，權限交給 RLS（admin / uploader）。
+ * - 上載、排序、刪除都直接寫 Storage + 表，權限交給 RLS（admin / uploader / pm）。
  */
 import { resizeImageToBlob } from '@/lib/imageStorage';
 import { supabase } from '@/lib/supabase';
@@ -95,7 +95,7 @@ const photoErrorMessages: Record<string, string> = {
   quote_photo_library_limit: `圖片庫最多 ${QUOTE_PHOTO_LIBRARY_LIMIT} 張圖片，請先刪除不再用的圖。`,
   quote_photo_upload_failed: '圖片未能上載，請稍後再試。',
   quote_photo_record_failed: '圖片記錄未能保存，請稍後再試。',
-  quote_photo_permission_denied: '只有管理員或上載員可以修改圖片庫。',
+  quote_photo_permission_denied: '只有管理員、上載員或 PM 可以修改圖片庫。',
   quote_photo_library_unavailable: '圖片庫資料表尚未部署，請先套用 migration。',
   quote_photo_not_found: '找不到這張圖片，可能已被移除。',
   quote_photo_generate_invalid: `請輸入描述（最多 ${QUOTE_PHOTO_PROMPT_MAX} 字）並選擇比例。`,
@@ -104,7 +104,7 @@ const photoErrorMessages: Record<string, string> = {
   quote_photo_generate_unavailable: '這個 AI 圖片模型暫時不可用，請切換另一個模型或稍後再試。',
   quote_photo_generate_timeout: 'AI 生成逾時，請再試一次或改用另一個模型。',
   quote_photo_generate_failed: 'AI 生成失敗，請再試一次或改用另一個模型。',
-  quote_photo_generate_permission_denied: '只有管理員或上載員可以生成參考圖。',
+  quote_photo_generate_permission_denied: '只有管理員、上載員或 PM 可以生成參考圖。',
 };
 
 export function quotePhotoErrorText(error: unknown): string {
@@ -520,9 +520,9 @@ export function parseQuotePhotoAssetRefs(value: unknown): QuotePhotoAssetRef[] {
   return refs;
 }
 
-/** 只有 admin / uploader 可以上載、排序、刪除（跟 RLS 一致）。 */
+/** 只有 admin / uploader / pm 可以上載、排序、刪除（跟 RLS 一致）。 */
 export async function canManageQuotePhotos(): Promise<boolean> {
-  const { data, error } = await supabase.rpc('bwf_has_role', { p_roles: ['admin', 'uploader'] });
+  const { data, error } = await supabase.rpc('bwf_has_role', { p_roles: ['admin', 'uploader', 'pm'] });
   if (error) {
     console.warn('[quotePhotoLibrary] role check failed:', error.message);
     return false;

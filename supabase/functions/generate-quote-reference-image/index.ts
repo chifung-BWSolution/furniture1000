@@ -11,7 +11,7 @@ import { logAiUsage } from "../_shared/usageLog.ts";
  * 前端再放進排版素材區。仍相容舊的 referenceAssetIds（圖片庫 asset id）。
  *
  * 兩個模型都走同一個 slug，前端用 { model: "grok" | "gemini" } 切換。
- * 權限跟圖片庫一致：只有 admin / uploader 可以生成（RLS 同樣會擋）。
+ * 權限跟圖片庫一致：只有 admin / uploader / pm 可以生成（RLS 同樣會擋）。
  *
  * 注意：函數刻意不 import `_shared/*`，單檔上傳（scripts/deploy-edge-functions.ps1）
  * 也部署得起來，不必依賴 CLI 打包。
@@ -376,8 +376,8 @@ Deno.serve(async (req: Request) => {
     return fail("quote_photo_generate_invalid", 400, "invalid json");
   }
   if (!raw || typeof raw !== "object") return fail("quote_photo_generate_invalid", 400, "invalid body");
-  // Match the existing furniture-model role boundary without granting scene-library editing.
-  const { data: allowed } = await client.rpc('bwf_has_role', { p_roles: raw.purpose === 'orthographic' ? ['admin', 'uploader', 'pm', 'designer'] : ['admin', 'uploader'] });
+  // Orthographic generation also supports designers; scene-library management supports PMs.
+  const { data: allowed } = await client.rpc('bwf_has_role', { p_roles: raw.purpose === 'orthographic' ? ['admin', 'uploader', 'pm', 'designer'] : ['admin', 'uploader', 'pm'] });
   if (allowed !== true) return fail('quote_photo_generate_permission_denied', 403);
   const storageClient = raw.purpose === 'orthographic'
     ? createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false, autoRefreshToken: false } })

@@ -45,7 +45,7 @@ function formatBytes(bytes: number): string {
 /**
  * 報價設定 › 圖片庫。
  *
- * 全公司共用一組可插入報價單的圖片。上載、排序、刪除限 admin / uploader；
+ * 全公司共用一組可插入報價單的圖片。上載、排序、刪除限 admin / uploader / pm；
  * 其他同事看得到，編輯報價時可以直接選用。
  */
 export function QuotePhotoLibraryView() {
