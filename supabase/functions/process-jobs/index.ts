@@ -4,7 +4,10 @@ import { wakePdfSplitter } from "./pdfSplitWake.mjs";
 import { extractPagesPdf, planStructureUnits, unitImagePages } from "./structureUnits.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { getDocumentProxy } from "npm:unpdf@1.9.0";
+import { getDocumentProxy, extractImages } from "npm:unpdf@1.9.0";
+import jpeg from "npm:jpeg-js@0.4.4";
+import { collectPdfPageImages, createPdfImageNormalizer } from "./pdfImageColor.mjs";
+import { preparePdfUnitImages } from "./pdfImageStore.mjs";
 import {
   PDFArray,
   PDFDict,
@@ -12,6 +15,8 @@ import {
   PDFName,
   PDFNumber,
   PDFRawStream,
+  PDFObjectCopier,
+  drawObject,
 } from "npm:pdf-lib@1.17.1";
 import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
 import { mapOfficialColors } from "../../../src/lib/officialColor.ts";
@@ -245,41 +250,12 @@ async function extractPageText(
   return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-type EmbeddedImage = { bytes: Uint8Array; width: number; height: number; area: number; jpeg: boolean };
+const pdfImageLib = { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFObjectCopier, drawObject };
+const normalizePdfImage = createPdfImageNormalizer({ pdfLib: pdfImageLib, getDocumentProxy, extractImages, encodeJpeg: jpeg.encode });
+type EmbeddedImage = ReturnType<typeof collectPdfPageImages>[number];
 
-function collectImages(doc: PDFDocument, resources: PDFDict | undefined, depth: number, out: EmbeddedImage[]) {
-  const xobjects = resources?.lookupMaybe(PDFName.of("XObject"), PDFDict);
-  if (!xobjects) return;
-  for (const [, ref] of xobjects.entries()) {
-    const obj = doc.context.lookup(ref);
-    if (!(obj instanceof PDFRawStream)) continue;
-    const subtype = obj.dict.lookup(PDFName.of("Subtype"));
-    if (subtype === PDFName.of("Image")) {
-      const filter = obj.dict.lookup(PDFName.of("Filter"));
-      const filters = filter instanceof PDFArray ? filter.asArray() : filter ? [filter] : [];
-      const w = obj.dict.lookup(PDFName.of("Width"));
-      const h = obj.dict.lookup(PDFName.of("Height"));
-      const width = w instanceof PDFNumber ? w.asNumber() : 0;
-      const height = h instanceof PDFNumber ? h.asNumber() : 0;
-      out.push({
-        bytes: obj.contents,
-        width,
-        height,
-        area: width * height,
-        jpeg: filters.length === 1 && filters[0] === PDFName.of("DCTDecode"),
-      });
-    } else if (subtype === PDFName.of("Form") && depth < 2) {
-      collectImages(doc, obj.dict.lookupMaybe(PDFName.of("Resources"), PDFDict), depth + 1, out);
-    }
-  }
-}
-
-/** A scanned page is normally one big embedded JPEG; its raw stream is a valid .jpg. */
 function pageImages(doc: PDFDocument, pageNo: number): EmbeddedImage[] {
-  const page = doc.getPage(pageNo - 1);
-  const out: EmbeddedImage[] = [];
-  collectImages(doc, page.node.Resources(), 0, out);
-  return out;
+  return collectPdfPageImages(pdfImageLib, doc, pageNo);
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -422,7 +398,7 @@ async function geminiClassify(
 async function extractBatch(admin: SupabaseClient, job: Job, documentId: string, state: ParseState) {
   const bytes = await downloadDocument(admin, documentId);
   const pdf = await openPdfText(bytes);
-  const last = Math.min(state.page_count, state.cursor + EXTRACT_BATCH - 1);
+  let last = Math.min(state.page_count, state.cursor + EXTRACT_BATCH - 1);
   const now = new Date().toISOString();
 
   const rows: PageRow[] = [];
@@ -441,6 +417,11 @@ async function extractBatch(admin: SupabaseClient, job: Job, documentId: string,
       ocr_error: null,
       updated_at: now,
     });
+    // PDF color decoding/OCR is a heavy step: checkpoint after one scanned page.
+    if (chars < MIN_TEXT_CHARS) {
+      last = pageNo;
+      break;
+    }
   }
   await closePdf(pdf);
 
@@ -473,7 +454,7 @@ async function extractBatch(admin: SupabaseClient, job: Job, documentId: string,
         return;
       }
       try {
-        const { text, tokens } = await grokOcr(apiKey, model, jpeg.bytes);
+        const { text, tokens } = await grokOcr(apiKey, model, await normalizePdfImage(doc, jpeg));
         state.tokens += tokens;
         state.ocr_pages += 1;
         row.ocr_status = "done";
@@ -802,78 +783,17 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** T-303: store product-sized JPEGs from the unit's pages once per document; skip logos. */
+/** Store PDF-decoded RGB JPEGs; source hashes/IDs and existing URLs stay stable. */
 async function collectUnitImages(
   admin: SupabaseClient,
   documentId: string,
   doc: PDFDocument | null,
   textPages: number[],
-): Promise<UnitImage[]> {
-  if (textPages.length === 0 || !doc) return [];
-
-  const found = new Map<string, { page_no: number; pages: Set<number>; img: EmbeddedImage }>();
-  for (const pageNo of textPages) {
-    for (const img of pageImages(doc, pageNo)) {
-      if (!img.jpeg || img.width < MIN_IMAGE_PX || img.height < MIN_IMAGE_PX) continue;
-      if (img.bytes.length > MAX_INLINE_IMAGE_BYTES) continue;
-      const hash = await sha256Hex(img.bytes);
-      const seen = found.get(hash);
-      if (seen) seen.pages.add(pageNo);
-      else found.set(hash, { page_no: pageNo, pages: new Set([pageNo]), img });
-    }
-  }
-  if (found.size === 0) return [];
-
-  const hashes = [...found.keys()];
-  const { data: existing, error } = await admin
-    .from("supplier_document_images")
-    .select("id, content_hash, page_no, page_occurrences, storage_path, public_url")
-    .eq("document_id", documentId)
-    .in("content_hash", hashes);
-  if (error) throw new Error(`image lookup failed: ${error.message}`);
-  const byHash = new Map((existing ?? []).map((r) => [r.content_hash as string, r]));
-
-  const out: UnitImage[] = [];
-  for (const [hash, { page_no, pages, img }] of found) {
-    const row = byHash.get(hash);
-    let storagePath = (row?.storage_path as string | undefined) ?? null;
-    let publicUrl = (row?.public_url as string | undefined) ?? null;
-    if (!row) {
-      storagePath = `supplier-extracts/${documentId}/${hash}.jpg`;
-      const { error: upErr } = await admin.storage
-        .from("product-images")
-        .upload(storagePath, img.bytes, { contentType: "image/jpeg", upsert: true });
-      if (upErr) throw new Error(`image upload failed: ${upErr.message}`);
-      publicUrl = admin.storage.from("product-images").getPublicUrl(storagePath).data.publicUrl;
-    }
-    // The RPC merges these pages into the stored set (document + hash + page).
-    // Replaying the same unit after a failed Gemini call adds nothing new, so
-    // the occurrence count stays the same and a real product photo is never
-    // promoted to a logo.
-    const { data: recorded, error: recErr } = await admin.rpc("fds_supplier_document_image_record", {
-      p_document_id: documentId,
-      p_content_hash: hash,
-      p_pages: [...pages],
-      p_page_no: page_no,
-      p_storage_path: storagePath,
-      p_public_url: publicUrl,
-      p_width: img.width,
-      p_height: img.height,
-      p_byte_size: img.bytes.length,
-    });
-    if (recErr) throw new Error(`image record failed: ${recErr.message}`);
-    const rec = (recorded ?? {}) as { id?: string; page_occurrences?: number };
-    if (!rec.id) throw new Error(`image record failed: no row for ${hash}`);
-    const occurrences = Number(rec.page_occurrences ?? 0);
-    if (occurrences >= LOGO_PAGE_OCCURRENCES) continue;
-    out.push({ id: rec.id, page_no, bytes: img.bytes, area: img.area });
-  }
-
-  let budget = MAX_INLINE_TOTAL_BYTES;
-  return out
-    .sort((a, b) => a.page_no - b.page_no || b.area - a.area)
-    .filter((img) => (budget -= img.bytes.length) >= 0)
-    .slice(0, STRUCTURE_MAX_IMAGES);
+): Promise<UnitImage[] | null> {
+  return preparePdfUnitImages({ admin, documentId, document: doc, pages: textPages,
+    collectImages: pageImages, normalizeImage: normalizePdfImage, hashBytes: sha256Hex,
+    minPixels: MIN_IMAGE_PX, maxImageBytes: MAX_INLINE_IMAGE_BYTES,
+    totalBytes: MAX_INLINE_TOTAL_BYTES, maxImages: STRUCTURE_MAX_IMAGES, logoPages: LOGO_PAGE_OCCURRENCES });
 }
 
 async function geminiStructure(
@@ -1045,6 +965,9 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
     pdfDoc = null;
   }
   const images = await collectUnitImages(admin, documentId, pdfDoc, imagePages);
+  // Color preparation checkpoint: retain this unit's cursor until all its images
+  // are cached as RGB. Existing job checkpoint/chain/parse-window rules apply.
+  if (images === null) return;
   const pagesPdf = unit.vision && pdfDoc
     ? await extractPagesPdf(PDFDocument, pdfDoc, target.map((p) => p.page_no as number), MAX_PAGE_PDF_BYTES)
     : null;
