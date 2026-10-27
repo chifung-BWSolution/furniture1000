@@ -6564,18 +6564,10 @@ export function QuotationDraftEditor({
           {floorPlan?.regions.some((region) => !region.confirmed) ? (
             <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}
-          {zoneRecognitionActive ? (
-            <div className="space-y-1.5" role="status" aria-live="polite">
-              <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
-                <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
-                <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
-              </div>
-              <Progress value={zoneRecognitionProgress} />
-            </div>
-          ) : null}
           <div className={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]" : "space-y-3"}>
           {floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? (
             <div className="space-y-2">
+              <div className="relative">
               <FloorPlanZoneCanvas
                 src={(floorPlan.previewUrl || floorPlan.url) as string}
                 zones={zoneManagerDraft}
@@ -6586,6 +6578,18 @@ export function QuotationDraftEditor({
                 onChange={setZoneManagerDraft}
                 onActive={setActiveZoneId}
               />
+              {zoneRecognitionActive ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/45" role="status" aria-live="polite">
+                  <div className="w-[min(16rem,78%)] space-y-1.5 rounded-lg bg-white/95 px-3 py-2 shadow-sm">
+                    <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
+                      <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
+                      <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
+                    </div>
+                    <Progress value={zoneRecognitionProgress} />
+                  </div>
+                </div>
+              ) : null}
+              </div>
               {zoneRecognitionActive ? null : (
                 <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
               )}
@@ -6691,7 +6695,15 @@ export function QuotationDraftEditor({
             <Plus className="h-3 w-3" />
             {t.addSectionTitle}
           </button>
-          {floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? null : (
+          {floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? null : zoneRecognitionActive ? (
+            <div className="space-y-1.5" role="status" aria-live="polite">
+              <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
+                <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
+                <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
+              </div>
+              <Progress value={zoneRecognitionProgress} />
+            </div>
+          ) : (
             <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
           )}
           </div>
