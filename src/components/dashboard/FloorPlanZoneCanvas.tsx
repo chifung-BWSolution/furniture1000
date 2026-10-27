@@ -25,6 +25,7 @@ type FloorPlanZoneCanvasProps = {
   onActive: (id: string) => void;
   disabled?: boolean;
   deleteLabel?: string;
+  className?: string;
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -93,6 +94,7 @@ export function FloorPlanZoneCanvas({
   onActive,
   disabled = false,
   deleteLabel = '刪除空間',
+  className,
 }: FloorPlanZoneCanvasProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const zonesRef = useRef(zones);
@@ -224,7 +226,7 @@ export function FloorPlanZoneCanvas({
   };
 
   return (
-    <div className="flex justify-center overflow-hidden rounded-lg border border-border bg-muted/30 p-2">
+    <div className={`flex h-full w-full items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/30 p-2 ${className ?? ''}`}>
       <div
         ref={frameRef}
         role="application"
@@ -238,7 +240,7 @@ export function FloorPlanZoneCanvas({
         <LoadingImage
           src={src}
           alt=""
-          className="max-h-[min(52vh,440px)] max-w-full"
+          className="max-h-[408px] max-w-full"
           imgClassName="object-contain"
           draggable={false}
           onLoad={() => setReady(true)}

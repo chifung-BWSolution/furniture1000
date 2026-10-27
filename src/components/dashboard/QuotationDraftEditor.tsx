@@ -2650,6 +2650,7 @@ export function QuotationDraftEditor({
   const [floorPlanBusy, setFloorPlanBusy] = useState(false);
   const [recognizingZones, setRecognizingZones] = useState(false);
   const [zoneRecognitionProgress, setZoneRecognitionProgress] = useState(0);
+  const [floorPlanDragOver, setFloorPlanDragOver] = useState(false);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
   const [zoneManagerOpen, setZoneManagerOpen] = useState(false);
   const [zoneManagerDraft, setZoneManagerDraft] = useState<ZoneManagerRow[]>([]);
@@ -5003,6 +5004,7 @@ export function QuotationDraftEditor({
   const canNudge = (index: number, dir: -1 | 1) =>
     index + dir >= 0 && index + dir < items.length;
   const summaryLocked = !summaryEditing;
+  const hasFloorPlanPreview = Boolean(floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/"));
 
   return (
     <>
@@ -6525,34 +6527,13 @@ export function QuotationDraftEditor({
       <Modal
         open={zoneManagerOpen}
         onOpenChange={setZoneManagerOpen}
-        size={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "4xl" : "3xl"}
-        className={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "max-w-6xl" : undefined}
+        size="4xl"
+        className="max-w-6xl"
         icon={<FolderKanban className="h-5 w-5" />}
         title={t.manageZones}
         description={zoneRecognitionActive ? t.recognizingZonesDetail : t.manageZonesHint}
         footer={
           <>
-            <button
-              type="button"
-              disabled={zoneRecognitionActive}
-              onClick={() => floorPlanInputRef.current?.click()}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
-            >
-              {zoneRecognitionActive ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-              ) : (
-                <Upload className="h-4 w-4 shrink-0" />
-              )}
-            <span className="truncate">
-              {floorPlanBusy
-                ? t.uploadingFloorPlan
-                : recognizingZones
-                  ? t.recognizingZones
-                  : floorPlan
-                    ? t.replaceFloorPlan
-                    : t.uploadFloorPlanRecognize}
-            </span>
-            </button>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
               {t.cancel}
             </ModalButton>
@@ -6564,37 +6545,60 @@ export function QuotationDraftEditor({
           {floorPlan?.regions.some((region) => !region.confirmed) ? (
             <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}
-          <div className={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]" : "space-y-3"}>
-          {floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? (
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
             <div className="space-y-2">
-              <div className="relative">
-              <FloorPlanZoneCanvas
-                src={(floorPlan.previewUrl || floorPlan.url) as string}
-                zones={zoneManagerDraft}
-                activeId={activeZoneId}
-                createId={generateId}
-                disabled={floorPlanBusy || recognizingZones}
-                deleteLabel={quoteLocale === "en" ? "Delete space" : "刪除空間"}
-                onChange={setZoneManagerDraft}
-                onActive={setActiveZoneId}
-              />
-              {zoneRecognitionActive ? (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/45" role="status" aria-live="polite">
-                  <div className="w-[min(16rem,78%)] space-y-1.5 rounded-lg bg-white/95 px-3 py-2 shadow-sm">
-                    <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
-                      <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
-                      <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
-                    </div>
-                    <Progress value={zoneRecognitionProgress} />
+              <div
+                className={cn(
+                  "relative h-[440px] overflow-hidden rounded-lg",
+                  floorPlanDragOver && "ring-2 ring-sky-400",
+                )}
+                onDragOver={(event) => {
+                  if (zoneRecognitionActive || ![...event.dataTransfer.types].includes("Files")) return;
+                  event.preventDefault();
+                  setFloorPlanDragOver(true);
+                }}
+                onDragLeave={(event) => {
+                  if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+                  setFloorPlanDragOver(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setFloorPlanDragOver(false);
+                  if (zoneRecognitionActive) return;
+                  const file = event.dataTransfer.files?.[0];
+                  if (file) void handleFloorPlanFile(file);
+                }}
+              >
+                {hasFloorPlanPreview ? (
+                  <FloorPlanZoneCanvas
+                    src={(floorPlan?.previewUrl || floorPlan?.url) as string}
+                    zones={zoneManagerDraft}
+                    activeId={activeZoneId}
+                    createId={generateId}
+                    disabled={zoneRecognitionActive}
+                    deleteLabel={quoteLocale === "en" ? "Delete space" : "刪除空間"}
+                    onChange={setZoneManagerDraft}
+                    onActive={setActiveZoneId}
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center font-body text-sm text-muted-foreground">
+                    {t.dropFloorPlan}
                   </div>
-                </div>
-              ) : null}
+                )}
+                {zoneRecognitionActive ? (
+                  <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center" role="status" aria-live="polite">
+                    <div className="w-[min(18rem,78%)] space-y-1.5">
+                      <div className="flex items-center justify-between gap-3 font-body text-xs text-foreground">
+                        <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
+                        <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
+                      </div>
+                      <Progress value={zoneRecognitionProgress} />
+                    </div>
+                  </div>
+                ) : null}
               </div>
-              {zoneRecognitionActive ? null : (
-                <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
-              )}
+              <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
             </div>
-          ) : null}
           <div className="min-w-0 space-y-3">
           {zoneManagerDraft.length === 0 ? (
             <p className="font-body text-sm text-muted-foreground">
@@ -6603,9 +6607,8 @@ export function QuotationDraftEditor({
           ) : (
             <div className="min-w-0 overflow-x-auto">
               <div className="min-w-[28rem] space-y-2 lg:min-w-0">
-                <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1.15fr)_4.5rem_2rem] gap-2 px-0.5">
+                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_4.5rem_2rem] gap-2 px-0.5">
                   <span className="font-body text-xs text-muted-foreground">{t.zoneSpaceName}</span>
-                  <span className="font-body text-xs text-muted-foreground">{t.zoneNameEn}</span>
                   <span className="font-body text-xs text-muted-foreground">{t.zoneSpaceType}</span>
                   <span className="font-body text-xs text-muted-foreground">{t.zoneQuantity}</span>
                   <span />
@@ -6613,7 +6616,7 @@ export function QuotationDraftEditor({
                 {zoneManagerDraft.map((zone) => (
                   <div
                     key={zone.id}
-                    className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1.15fr)_4.5rem_2rem] items-center gap-2"
+                    className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_4.5rem_2rem] items-center gap-2"
                   >
                     <Input
                       value={zone.name}
@@ -6623,18 +6626,6 @@ export function QuotationDraftEditor({
                       onChange={(e) =>
                         setZoneManagerDraft((prev) =>
                           prev.map((row) => (row.id === zone.id ? { ...row, name: e.target.value } : row)),
-                        )
-                      }
-                      className="h-10 rounded-xl border-slate-200 bg-white shadow-none"
-                    />
-                    <Input
-                      value={zone.nameEn}
-                      aria-label={t.zoneNameEn}
-                      placeholder={t.zoneNameEnPlaceholder}
-                      onFocus={() => setActiveZoneId(zone.id)}
-                      onChange={(e) =>
-                        setZoneManagerDraft((prev) =>
-                          prev.map((row) => (row.id === zone.id ? { ...row, nameEn: e.target.value } : row)),
                         )
                       }
                       className="h-10 rounded-xl border-slate-200 bg-white shadow-none"
@@ -6695,17 +6686,6 @@ export function QuotationDraftEditor({
             <Plus className="h-3 w-3" />
             {t.addSectionTitle}
           </button>
-          {floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? null : zoneRecognitionActive ? (
-            <div className="space-y-1.5" role="status" aria-live="polite">
-              <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
-                <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
-                <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
-              </div>
-              <Progress value={zoneRecognitionProgress} />
-            </div>
-          ) : (
-            <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
-          )}
           </div>
           </div>
         </div>
