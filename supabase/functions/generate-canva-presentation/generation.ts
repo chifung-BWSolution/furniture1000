@@ -165,6 +165,7 @@ export function buildGenerationRequest(
     language ? `語言：${language}` : "",
     style ? `風格：${style}` : "",
     Number.isFinite(pageCount) && pageCount > 0 ? `期望頁數：${pageCount}` : "",
+    "參考案例：大綱裡每一個案例標題各做一頁，只寫品牌與用過的傢俬，不要寫項目名稱、項目編號或地址。",
   ].filter(Boolean).join("\n");
 
   const productBlock = products.length

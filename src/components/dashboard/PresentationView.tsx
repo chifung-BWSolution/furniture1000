@@ -110,7 +110,7 @@ const OUTLINE_CARDS = [
   { title: '公司介紹', body: '公司背景、服務優勢、設計理念與過往經驗。' },
   { title: '平面圖', body: '空間平面配置圖、動線規劃與功能分區說明。' },
   { title: '方案', body: '設計方案構想、材質選用、傢俬配置、風格參考與預算範圍。' },
-  { title: '參考案例', body: '選擇相似案例，展示實際完工效果與設計亮點。' },
+  { title: '參考案例', body: '每個案例獨立一頁，只列出該案例用過的傢俬，不顯示項目名稱。' },
 ] as const;
 
 const GEN_PHASES = ['解析需求', '生成內容', '建立 Canva 簡報', '完成並預覽'] as const;
@@ -858,9 +858,9 @@ export function PresentationView() {
         };
       }),
       cases: current.cases.filter((item) => chosen.has(item.id)).map((item) => ({
-        name: item.display_name || item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
-        client: item.company_name,
+        name: item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
         industry: item.industries?.[0] ?? null,
+        furniture: [...new Set((item.filter_projects ?? []).flatMap((project) => project.furniture_types ?? []))],
       })),
     });
   }, []);
@@ -1507,7 +1507,7 @@ export function PresentationView() {
             {wizardStep === 2 && (
               <div className="space-y-4">
                 <SectionIntro icon={<ListChecks className="h-5 w-5" />} title={WIZARD_STEPS[1].title} hint={WIZARD_STEPS[1].hint} />
-                <Tip>簡報順序固定為封面、公司介紹、平面圖、方案、參考案例。沒有平面圖時略過該段。公司介紹會保存下來，下一份簡報繼續用。</Tip>
+                <Tip>簡報順序固定為封面、公司介紹、平面圖、方案，然後每個參考案例各一頁。沒有平面圖時略過該段。案例頁只列用過的傢俬，不顯示項目名稱。公司介紹會保存下來，下一份簡報繼續用。</Tip>
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-3">
                   <div>
                     <p className="text-sm font-semibold">公司介紹</p>
@@ -1549,7 +1549,7 @@ export function PresentationView() {
                         : card.title === '方案'
                           ? (selected.length ? `已選 ${selected.length} 件產品` : '尚未選擇產品')
                           : card.title === '參考案例'
-                            ? (selectedCaseIds.length ? `已選 ${selectedCaseIds.length} 個案例` : '尚未選擇案例')
+                            ? (selectedCaseIds.length ? `已選 ${selectedCaseIds.length} 個案例，各佔一頁，只列傢俬` : '尚未選擇案例')
                             : card.title === '平面圖'
                               ? (floorPresent ? (floorZones.length ? floorZones.map((zone) => zone.name).filter(Boolean).join('、') : '已有平面圖') : '此項目沒有平面圖，生成時略過')
                               : '';

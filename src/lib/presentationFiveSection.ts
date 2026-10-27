@@ -22,9 +22,12 @@ export interface FiveSectionProduct {
 }
 
 export interface FiveSectionCase {
+  /** Brand or company label. Never a project name. */
   name: string;
   client?: string | null;
   industry?: string | null;
+  /** Furniture types used by this case. */
+  furniture?: string[];
 }
 
 export const EMPTY_COMPANY_PROFILE: PresentationCompanyProfile = {
@@ -129,11 +132,20 @@ export function buildFiveSectionOutline(input: {
   }
   blocks.push([heading('方案'), productLines.length > 0 ? productLines.join('\n') : '尚未選擇產品。'].join('\n'));
 
-  const caseLines = input.cases.map((item) => {
-    const bits = [item.name, item.client, item.industry].filter(Boolean);
-    return `- ${bits.join('｜')}`;
-  });
-  blocks.push([heading('參考案例'), caseLines.length > 0 ? caseLines.join('\n') : '尚未選擇案例。'].join('\n'));
+  if (input.cases.length === 0) {
+    blocks.push([heading('參考案例'), '尚未選擇案例。'].join('\n'));
+  } else {
+    for (const item of input.cases) {
+      const furniture = [...new Set((item.furniture ?? []).map((line) => line.trim()).filter(Boolean))].slice(0, 16);
+      const lines = [
+        heading(item.name.trim() || '未命名案例'),
+        item.industry?.trim() ? `行業：${item.industry.trim()}` : '',
+        furniture.length > 0 ? '用過的傢俬：' : '尚未記錄此案例用過的傢俬。',
+        ...furniture.map((line) => `- ${line}`),
+      ].filter(Boolean);
+      blocks.push(lines.join('\n'));
+    }
+  }
 
   return blocks.join('\n\n');
 }
