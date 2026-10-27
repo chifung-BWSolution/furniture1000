@@ -62,7 +62,7 @@ function database({
     calls,
     rpc(name, args) {
       calls.push({ name, args });
-      return Promise.resolve({ data: permission, error: null });
+      return Promise.resolve({ data: typeof permission === "function" ? permission(args.p_module) : permission, error: null });
     },
     from(table) {
       calls.push({ table });
@@ -289,4 +289,32 @@ test("unverified email and ambiguous identity do not permit an email fallback", 
     ),
     CaseAccessError,
   );
+});
+
+
+test("brands expose project filters only for projects the staff can view", async () => {
+  const tag = "63175251-2c31-46e6-b107-cbe0140983d8";
+  const tables = {
+    customer_tags: [{ id: "t", customer_uuid: "c1", tag_uuid: tag }],
+    customers: [{ id: "c1", status: "Active" }],
+    bwf_projects: [
+      { id: "p1", customer_id: "c1", estimated_income: 100 },
+      { id: "p3", customer_id: "c1", estimated_income: 999 },
+    ],
+  };
+  const allowed = await fetchCaseShowcase(database({ tables }), user, "cases-brands");
+  assert.deepEqual(allowed.items[0].filter_projects.map((p) => p.estimated_income), [100]);
+  const denied = await fetchCaseShowcase(database({ tables, permission: (module) => module !== "bwf/projects" }), user, "cases-brands");
+  assert.deepEqual(denied.items[0].filter_projects, []);
+});
+
+test("photo permission alone does not disclose project financials", async () => {
+  const db = database({
+    permission: (module) => module !== "bwf/projects",
+    tables: { bwf_projects: [{ id: "p1", main_pm_id: "s1", completion_photos: "//example.com/a.jpg", estimated_income: 100, estimated_profit: 50 }] },
+  });
+  const { items } = await fetchCaseShowcase(db, user, "cases-photos");
+  assert.equal(items.length, 1);
+  assert.equal(items[0].estimated_income, null);
+  assert.equal(items[0].estimated_profit, null);
 });

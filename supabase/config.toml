@@ -32,3 +32,8 @@ verify_jwt = false
 [functions.supabase-functions-quote-catalog-pages]
 verify_jwt = false
 entrypoint = "./functions/quote-catalog-pages/index.ts"
+
+# 案例服務由函式自行驗證登入與 PMS 權限，保持線上既有設定。
+[functions.supabase-functions-fetch-bwa-works]
+verify_jwt = false
+entrypoint = "./functions/fetch-bwa-works/index.ts"

@@ -1230,11 +1230,12 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
     });
     if (mergeErr) throw new Error(`merge part failed: ${mergeErr.message}`);
   }
-  const importDocumentId = head.parent_document_id ?? documentId;
-  const { data: autoImport, error: autoErr } = await admin.rpc("fds_auto_import_clear_extractions", {
-    p_document_id: importDocumentId,
-  });
-  if (autoErr) throw new Error(`auto import failed: ${autoErr.message}`);
+  let autoImport: unknown = null;
+  if (!head.parent_document_id) {
+    const { data, error } = await admin.rpc("fds_auto_import_clear_extractions", { p_document_id: documentId });
+    if (error) throw new Error(`auto import failed: ${error.message}`);
+    autoImport = data;
+  }
   const currencySuggestion = Object.entries(state.currencies ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
   const { data: pageStats } = await admin

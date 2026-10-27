@@ -4035,18 +4035,24 @@ export function QuotationDraftEditor({
     const nextZoneImages = pruneQuoteZoneImages(zoneImages, keptIds);
     const nextZonePhotoLayouts = pruneZonePhotoLayouts(zonePhotoLayouts, [...keptIds, UNZONED_QUOTE_IMAGE_KEY]);
     const nextFloorPlan = floorPlan ? { ...floorPlan, regions: regionsFromZoneRows(kept) } : floorPlan;
+    // Empty drafts can have zones before their first priced line. Keep those edits
+    // locally and let the normal save action persist them once the quote is valid.
+    const canSave = nextItems.some(hasQuoteItemContent) && totalAmount > 0;
+    if (canSave) {
+      const saved = await handleSaveExistingVersion({
+        items: nextItems,
+        floorPlan: nextFloorPlan,
+        zoneImages: nextZoneImages,
+        zonePhotoLayouts: nextZonePhotoLayouts,
+      });
+      if (!saved) return;
+    }
     itemsUserEditedRef.current = true;
     setItems(nextItems);
     setZoneImages(nextZoneImages);
     setZonePhotoLayouts(nextZonePhotoLayouts);
     setFloorPlan(nextFloorPlan);
-    const saved = await handleSaveExistingVersion({
-      items: nextItems,
-      floorPlan: nextFloorPlan,
-      zoneImages: nextZoneImages,
-      zonePhotoLayouts: nextZonePhotoLayouts,
-    });
-    if (saved) setZoneManagerOpen(false);
+    setZoneManagerOpen(false);
   };
 
   const detectZonesFromBlob = async (blob: Blob, priorRegions: QuoteZoneRegion[]) => {

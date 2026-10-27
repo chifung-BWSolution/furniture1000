@@ -160,6 +160,10 @@ export async function appendQuoteCatalogPages(
 ): Promise<Uint8Array> {
   const { PDFDocument, rgb } = await import('pdf-lib');
   const base = await PDFDocument.load(quotePdf);
+  if (showSource) {
+    const { default: fontkit } = await import('@pdf-lib/fontkit');
+    base.registerFontkit(fontkit);
+  }
   if (pages.length === 0) return base.save();
   const extra = await PDFDocument.load(await fetchQuoteCatalogPdf(pages));
   const font = showSource
