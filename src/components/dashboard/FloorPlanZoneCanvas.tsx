@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { LoadingImage } from '@/components/ui/loading-image';
-import { MAX_FLOOR_PLAN_ZONES, normalizeZoneRect, type QuoteZoneRect, type ZoneManagerRow } from '@/lib/quoteFloorPlan';
+import { blankZoneManagerRow, MAX_FLOOR_PLAN_ZONES, normalizeZoneRect, type QuoteZoneRect, type ZoneManagerRow } from '@/lib/quoteFloorPlan';
 
 const ZONE_COLORS = ['#6d5efc', '#0284c7', '#d97706', '#059669', '#e11d48', '#7c3aed'];
 
@@ -108,7 +108,7 @@ export function FloorPlanZoneCanvas({
     const next = current.some((row) => row.id === id)
       ? current.map((row) => (row.id === id ? { ...row, rect } : row))
       : creating
-        ? [...current, { id, name: '', rect }]
+        ? [...current, { ...blankZoneManagerRow(id), rect }]
         : current;
     zonesRef.current = next;
     onChange(next);

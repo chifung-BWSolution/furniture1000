@@ -70,7 +70,7 @@ import {
 import { FloorPlanViewerModal } from "@/components/dashboard/solutions/FloorPlanViewerModal";
 import { QuoteCatalogPagesDialog } from "@/components/dashboard/QuoteCatalogPagesDialog";
 import { parseQuoteCatalogPages, type QuoteCatalogPage } from "@/lib/quoteCatalogPages";
-import { FloorPlanZoneCanvas, floorPlanZoneColor } from "@/components/dashboard/FloorPlanZoneCanvas";
+import { FloorPlanZoneCanvas } from "@/components/dashboard/FloorPlanZoneCanvas";
 import { renderPdfPageToJpegBlob } from "@/lib/floorPlanPdf";
 import {
   uploadProjectFloorPlanFile,
@@ -78,6 +78,7 @@ import {
 } from "@/lib/imageStorage";
 import {
   applyDetectedZones,
+  blankZoneManagerRow,
   detectZonesFromJpegBase64,
   imageBlobToJpegBase64,
   MAX_ZONE_IMAGES,
@@ -2240,23 +2241,23 @@ function insertItemsAt(
   return [...prev.slice(0, clamped), ...rows, ...prev.slice(clamped)];
 }
 
-function sectionZonesOf(items: QuotationItem[]): { id: string; name: string }[] {
+function zoneRowsFromItems(items: QuotationItem[], regions: QuoteZoneRegion[]): ZoneManagerRow[] {
   return items
     .filter((item) => item.isSectionTitle)
-    .map((item) => ({ id: item.id, name: item.name || "" }));
-}
-
-function zoneRowsFromItems(items: QuotationItem[], regions: QuoteZoneRegion[]): ZoneManagerRow[] {
-  return sectionZonesOf(items).map((zone) => ({
-    ...zone,
-    rect: regions.find((region) => region.zoneId === zone.id)?.rect ?? null,
-  }));
+    .map((item) => ({
+      id: item.id,
+      name: item.name || "",
+      nameEn: item.remarks || "",
+      spaceType: item.category || "",
+      quantity: item.quantity > 0 ? item.quantity : 1,
+      rect: regions.find((region) => region.zoneId === item.id)?.rect ?? null,
+    }));
 }
 
 /** Rebuild the flat list from the zone-manager draft. Removed zones release their rows to 未分區. */
 function applyZoneManager(
   items: QuotationItem[],
-  drafts: { id: string; name: string }[],
+  drafts: ZoneManagerRow[],
 ): QuotationItem[] {
   const kept = new Set(drafts.map((row) => row.id));
   const unzoned: QuotationItem[] = [];
@@ -2286,12 +2287,18 @@ function applyZoneManager(
   }
   const next = [...unzoned, ...orphans];
   for (const draft of drafts) {
-    const name = draft.name.trim();
+    const name = draft.name.trim() || draft.nameEn.trim();
     const block = blocks.get(draft.id);
+    const profile = {
+      name,
+      remarks: draft.nameEn.trim(),
+      category: draft.spaceType.trim(),
+      quantity: draft.quantity > 0 ? draft.quantity : 1,
+    };
     if (block) {
-      next.push({ ...block[0], name: name || block[0].name }, ...block.slice(1));
+      next.push({ ...block[0], ...profile, name: name || block[0].name }, ...block.slice(1));
     } else if (name) {
-      next.push({ ...createBlankSectionTitle(), id: draft.id, name });
+      next.push({ ...createBlankSectionTitle(), id: draft.id, ...profile });
     }
   }
   return next;
@@ -3946,7 +3953,7 @@ export function QuotationDraftEditor({
     const existingIds = new Set(
       items.filter((item) => item.isSectionTitle).map((item) => item.id),
     );
-    const kept = drafts.filter((row) => row.name.trim() || existingIds.has(row.id));
+    const kept = drafts.filter((row) => row.name.trim() || row.nameEn.trim() || existingIds.has(row.id));
     setItems((prev) => applyZoneManager(prev, kept));
     setZoneImages((prev) =>
       pruneQuoteZoneImages(prev, kept.map((row) => row.id)),
@@ -6514,7 +6521,7 @@ export function QuotationDraftEditor({
       <Modal
         open={zoneManagerOpen}
         onOpenChange={setZoneManagerOpen}
-        size={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "xl" : "md"}
+        size={floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/") ? "4xl" : "3xl"}
         icon={<FolderKanban className="h-5 w-5" />}
         title={t.manageZones}
         description={zoneRecognitionActive ? t.recognizingZonesDetail : t.manageZonesHint}
@@ -6578,79 +6585,96 @@ export function QuotationDraftEditor({
             <p className="font-body text-sm text-muted-foreground">
               {quoteLocale === "en" ? "No zones yet." : "尚未有分區。"}
             </p>
-          ) : null}
-          {zoneManagerDraft.map((zone, index) => (
-            <div key={zone.id} className="flex items-center gap-2">
-              <span
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded font-mono-data text-xs text-white"
-                style={{ background: floorPlanZoneColor(index) }}
-              >
-                {index + 1}
-              </span>
-              <Input
-                value={zone.name}
-                aria-label={t.sectionTitleLabel}
-                placeholder={t.sectionTitlePlaceholder}
-                onFocus={() => setActiveZoneId(zone.id)}
-                onChange={(e) =>
-                  setZoneManagerDraft((prev) =>
-                    prev.map((row) => (row.id === zone.id ? { ...row, name: e.target.value } : row)),
-                  )
-                }
-                className={QUOTE_INPUT_CLASS}
-              />
-              <span className="hidden w-16 shrink-0 text-center font-body text-[10px] text-muted-foreground sm:block">
-                {zone.rect ? t.zoneBoxed : t.zoneUnboxed}
-              </span>
-              <button
-                type="button"
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
-                aria-label={quoteLocale === "en" ? "Move zone up" : "上移分區"}
-                disabled={index === 0}
-                onClick={() =>
-                  setZoneManagerDraft((prev) => {
-                    if (index === 0) return prev;
-                    const next = [...prev];
-                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                    return next;
-                  })
-                }
-              >
-                <ChevronUp className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
-                aria-label={quoteLocale === "en" ? "Move zone down" : "下移分區"}
-                disabled={index === zoneManagerDraft.length - 1}
-                onClick={() =>
-                  setZoneManagerDraft((prev) => {
-                    if (index === prev.length - 1) return prev;
-                    const next = [...prev];
-                    [next[index + 1], next[index]] = [next[index], next[index + 1]];
-                    return next;
-                  })
-                }
-              >
-                <ChevronDown className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="rounded-md p-1 text-muted-foreground hover:text-destructive"
-                aria-label={quoteLocale === "en" ? "Remove zone" : "移除分區"}
-                onClick={() =>
-                  setZoneManagerDraft((prev) => prev.filter((row) => row.id !== zone.id))
-                }
-              >
-                <X className="h-4 w-4" />
-              </button>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="min-w-[40rem] space-y-2">
+                <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1.15fr)_4.5rem_2rem] gap-2 px-0.5">
+                  <span className="font-body text-xs text-muted-foreground">{t.zoneSpaceName}</span>
+                  <span className="font-body text-xs text-muted-foreground">{t.zoneNameEn}</span>
+                  <span className="font-body text-xs text-muted-foreground">{t.zoneSpaceType}</span>
+                  <span className="font-body text-xs text-muted-foreground">{t.zoneQuantity}</span>
+                  <span />
+                </div>
+                {zoneManagerDraft.map((zone) => (
+                  <div
+                    key={zone.id}
+                    className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1.15fr)_4.5rem_2rem] items-center gap-2"
+                  >
+                    <Input
+                      value={zone.name}
+                      aria-label={t.zoneSpaceName}
+                      placeholder={t.zoneSpaceNamePlaceholder}
+                      onFocus={() => setActiveZoneId(zone.id)}
+                      onChange={(e) =>
+                        setZoneManagerDraft((prev) =>
+                          prev.map((row) => (row.id === zone.id ? { ...row, name: e.target.value } : row)),
+                        )
+                      }
+                      className="h-10 rounded-xl border-slate-200 bg-white shadow-none"
+                    />
+                    <Input
+                      value={zone.nameEn}
+                      aria-label={t.zoneNameEn}
+                      placeholder={t.zoneNameEnPlaceholder}
+                      onFocus={() => setActiveZoneId(zone.id)}
+                      onChange={(e) =>
+                        setZoneManagerDraft((prev) =>
+                          prev.map((row) => (row.id === zone.id ? { ...row, nameEn: e.target.value } : row)),
+                        )
+                      }
+                      className="h-10 rounded-xl border-slate-200 bg-white shadow-none"
+                    />
+                    <Input
+                      value={zone.spaceType}
+                      aria-label={t.zoneSpaceType}
+                      placeholder={t.zoneSpaceTypePlaceholder}
+                      onFocus={() => setActiveZoneId(zone.id)}
+                      onChange={(e) =>
+                        setZoneManagerDraft((prev) =>
+                          prev.map((row) => (row.id === zone.id ? { ...row, spaceType: e.target.value } : row)),
+                        )
+                      }
+                      className="h-10 rounded-xl border-slate-200 bg-white shadow-none"
+                    />
+                    <Input
+                      type="number"
+                      min={1}
+                      inputMode="numeric"
+                      value={zone.quantity > 0 ? String(zone.quantity) : ""}
+                      aria-label={t.zoneQuantity}
+                      onFocus={() => setActiveZoneId(zone.id)}
+                      onChange={(e) => {
+                        const nextQuantity = Number.parseInt(e.target.value, 10);
+                        setZoneManagerDraft((prev) =>
+                          prev.map((row) => (
+                            row.id === zone.id
+                              ? { ...row, quantity: Number.isFinite(nextQuantity) && nextQuantity > 0 ? nextQuantity : 0 }
+                              : row
+                          )),
+                        );
+                      }}
+                      className="h-10 rounded-xl border-slate-200 bg-white text-center font-mono-data shadow-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    />
+                    <button
+                      type="button"
+                      className="flex h-10 items-center justify-center text-rose-500 hover:text-rose-600"
+                      aria-label={quoteLocale === "en" ? "Remove zone" : "移除分區"}
+                      onClick={() =>
+                        setZoneManagerDraft((prev) => prev.filter((row) => row.id !== zone.id))
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
+          )}
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-foreground/80 hover:bg-muted/50"
             onClick={() =>
-              setZoneManagerDraft((prev) => [...prev, { id: generateId(), name: "", rect: null }])
+              setZoneManagerDraft((prev) => [...prev, blankZoneManagerRow(generateId())])
             }
           >
             <Plus className="h-3 w-3" />

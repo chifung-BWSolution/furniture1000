@@ -37,9 +37,20 @@ export type DetectedFloorZone = {
 
 export type ZoneManagerRow = {
   id: string;
+  /** 空間名稱 */
   name: string;
+  /** 英文名稱 */
+  nameEn: string;
+  /** 類型，例如 會議室 / 工作區 */
+  spaceType: string;
+  /** 這個空間的數量 */
+  quantity: number;
   rect: QuoteZoneRect | null;
 };
+
+export function blankZoneManagerRow(id: string, name = ''): ZoneManagerRow {
+  return { id, name, nameEn: '', spaceType: '', quantity: 1, rect: null };
+}
 
 export type QuoteFloorPlan = {
   url: string;
@@ -182,7 +193,7 @@ export function applyDetectedZones(
       continue;
     }
     if (rows.length + fresh.length >= MAX_FLOOR_PLAN_ZONES) continue;
-    fresh.push({ id: createId(), name, rect: zone.rect });
+    fresh.push({ ...blankZoneManagerRow(createId(), name), rect: zone.rect });
   }
   return { rows: [...fresh, ...rows], added: fresh.length };
 }
