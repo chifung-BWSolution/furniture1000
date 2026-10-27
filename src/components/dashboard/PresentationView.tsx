@@ -1748,7 +1748,7 @@ export function PresentationView() {
           </section>
         </div>
 
-        <aside className="min-w-0 space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:self-start lg:overflow-y-auto">
+        <aside className="min-w-0 space-y-4 lg:sticky lg:top-5 lg:self-start">
           {canvaCard}
           <AnimatePresence initial={false}>
           {wizardStep === 4 && (
