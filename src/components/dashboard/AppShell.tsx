@@ -83,6 +83,7 @@ import { syncRtsWorkflowToProduct } from "@/lib/rtsProductSync";
 import { resolveSelectedPublishProducts } from "@/lib/readyToPublishRow";
 import type { Product } from "@/types/product";
 import { hasPmsQuotePrefillParams } from "@/lib/pmsQuotePrefill";
+import { canManageSupplierDocuments } from "@/lib/supplierDocuments";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const ListedProductsView = lazy(() =>
@@ -1241,11 +1242,17 @@ function AppShellContent() {
               navigate(target);
             }}
             onOpenUpload={(factory) => {
-              sessionStorage.setItem('fds-upload-factory', JSON.stringify({
-                id: factory.id,
-                name: factory.display_name,
-              }));
-              store.setCurrentView('ai-processor');
+              void canManageSupplierDocuments().then((ok) => {
+                if (!ok) {
+                  toast.error('只有管理員或上載員可以上傳圖冊／報價單');
+                  return;
+                }
+                sessionStorage.setItem('fds-upload-factory', JSON.stringify({
+                  id: factory.id,
+                  name: factory.display_name,
+                }));
+                store.setCurrentView('ai-processor');
+              });
             }}
           />
         );

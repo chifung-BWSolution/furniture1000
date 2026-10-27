@@ -2082,6 +2082,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           const picked = JSON.parse(pendingFactory) as { id?: string; name?: string };
           if (picked.name) setSelectedManufacturer(picked.name);
           if (picked.id) setSelectedFactoryId(picked.id);
+          // Manufacturer directory entry: default to catalog PDF, not quote.
+          setDocumentType('catalog');
           return;
         } catch {
           // Fall through and restore the last upload session.

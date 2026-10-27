@@ -22,7 +22,7 @@ import {
 import { toast } from 'sonner';
 import { motion, useReducedMotion } from 'framer-motion';
 import { loadManufacturerDirectory, type DirectoryDocumentLink, type DirectoryFactory } from '@/lib/manufacturerDirectory';
-import { catalogStatusLabel, listCatalogRows, openSupplierCatalog } from '@/lib/supplierCatalog';
+import { catalogStatusLabel, listCatalogRows, openSupplierDocumentPdf } from '@/lib/supplierCatalog';
 import { canManageSupplierDocuments, enqueueSupplierDocumentParse } from '@/lib/supplierDocuments';
 import {
   Select,
@@ -113,6 +113,7 @@ type CatalogSummary = {
 function attachDirectoryFiles(
   summary: Record<string, CatalogSummary>,
   factories: FactoryRecord[],
+  includeQuoteFiles: boolean,
 ): Record<string, CatalogSummary> {
   const next = { ...summary };
   for (const factory of factories) {
@@ -133,12 +134,32 @@ function attachDirectoryFiles(
       current.catalogYear = catalogLink.year ?? current.catalogYear;
       current.catalogFile = catalogLink;
     }
-    if (quoteLink && !current.priceListFile?.storagePath) {
+    if (includeQuoteFiles && quoteLink && !current.priceListFile?.storagePath) {
       current.hasPriceList = true;
       current.priceListYear = quoteLink.year ?? current.priceListYear;
       current.priceListFile = quoteLink;
     }
     if (current.catalogFile || current.priceListFile) next[factory.id] = current;
+  }
+  return next;
+}
+
+/** Designer/PM may see quote years but must not receive storage paths for signed URLs. */
+function redactQuotePathsForReadOnly(
+  summary: Record<string, CatalogSummary>,
+  canManage: boolean,
+): Record<string, CatalogSummary> {
+  if (canManage) return summary;
+  const next: Record<string, CatalogSummary> = {};
+  for (const [factoryId, row] of Object.entries(summary)) {
+    if (!row.priceListFile?.storagePath) {
+      next[factoryId] = row;
+      continue;
+    }
+    next[factoryId] = {
+      ...row,
+      priceListFile: { ...row.priceListFile, storagePath: '' },
+    };
   }
   return next;
 }
@@ -161,20 +182,27 @@ function preferFile(current: CatalogFileRef | null, next: CatalogFileRef): Catal
   return next.createdAt > current.createdAt ? next : current;
 }
 
+type DirectoryDocumentAccess = 'catalog' | 'price_list';
+
 function DocumentYearCell({
   file,
   year,
+  access,
+  canManageDocs,
   onOpen,
 }: {
   file: CatalogFileRef | null;
   year: number | null | undefined;
+  access: DirectoryDocumentAccess;
+  canManageDocs: boolean;
   onOpen: (storagePath: string) => void;
 }) {
   const documentYear = usableYear(file?.year);
   const listedYear = usableYear(year);
   const uploadedYear = shanghaiYearOf(file?.createdAt);
   const labelYear = documentYear ?? listedYear ?? uploadedYear;
-  const canOpen = Boolean(file?.storagePath);
+  const canOpen =
+    Boolean(file?.storagePath) && (access === 'catalog' || canManageDocs);
   if (!canOpen) {
     return (
       <span className={cn('font-mono-data text-[11px]', labelYear != null ? 'text-foreground' : 'text-muted-foreground')}>
@@ -224,7 +252,7 @@ export function ManufacturerDirectoryView({
   const [catalogUploadFilter, setCatalogUploadFilter] = useState<UploadFilter>('all');
   const [priceListUploadFilter, setPriceListUploadFilter] = useState<UploadFilter>('all');
   const [catalogByFactory, setCatalogByFactory] = useState<Record<string, CatalogSummary>>({});
-  const [canQueueParse, setCanQueueParse] = useState(false);
+  const [canManageDocs, setCanManageDocs] = useState(false);
   const queuedDocumentIds = useRef(new Set<string>());
 
   const fetchData = useCallback(async (force = false) => {
@@ -234,6 +262,7 @@ export function ManufacturerDirectoryView({
       // browser — typing never hits the API.
       const rows = await loadManufacturerDirectory({ force });
       setFactories(rows);
+      const canManage = await canManageSupplierDocuments().catch(() => false);
       try {
         const catalogs = await listCatalogRows();
         const statusRank: Record<string, number> = {
@@ -287,12 +316,16 @@ export function ManufacturerDirectoryView({
           }
           summary[factoryId] = current;
         }
-        setCatalogByFactory(attachDirectoryFiles(summary, rows));
+        setCatalogByFactory(
+          redactQuotePathsForReadOnly(attachDirectoryFiles(summary, rows, canManage), canManage),
+        );
       } catch (catalogError) {
         console.error('[ManufacturerDirectory] Catalog summary failed:', catalogError);
-        setCatalogByFactory(attachDirectoryFiles({}, rows));
+        setCatalogByFactory(
+          redactQuotePathsForReadOnly(attachDirectoryFiles({}, rows, canManage), canManage),
+        );
       }
-      setCanQueueParse(await canManageSupplierDocuments().catch(() => false));
+      setCanManageDocs(canManage);
     } catch (err) {
       console.error('[ManufacturerDirectory] Failed to load manufacturers:', err);
       toast.error('廠家目錄載入失敗，請重試');
@@ -359,17 +392,23 @@ export function ManufacturerDirectoryView({
   };
 
   const openUpload = (factory: FactoryRecord) => {
+    if (!canManageDocs) return;
     onOpenUpload(factory);
   };
 
-  const openFile = (storagePath: string) => {
-    void openSupplierCatalog(storagePath).catch((error: unknown) => {
-      toast.error(error instanceof Error ? error.message : '無法打開文件');
-    });
-  };
+  const openDirectoryDocument = useCallback(
+    (access: DirectoryDocumentAccess) => (storagePath: string) => {
+      void openSupplierDocumentPdf(storagePath, { quoteSensitive: access === 'price_list' }).catch(
+        (error: unknown) => {
+          toast.error(error instanceof Error ? error.message : '無法打開文件');
+        },
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!canQueueParse) return;
+    if (!canManageDocs) return;
     const waiting: { factoryId: string; id: string }[] = [];
     for (const [factoryId, summary] of Object.entries(catalogByFactory)) {
       if (!summary.catalogFile || !summary.priceListFile) continue;
@@ -421,7 +460,7 @@ export function ManufacturerDirectoryView({
       }
       if (failed) toast.error(failed === waiting.length ? '未能自動排入解析任務' : `${failed} 份文件未能排入解析任務`);
     })();
-  }, [canQueueParse, catalogByFactory]);
+  }, [canManageDocs, catalogByFactory]);
 
   return (
     <div className="flex h-full min-h-0 flex-col fds-page-padding">
@@ -625,14 +664,18 @@ export function ManufacturerDirectoryView({
                     <DocumentYearCell
                       file={catalog?.catalogFile ?? null}
                       year={catalogYear}
-                      onOpen={openFile}
+                      access="catalog"
+                      canManageDocs={canManageDocs}
+                      onOpen={openDirectoryDocument('catalog')}
                     />
                   </TableCell>
                   <TableCell>
                     <DocumentYearCell
                       file={catalog?.priceListFile ?? null}
                       year={quoteYear}
-                      onOpen={openFile}
+                      access="price_list"
+                      canManageDocs={canManageDocs}
+                      onOpen={openDirectoryDocument('price_list')}
                     />
                   </TableCell>
                   <TableCell>
@@ -672,17 +715,19 @@ export function ManufacturerDirectoryView({
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-[11px]"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openUpload(factory);
-                        }}
-                      >
-                        上傳圖冊/報價單
-                      </Button>
+                      {canManageDocs ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openUpload(factory);
+                          }}
+                        >
+                          上傳圖冊/報價單
+                        </Button>
+                      ) : null}
                       <Button
                         variant="outline"
                         size="sm"

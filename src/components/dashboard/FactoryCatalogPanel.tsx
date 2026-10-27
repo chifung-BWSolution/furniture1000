@@ -263,7 +263,7 @@ export function FactoryCatalogPanel({
           </fieldset>
         ) : (
           <p className="mt-3 font-body text-sm text-muted-foreground">
-            只有管理員或上載人員可以查看及上傳原始文件。
+            只有管理員或上載人員可以上傳。設計師與 PM 僅可查看及下載圖冊；報價單 PDF 僅限管理員或上載人員。
           </p>
         )}
       </div>
@@ -338,19 +338,23 @@ export function FactoryCatalogPanel({
                     {new Date(catalog.created_at).toLocaleString('zh-HK', { timeZone: 'Asia/Shanghai' })}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-1"
-                      onClick={() => {
-                        void openSupplierCatalog(catalog.storage_path).catch((error: unknown) => {
-                          toast.error(error instanceof Error ? error.message : '下載失敗');
-                        });
-                      }}
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      下載
-                    </Button>
+                    {canUpload || catalog.doc_type === 'catalog' ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => {
+                          void openSupplierCatalog(catalog.storage_path).catch((error: unknown) => {
+                            toast.error(error instanceof Error ? error.message : '下載失敗');
+                          });
+                        }}
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        下載
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
