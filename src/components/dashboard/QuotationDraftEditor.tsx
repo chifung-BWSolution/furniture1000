@@ -3065,11 +3065,16 @@ export function QuotationDraftEditor({
         continue;
       }
       if (!current || item.isCustomTerm) continue;
-      const name = (item.name || "").trim();
-      if (!name) continue;
-      const role = (item.category || item.registryLevel2 || item.registryLevel1 || "").trim();
       const imageUrl = (item.image || "").trim();
-      current.furniture.push(imageUrl ? { name, role, imageUrl } : { name, role });
+      // 明細常常只填類別、產品名稱留空。類別就是這件傢俬的名稱。
+      const name = (item.name || item.category || item.sku || "").trim();
+      if (!name && !imageUrl) continue;
+      const role = (item.category || item.registryLevel2 || item.registryLevel1 || "").trim();
+      current.furniture.push({
+        name: name || role || "傢俬",
+        role,
+        ...(imageUrl ? { imageUrl } : {}),
+      });
     }
     if (current?.name.trim()) zones.push(current);
     return zones;
