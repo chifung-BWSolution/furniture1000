@@ -227,8 +227,8 @@ export function CaseSearch({
   children?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <div className="relative min-w-0 flex-1 basis-full lg:min-w-64 lg:basis-64">
+    <div className="flex items-start gap-2">
+      <div className="relative w-80 max-w-full shrink-0">
         <Search
           aria-hidden="true"
           className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -241,7 +241,13 @@ export function CaseSearch({
           className="pl-8 text-sm"
         />
       </div>
-      {children}
+      {children ? (
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          {children}
+        </div>
+      ) : (
+        <div className="min-w-0 flex-1" />
+      )}
       <Button
         type="button"
         variant="outline"

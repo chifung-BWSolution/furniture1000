@@ -91,6 +91,10 @@ export interface QuotationPDFData {
   };
   /** UI/PDF language for this preview. Product data values are unchanged. */
   locale?: 'zh' | 'en';
+  /** Reference images uploaded before any zone. Shown above the line items. */
+  leadImages?: string[];
+  /** Photo layouts printed under each zone subtotal. Key is the section-title id, or `unzoned`. */
+  zonePhotoLayouts?: Record<string, PhotoLayoutGroup[]>;
   items: {
     image: string;
     referenceImage?: string;
@@ -113,6 +117,8 @@ export interface QuotationPDFData {
     isOptional?: boolean;
     /** Omitted from PDF / Quotation Preview when true (still in draft editor). */
     hideInPdf?: boolean;
+    /** Section-title row id, used to attach images under that zone's subtotal. */
+    id?: string;
     /** Section heading (一、開放區) — full-width title row in PDF. */
     isSectionTitle?: boolean;
     /** Images uploaded on that zone heading. */
@@ -140,4 +146,16 @@ export interface QuotationPDFData {
     chargeLabel?: string;
     amount?: number | null;
   };
+  /** Catalog pages appended after the quotation. crop is a top-left fraction of that page. */
+  catalogPages?: {
+    documentId: string;
+    pageNo: number;
+    factoryName: string;
+    title: string | null;
+    documentYear: number | null;
+    series: string | null;
+    crop?: { x: number; y: number; width: number; height: number } | null;
+  }[];
+  /** When true, each catalog page keeps a bottom strip with its source label. */
+  showCatalogSource?: boolean;
 }

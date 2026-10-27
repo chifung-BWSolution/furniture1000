@@ -83,6 +83,8 @@ export interface SearchProduct {
   sale_price?: number;
   legacy_cost?: number;
   exact: boolean;
+  /** Supplier quote standing: matched latest year, same-year conflict, or no usable price. */
+  price_status?: 'matched' | 'conflict' | 'unmatched';
   /** 0–1 cosine similarity. Present only on image-search hits. */
   similarity?: number;
   /** Image search never claims a hit is the same product. */
@@ -156,6 +158,8 @@ export interface ProductPriceRow {
   valid_from?: string;
   valid_to?: string;
   validity: PriceValidity;
+  quote_year?: number;
+  price_conflict?: boolean;
   page_no?: number;
   document_id?: string;
   document_title?: string;
@@ -270,6 +274,7 @@ function rpcErrorMessage(message: string): string {
   if (message.includes('document_not_found')) return '找不到文件';
   if (message.includes('product_not_found')) return '找不到產品';
   if (message.includes('price_not_reviewed')) return '未審核的價格不能寫成正式價';
+  if (message.includes('price_not_found')) return '找不到這筆報價';
   if (message.includes('model_mismatch')) return '型號不同，不能合併';
   if (message.includes('different_supplier')) return '不同供應商要留作比較，不能合併';
   if (message.includes('published_product')) return '已上架的產品不能被合併掉';
@@ -405,6 +410,13 @@ export async function mergeDuplicateProduct(keepId: string, dropId: string): Pro
   const { error } = await supabase.rpc('fds_merge_duplicate_product', {
     p_keep_id: keepId,
     p_drop_id: dropId,
+  });
+  if (error) throw new Error(rpcErrorMessage(error.message));
+}
+
+export async function resolveSupplierPriceConflict(priceId: string): Promise<void> {
+  const { error } = await supabase.rpc('fds_resolve_supplier_price_conflict', {
+    p_price_id: priceId,
   });
   if (error) throw new Error(rpcErrorMessage(error.message));
 }

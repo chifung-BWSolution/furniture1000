@@ -137,6 +137,11 @@ Deploy-Function `
   -Name 'source-page'
 
 Deploy-Function `
+  -Slug 'supabase-functions-quote-catalog-pages' `
+  -FilePath (Join-Path $root 'supabase\functions\quote-catalog-pages\index.ts') `
+  -Name 'quote-catalog-pages'
+
+Deploy-Function `
   -Slug 'supabase-functions-search-by-image' `
   -FilePath (Join-Path $root 'supabase\functions\search-by-image\index.ts') `
   -Name 'search-by-image'

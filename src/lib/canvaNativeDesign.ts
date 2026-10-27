@@ -6,18 +6,24 @@ const EDGE = 'supabase-functions-generate-canva-presentation';
 
 export interface CanvaDesignBrief {
   title: string;
-  /** Display name. Free text when the client is not in client_companies. */
+  /** PMS customer display name, or free text. */
   client?: string;
   /** client_companies.id when the user picked an existing client. */
   clientId?: string;
+  /** PMS customers.id, kept separate from legacy FDS clientId. */
+  pmsClientId?: string;
   project?: string;
   /** design_projects.id when the user picked an existing project. */
   projectId?: string;
+  /** PMS bwf_projects.id. Never use this to query FDS floor plans. */
+  pmsProjectId?: string;
   purpose?: string;
   /** 使用者原文 */
   content?: string;
   /** 確認後大綱（PoC 可手動或由前端整理） */
   outline?: string;
+  /** When true, Canva uses `outline` as the slide list and does not append database product slides. */
+  outlineOnly?: boolean;
   language?: string;
   style?: string;
   pageCount?: number;
@@ -223,4 +229,18 @@ export function defaultBrief(): CanvaDesignBrief {
 /** Reads persisted backend/Canva progress; does not create another Canva job. */
 export async function fetchCanvaGenerationStatus(sessionId: string): Promise<CanvaDesignSession> {
   return invoke({ action: 'generation_status', session_id: sessionId });
+}
+
+export interface CanvaDesignPagePreview {
+  page: number;
+  thumbnail_url: string | null;
+}
+
+/** Page thumbnails for the preview pager. URLs expire in about 15 minutes. */
+export async function fetchCanvaDesignPages(sessionId: string): Promise<CanvaDesignPagePreview[]> {
+  const data = await invoke<{ pages?: CanvaDesignPagePreview[] }>({
+    action: 'design_pages',
+    session_id: sessionId,
+  });
+  return Array.isArray(data.pages) ? data.pages : [];
 }

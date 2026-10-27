@@ -35,10 +35,10 @@ export const QUOTE_PHOTO_PLACEMENT_LABELS: Record<QuotePhotoPlacement, string> =
 export type QuoteCoverPlacement = Exclude<QuotePhotoPlacement, 'content'>;
 export type QuoteCoverPage = QuotePhotoAsset & { placement: QuoteCoverPlacement };
 
-/** AI 生成參考圖可以切換的模型，順序＝介面顯示次序（預設第一個）。 */
+/** AI 生成參考圖可以切換的模型。第一個是打開對話框時的預設。 */
 export const QUOTE_PHOTO_GENERATE_MODELS = [
-  { id: 'grok', label: 'Grok 4.7', provider: 'xAI' },
   { id: 'gemini', label: 'Gemini 3.8', provider: 'Google' },
+  { id: 'grok', label: 'Grok 4.7', provider: 'xAI' },
 ] as const;
 export type QuotePhotoGenerateModel = (typeof QUOTE_PHOTO_GENERATE_MODELS)[number]['id'];
 /** 一次生成最多帶 5 張參考圖（跟 Edge function 的上限一致）。 */
@@ -96,7 +96,7 @@ const photoErrorMessages: Record<string, string> = {
   quote_photo_upload_failed: '圖片未能上載，請稍後再試。',
   quote_photo_record_failed: '圖片記錄未能保存，請稍後再試。',
   quote_photo_permission_denied: '只有管理員、上載員或 PM 可以修改圖片庫。',
-  quote_photo_library_unavailable: '圖片庫資料表尚未部署，請先套用 migration。',
+  quote_photo_library_unavailable: '圖片庫暫時不能使用，請聯絡管理員。',
   quote_photo_not_found: '找不到這張圖片，可能已被移除。',
   quote_photo_generate_invalid: `請輸入描述（最多 ${QUOTE_PHOTO_PROMPT_MAX} 字）並選擇比例。`,
   quote_photo_generate_reference_limit: `最多只可以選 ${QUOTE_PHOTO_GENERATE_MAX_REFERENCES} 張參考圖片。`,
@@ -260,6 +260,7 @@ export async function uploadQuotePhotoAsset(file: File): Promise<QuotePhotoAsset
       size_bytes: blob.size,
       sort_order: await nextSortOrder(),
       created_by: session.session?.user.id ?? null,
+      is_active: false,
     })
     .select(ASSET_COLUMNS)
     .single();
@@ -281,7 +282,7 @@ const GENERATE_SLUGS = [
 ] as const;
 
 /**
- * AI 生成一張參考圖並寫入圖片庫（Grok 4.7 或 Gemini 3.8，可帶最多 5 張產品圖作參考）。
+ * AI 生成一張參考圖並寫入圖片庫（預設 Gemini 3.8，可改 Grok 4.7，可帶最多 5 張產品圖作參考）。
  * 生成結果 isGenerated = true，介面與 PDF 都會標示「僅供設計參考」。
  */
 export async function generateQuoteReferenceImage(input: {

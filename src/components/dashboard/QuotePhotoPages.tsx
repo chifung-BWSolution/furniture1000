@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, ImagePlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PhotoConfirmButton, QuotePhotoLayoutEditor } from '@/components/dashboard/QuotePhotoLayoutEditor';
+import type { QuotePhotoZone } from '@/components/dashboard/QuotePhotoGenerateDialog';
 import { PhotoLayoutBlock } from '@/components/dashboard/QuotePhotoLayoutView';
 import {
   listQuotePhotoAssets,
@@ -28,6 +29,7 @@ export function QuotePhotoPages({
   layouts,
   assets,
   productPhotos = [],
+  photoZones = [],
   canManage,
   disabled = false,
   onChange,
@@ -37,6 +39,7 @@ export function QuotePhotoPages({
   assets: QuotePhotoAssetRef[];
   /** 報價明細帶過來的產品圖，開排版時預設就放進素材區。 */
   productPhotos?: { id: string; title: string; url: string }[];
+  photoZones?: QuotePhotoZone[];
   canManage: boolean;
   disabled?: boolean;
   onChange: (layouts: PhotoLayoutGroup[], usedAssets: QuotePhotoAssetRef[]) => void;
@@ -231,6 +234,7 @@ export function QuotePhotoPages({
           groupId={editor.groupId}
           assets={library}
           productPhotos={productPhotos}
+          photoZones={photoZones}
           photos={assets.map((asset) => ({
             assetId: asset.id,
             title: asset.title,

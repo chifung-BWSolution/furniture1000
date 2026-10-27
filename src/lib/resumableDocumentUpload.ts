@@ -16,8 +16,10 @@ export async function uploadDocumentChunks(options: {
   supabaseUrl: string;
   userId: string;
   getToken: () => Promise<string>;
+  signal?: AbortSignal;
   onProgress?: (progress: DocumentUploadProgress) => void;
 }): Promise<void> {
+  options.signal?.throwIfAborted();
   const { file, path, bucket, onProgress } = options;
   const storageUrl = new URL(options.supabaseUrl);
   // Hosted Supabase recommends the direct storage host; keep custom/local hosts intact.
@@ -50,12 +52,21 @@ export async function uploadDocumentChunks(options: {
         if (retry) report('retrying');
         return retry;
       },
-      onError: reject,
-      onSuccess: () => { uploadedBytes = file.size; report('uploading'); resolve(); },
+      onError: error => { cleanup(); reject(error); },
+      onSuccess: () => { cleanup(); uploadedBytes = file.size; report('uploading'); resolve(); },
     });
+    const cleanup = () => options.signal?.removeEventListener('abort', abort);
+    const abort = () => {
+      cleanup();
+      void upload.abort().catch(() => {});
+      reject(new DOMException('已取消上傳', 'AbortError'));
+    };
+    options.signal?.addEventListener('abort', abort, { once: true });
+    if (options.signal?.aborted) { abort(); return; }
     void upload.findPreviousUploads().then(previous => {
+      if (options.signal?.aborted) return;
       if (previous.length) upload.resumeFromPreviousUpload(previous[0]);
       upload.start();
-    }).catch(reject);
+    }).catch(error => { cleanup(); reject(error); });
   });
 }

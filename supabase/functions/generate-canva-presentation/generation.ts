@@ -39,7 +39,6 @@ export interface ProductRow {
   dimension_h_mm: number | null;
   level1_category: string | null;
   level2_category: string | null;
-  factories_display_name: string | null;
 }
 
 export const PRODUCT_SELECT_COLUMNS = [
@@ -56,7 +55,6 @@ export const PRODUCT_SELECT_COLUMNS = [
   "dimension_h_mm",
   "level1_category",
   "level2_category",
-  "factories_display_name",
 ].join(",");
 
 export interface OutlineSection {
@@ -93,7 +91,6 @@ export function productSpecLines(product: ProductRow): string[] {
   if (product.color?.trim()) lines.push(`顏色：${product.color.trim()}`);
   const category = (product.level2_category ?? product.level1_category ?? "").trim();
   if (category) lines.push(`分類：${category}`);
-  if (product.factories_display_name?.trim()) lines.push(`供應商：${product.factories_display_name.trim()}`);
   const price = moneyLabel(product.sale_price) ?? moneyLabel(product.price);
   if (price) lines.push(`參考價：${price}`);
   return lines;
@@ -156,6 +153,7 @@ export function buildGenerationRequest(
   const pageCount = Number(brief.pageCount);
   const content = String(brief.content ?? "").trim();
   const outlineText = String(brief.outline ?? "").trim();
+  const outlineOnly = brief.outlineOnly === true;
 
   const header = [
     `標題：${title}`,
@@ -165,9 +163,12 @@ export function buildGenerationRequest(
     language ? `語言：${language}` : "",
     style ? `風格：${style}` : "",
     Number.isFinite(pageCount) && pageCount > 0 ? `期望頁數：${pageCount}` : "",
+    "參考案例：大綱裡每一個案例標題各做一頁，只寫品牌與用過的傢俬，不要寫項目名稱、項目編號或地址。",
+    "產品頁不要寫供應商、廠家或工廠名稱。",
+    "公司介紹頁必須同時顯示「超過 1,000 款傢俬」、「超過 16 年行業經驗」和專業資質，不可省略。",
   ].filter(Boolean).join("\n");
 
-  const productBlock = products.length
+  const productBlock = !outlineOnly && products.length
     ? `產品：\n${products.map((product, index) => {
       const specs = productSpecLines(product);
       return `${index + 1}. ${specs.join("；") || (product.title ?? "產品")}`;
@@ -200,15 +201,17 @@ export function buildGenerationRequest(
     sections.push(...outlineSections);
   }
   let productsIncluded = 0;
-  for (const product of products) {
-    if (sections.length >= SECTION_MAX) break;
-    const specs = productSpecLines(product);
-    sections.push(section(
-      (product.title ?? "").trim() || (product.model ?? "").trim() || `產品 ${productsIncluded + 1}`,
-      specs.join("\n") || "產品資料",
-      specs,
-    ));
-    productsIncluded += 1;
+  if (!outlineOnly) {
+    for (const product of products) {
+      if (sections.length >= SECTION_MAX) break;
+      const specs = productSpecLines(product);
+      sections.push(section(
+        (product.title ?? "").trim() || (product.model ?? "").trim() || `產品 ${productsIncluded + 1}`,
+        specs.join("\n") || "產品資料",
+        specs,
+      ));
+      productsIncluded += 1;
+    }
   }
 
   return {

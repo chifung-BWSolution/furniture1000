@@ -649,6 +649,38 @@ Deno.serve(async (req: Request) => {
     return current ? json(current) : json({ error: "session_not_found" }, 404);
   }
 
+  if (action === "design_pages") {
+    const { data: session, error } = await service.from("canva_design_sessions")
+      .select("id, canva_design_id")
+      .eq("id", String(body.session_id ?? ""))
+      .eq("staff_id", userId)
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!session) return json({ error: "session_not_found" }, 404);
+    if (!session.canva_design_id) return json({ pages: [] });
+    const tokenRow = await loadAndRefreshToken(service, userId, credentials);
+    if ("error" in tokenRow) return json({ error: tokenRow.error }, 401);
+    const path = `/designs/${encodeURIComponent(session.canva_design_id)}/pages?offset=1&limit=200`;
+    let response = await canvaAuthedFetch(tokenRow.access_token, path);
+    if (response.status === 401 && tokenRow.refresh_token) {
+      const next = await refreshToken(service, userId, credentials, tokenRow.refresh_token);
+      if (next) response = await canvaAuthedFetch(next.access_token, path);
+    }
+    if (!response.ok) {
+      const detail = clipCanvaError(await response.text(), `canva_pages_${response.status}`);
+      return json({ error: "canva_pages_unavailable", message: detail }, 502);
+    }
+    const listed = await response.json();
+    const items = Array.isArray(listed?.items) ? listed.items : [];
+    const pages = items.map((item: { page_number?: number; index?: number; thumbnail?: { url?: string } }, i: number) => {
+      const raw = Number(item.page_number ?? item.index);
+      const page = Number.isFinite(raw) && raw >= 1 ? raw : i + 1;
+      const url = item.thumbnail?.url;
+      return { page, thumbnail_url: typeof url === "string" && url.startsWith("https://") ? url : null };
+    }).sort((a: { page: number }, b: { page: number }) => a.page - b.page);
+    return json({ pages });
+  }
+
   // ── create_native：Canva AI design generation（POST /generations）──
   if (action === "create_native") {
     const sessionId = String(body.session_id ?? "");

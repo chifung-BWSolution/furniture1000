@@ -302,6 +302,13 @@ export async function fetchCaseShowcase(
         ? "completion-photos"
         : "bwf/projects",
   );
+  const projectPermission = action === "cases-orders" ? true : await (async () => {
+    const { data, error } = await db.rpc("check_permission", {
+      p_user_id: staff.id, p_module: "bwf/projects", p_action: "view",
+    });
+    if (error) throw new Error(error.message);
+    return data === true;
+  })();
   if (action === "cases-brands") {
     const tags = await all(() =>
       db
@@ -373,13 +380,16 @@ export async function fetchCaseShowcase(
       db,
       items.map((item) => item.id),
     );
-    const bwfProjects = await rowsByColumn(
+    const visibleProjects = projectPermission ? await visibleProjectIds(db, staff) : [];
+    const allBwfProjects = await rowsByColumn(
       db,
       "bwf_projects",
       "id, customer_id, signed_date, estimated_income",
       "customer_id",
       items.map((item) => item.id),
     );
+    const visibleSet = visibleProjects === null ? null : new Set(visibleProjects);
+    const bwfProjects = allBwfProjects.filter((project) => visibleSet === null || visibleSet.has(project.id));
     const furniture = await furnitureByProject(
       db,
       bwfProjects.map((project) => project.id),
@@ -455,6 +465,7 @@ export async function fetchCaseShowcase(
             famousByCustomer,
           ),
           furniture_types: furniture.get(p.id) || [],
+          ...(!projectPermission ? { estimated_income: null, estimated_profit: null } : {}),
         }))
         .sort((a, b) =>
           (b.modified_date || "").localeCompare(a.modified_date || ""),

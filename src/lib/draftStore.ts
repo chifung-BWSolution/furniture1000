@@ -46,6 +46,11 @@ export interface DraftData {
   /** 報價平面圖與各分區圖片（project_data.floorPlan / zoneImages）。 */
   floorPlan?: Record<string, unknown> | null;
   zoneImages?: Record<string, unknown>;
+  /** 各分區小計下方的圖片排版。 */
+  zonePhotoLayouts?: Record<string, unknown>;
+  /** 報價 PDF 後面的圖冊整頁。 */
+  catalogPageAttachments?: Record<string, unknown>[];
+  showCatalogSource?: boolean;
   /** 舊版：未排版的圖片清單（只讀，兼容已存在的草稿）。 */
   quotePhotos?: Record<string, unknown>[];
 }

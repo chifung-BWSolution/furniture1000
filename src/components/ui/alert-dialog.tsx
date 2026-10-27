@@ -42,13 +42,13 @@ const AlertDialogDescription = ModalDescription
  * of floating inset with double padding.
  */
 const AlertDialogHeader = ({ className, ...props }: React.ComponentProps<typeof ModalHeader>) => (
-  <ModalHeader className={cn("p-0", className)} {...props} />
+  <ModalHeader className={cn("p-0 pr-10 sm:p-0 sm:pr-10", className)} {...props} />
 )
 AlertDialogHeader.displayName = "AlertDialogHeader"
 
 const AlertDialogFooter = ({ className, ...props }: React.ComponentProps<typeof ModalFooter>) => (
   <ModalFooter
-    className={cn("-mx-5 -mb-5 sm:-mx-6 sm:-mb-6", className)}
+    className={cn("-mx-5 -mb-5 mt-5 sm:-mx-6 sm:-mb-6 sm:mt-6", className)}
     {...props}
   />
 )

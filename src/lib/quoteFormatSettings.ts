@@ -109,7 +109,7 @@ export async function saveQuoteFormatSettings(
     .eq('id', true);
   if (error) {
     if (isMissingFormatTable(error)) {
-      return { ok: false, missingTable: true, error: '資料表尚未部署，暫時不能儲存' };
+      return { ok: false, missingTable: true, error: '格式設定還沒準備好，暫時不能儲存。請聯絡管理員。' };
     }
     return { ok: false, missingTable: false, error: error.message };
   }

@@ -21,10 +21,15 @@ export interface ExtractedProduct {
   dimensions_text?: string | null;
   material?: string | null;
   colors?: string[];
+  /** Color words copied from the document, before official mapping. */
+  original_colors?: string[];
+  /** True when the document marks the finish as custom-order, not a new palette entry. */
+  custom_order?: boolean;
   description?: string | null;
   unit?: string | null;
   moq?: number | null;
   price?: number | null;
+  sale_price?: number | null;
   price_text?: string | null;
   currency?: string | null;
   other_prices?: { label: string; price: number }[];
@@ -123,9 +128,10 @@ export const EDITABLE_FIELDS: { key: keyof ExtractedProduct; label: string; kind
   { key: 'depth_mm', label: '深 D (mm)', kind: 'number' },
   { key: 'height_mm', label: '高 H (mm)', kind: 'number' },
   { key: 'material', label: '材質', kind: 'text' },
-  { key: 'colors', label: '顏色（逗號分隔）', kind: 'list' },
+  { key: 'colors', label: '主要顏色（第一個為主色，逗號分隔）', kind: 'list' },
   { key: 'price', label: '成本價', kind: 'number' },
   { key: 'currency', label: '幣種', kind: 'text' },
+  { key: 'sale_price', label: '售價', kind: 'number' },
   { key: 'unit', label: '單位', kind: 'text' },
   { key: 'moq', label: 'MOQ', kind: 'number' },
   { key: 'lead_time_days', label: '交貨期（天）', kind: 'number' },
@@ -146,6 +152,9 @@ export const FLAG_LABELS: Record<string, string> = {
   merged_across_parts: '跨段合併',
   ai_uncertain: 'AI 不確定',
   low_confidence: '低置信度',
+  color_unmapped: '顏色未對上',
+  custom_color: '訂造',
+  price_year_conflict: '同年價格衝突',
 };
 
 const ITEM_COLUMNS = [

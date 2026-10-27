@@ -83,6 +83,7 @@ import { syncRtsWorkflowToProduct } from "@/lib/rtsProductSync";
 import { resolveSelectedPublishProducts } from "@/lib/readyToPublishRow";
 import type { Product } from "@/types/product";
 import { hasPmsQuotePrefillParams } from "@/lib/pmsQuotePrefill";
+import { canManageSupplierDocuments } from "@/lib/supplierDocuments";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const ListedProductsView = lazy(() =>
@@ -218,10 +219,13 @@ const QuoteTrashView = lazy(() =>
   import("./QuoteTrashView").then((mod) => ({ default: mod.QuoteTrashView }))
 );
 const PmBudgetView = lazy(() =>
-  import("./PmBudgetView").then((mod) => ({ default: mod.PmBudgetView }))
+  import("./PmBudgetWorkspace").then((mod) => ({ default: mod.PmBudgetWorkspace }))
 );
 const PmQuickView = lazy(() =>
   import("./PmQuickView").then((mod) => ({ default: mod.PmQuickView }))
+);
+const PackagePricingView = lazy(() =>
+  import("./PmBudgetWorkspace").then((mod) => ({ default: () => <mod.PmBudgetWorkspace legacyPackage /> }))
 );
 const ProPdfView = lazy(() =>
   import("./ProPdfView").then((mod) => ({ default: mod.ProPdfView }))
@@ -295,6 +299,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-quote-trash",
   "fds2-pm-budget",
   "fds2-pm-quick",
+  "fds2-pm-package",
   "fds2-pm-pro-pdf",
   "fds2-factory-sales",
   "fds2-quote-format",
@@ -900,7 +905,13 @@ function AppShellContent() {
         const keepCanvaOauth =
           sectionPath === '/fds/pm/presentation' &&
           (params.has('code') || params.has('error'));
-        target = keepCanvaOauth ? `${sectionPath}?${params.toString()}` : sectionPath;
+        const packageQuote = params.get('quote');
+        const keepPackageQuote = (sectionPath === '/fds/pm/package' || sectionPath === '/fds/pm/budget') && (packageQuote || params.has('mode'));
+        target = keepCanvaOauth
+          ? `${sectionPath}?${params.toString()}`
+          : keepPackageQuote
+            ? `${sectionPath}?${params.toString()}`
+            : sectionPath;
       } else if (
         location.pathname.startsWith('/quote') ||
         isDesignProjectPath(location.pathname) ||
@@ -1075,6 +1086,7 @@ function AppShellContent() {
     if (store.currentView === 'fds2-quote-trash') return <QuoteTrashView />;
     if (store.currentView === 'fds2-pm-budget') return <PmBudgetView />;
     if (store.currentView === 'fds2-pm-quick') return <PmQuickView />;
+    if (store.currentView === 'fds2-pm-package') return <PackagePricingView />;
     if (store.currentView === 'fds2-pm-pro-pdf') return <ProPdfView />;
     if (store.currentView === 'fds2-factory-sales') return <FactoryReportView />;
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;
@@ -1241,11 +1253,17 @@ function AppShellContent() {
               navigate(target);
             }}
             onOpenUpload={(factory) => {
-              sessionStorage.setItem('fds-upload-factory', JSON.stringify({
-                id: factory.id,
-                name: factory.display_name,
-              }));
-              store.setCurrentView('ai-processor');
+              void canManageSupplierDocuments().then((ok) => {
+                if (!ok) {
+                  toast.error('只有管理員或上載員可以上傳圖冊／報價單');
+                  return;
+                }
+                sessionStorage.setItem('fds-upload-factory', JSON.stringify({
+                  id: factory.id,
+                  name: factory.display_name,
+                }));
+                store.setCurrentView('ai-processor');
+              });
             }}
           />
         );

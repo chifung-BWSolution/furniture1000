@@ -6,9 +6,44 @@ verify_jwt = true
 [functions.generate-quote-reference-image]
 verify_jwt = true
 
+[functions.supabase-functions-generate-quote-reference-image]
+verify_jwt = true
+entrypoint = "./functions/generate-quote-reference-image/index.ts"
+
 # 每日指令記錄 › 外部工具匯入（opencode/Codex/Cursor/WorkBuddy）。
 # 驗證只靠共享 secret header x-fds-dev-log-secret（env FDS_DEV_COMMAND_LOG_SECRET），
 # 不帶 JWT，故 verify_jwt 必須關。
 # 部署：SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy bwf-development-command-logs --project-ref <ref>
 [functions.bwf-development-command-logs]
 verify_jwt = false
+
+# 圖冊／報價單夜間解析。前端與 pg_cron 呼叫的是帶前綴的 slug。
+[functions.process-jobs]
+verify_jwt = false
+
+[functions.supabase-functions-process-jobs]
+verify_jwt = false
+entrypoint = "./functions/process-jobs/index.ts"
+
+# 報價附件：只抽出所選圖冊頁，不回傳整份私有 PDF。
+[functions.quote-catalog-pages]
+verify_jwt = false
+
+[functions.supabase-functions-quote-catalog-pages]
+verify_jwt = false
+entrypoint = "./functions/quote-catalog-pages/index.ts"
+
+# 案例服務由函式自行驗證登入與 PMS 權限，保持線上既有設定。
+[functions.supabase-functions-fetch-bwa-works]
+verify_jwt = false
+entrypoint = "./functions/fetch-bwa-works/index.ts"
+
+# PMS 提案及簡報客戶／專案搜尋，函式內驗證登入與 FDS 職員角色。
+[functions.supabase-functions-fetch-pms-pitchings]
+verify_jwt = false
+entrypoint = "./functions/fetch-pms-pitchings/index.ts"
+
+# Canva 簡報。前端呼叫帶前綴的 slug；分頁預覽與大綱指示都在這個函式。
+[functions.supabase-functions-generate-canva-presentation]
+verify_jwt = false
+entrypoint = "./functions/generate-canva-presentation/index.ts"

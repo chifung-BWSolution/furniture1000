@@ -100,6 +100,7 @@ export interface UploadSupplierDocumentInput {
   source?: 'upload' | 'ai_processor';
   /** false = archive the original only; parsing can be started later from the panel. */
   enqueue?: boolean;
+  signal?: AbortSignal;
   onProgress?: (progress: DocumentUploadProgress) => void;
 }
 
@@ -171,6 +172,18 @@ export async function canManageSupplierDocuments(): Promise<boolean> {
   return data === true;
 }
 
+/** Catalog PDFs are readable by designers and PMs. Quote and price-list files stay with admin/uploader. */
+export async function canViewSupplierCatalogs(): Promise<boolean> {
+  const { data, error } = await supabase.rpc('bwf_has_role', {
+    p_roles: ['admin', 'uploader', 'designer', 'pm'],
+  });
+  if (error) {
+    console.warn('[supplierDocuments] catalog view check failed:', error.message);
+    return false;
+  }
+  return data === true;
+}
+
 async function uploadOriginalPdf(input: UploadSupplierDocumentInput, path: string): Promise<void> {
   const getSession = async () => {
     const { data, error } = await supabase.auth.getSession();
@@ -185,8 +198,10 @@ async function uploadOriginalPdf(input: UploadSupplierDocumentInput, path: strin
       userId: session.user.id,
       getToken: async () => (await getSession()).access_token,
       onProgress: input.onProgress,
+      signal: input.signal,
     });
   } catch (error) {
+    input.signal?.throwIfAborted();
     // A TUS 409 can mean a competing upload, not an existing object. Confirm the
     // final immutable hash path exists before allowing the document RPC to run.
     const { data, error: infoError } = await supabase.storage.from(SUPPLIER_DOCUMENTS_BUCKET).info(path);
@@ -199,6 +214,7 @@ async function uploadOriginalPdf(input: UploadSupplierDocumentInput, path: strin
 export async function uploadSupplierDocument(
   input: UploadSupplierDocumentInput,
 ): Promise<UploadSupplierDocumentResult> {
+  input.signal?.throwIfAborted();
   const { file } = input;
   if (!isPdfFile(file)) throw new Error('只接受 PDF 檔');
   if (file.size > SUPPLIER_DOCUMENT_MAX_BYTES) {
@@ -210,9 +226,11 @@ export async function uploadSupplierDocument(
   // Yield so the preparation state paints before hashing a large document.
   await new Promise(resolve => setTimeout(resolve, 0));
   const hash = await sha256Hex(file);
+  input.signal?.throwIfAborted();
   const folder = storageKeySegment(input.factoryId || input.factoryName);
   const path = input.metadata ? `${folder}/${input.docType ?? 'quote'}/${hash}.pdf` : `${folder}/${hash}.pdf`;
   await uploadOriginalPdf(input, path);
+  input.signal?.throwIfAborted();
   input.onProgress?.({ phase: 'registering', uploadedBytes: file.size, totalBytes: file.size });
 
   // The existing enqueue RPC routes large originals to needs_split. Upload never wakes a worker.

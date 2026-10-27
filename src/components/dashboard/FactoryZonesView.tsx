@@ -65,7 +65,7 @@ export function FactoryZonesView() {
             廠家分區
           </h1>
           <p className="fds-page-description">
-            把 PMS 廠家放進自訂分區。廠家主檔仍在 PMS，這裡只記廠家編號。這不是設計專案的空間分區。
+            把廠家放進自訂分區。這裡只記錄分組，不會改廠家本身的資料。這和報價單上的房間分區不是同一件事。
           </p>
           <p className="mt-3 text-sm">
             廠家 {factories.length} 間 · 已分區 {placed.size} 間 · 未分區 {Math.max(factories.length - placed.size, 0)} 間
@@ -74,7 +74,7 @@ export function FactoryZonesView() {
 
         {missingTable && (
           <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
-            資料表 factory_zones 尚未部署。廠家名單已從 PMS 讀到，分區要等 migration 套用後才能儲存。
+            分區功能還沒準備好，暫時不能儲存。廠家名單已經讀到。請聯絡管理員。
           </section>
         )}
         {error && (

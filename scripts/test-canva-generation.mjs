@@ -15,10 +15,10 @@ vm.runInContext(
 const g = context.exports;
 
 const columns = g.PRODUCT_SELECT_COLUMNS.split(',');
-for (const name of ['dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm', 'factories_display_name', 'sale_price', 'price']) {
+for (const name of ['dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm', 'sale_price', 'price']) {
   assert.ok(columns.includes(name), name);
 }
-for (const name of ['middle_price', 'size_l', 'size_w', 'size_h', 'factory', 'images']) {
+for (const name of ['middle_price', 'size_l', 'size_w', 'size_h', 'factory', 'factories_display_name', 'images']) {
   assert.equal(columns.includes(name), false, name);
 }
 
@@ -54,12 +54,26 @@ assert.ok(built.brief.includes('季度匯報'));
 assert.ok(built.brief.includes('甲公司'));
 assert.ok(built.brief.includes('HK$12,800'));
 assert.ok(built.brief.includes('1800 × 900 × 750'));
+assert.equal(built.brief.includes('華座'), false);
+assert.equal(JSON.stringify(built.outline).includes('供應商'), false);
 assert.ok(built.brief.length <= 5000);
 assert.equal(built.design_type.type, 'preset');
 assert.equal(built.design_type.name, 'presentation');
 assert.equal(JSON.stringify(built.outline.sections.map((section) => section.title)), JSON.stringify(['開場', '方案', '橡木會議桌']));
 assert.ok(built.outline.sections[0].points.includes('目標'));
 assert.equal(built.report.products_included, 1);
+
+const outlined = g.buildGenerationRequest({
+  title: '大綱',
+  client: '丙公司',
+  outlineOnly: true,
+  outline: '1. 封面\n項目：大綱\n\n2. 經理辦公室｜橡木會議桌\n展示名稱：橡木會議桌',
+}, [product]);
+assert.equal(outlined.brief.includes('華座'), false);
+assert.equal(outlined.brief.includes('供應商：'), false);
+assert.equal(outlined.outline.sections.some((section) => section.title === '橡木會議桌'), false);
+assert.equal(outlined.outline.sections[0].title, '封面');
+assert.equal(outlined.report.products_included, 0);
 
 const long = g.buildGenerationRequest({
   title: '長文',

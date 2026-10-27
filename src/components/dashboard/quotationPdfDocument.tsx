@@ -23,6 +23,7 @@ import {
   sectionTitleOrdinalAt,
 } from '@/lib/quoteSectionTitle';
 import { quoteItemSerialLabel } from '@/lib/quoteZone';
+import { UNZONED_QUOTE_IMAGE_KEY } from '@/lib/quoteFloorPlan';
 import { parseRemarksContent } from '@/lib/remarksContent';
 import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
 import { looksLikeMaterialHtml } from '@/lib/quotationMaterialHtml';
@@ -61,6 +62,7 @@ import {
   imageRect,
   PDF_CONTENT_WIDTH_MM,
   printBlocks,
+  type PhotoLayoutGroup,
   type PhotoPrintBlock,
 } from '@/lib/quotePhotoLayouts';
 import {
@@ -766,13 +768,96 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
   return blocks;
 }
 
+/** Space and a hairline between product items. Not used inside an item or around labels. */
+function buildItemGapBlock(ctx: Ctx, key: string): PdfBlock {
+  const P = ctx.P;
+  const heightPt = 10;
+  return {
+    key,
+    heightPt,
+    table: true,
+    node: (
+      <P.View style={{ height: heightPt, justifyContent: 'flex-end', backgroundColor: '#ffffff' }}>
+        <P.View style={{ borderBottomWidth: 0.6, borderColor: RULE }} />
+      </P.View>
+    ),
+  };
+}
+
 // ─── 其他區塊 ───────────────────────────────────────────────────────────────
 
-function buildSectionBlock(ctx: Ctx, text: string, imageUrls: string[] | undefined, index: number): PdfBlock {
+/** react-pdf ignores objectFit, so both axes on an Image stretch it. Fit from the real ratio instead. */
+function fittedImageBox(
+  frameW: number,
+  frameH: number,
+  imageRatio: number,
+  fit: 'contain' | 'cover',
+  offsetX: number,
+  offsetY: number,
+  scale: number,
+) {
+  const frameRatio = frameW / Math.max(frameH, 0.01);
+  const imageWider = imageRatio >= frameRatio;
+  let width = fit === 'cover'
+    ? (imageWider ? frameH * imageRatio : frameW)
+    : (imageWider ? frameW : frameH * imageRatio);
+  let height = width / imageRatio;
+  if (fit === 'cover') {
+    const zoom = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    width *= zoom;
+    height *= zoom;
+  }
+  const ox = fit === 'cover' ? offsetX : 0.5;
+  const oy = fit === 'cover' ? offsetY : 0.5;
+  return {
+    position: 'absolute' as const,
+    left: (frameW - width) * ox,
+    top: (frameH - height) * oy,
+    width,
+    height,
+  };
+}
+
+function buildLeadImageBlock(ctx: Ctx, imageUrls: string[] | undefined, key: string): PdfBlock | null {
   const P = ctx.P;
   const images = (imageUrls ?? []).filter((url) => url.startsWith('http')).slice(0, 6);
-  const imageRow = images.length ? 72 : 0;
-  const heightPt = 22 + imageRow;
+  if (!images.length) return null;
+  const heightPt = 78;
+  return {
+    key,
+    heightPt,
+    table: true,
+    node: (
+      <P.View
+        style={{
+          height: heightPt,
+          backgroundColor: '#ffffff',
+          borderTopWidth: BORDER,
+          borderLeftWidth: BORDER,
+          borderRightWidth: BORDER,
+          borderColor: RULE,
+        }}
+      >
+        <P.View style={{ height: heightPt, flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 6 }}>
+          {images.map((url) => {
+            const size = peekImageSize(url);
+            const ratio = size && size.width > 0 && size.height > 0 ? size.width / size.height : 4 / 3;
+            const box = fittedImageBox(90, 66, ratio, 'contain', 0.5, 0.5, 1);
+            return (
+              <P.View key={url} style={{ width: 90, height: 66, marginRight: 6, position: 'relative' }}>
+                <P.Image src={url} style={box} />
+              </P.View>
+            );
+          })}
+        </P.View>
+      </P.View>
+    ),
+  };
+}
+
+function buildSectionBlock(ctx: Ctx, text: string, index: number): PdfBlock {
+  const P = ctx.P;
+  const heightPt = 22;
   return {
     key: `section-${index}-${text}`,
     heightPt,
@@ -791,17 +876,6 @@ function buildSectionBlock(ctx: Ctx, text: string, imageUrls: string[] | undefin
         <P.View style={{ height: 22, justifyContent: 'center', paddingHorizontal: 6 }}>
           <P.Text style={{ fontSize: 9, fontWeight: 700 }}>{text}</P.Text>
         </P.View>
-        {images.length ? (
-          <P.View style={{ height: 72, flexDirection: 'row', paddingHorizontal: 6, paddingBottom: 6 }}>
-            {images.map((url) => (
-              <P.Image
-                key={url}
-                src={url}
-                style={{ width: 90, height: 66, objectFit: 'contain', marginRight: 6 }}
-              />
-            ))}
-          </P.View>
-        ) : null}
       </P.View>
     ),
   };
@@ -977,35 +1051,57 @@ function buildTotalsBlock(ctx: Ctx): PdfBlock {
   };
 }
 
-function buildPhotoBlocks(ctx: Ctx): PdfBlock[] {
+/** Bounding box of the slots that actually have a photo, as fractions of the layout. */
+function occupiedLayoutBox(geometry: PhotoPrintBlock['geometry'], placements: PhotoPrintBlock['placements']) {
+  const used = geometry.slots.filter((slot) => placements.some((entry) => entry.slotId === slot.id));
+  if (!used.length) return { x: 0, y: 0, w: 1, h: 1 };
+  const x = Math.min(...used.map((slot) => slot.x));
+  const y = Math.min(...used.map((slot) => slot.y));
+  const right = Math.max(...used.map((slot) => slot.x + slot.w));
+  const bottom = Math.max(...used.map((slot) => slot.y + slot.h));
+  return { x, y, w: Math.max(0.01, right - x), h: Math.max(0.01, bottom - y) };
+}
+
+function buildPhotoBlocks(ctx: Ctx, options?: { frame?: boolean }): PdfBlock[] {
   const { data } = ctx;
   const P = ctx.P;
   const blocks: PdfBlock[] = [];
+  const frameLayout = options?.frame === true;
 
   const layoutBlocks = (data.quotePhotoLayouts?.groups ?? []).flatMap((group) => printBlocks(group));
   if (layoutBlocks.length) {
     const assets = new Map((data.quotePhotoLayouts?.assets ?? []).map((asset) => [asset.id, asset.url]));
     layoutBlocks.forEach((block: PhotoPrintBlock, index: number) => {
-      const baseWidthPt = PDF_CONTENT_WIDTH_MM * PT_PER_MM;
-      const baseHeightPt = block.geometry.heightMm * PT_PER_MM;
+      const crop = frameLayout
+        ? occupiedLayoutBox(block.geometry, block.placements)
+        : { x: 0, y: 0, w: 1, h: 1 };
+      const pad = frameLayout ? 6 : 0;
+      const baseWidthPt = PDF_CONTENT_WIDTH_MM * PT_PER_MM * crop.w;
+      const baseHeightPt = block.geometry.heightMm * PT_PER_MM * crop.h;
       const maxHeightPt = PDF_CONTENT_HEIGHT_PT - 90;
-      const scale = Math.min(PDF_CONTENT_WIDTH_PT / baseWidthPt, maxHeightPt / baseHeightPt);
-      const widthPt = baseWidthPt * scale;
-      const heightPt = baseHeightPt * scale;
+      const scale = Math.min(PDF_CONTENT_WIDTH_PT / (baseWidthPt + pad * 2), maxHeightPt / (baseHeightPt + pad * 2));
+      const innerW = baseWidthPt * scale;
+      const innerH = baseHeightPt * scale;
+      const widthPt = innerW + pad * 2;
+      const heightPt = innerH + pad * 2;
       const textArea = block.geometry.text;
       const first = block.placements[0];
+      const marginTop = frameLayout ? (index === 0 ? 0 : 4) : (index === 0 ? 12 : 8);
 
       blocks.push({
         key: `photo-layout-${block.key}`,
-        heightPt: heightPt + (index === 0 ? 12 : 8),
+        heightPt: heightPt + marginTop,
         node: (
           <P.View
             style={{
               width: widthPt,
               height: heightPt,
               position: 'relative',
-              marginTop: index === 0 ? 12 : 8,
+              marginTop,
               marginLeft: Math.max(0, (PDF_CONTENT_WIDTH_PT - widthPt) / 2),
+              borderWidth: frameLayout ? 0.8 : 0,
+              borderColor: '#cbd5e1',
+              backgroundColor: '#ffffff',
             }}
           >
             {block.geometry.slots.map((slot) => {
@@ -1019,10 +1115,10 @@ function buildPhotoBlocks(ctx: Ctx): PdfBlock[] {
                   key={slot.id}
                   style={{
                     position: 'absolute',
-                    left: slot.x * widthPt,
-                    top: slot.y * heightPt,
-                    width: slot.w * widthPt,
-                    height: slot.h * heightPt,
+                    left: pad + ((slot.x - crop.x) / crop.w) * innerW,
+                    top: pad + ((slot.y - crop.y) / crop.h) * innerH,
+                    width: (slot.w / crop.w) * innerW,
+                    height: (slot.h / crop.h) * innerH,
                     overflow: 'hidden',
                   }}
                 >
@@ -1050,12 +1146,24 @@ function buildPhotoBlocks(ctx: Ctx): PdfBlock[] {
                         >
                           <P.Image
                             src={url}
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: placement.fitMode === 'cover' ? 'cover' : 'contain',
-                              objectPosition: `${placement.offsetX * 100}% ${placement.offsetY * 100}%`,
-                            }}
+                            style={(() => {
+                              const slotWpt = (slot.w / crop.w) * innerW;
+                              const slotHpt = (slot.h / crop.h) * innerH;
+                              const frameWpt = frame.width * slotWpt;
+                              const frameHpt = frame.height * slotHpt * imageShare;
+                              const size = peekImageSize(url);
+                              const ratio = size && size.width > 0 && size.height > 0 ? size.width / size.height : 0;
+                              if (!ratio || frameWpt <= 0 || frameHpt <= 0) return { width: '100%' };
+                              return fittedImageBox(
+                                frameWpt,
+                                frameHpt,
+                                ratio,
+                                placement.fitMode === 'cover' ? 'cover' : 'contain',
+                                placement.offsetX,
+                                placement.offsetY,
+                                placement.scale,
+                              );
+                            })()}
                           />
                         </P.View>
                       </P.View>
@@ -1086,10 +1194,10 @@ function buildPhotoBlocks(ctx: Ctx): PdfBlock[] {
               <P.View
                 style={{
                   position: 'absolute',
-                  left: textArea.x * widthPt,
-                  top: textArea.y * heightPt,
-                  width: textArea.w * widthPt,
-                  height: textArea.h * heightPt,
+                  left: pad + ((textArea.x - crop.x) / crop.w) * innerW,
+                  top: pad + ((textArea.y - crop.y) / crop.h) * innerH,
+                  width: (textArea.w / crop.w) * innerW,
+                  height: (textArea.h / crop.h) * innerH,
                   justifyContent: 'center',
                   paddingHorizontal: 4,
                 }}
@@ -1157,10 +1265,17 @@ function buildPhotoBlocks(ctx: Ctx): PdfBlock[] {
                 marginRight: cellIndex === row.cells.length - 1 ? 0 : 6 * PT_PER_MM,
               }}
             >
-              <P.Image
-                src={photo.url}
-                style={{ width: '100%', height: QUOTE_PHOTO_ROW_HEIGHT_PT, objectFit: 'contain' }}
-              />
+              <P.View style={{ width: '100%', height: QUOTE_PHOTO_ROW_HEIGHT_PT, position: 'relative' }}>
+                <P.Image
+                  src={photo.url}
+                  style={(() => {
+                    const size = peekImageSize(photo.url);
+                    const ratio = size && size.width > 0 && size.height > 0 ? size.width / size.height : 0;
+                    if (!ratio) return { width: '100%' };
+                    return fittedImageBox(cellWidth, QUOTE_PHOTO_ROW_HEIGHT_PT, ratio, 'contain', 0.5, 0.5, 1);
+                  })()}
+                />
+              </P.View>
               {row.captions ? (
                 <P.Text style={{ fontSize: 6.5, color: PDF_COLORS.muted, marginTop: 2 }}>
                   {pdfDisplayText(photo.caption || '')}
@@ -1173,6 +1288,25 @@ function buildPhotoBlocks(ctx: Ctx): PdfBlock[] {
     });
   });
   return blocks;
+}
+
+function buildZoneLayoutBlocks(
+  ctx: Ctx,
+  groups: PhotoLayoutGroup[] | undefined,
+  keyPrefix: string,
+): PdfBlock[] {
+  if (!groups?.some((group) => group.placements.length > 0)) return [];
+  return buildPhotoBlocks({
+    ...ctx,
+    data: {
+      ...ctx.data,
+      quotePhotos: [],
+      quotePhotoLayouts: {
+        groups,
+        assets: ctx.data.quotePhotoLayouts?.assets ?? [],
+      },
+    },
+  }, { frame: true }).map((block, index) => ({ ...block, key: `${keyPrefix}-${block.key}-${index}` }));
 }
 
 function buildDeliveryBlock(ctx: Ctx): PdfBlock {
@@ -1488,12 +1622,35 @@ export function QuotationDocument({
   const blocks: PdfBlock[] = [];
   const items = data.items || [];
   const zonePlacement = data.format?.zoneSubtotalPlacement ?? 'section_and_summary';
-  const zoneTotals = zonePlacement === 'hidden' ? [] : quoteZoneTotals(items);
+  const zoneTotals = quoteZoneTotals(items);
   const zoneEndAt = new Map(zoneTotals.map((zone) => [zone.endIndex, zone]));
+  const showZoneSubtotal = zonePlacement === 'section_and_summary';
 
   const tableBlocks: PdfBlock[] = [];
+  let pushedUnzoned = false;
+  const pushUnzoned = () => {
+    if (pushedUnzoned) return;
+    pushedUnzoned = true;
+    const lead = buildLeadImageBlock(ctx, data.leadImages, 'lead-images');
+    if (lead) tableBlocks.push(lead);
+    tableBlocks.push(
+      ...buildZoneLayoutBlocks(ctx, data.zonePhotoLayouts?.[UNZONED_QUOTE_IMAGE_KEY], 'unzoned-layout'),
+    );
+  };
+  const pushZoneMedia = (titleIndex: number) => {
+    const title = items[titleIndex];
+    if (!title?.isSectionTitle) return;
+    const images = buildLeadImageBlock(ctx, title.zoneImages, `zone-images-${titleIndex}`);
+    if (images) tableBlocks.push(images);
+    if (title.id) {
+      tableBlocks.push(
+        ...buildZoneLayoutBlocks(ctx, data.zonePhotoLayouts?.[title.id], `zone-layout-${title.id}`),
+      );
+    }
+  };
   items.forEach((item, index) => {
     if (item.isSectionTitle) {
+      pushUnzoned();
       tableBlocks.push(
         buildSectionBlock(
           ctx,
@@ -1503,18 +1660,28 @@ export function QuotationDocument({
               item.name || '',
             ),
           ),
-          item.zoneImages,
           index,
         ),
       );
+      const zone = zoneEndAt.get(index);
+      if (zone && showZoneSubtotal) tableBlocks.push(buildZoneBlock(ctx, zone.name, zone.amount));
+      if (zone) pushZoneMedia(index);
       return;
     }
     tableBlocks.push(...buildItemBlocks(ctx, item, quoteItemSerialLabel(items, index)));
-    if (zonePlacement === 'section_and_summary') {
-      const zone = zoneEndAt.get(index);
-      if (zone) tableBlocks.push(buildZoneBlock(ctx, zone.name, zone.amount));
+    const next = items[index + 1];
+    if (!item.isCustomTerm && next && !next.isSectionTitle && !next.isCustomTerm) {
+      tableBlocks.push(buildItemGapBlock(ctx, `item-gap-${index}`));
+    }
+    const zone = zoneEndAt.get(index);
+    if (zone && showZoneSubtotal) tableBlocks.push(buildZoneBlock(ctx, zone.name, zone.amount));
+    if (zone) {
+      let titleIndex = index;
+      while (titleIndex >= 0 && !items[titleIndex]?.isSectionTitle) titleIndex -= 1;
+      if (titleIndex >= 0) pushZoneMedia(titleIndex);
     }
   });
+  if (!pushedUnzoned) pushUnzoned();
 
   if (items.length) tableBlocks.push(buildInstallBlock(ctx));
 

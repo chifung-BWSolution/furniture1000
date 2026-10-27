@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
+import { fetchPresentationLookup } from "../_shared/presentationLookup.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,6 +78,10 @@ Deno.serve(async (req: Request) => {
   }
 
   let body: {
+    action?: string;
+    pitching_id?: string;
+    quotation_id?: string;
+    customer_id?: string;
     search?: string;
     limit?: number;
     offset?: number;
@@ -120,6 +125,53 @@ Deno.serve(async (req: Request) => {
     const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    if (body.action?.startsWith("package_")) {
+      const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", { p_roles: ["pm", "admin", "uploader"] });
+      if (roleError || allowed !== true) return jsonResponse({ error: "沒有套餐計價權限" }, 403);
+      // QMS data is read with a service client: resolve the caller to an approved,
+      // active PMS staff identity before returning any quotation data.
+      const { data: members, error: memberError } = await pmsAdmin.from("users").select("member_id,approval_status").eq("auth_user_id", userData.user.id);
+      if (memberError) throw memberError;
+      if (members?.length !== 1 || String(members[0].approval_status || "").trim().toLowerCase() !== "approved" || !members[0].member_id) return jsonResponse({ error: "未能連結已批准的 PMS 職員帳號，請使用 PMS 登入。" }, 403);
+      const { data: staff, error: staffError } = await pmsAdmin.from("staff").select("role,status").eq("id", members[0].member_id).maybeSingle();
+      if (staffError) throw staffError;
+      if (!staff || String(staff.status || "").trim().toLowerCase() !== "active" || !["super admin", "admin", "senior user", "user"].includes(String(staff.role || "").trim().toLowerCase())) return jsonResponse({ error: "PMS 職員帳號沒有查看報價的權限。" }, 403);
+      if (body.action === "package_pitchings") {
+        const term = (body.search || "").trim().replace(/[,()]/g, " ").slice(0, 80);
+        let q = pmsAdmin.from("bwa_pitchings").select("id,pitching_code,real_customer_display_name,real_building_name").order("modified_date", { ascending: false, nullsFirst: false }).limit(50);
+        if (term) { const pattern = `%${escapeIlike(term)}%`; q = q.or(["pitching_code", "real_customer_display_name", "real_building_name"].map(c => `${c}.ilike.${pattern}`).join(",")); }
+        const { data, error } = await q;
+        if (error) throw error;
+        return jsonResponse({ pitchings: data });
+      }
+      if (body.action === "package_quotes" && body.pitching_id) {
+        const { data, error } = await pmsAdmin.from("qms_active_quotations").select("id,quotation_no,name,status,modified_date,version_number").eq("pitching_id", body.pitching_id).order("modified_date", { ascending: false, nullsFirst: false }).limit(100);
+        if (error) throw error;
+        return jsonResponse({ quotes: data });
+      }
+      if (body.action === "package_items" && body.pitching_id && body.quotation_id) {
+        const { data: quote, error: quoteError } = await pmsAdmin.from("qms_active_quotations").select("id").eq("id", body.quotation_id).eq("pitching_id", body.pitching_id).maybeSingle();
+        if (quoteError) throw quoteError;
+        if (!quote) return jsonResponse({ error: "報價與所選項目不符" }, 404);
+        const { data: sections, error: sectionError } = await pmsAdmin.from("quotation_sections").select("id,name").eq("quotation_id", body.quotation_id).order("order");
+        if (sectionError) throw sectionError;
+        const furniture = (sections || []).filter(s => /傢俬|傢私|家具|furniture/i.test(s.name || ""));
+        if (!furniture.length) return jsonResponse({ sections: [], items: [] });
+        const { data: items, error: itemError } = await pmsAdmin.from("quotation_section_items").select("id,section_id,item,description,quantity,unit,order_number").eq("quote_id", body.quotation_id).in("section_id", furniture.map(s => s.id)).order("order_number");
+        if (itemError) throw itemError;
+        return jsonResponse({ sections: furniture, items: items || [] });
+      }
+      return jsonResponse({ error: "無效的套餐計價查詢" }, 400);
+    }
+
+    if (body.action === "presentation_clients" || body.action === "presentation_projects") {
+      const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", {
+        p_roles: ["pm", "admin", "uploader"],
+      });
+      if (roleError || allowed !== true) return jsonResponse({ error: "沒有搜尋 PMS 客戶及專案的權限" }, 403);
+      return jsonResponse(await fetchPresentationLookup(pmsAdmin, body));
+    }
 
     let query = pmsAdmin
       .from("bwf_pitchings")

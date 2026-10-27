@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
-  CircleHelp,
   ClipboardPaste,
   Copy,
   Eye,
@@ -16,6 +15,7 @@ import {
   FolderKanban,
   GripVertical,
   ImagePlus,
+  Inbox,
   Loader2,
   PackagePlus,
   PackageSearch,
@@ -42,6 +42,8 @@ import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
 import { MaterialRichEditor } from "@/components/dashboard/MaterialRichEditor";
 import { QuotePhotoPages } from "@/components/dashboard/QuotePhotoPages";
+import { QuotePhotoLayoutEditor } from "@/components/dashboard/QuotePhotoLayoutEditor";
+import { PhotoLayoutBlock } from "@/components/dashboard/QuotePhotoLayoutView";
 import {
   canManageQuotePhotos,
   listQuoteContentPages,
@@ -50,6 +52,7 @@ import {
   parseQuotePhotoAssetRefs,
   quotePhotoObjectUrl,
   quotePhotoRefUrl,
+  type QuotePhotoAsset,
   type QuoteContentPage,
   type QuoteCoverPage,
   type QuotePhotoAssetRef,
@@ -57,23 +60,40 @@ import {
 import {
   QuotePhotoGenerateDialog,
   type GenerateChoice,
+  type QuotePhotoZone,
 } from "@/components/dashboard/QuotePhotoGenerateDialog";
-import { parsePhotoLayouts, type PhotoLayoutGroup } from "@/lib/quotePhotoLayouts";
+import {
+  groupGeometry,
+  parsePhotoLayouts,
+  parseZonePhotoLayouts,
+  pruneZonePhotoLayouts,
+  type PhotoLayoutGroup,
+} from "@/lib/quotePhotoLayouts";
 import { FloorPlanViewerModal } from "@/components/dashboard/solutions/FloorPlanViewerModal";
+import { QuoteCatalogPagesDialog } from "@/components/dashboard/QuoteCatalogPagesDialog";
+import { parseQuoteCatalogPages, type QuoteCatalogPage } from "@/lib/quoteCatalogPages";
+import { FloorPlanZoneCanvas, floorPlanZoneColor } from "@/components/dashboard/FloorPlanZoneCanvas";
 import { renderPdfPageToJpegBlob } from "@/lib/floorPlanPdf";
 import {
   uploadProjectFloorPlanFile,
   uploadProjectFloorPlanPreview,
 } from "@/lib/imageStorage";
 import {
+  applyDetectedZones,
+  blankZoneManagerRow,
   detectZonesFromJpegBase64,
   imageBlobToJpegBase64,
   MAX_ZONE_IMAGES,
   parseQuoteFloorPlan,
   parseQuoteZoneImages,
   pruneQuoteZoneImages,
+  regionsFromZoneRows,
+  unconfirmZoneRegions,
+  UNZONED_QUOTE_IMAGE_KEY,
   type QuoteFloorPlan,
   type QuoteZoneImageMap,
+  type QuoteZoneRegion,
+  type ZoneManagerRow,
 } from "@/lib/quoteFloorPlan";
 import { materialPlainText } from "@/lib/quotationMaterialHtml";
 import { toast } from "sonner";
@@ -88,7 +108,9 @@ import {
 import { fetchFactoriesWithIds } from "@/lib/factorySupabase";
 import { CopyQuoteItemsModal } from "@/components/dashboard/CopyQuoteItemsModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Modal, ModalButton } from "@/components/ui/modal";
+import { Progress } from "@/components/ui/progress";
 import { LoadingImage } from "@/components/ui/loading-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -597,6 +619,7 @@ function ImageUploadModal({
   previewUrl,
   uploadImage,
   aiChoices = [],
+  photoZones = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -607,6 +630,7 @@ function ImageUploadModal({
   uploadImage?: (file: File) => Promise<string>;
   /** AI 生成候選（報價明細產品圖）；空的話仍可純描述生成。 */
   aiChoices?: GenerateChoice[];
+  photoZones?: QuotePhotoZone[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLButtonElement>(null);
@@ -758,6 +782,7 @@ function ImageUploadModal({
       <QuotePhotoGenerateDialog
         open={aiOpen}
         choices={aiChoices}
+        zones={photoZones}
         libraryCount={libraryCount}
         onClose={() => setAiOpen(false)}
         onGenerated={(asset) => {
@@ -782,6 +807,7 @@ function ReferenceImageCell({
   fluid = false,
   uploadImage,
   aiChoices,
+  photoZones,
 }: {
   value: string;
   onChange: (url: string) => void;
@@ -793,6 +819,7 @@ function ReferenceImageCell({
   uploadImage?: (file: File) => Promise<string>;
   /** AI 生成候選（報價明細產品圖）— 傳入才會顯示「用 AI 生成圖片」入口。 */
   aiChoices?: GenerateChoice[];
+  photoZones?: QuotePhotoZone[];
 }) {
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -839,6 +866,7 @@ function ReferenceImageCell({
         previewUrl={value || undefined}
         uploadImage={uploadImage}
         aiChoices={aiChoices}
+        photoZones={photoZones}
       />
     </>
   );
@@ -898,14 +926,7 @@ function QuoteItemFlagToggles({
           {labels.optionalProduct}
         </span>
       </label>
-      <label
-        className="inline-flex cursor-pointer items-center gap-1"
-        title={
-          item.hideInPdf
-            ? "已於 PDF／預覽隱藏（草稿仍顯示）"
-            : "勾選後此產品不出現在報價單預覽／PDF"
-        }
-      >
+      <label className="inline-flex cursor-pointer items-center gap-1">
         <Checkbox
           checked={item.hideInPdf ?? false}
           onCheckedChange={(checked) =>
@@ -923,6 +944,10 @@ function QuoteItemFlagToggles({
 
 const QUOTE_INPUT_CLASS =
   "w-full rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
+
+/** Single-line controls in the info cards. Inputs, selects and choice buttons share this height. */
+const QUOTE_PANEL_CONTROL_CLASS =
+  "h-9 w-full rounded-md border border-border bg-background px-3 py-0 font-body text-xs leading-9 text-foreground shadow-none placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
 /** ~15 Chinese characters — 顏色 */
 const QUOTE_SHORT_TEXT_INPUT_CLASS = `${QUOTE_INPUT_CLASS} max-w-[15em]`;
@@ -1112,6 +1137,7 @@ function QuoteProductItemCard({
   serialNumber,
   zonePrefix,
   aiChoices,
+  photoZones,
   draggingItemId,
   dropInsertIndex,
   cutItemId,
@@ -1149,6 +1175,7 @@ function QuoteProductItemCard({
   zonePrefix?: string | null;
   /** AI 生成候選（報價明細產品圖），供圖片欄的「用 AI 生成圖片」。 */
   aiChoices?: GenerateChoice[];
+  photoZones?: QuotePhotoZone[];
   draggingItemId: string | null;
   dropInsertIndex: number | null;
   cutItemId: string | null;
@@ -1180,7 +1207,6 @@ function QuoteProductItemCard({
   zoneOptions?: { id: string; label: string }[];
   onAssignZone?: (zoneTitleId: string) => void;
 }) {
-  const [cardCollapsed, setCardCollapsed] = useState(false);
   const dimensionMode = item.dimensionMode ?? 'lwh';
   const registryLocked =
     Boolean(item.productId?.trim()) && Boolean(item.productCategoryId?.trim());
@@ -1191,6 +1217,7 @@ function QuoteProductItemCard({
   const registrySelectClass =
     "h-[34px] w-full min-w-0 cursor-pointer rounded-md border border-border bg-background px-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60";
   const isDiameterHeight = dimensionMode === 'dh';
+  const unitLocale = labels.unit === 'Unit' ? 'en' : 'zh';
   const uploadProductImage = useCallback(
     (file: File) => uploadQuoteImageFile(file, quoteImageScope, item.id, 'product'),
     [quoteImageScope, item.id],
@@ -1212,83 +1239,41 @@ function QuoteProductItemCard({
         draggingItemId,
         dropInsertIndex,
         cutItemId,
-        "quote-product-row border border-border/80 bg-card",
+        "rounded-lg border border-border bg-background p-4",
       )}
       onDragOver={(e) => onDragOver(e, index)}
       onDrop={onDrop}
     >
-      <div className="quote-product-row-head flex flex-wrap items-start gap-3">
-        <QuoteRowDragHandle
-          itemId={item.id}
-          serialNumber={serialNumber}
-          serialLabel={zonePrefix ?? undefined}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-        />
-        {onAssignZone ? (
-          <QuoteItemZoneSelect
-            zoneTitleId={zoneTitleId}
-            zoneOptions={zoneOptions}
-            labels={labels}
-            onAssign={onAssignZone}
+      <div className={QUOTE_CARD_GRID}>
+        <div className="col-start-1 row-start-1 flex justify-center pt-4 min-[900px]:row-span-2">
+          <QuoteRowDragHandle
+            itemId={item.id}
+            serialNumber={serialNumber}
+            serialLabel={zonePrefix ?? undefined}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
           />
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <input
-            type="text"
-            value={item.name || ""}
-            placeholder={labels.productNamePlaceholder}
-            onChange={(e) => updateItem(item.id, "name", e.target.value)}
-            className="w-full bg-transparent font-display text-sm font-semibold text-foreground placeholder:text-muted-foreground/40 focus:outline-none"
-            aria-label="產品名稱"
-          />
-          <div className="mt-1 flex flex-wrap gap-1">
-            {item.productId?.trim() ? (
-              <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
-                已連結
-              </span>
-            ) : null}
-            {item.isOptional ? (
-              <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                {labels.optionalProduct}
-              </span>
-            ) : null}
-            {item.hideInPdf ? (
-              <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                {labels.hideInPdf}
-              </span>
-            ) : null}
-          </div>
         </div>
-        <div className="quote-product-row-totals">
-          <span><small>{labels.quantity}</small>{item.quantity} {quoteUnitLabel(item.unit, labels.unit === 'Unit' ? 'en' : 'zh')}</span>
-          <span><small>{labels.hkdUnitPrice}</small>${item.unitPrice.toLocaleString()}</span>
-          <span><small>{labels.hkdSubtotal}</small><strong>${quoteItemLineSubtotal(item).toLocaleString()}</strong></span>
-        </div>
-        <QuoteRowActionButtons
-          itemId={item.id}
-          cutItemId={cutItemId}
-          onCut={cutItem}
-          onDuplicate={duplicateItem}
-          onRemove={removeItem}
-          onOpenProduct={() => onOpenProductLink(item)}
-          productLinked={Boolean(item.productId?.trim())}
-          labels={labels}
-          onMoveUp={onMoveUp}
-          onMoveDown={onMoveDown}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          collapsed={cardCollapsed}
-          onToggleCollapse={() => setCardCollapsed((v) => !v)}
-        />
-      </div>
 
-      {cardCollapsed ? null : (
-        <div className="quote-product-row-body">
-        <div className="quote-product-row-fields">
-          <section className="quote-item-group">
-            <h3>{labels.unit === 'Unit' ? 'Classification' : '分類與類別'}</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="col-start-2 min-w-0 w-full space-y-2 min-[900px]:row-start-1">
+          {onAssignZone ? (
+            <QuoteItemZoneSelect
+              zoneTitleId={zoneTitleId}
+              zoneOptions={zoneOptions}
+              labels={labels}
+              onAssign={onAssignZone}
+            />
+          ) : null}
+          <QuoteFieldBlock label={labels.productNamePlaceholder}>
+            <input
+              type="text"
+              value={item.name || ""}
+              placeholder={labels.productNamePlaceholder}
+              onChange={(e) => updateItem(item.id, "name", e.target.value)}
+              className={QUOTE_INPUT_CLASS}
+              aria-label={labels.productNamePlaceholder}
+            />
+          </QuoteFieldBlock>
           <QuoteFieldBlock label={labels.level1Category}>
             <Select
               value={level1Value || "__none__"}
@@ -1348,138 +1333,25 @@ function QuoteProductItemCard({
               </SelectContent>
             </Select>
           </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.category} className="sm:col-span-2">
-            <Input
+          <QuoteFieldBlock
+            label={labels.category}
+            trailing={
+              <QuoteItemFlagToggles
+                item={item}
+                updateItem={updateItem}
+                labels={labels}
+                className="min-[900px]:hidden"
+              />
+            }
+          >
+            <textarea
               value={item.category || ""}
               placeholder="—"
+              rows={2}
               onChange={(e) => updateItem(item.id, "category", e.target.value)}
-              className={QUOTE_INPUT_CLASS}
+              className={`${QUOTE_INPUT_CLASS} min-h-[34px] resize-y leading-relaxed`}
             />
           </QuoteFieldBlock>
-            </div>
-          </section>
-          <section className="quote-item-group">
-            <h3>{labels.unit === 'Unit' ? 'Attributes' : '屬性'}</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <QuoteFieldBlock label={labels.quantity}>
-            <input
-              type="number"
-              value={item.quantity || ""}
-              placeholder="1"
-              min={1}
-              onChange={(e) =>
-                updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.unit}>
-            <input
-              type="text"
-              value={quoteUnitLabel(item.unit, labels.unit === 'Unit' ? 'en' : 'zh')}
-              placeholder="—"
-              maxLength={4}
-              onChange={(e) => updateItem(item.id, "unit", e.target.value)}
-              className={QUOTE_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.factory}>
-            <QuoteFactoryField
-              labels={labels}
-              value={item.factoryName || ""}
-              locked={Boolean(item.factoryFromCatalog)}
-              factories={factories}
-              loading={factoriesLoading}
-              onChange={(name) => updateItem(item.id, "factoryName", name)}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.sku}>
-            <input
-              type="text"
-              value={item.sku || ""}
-              placeholder="—"
-              onChange={(e) => updateItem(item.id, "sku", e.target.value)}
-              className={QUOTE_INPUT_CLASS}
-              aria-label={labels.sku}
-              title="SKU（僅草稿編輯，不顯示於 PDF）"
-            />
-          </QuoteFieldBlock>
-            </div>
-          </section>
-          <section className="quote-item-group">
-            <h3>{labels.unit === 'Unit' ? 'Cost & Selling Price' : '成本與售價'}</h3>
-            <div className="quote-item-pricing grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <QuoteFieldBlock label={labels.cnyCost}>
-            <input
-              type="number"
-              value={item.costPrice ?? ""}
-              placeholder="—"
-              min={0}
-              onChange={(e) =>
-                updateItem(
-                  item.id,
-                  "costPrice",
-                  e.target.value ? parseFloat(e.target.value) : null,
-                )
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.exchangeRate}>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
-              placeholder="—"
-              onChange={(e) => updateExchangeRate(item.id, e.target.value)}
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.hkdCost}>
-            <input
-              type="number"
-              value={item.hkdCostPrice == null ? "" : Math.ceil(item.hkdCostPrice)}
-              placeholder="—"
-              min={0}
-              step={1}
-              onChange={(e) =>
-                updateItem(
-                  item.id,
-                  "hkdCostPrice",
-                  e.target.value === "" ? null : parseFloat(e.target.value),
-                )
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-              aria-label={labels.hkdCost}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.hkdUnitPrice}>
-            <input
-              type="number"
-              value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
-              placeholder="0"
-              min={0}
-              onChange={(e) =>
-                updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.hkdSubtotal} className="quote-item-subtotal">
-            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/40 px-2">
-              <span
-                className={cn(
-                  "truncate font-mono-data text-xs font-medium",
-                  item.isOptional ? "text-muted-foreground" : "text-foreground",
-                )}
-              >
-                ${quoteItemLineSubtotal(item).toLocaleString()}
-              </span>
-            </div>
-          </QuoteFieldBlock>
-            </div>
-          </section>
-          <div className="quote-item-dimensions">
           <div className="min-w-0">
             <div className="mb-1 flex min-h-[22px] flex-wrap items-center gap-1.5 font-body text-xs font-medium text-muted-foreground">
               <span className="shrink-0 leading-normal">{labels.dimensionsMm}</span>
@@ -1567,36 +1439,30 @@ function QuoteProductItemCard({
               className={QUOTE_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-          </div>
-          <section className="quote-item-group quote-item-description">
-            <h3>{labels.unit === 'Unit' ? 'Description' : '說明'}</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <QuoteFieldBlock label={labels.material}>
-            <MaterialRichEditor
-              value={item.material || ""}
-              placeholder={labels.unit === 'Unit' ? 'Materials & details…' : '材質及明細…'}
-              onChange={(html) => updateItem(item.id, "material", html)}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.remarks}>
-            <RemarksRichEditor
-              singleLine
-              locale={labels.unit === 'Unit' ? 'en' : 'zh'}
-              placeholder={labels.unit === 'Unit' ? 'Remarks…' : '備註文字…'}
-              key={item.id}
-              compact
-              value={item.remarks || ""}
-              legacyImage={item.remarksImage}
-              onChange={(val) => updateItem(item.id, "remarks", val)}
-              uploadImage={uploadRemarksImage}
-            />
-          </QuoteFieldBlock>
-
-            </div>
-          </section>
         </div>
-        <div className="quote-product-row-images">
-          <QuoteFieldBlock label={labels.image}>
+
+        <QuoteFieldBlock
+          label={labels.material}
+          className={cn(
+            "col-start-2 min-w-0 min-[900px]:col-span-2 min-[900px]:col-start-3 min-[900px]:row-start-1",
+            QUOTE_CARD_MEDIA_XL_SHIFT,
+          )}
+        >
+          <MaterialRichEditor
+            value={item.material || ""}
+            placeholder={unitLocale === "en" ? "Materials & details…" : "材質及明細..."}
+            onChange={(html) => updateItem(item.id, "material", html)}
+          />
+        </QuoteFieldBlock>
+
+        <div className="col-start-2 grid grid-cols-2 gap-3 min-[900px]:contents">
+          <QuoteFieldBlock
+            label={labels.image}
+            className={cn(
+              "min-w-0 min-[900px]:col-start-3 min-[900px]:row-start-2",
+              QUOTE_CARD_MEDIA_XL_SHIFT,
+            )}
+          >
             <ReferenceImageCell
               value={item.image || ""}
               onChange={(url) => updateItem(item.id, "image", url)}
@@ -1605,9 +1471,16 @@ function QuoteProductItemCard({
               fluid
               uploadImage={uploadProductImage}
               aiChoices={aiChoices}
+              photoZones={photoZones}
             />
           </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.referenceImage}>
+          <QuoteFieldBlock
+            label={labels.referenceImage}
+            className={cn(
+              "min-w-0 min-[900px]:col-start-4 min-[900px]:row-start-2",
+              QUOTE_CARD_MEDIA_XL_SHIFT,
+            )}
+          >
             <ReferenceImageCell
               value={item.referenceImage || ""}
               onChange={(url) => updateItem(item.id, "referenceImage", url)}
@@ -1616,21 +1489,205 @@ function QuoteProductItemCard({
               fluid
               uploadImage={uploadReferenceImage}
               aiChoices={aiChoices}
+              photoZones={photoZones}
             />
           </QuoteFieldBlock>
+        </div>
 
-        </div>
-        </div>
-      )}
-      {!cardCollapsed && (
-          <div className="quote-product-row-footer">
-            <QuoteItemFlagToggles
-              item={item}
-              updateItem={updateItem}
+        <QuoteFieldBlock label={labels.remarks} className="col-start-2 min-w-0 min-[900px]:row-start-2">
+          <RemarksRichEditor
+            key={item.id}
+            compact
+            locale={unitLocale}
+            placeholder={unitLocale === "en" ? "Remarks…" : "備註文字…"}
+            value={item.remarks || ""}
+            legacyImage={item.remarksImage}
+            onChange={(val) => updateItem(item.id, "remarks", val)}
+            uploadImage={uploadRemarksImage}
+          />
+        </QuoteFieldBlock>
+
+        <div className="col-start-2 grid grid-cols-1 gap-3 min-[650px]:grid-cols-2 min-[900px]:contents">
+          <div
+            className={cn(
+              "flex min-h-0 flex-col self-stretch min-[900px]:col-start-5 min-[900px]:row-start-1",
+              QUOTE_QTY_COST_FIELD_CLASS,
+            )}
+          >
+            <QuoteFieldBlock label={labels.quantity} className="shrink-0">
+              <input
+                type="number"
+                value={item.quantity || ""}
+                placeholder="1"
+                min={1}
+                onChange={(e) =>
+                  updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
+                }
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <div className="flex min-h-0 flex-1 items-center">
+              <QuoteFieldBlock label={labels.factory} className="w-full">
+                <QuoteFactoryField
+                  labels={labels}
+                  value={item.factoryName || ""}
+                  locked={Boolean(item.factoryFromCatalog)}
+                  factories={factories}
+                  loading={factoriesLoading}
+                  onChange={(name) => updateItem(item.id, "factoryName", name)}
+                />
+              </QuoteFieldBlock>
+            </div>
+          </div>
+
+          <div
+            className={cn(
+              "flex min-h-0 flex-col self-stretch min-[900px]:col-start-5 min-[900px]:row-start-2",
+              QUOTE_QTY_COST_FIELD_CLASS,
+            )}
+          >
+            <QuoteFieldBlock label={labels.cnyCost} className="shrink-0">
+              <input
+                type="number"
+                value={item.costPrice ?? ""}
+                placeholder="—"
+                min={0}
+                onChange={(e) =>
+                  updateItem(
+                    item.id,
+                    "costPrice",
+                    e.target.value ? parseFloat(e.target.value) : null,
+                  )
+                }
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <div className="relative z-10 flex min-h-0 flex-1 items-center py-0.5">
+              <QuoteFieldBlock label={labels.exchangeRate} className="w-max">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
+                  placeholder="—"
+                  onChange={(e) => updateExchangeRate(item.id, e.target.value)}
+                  className={cn(QUOTE_COMPACT_NUMBER_INPUT_CLASS, "w-[6em] min-w-[6em] shrink-0")}
+                />
+              </QuoteFieldBlock>
+            </div>
+            <QuoteFieldBlock label={labels.hkdCost} className="shrink-0">
+              <input
+                type="number"
+                value={item.hkdCostPrice == null ? "" : Math.ceil(item.hkdCostPrice)}
+                placeholder="—"
+                min={0}
+                step={1}
+                onChange={(e) =>
+                  updateItem(
+                    item.id,
+                    "hkdCostPrice",
+                    e.target.value === "" ? null : parseFloat(e.target.value),
+                  )
+                }
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+                aria-label={labels.hkdCost}
+              />
+            </QuoteFieldBlock>
+          </div>
+
+          <div
+            className={cn(
+              "flex min-h-0 min-w-0 flex-col self-stretch min-[900px]:col-span-3 min-[900px]:col-start-6 min-[900px]:row-start-1",
+              QUOTE_CARD_PRICING_XL_SHIFT,
+            )}
+          >
+            <div className="flex min-w-0 shrink-0 items-end gap-3">
+              <QuoteFieldBlock label={labels.unit} className={QUOTE_PRICE_FIELD_CLASS}>
+                <input
+                  type="text"
+                  value={quoteUnitLabel(item.unit, unitLocale)}
+                  placeholder="—"
+                  maxLength={4}
+                  onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                  className={QUOTE_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <div className="hidden min-w-0 flex-1 items-end pb-0.5 min-[900px]:flex">
+                <QuoteItemFlagToggles
+                  item={item}
+                  updateItem={updateItem}
+                  labels={labels}
+                />
+              </div>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center">
+              <QuoteFieldBlock
+                label={labels.sku}
+                className="w-full max-w-full shrink-0 min-[900px]:w-[14.75em] [&_label]:whitespace-nowrap"
+              >
+                <input
+                  type="text"
+                  value={item.sku || ""}
+                  placeholder="—"
+                  onChange={(e) => updateItem(item.id, "sku", e.target.value)}
+                  className={QUOTE_INPUT_CLASS}
+                  aria-label={labels.sku}
+                  title="SKU（僅草稿編輯，不顯示於 PDF）"
+                />
+              </QuoteFieldBlock>
+            </div>
+          </div>
+
+          <div
+            className={cn(
+              "flex min-w-0 items-start gap-3 min-[900px]:col-span-3 min-[900px]:col-start-6 min-[900px]:row-start-2",
+              QUOTE_CARD_PRICING_XL_SHIFT,
+            )}
+          >
+            <QuoteFieldBlock label={labels.hkdUnitPrice} className={QUOTE_PRICE_FIELD_CLASS}>
+              <input
+                type="number"
+                value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
+                placeholder="0"
+                min={0}
+                onChange={(e) =>
+                  updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
+                }
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label={labels.hkdSubtotal} className={QUOTE_PRICE_FIELD_CLASS}>
+              <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+                <span
+                  className={cn(
+                    "truncate font-mono-data text-xs font-medium",
+                    item.isOptional ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  ${quoteItemLineSubtotal(item).toLocaleString()}
+                </span>
+              </div>
+            </QuoteFieldBlock>
+          </div>
+
+          <div className="shrink-0 min-[650px]:col-span-2 min-[900px]:col-span-1 min-[900px]:col-start-9 min-[900px]:row-start-2">
+            <div className="mb-1 hidden h-4 min-[900px]:block" aria-hidden="true" />
+            <QuoteRowActionButtons
+              itemId={item.id}
+              cutItemId={cutItemId}
+              onCut={cutItem}
+              onDuplicate={duplicateItem}
+              onRemove={removeItem}
+              onOpenProduct={() => onOpenProductLink(item)}
+              productLinked={Boolean(item.productId?.trim())}
               labels={labels}
+              onMoveUp={onMoveUp}
+              onMoveDown={onMoveDown}
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
             />
           </div>
-      )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2049,8 +2106,8 @@ function QuoteMultiChoice({ label, values, options, onChange, english = false }:
     <QuoteFieldBlock label={label}>
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" aria-label={label} className="flex min-h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-left text-xs">
-            <span className="min-w-0 flex-1 leading-5">{values.length ? values.join('、') : (english ? `Select ${label.toLowerCase()}` : `選擇${label}`)}</span>
+          <button type="button" aria-label={label} title={values.join('、')} className={cn(QUOTE_PANEL_CONTROL_CLASS, "flex items-center justify-between gap-2 text-left")}>
+            <span className="min-w-0 flex-1 truncate">{values.length ? values.join('、') : (english ? `Select ${label.toLowerCase()}` : `選擇${label}`)}</span>
             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           </button>
         </PopoverTrigger>
@@ -2092,7 +2149,7 @@ function InfoPanelColumn({
 }) {
   const editing = !collapsed;
   return (
-    <section className="quote-info-panel self-start overflow-hidden rounded-xl border border-border/80 bg-card">
+    <section className="quote-info-panel flex h-full flex-col overflow-hidden rounded-xl border border-border/80 bg-card">
       <div className="flex items-center gap-2 px-3 py-3">
         <span
           className={cn(
@@ -2122,7 +2179,7 @@ function InfoPanelColumn({
           />
         </button>
       </div>
-      <div className="border-t border-border/60 px-3 pb-3 pt-1">
+      <div className="flex-1 border-t border-border/60 px-3 pb-3 pt-1">
         {editing ? <div className="space-y-3 pt-2">{children}</div> : summary}
       </div>
     </section>
@@ -2230,16 +2287,23 @@ function insertItemsAt(
   return [...prev.slice(0, clamped), ...rows, ...prev.slice(clamped)];
 }
 
-function sectionZonesOf(items: QuotationItem[]): { id: string; name: string }[] {
+function zoneRowsFromItems(items: QuotationItem[], regions: QuoteZoneRegion[]): ZoneManagerRow[] {
   return items
     .filter((item) => item.isSectionTitle)
-    .map((item) => ({ id: item.id, name: item.name || "" }));
+    .map((item) => ({
+      id: item.id,
+      name: item.name || "",
+      nameEn: item.remarks || "",
+      spaceType: item.category || "",
+      quantity: item.quantity > 0 ? item.quantity : 1,
+      rect: regions.find((region) => region.zoneId === item.id)?.rect ?? null,
+    }));
 }
 
 /** Rebuild the flat list from the zone-manager draft. Removed zones release their rows to 未分區. */
 function applyZoneManager(
   items: QuotationItem[],
-  drafts: { id: string; name: string }[],
+  drafts: ZoneManagerRow[],
 ): QuotationItem[] {
   const kept = new Set(drafts.map((row) => row.id));
   const unzoned: QuotationItem[] = [];
@@ -2269,15 +2333,27 @@ function applyZoneManager(
   }
   const next = [...unzoned, ...orphans];
   for (const draft of drafts) {
-    const name = draft.name.trim();
+    const name = draft.name.trim() || draft.nameEn.trim();
     const block = blocks.get(draft.id);
+    const profile = {
+      name,
+      remarks: draft.nameEn.trim(),
+      category: draft.spaceType.trim(),
+      quantity: draft.quantity > 0 ? draft.quantity : 1,
+    };
     if (block) {
-      next.push({ ...block[0], name: name || block[0].name }, ...block.slice(1));
+      next.push({ ...block[0], ...profile, name: name || block[0].name }, ...block.slice(1));
     } else if (name) {
-      next.push({ ...createBlankSectionTitle(), id: draft.id, name });
+      next.push({ ...createBlankSectionTitle(), id: draft.id, ...profile });
     }
   }
   return next;
+}
+
+/** Dirty checks ignore the draft timestamp so a save can match the next render. */
+function quoteDraftSnapshot(draft: DraftData): string {
+  const { updatedAt: _updatedAt, ...rest } = draft;
+  return JSON.stringify(rest);
 }
 
 function QuoteAddRowButtonGroup({
@@ -2390,6 +2466,28 @@ function QuoteAddRowButtonGroup({
       ) : null}
     </div>
   );
+}
+
+/** A section title with no product or service lines under it is omitted from the PDF. */
+function omitEmptyPdfZones(rows: QuotationItem[]): QuotationItem[] {
+  const keepTitle = new Set<number>();
+  let titleIndex = -1;
+  let hasBody = false;
+  const closeZone = () => {
+    if (titleIndex >= 0 && hasBody) keepTitle.add(titleIndex);
+    titleIndex = -1;
+    hasBody = false;
+  };
+  rows.forEach((item, index) => {
+    if (item.isSectionTitle) {
+      closeZone();
+      titleIndex = index;
+      return;
+    }
+    hasBody = true;
+  });
+  closeZone();
+  return rows.filter((item, index) => !item.isSectionTitle || keepTitle.has(index));
 }
 
 /** Rows created via 新建欄位 may have category/material but no product name — still export to PDF. */
@@ -2604,17 +2702,39 @@ export function QuotationDraftEditor({
   const [floorPlan, setFloorPlan] = useState<QuoteFloorPlan | null>(() =>
     parseQuoteFloorPlan(savedProjectData.floorPlan),
   );
+  const [catalogPages, setCatalogPages] = useState<QuoteCatalogPage[]>(() =>
+    parseQuoteCatalogPages((savedProjectData as Record<string, unknown>).catalogPageAttachments),
+  );
+  const [showCatalogSource, setShowCatalogSource] = useState(
+    () => (savedProjectData as Record<string, unknown>).showCatalogSource !== false,
+  );
+  const [catalogDialogOpen, setCatalogDialogOpen] = useState(false);
   const [zoneImages, setZoneImages] = useState<QuoteZoneImageMap>(() =>
     parseQuoteZoneImages(savedProjectData.zoneImages),
   );
+  const [zonePhotoLayouts, setZonePhotoLayouts] = useState<Record<string, PhotoLayoutGroup[]>>(() =>
+    parseZonePhotoLayouts(savedProjectData.zonePhotoLayouts),
+  );
+  const [zoneLayoutEditor, setZoneLayoutEditor] = useState<{ zoneId: string; groupId: string | null } | null>(null);
+  const [photoLibrary, setPhotoLibrary] = useState<QuotePhotoAsset[]>([]);
   const [floorPlanBusy, setFloorPlanBusy] = useState(false);
   const [recognizingZones, setRecognizingZones] = useState(false);
+  const [zoneRecognitionProgress, setZoneRecognitionProgress] = useState(0);
+  const [floorPlanDragOver, setFloorPlanDragOver] = useState(false);
+  const [zoneSortId, setZoneSortId] = useState<string | null>(null);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
   const [zoneManagerOpen, setZoneManagerOpen] = useState(false);
-  const [zoneManagerDraft, setZoneManagerDraft] = useState<{ id: string; name: string }[]>([]);
+  const [zoneManagerDraft, setZoneManagerDraft] = useState<ZoneManagerRow[]>([]);
+  const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
   const [zoneImageTargetId, setZoneImageTargetId] = useState<string | null>(null);
   const [zoneLightbox, setZoneLightbox] = useState<{ urls: string[]; index: number } | null>(null);
   const floorPlanInputRef = useRef<HTMLInputElement>(null);
+  const floorPlanRef = useRef(floorPlan);
+  floorPlanRef.current = floorPlan;
+  const zoneManagerDraftRef = useRef(zoneManagerDraft);
+  zoneManagerDraftRef.current = zoneManagerDraft;
+  const zoneManagerOpenRef = useRef(zoneManagerOpen);
+  zoneManagerOpenRef.current = zoneManagerOpen;
   const [canManagePhotos, setCanManagePhotos] = useState(false);
   /**
    * 圖片庫標為封面／封底的圖（照 FCCD）：每次出 PDF 自動各佔一整頁，
@@ -2659,6 +2779,12 @@ export function QuotationDraftEditor({
     setFloorPlan((prev) => (JSON.stringify(prev) === JSON.stringify(nextFloorPlan) ? prev : nextFloorPlan));
     const nextZoneImages = parseQuoteZoneImages(projectData?.zoneImages);
     setZoneImages((prev) => (JSON.stringify(prev) === JSON.stringify(nextZoneImages) ? prev : nextZoneImages));
+    const nextZoneLayouts = parseZonePhotoLayouts(projectData?.zonePhotoLayouts);
+    setZonePhotoLayouts((prev) => (JSON.stringify(prev) === JSON.stringify(nextZoneLayouts) ? prev : nextZoneLayouts));
+    const nextCatalogPages = parseQuoteCatalogPages(projectData?.catalogPageAttachments);
+    setCatalogPages((prev) => (JSON.stringify(prev) === JSON.stringify(nextCatalogPages) ? prev : nextCatalogPages));
+    const nextShowSource = projectData?.showCatalogSource !== false;
+    setShowCatalogSource((prev) => (prev === nextShowSource ? prev : nextShowSource));
   }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
   // 報價 PDF 的 QR 指向這張單已有的客戶連結，不必每次開啟都重新生成。
@@ -2929,6 +3055,11 @@ export function QuotationDraftEditor({
     return DEFAULT_ITEMS;
   });
   const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(false);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const itemsLoadedRef = useRef(false);
+  itemsLoadedRef.current = itemsLoadedFromDb;
+  const itemsReadyWaiters = useRef<Array<() => void>>([]);
 
   // 報價明細的產品圖：排版時預設放進素材區，不用再去圖片庫找。
   const quoteProductPhotos = useMemo(() => {
@@ -2947,6 +3078,36 @@ export function QuotationDraftEditor({
     return photos;
   }, [items]);
   /** AI 生成候選（同 QMS）：只限報價明細的產品圖，AI 按產品圖把產品放進描述場景。 */
+  const quotePhotoZones = useMemo<QuotePhotoZone[]>(() => {
+    if (!floorPlan) return [];
+    const zones: QuotePhotoZone[] = [];
+    let current: QuotePhotoZone | null = null;
+    for (const item of items) {
+      if (item.isSectionTitle) {
+        if (current?.name.trim()) zones.push(current);
+        current = {
+          id: item.id,
+          name: (item.name || "").trim(),
+          spaceType: (item.category || "").trim(),
+          furniture: [],
+        };
+        continue;
+      }
+      if (!current || item.isCustomTerm) continue;
+      const imageUrl = (item.image || "").trim();
+      // 明細常常只填類別、產品名稱留空。類別就是這件傢俬的名稱。
+      const name = (item.name || item.category || item.sku || "").trim();
+      if (!name && !imageUrl) continue;
+      const role = (item.category || item.registryLevel2 || item.registryLevel1 || "").trim();
+      current.furniture.push({
+        name: name || role || "傢俬",
+        role,
+        ...(imageUrl ? { imageUrl } : {}),
+      });
+    }
+    if (current?.name.trim()) zones.push(current);
+    return zones;
+  }, [floorPlan, items]);
   const quoteAiChoices = useMemo<GenerateChoice[]>(
     () =>
       quoteProductPhotos.flatMap((photo) => {
@@ -2957,7 +3118,7 @@ export function QuotationDraftEditor({
       }),
     [quoteProductPhotos],
   );
-  /** Prevents async loadQuoteItems from overwriting in-session user edits. */
+  /** Prevents async loadQuoteItems from overwriting in-session line-item edits. */
   const itemsUserEditedRef = useRef(false);
   /** Tracks which quote uuid already hydrated items in this editor session. */
   const itemsHydratedForUuidRef = useRef<string | null>(null);
@@ -3001,7 +3162,11 @@ export function QuotationDraftEditor({
       return;
     }
     // After 版本審核 a new uuid appears; never clobber in-session edits / current table.
-    if (itemsUserEditedRef.current || itemsHydratedForUuidRef.current) {
+    // A flag with no line content is not an edit — the table is still the unloaded placeholder.
+    if (
+      (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent))
+      || itemsHydratedForUuidRef.current
+    ) {
       itemsHydratedForUuidRef.current = quoteUuid;
       setItemsLoadedFromDb(true);
       return;
@@ -3011,7 +3176,7 @@ export function QuotationDraftEditor({
       try {
         const rows = await loadQuoteItems(quoteUuid);
         if (cancelled) return;
-        if (itemsUserEditedRef.current) {
+        if (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent)) {
           itemsHydratedForUuidRef.current = quoteUuid;
           return;
         }
@@ -3019,6 +3184,11 @@ export function QuotationDraftEditor({
           const linked = await hydrateQuoteItemProductLinks(
             rows.map(normalizeLegacyQuoteItemProductId),
           );
+          if (cancelled) return;
+          if (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent)) {
+            itemsHydratedForUuidRef.current = quoteUuid;
+            return;
+          }
           setItems(linked.map((item) => mapInputToQuotationItem(item)));
         }
         itemsHydratedForUuidRef.current = quoteUuid;
@@ -3034,6 +3204,20 @@ export function QuotationDraftEditor({
     // legacyItems length is stable for this existingQuote mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingQuote?.quoteUuid]);
+
+  useEffect(() => {
+    if (!itemsLoadedFromDb) return;
+    const waiters = itemsReadyWaiters.current;
+    itemsReadyWaiters.current = [];
+    waiters.forEach((resolve) => resolve());
+  }, [itemsLoadedFromDb]);
+
+  const waitForQuoteItems = () => {
+    if (!existingQuote?.quoteUuid || itemsLoadedRef.current) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      itemsReadyWaiters.current.push(resolve);
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -3577,6 +3761,14 @@ export function QuotationDraftEditor({
   const [autoSaveFailed, setAutoSaveFailed] = useState(false);
 
   const handleOpenSubmitReview = () => {
+    if (existingQuote?.quoteUuid && !itemsLoadedFromDb) {
+      toast.error(quoteLocale === "en" ? "The quotation is still loading" : "報價內容仍在載入", {
+        description: quoteLocale === "en"
+          ? "Wait until everything has loaded before sending it for review."
+          : "請等報價內容載入完成再送出，以免漏掉項目。",
+      });
+      return;
+    }
     const missing = [
       !quoteMeta.pmName.trim() && '項目經理姓名',
       !clientInfo.name.trim() && '公司名稱',
@@ -3599,14 +3791,14 @@ export function QuotationDraftEditor({
     if (contentItems.length === 0) {
       toast.error("無法提交審核", {
         description:
-          "目前沒有報價內容（總額可能為 HK$0）。若剛才頁面曾異常，請先按「保存現有版本」或重新整理以恢復草稿。",
+          "還沒有報價內容，總金額可能是 HK$0。如果剛才頁面出過問題，請先按「保存現有版本」，或重新整理取回剛才的內容。",
       });
       return;
     }
     if (totalAmount <= 0) {
       toast.error("無法提交審核", {
         description:
-          "報價總金額為 HK$0。請確認品項單價／數量後再提交；若資料異常消失，請重新整理以恢復草稿。",
+          "總金額是 HK$0。請檢查單價和數量後再送出。如果內容不見了，請重新整理取回剛才的內容。",
       });
       return;
     }
@@ -3630,7 +3822,7 @@ export function QuotationDraftEditor({
     if (!chainId) {
       toast.error("缺少報價單號", {
         description:
-          "無法確認 PMS Pitching 報價單號。請返回選擇 Pitching，或重新整理後再提交審核。",
+          "找不到這張報價的單號。請返回重新選擇提案，或重新整理後再送出審核。",
       });
       return;
     }
@@ -3665,7 +3857,7 @@ export function QuotationDraftEditor({
         const product = await fetchProductForQuoteDetail(linkedId);
         if (!product) {
           toast.error("找不到關聯產品", {
-            description: "products 表可能已刪除該產品，可重新建立並連結。",
+            description: "這件產品可能已從目錄刪除，可以重新建立並連回去。",
           });
           return;
         }
@@ -3704,6 +3896,20 @@ export function QuotationDraftEditor({
         }),
     [items, quoteLocale],
   );
+  const zonePhotoSources = useMemo(() => {
+    const map = new Map<string, { title: string; previewUrl: string }>();
+    for (const photo of quoteProductPhotos) {
+      if (photo.url) map.set(photo.id, { title: photo.title, previewUrl: photo.url });
+    }
+    for (const asset of quotePhotoAssets) {
+      const url = quotePhotoRefUrl(asset);
+      if (url) map.set(asset.id, { title: asset.title, previewUrl: url });
+    }
+    for (const asset of photoLibrary) {
+      map.set(asset.id, { title: asset.title, previewUrl: asset.url });
+    }
+    return map;
+  }, [photoLibrary, quotePhotoAssets, quoteProductPhotos]);
 
   const assignItemToZone = (itemId: string, value: string) => {
     itemsUserEditedRef.current = true;
@@ -3748,57 +3954,165 @@ export function QuotationDraftEditor({
   };
 
   const openZoneImageUpload = (zoneId: string | null) => {
-    if (!zoneId) {
-      toast.error(quoteLocale === "en" ? "Add a zone before this row first" : "請先在這件傢俬前面新增分區");
-      return;
-    }
-    setZoneImageTargetId(zoneId);
+    const id = zoneId || UNZONED_QUOTE_IMAGE_KEY;
+    const groups = zonePhotoLayouts[id] ?? [];
+    setZoneLayoutEditor({ zoneId: id, groupId: groups[0]?.id ?? null });
+    void listQuotePhotoAssets().then((result) => setPhotoLibrary(result.assets));
+  };
+
+  const removeZoneLayout = (zoneId: string, groupId: string) => {
+    setZonePhotoLayouts((prev) => {
+      const nextGroups = (prev[zoneId] || []).filter((group) => group.id !== groupId);
+      const next = { ...prev };
+      if (nextGroups.length) next[zoneId] = nextGroups;
+      else delete next[zoneId];
+      return next;
+    });
+  };
+
+  const renderZonePhotoTail = (zoneId: string) => {
+    const urls = zoneImages[zoneId] || [];
+    const layouts = (zonePhotoLayouts[zoneId] || []).filter((group) => group.placements.length > 0);
+    if (!urls.length && !layouts.length) return null;
+    return (
+      <div className="flex flex-col items-center gap-3">
+        {layouts.map((group) => (
+          <div key={group.id} className="relative w-full max-w-2xl">
+            <button
+              type="button"
+              onClick={() => openZoneImageUpload(zoneId)}
+              className="block w-full overflow-hidden rounded-md border border-border bg-background text-left"
+              aria-label={t.uploadZoneImage}
+            >
+              <PhotoLayoutBlock
+                geometry={groupGeometry(group)}
+                placements={group.placements}
+                photoFor={(assetId) => zonePhotoSources.get(assetId)}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() => removeZoneLayout(zoneId, group.id)}
+              className="absolute right-2 top-2 z-10 text-destructive hover:text-destructive/80"
+              aria-label={t.removeZoneImage}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+        {urls.length > 0 ? (
+          <div className="flex flex-wrap justify-center gap-2">
+            {urls.map((url, imageIndex) => (
+              <div key={url} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setZoneLightbox({ urls, index: imageIndex })}
+                  className="block overflow-hidden rounded-md border border-border bg-background"
+                  aria-label={quoteLocale === "en" ? `Image ${imageIndex + 1}` : `圖片 ${imageIndex + 1}`}
+                >
+                  <LoadingImage src={url} alt="" className="h-16 w-20" imgClassName="object-contain" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeZoneImage(zoneId, url)}
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"
+                  aria-label={t.removeZoneImage}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   const openZoneManager = () => {
-    setZoneManagerDraft(sectionZonesOf(items));
+    setZoneManagerDraft(zoneRowsFromItems(items, floorPlan?.regions ?? []));
+    setActiveZoneId(null);
     setZoneManagerOpen(true);
   };
 
-  const saveZoneManager = () => {
-    itemsUserEditedRef.current = true;
+  const zoneRecognitionActive = floorPlanBusy || recognizingZones;
+
+  useEffect(() => {
+    if (!zoneRecognitionActive) {
+      setZoneRecognitionProgress(0);
+      return;
+    }
+    setZoneRecognitionProgress((value) => (value > 0 ? value : 8));
+    const timer = window.setInterval(() => {
+      setZoneRecognitionProgress((value) => {
+        const cap = floorPlanBusy ? 36 : 92;
+        if (value >= cap) return value;
+        const step = value < cap * 0.5 ? 3.5 : 1.1;
+        return Math.min(cap, Math.round((value + step) * 10) / 10);
+      });
+    }, 350);
+    return () => window.clearInterval(timer);
+  }, [zoneRecognitionActive, floorPlanBusy]);
+
+  const saveZoneManager = async () => {
     const drafts = zoneManagerDraft;
-    setItems((prev) => applyZoneManager(prev, drafts));
-    setZoneImages((prev) =>
-      pruneQuoteZoneImages(prev, drafts.map((row) => row.id)),
+    const existingIds = new Set(
+      items.filter((item) => item.isSectionTitle).map((item) => item.id),
     );
+    const kept = drafts.filter((row) => row.name.trim() || row.nameEn.trim() || existingIds.has(row.id));
+    const nextItems = applyZoneManager(items, kept);
+    const keptIds = kept.map((row) => row.id);
+    const nextZoneImages = pruneQuoteZoneImages(zoneImages, keptIds);
+    const nextZonePhotoLayouts = pruneZonePhotoLayouts(zonePhotoLayouts, [...keptIds, UNZONED_QUOTE_IMAGE_KEY]);
+    const nextFloorPlan = floorPlan ? { ...floorPlan, regions: regionsFromZoneRows(kept) } : floorPlan;
+    // Empty drafts can have zones before their first priced line. Keep those edits
+    // locally and let the normal save action persist them once the quote is valid.
+    const canSave = nextItems.some(hasQuoteItemContent) && totalAmount > 0;
+    if (canSave) {
+      const saved = await handleSaveExistingVersion({
+        items: nextItems,
+        floorPlan: nextFloorPlan,
+        zoneImages: nextZoneImages,
+        zonePhotoLayouts: nextZonePhotoLayouts,
+      });
+      if (!saved) return;
+    }
+    itemsUserEditedRef.current = true;
+    setItems(nextItems);
+    setZoneImages(nextZoneImages);
+    setZonePhotoLayouts(nextZonePhotoLayouts);
+    setFloorPlan(nextFloorPlan);
     setZoneManagerOpen(false);
   };
 
-  const detectZonesFromBlob = async (blob: Blob) => {
+  const detectZonesFromBlob = async (blob: Blob, priorRegions: QuoteZoneRegion[]) => {
     setRecognizingZones(true);
     try {
       const jpeg = await imageBlobToJpegBase64(blob);
-      const names = await detectZonesFromJpegBase64(jpeg);
-      const existing = new Set(
-        items
-          .filter((item) => item.isSectionTitle)
-          .map((item) => item.name.trim().toLowerCase()),
-      );
-      const fresh = names.filter((name) => name.trim() && !existing.has(name.trim().toLowerCase()));
-      setZoneManagerDraft([
-        ...fresh.map((name) => ({ id: generateId(), name: name.trim() })),
-        ...sectionZonesOf(items),
-      ]);
+      const detected = await detectZonesFromJpegBase64(jpeg);
+      const base = zoneManagerOpenRef.current
+        ? zoneManagerDraftRef.current
+        : zoneRowsFromItems(itemsRef.current, priorRegions);
+      const { rows, added } = applyDetectedZones(base, detected, generateId);
+      setZoneManagerDraft(rows);
+      setActiveZoneId(added > 0 ? rows[0]?.id ?? null : null);
       setZoneManagerOpen(true);
-      if (!names.length) {
+      if (!detected.length) {
         toast.message(
           quoteLocale === "en"
-            ? "No labeled zones were found. Add them here."
-            : "平面圖上看不到可辨識的分區，可在這裡手動新增",
+            ? "No labeled rooms were found. Draw them on the plan, or add them below."
+            : "平面圖上看不到已標名稱的房間，可以在圖上自己畫，或在下面新增",
         );
-      } else if (!fresh.length) {
-        toast.message(quoteLocale === "en" ? "Those zones are already on this quote" : "這些分區已經在報價裡");
+      } else if (!added) {
+        toast.message(
+          quoteLocale === "en"
+            ? "These rooms are already on the quote. Adjust the areas, then confirm."
+            : "這些房間已經在報價裡，可以調整範圍後再確認",
+        );
       } else {
         toast.success(
           quoteLocale === "en"
-            ? `Found ${fresh.length} zone${fresh.length === 1 ? "" : "s"}. Confirm to add them.`
-            : `已識別 ${fresh.length} 個分區，確認後加入報價`,
+            ? `Found ${added} room${added === 1 ? "" : "s"}. Adjust the areas, then confirm.`
+            : `已找到 ${added} 個房間，可以調整範圍後再確認加入`,
         );
       }
     } catch (error) {
@@ -3818,6 +4132,11 @@ export function QuotationDraftEditor({
       toast.error(quoteLocale === "en" ? "Upload a PDF, JPG or PNG" : "請上傳 PDF / JPG / PNG");
       return;
     }
+    if (!zoneManagerOpenRef.current) {
+      setZoneManagerDraft(zoneRowsFromItems(itemsRef.current, floorPlanRef.current?.regions ?? []));
+      setActiveZoneId(null);
+    }
+    setZoneManagerOpen(true);
     setFloorPlanBusy(true);
     try {
       const uploaded = await uploadProjectFloorPlanFile(quoteImageScope || "quote", file);
@@ -3828,16 +4147,26 @@ export function QuotationDraftEditor({
         previewUrl = await uploadProjectFloorPlanPreview(quoteImageScope || "quote", rendered.blob);
         visionBlob = rendered.blob;
       }
-      itemsUserEditedRef.current = true;
+      const priorRegions = floorPlanRef.current?.regions ?? [];
       setFloorPlan({
         url: uploaded.url,
         mimeType: uploaded.mimeType,
         fileName: uploaded.fileName,
         previewUrl,
+        regions: unconfirmZoneRegions(priorRegions),
       });
       toast.success(quoteLocale === "en" ? "Floor plan uploaded. Detecting zones…" : "已上傳平面圖，正在識別分區");
+      // Floor plan metadata is not a line-item edit. Marking items edited while
+      // bwf_quote_item is still loading drops those rows on the way back.
+      if (existingQuote?.quoteUuid && !itemsLoadedRef.current) {
+        await Promise.race([
+          waitForQuoteItems(),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 30000)),
+        ]);
+      }
+      setRecognizingZones(true);
       setFloorPlanBusy(false);
-      await detectZonesFromBlob(visionBlob);
+      await detectZonesFromBlob(visionBlob, priorRegions);
     } catch (error) {
       toast.error(quoteLocale === "en" ? "Could not upload the floor plan" : "平面圖上傳失敗", {
         description: error instanceof Error ? error.message : undefined,
@@ -3980,6 +4309,15 @@ export function QuotationDraftEditor({
         if ("zoneImages" in cachedRecord) {
           setZoneImages(parseQuoteZoneImages(cachedRecord.zoneImages));
         }
+        if ("zonePhotoLayouts" in cachedRecord) {
+          setZonePhotoLayouts(parseZonePhotoLayouts(cachedRecord.zonePhotoLayouts));
+        }
+        if ("catalogPageAttachments" in cachedRecord) {
+          setCatalogPages(parseQuoteCatalogPages(cachedRecord.catalogPageAttachments));
+        }
+        if ("showCatalogSource" in cachedRecord) {
+          setShowCatalogSource(cachedRecord.showCatalogSource !== false);
+        }
         if (cached.termsContent) {
           const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
           setTermsContent(
@@ -4056,6 +4394,9 @@ export function QuotationDraftEditor({
       quotePhotoAssets: quotePhotoAssets as unknown as Record<string, unknown>[],
       floorPlan: floorPlan as unknown as Record<string, unknown> | null,
       zoneImages: zoneImages as unknown as Record<string, unknown>,
+      zonePhotoLayouts: zonePhotoLayouts as unknown as Record<string, unknown>,
+      catalogPageAttachments: catalogPages as unknown as Record<string, unknown>[],
+      showCatalogSource,
     }),
     [
       storageKey,
@@ -4077,12 +4418,15 @@ export function QuotationDraftEditor({
       quotePhotoAssets,
       floorPlan,
       zoneImages,
+      zonePhotoLayouts,
+      catalogPages,
+      showCatalogSource,
     ],
   );
 
   // Unsaved-work guard: dirty only when content differs from the loaded baseline.
   const currentSnapshot = useMemo(
-    () => JSON.stringify(buildDraftData()),
+    () => quoteDraftSnapshot(buildDraftData()),
     [buildDraftData],
   );
 
@@ -4146,17 +4490,31 @@ export function QuotationDraftEditor({
   }, [hasQuoteData, buildDraftData, persistLocalDraftMarkers]);
 
   /** Save current editor state to Supabase (update open version, or create v1). */
-  const handleSaveExistingVersion = async () => {
-    const contentItems = items.filter(hasQuoteItemContent);
+  const handleSaveExistingVersion = async (overrides?: {
+    items: QuotationItem[];
+    floorPlan: QuoteFloorPlan | null;
+    zoneImages: QuoteZoneImageMap;
+    zonePhotoLayouts: Record<string, PhotoLayoutGroup[]>;
+  }): Promise<boolean> => {
+    const sourceItems = overrides?.items ?? items;
+    if (existingQuote?.quoteUuid && !itemsLoadedFromDb) {
+      toast.error(quoteLocale === "en" ? "The quotation is still loading" : "報價內容仍在載入", {
+        description: quoteLocale === "en"
+          ? "Wait until everything has loaded before saving."
+          : "請等報價內容載入完成再保存，以免漏掉項目。",
+      });
+      return false;
+    }
+    const contentItems = sourceItems.filter(hasQuoteItemContent);
     if (contentItems.length === 0) {
       toast.error("尚無報價內容可保存");
-      return;
+      return false;
     }
     if (totalAmount <= 0) {
       toast.error("無法保存", {
         description: "報價總金額為 HK$0。請確認品項單價／數量後再保存。",
       });
-      return;
+      return false;
     }
     const fromUrl =
       typeof window !== "undefined"
@@ -4178,22 +4536,35 @@ export function QuotationDraftEditor({
     if (!chainId) {
       toast.error("缺少報價單號", {
         description:
-          "無法確認 PMS Pitching 報價單號。請返回選擇 Pitching，或重新整理後再保存。",
+          "找不到這張報價的單號。請返回重新選擇提案，或重新整理後再保存。",
       });
-      return;
+      return false;
     }
     const submitter = (staffName || userEmail || user?.email || "").trim();
     if (!submitter) {
       toast.error("無法保存", {
         description: "缺少提交者姓名（請確認已登入）。",
       });
-      return;
+      return false;
     }
+
+    const draft = overrides
+      ? {
+          ...buildDraftData(),
+          items: overrides.items.map(
+            ({ id, exchangeRateInput: _exchangeRateInput, ...rest }) =>
+              rest as unknown as Record<string, unknown>,
+          ),
+          floorPlan: overrides.floorPlan as unknown as Record<string, unknown> | null,
+          zoneImages: overrides.zoneImages as unknown as Record<string, unknown>,
+          zonePhotoLayouts: overrides.zonePhotoLayouts as unknown as Record<string, unknown>,
+        }
+      : buildDraftData();
 
     setIsSavingDraft(true);
     try {
       // Best-effort local backup before network save.
-      await saveDraft(buildDraftData()).catch(() => {});
+      await saveDraft(draft).catch(() => {});
       // 複製報價單尚未落庫時不可覆寫舊版本 → 開新版；其餘更新現有版／新單存 v1。
       const persistMode =
         forceNewQuote && !existingQuote?.quoteUuid
@@ -4203,7 +4574,7 @@ export function QuotationDraftEditor({
         mode: persistMode,
         totalAmount,
         totalCostPrice,
-        projectData: buildProjectData(),
+        projectData: buildProjectData(overrides),
         items: contentItems,
         bwfPitchingId:
           formData.pmsPitchingId || existingQuote?.bwfPitchingId || null,
@@ -4225,7 +4596,7 @@ export function QuotationDraftEditor({
         submitter,
       });
       submitChainIdRef.current = result.quoteId;
-      baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+      baselineSnapshotRef.current = quoteDraftSnapshot(draft);
       setSnapshotReady(true);
       unsavedGuard.clear();
       deleteDraft(storageKey).catch(() => {});
@@ -4243,7 +4614,7 @@ export function QuotationDraftEditor({
       setAutoSaveFailed(false);
       toast.success(
         !existingQuote?.quoteUuid && result.version === "v1"
-          ? "已保存為 v1"
+          ? "已保存為第 1 版"
           : persistMode === "new-version"
             ? "已保存為新版本"
             : "已保存現有版本",
@@ -4252,10 +4623,12 @@ export function QuotationDraftEditor({
         },
       );
       onQuotePersisted?.(result);
+      return true;
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : "無法保存至伺服器，請稍後再試";
+        err instanceof Error ? err.message : "暫時存不了，請稍後再試";
       toast.error("保存失敗", { description: message });
+      return false;
     } finally {
       setIsSavingDraft(false);
     }
@@ -4286,7 +4659,7 @@ export function QuotationDraftEditor({
     if (baselineSnapshotRef.current !== null) return;
 
     const timer = window.setTimeout(() => {
-      baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+      baselineSnapshotRef.current = quoteDraftSnapshot(buildDraftData());
       setSnapshotReady(true);
     }, 0);
 
@@ -4394,7 +4767,16 @@ export function QuotationDraftEditor({
     setActiveItemId(null);
   };
 
-  const buildProjectData = () => {
+  const buildProjectData = (overrides?: {
+    items: QuotationItem[];
+    floorPlan: QuoteFloorPlan | null;
+    zoneImages: QuoteZoneImageMap;
+    zonePhotoLayouts: Record<string, PhotoLayoutGroup[]>;
+  }) => {
+    const projectItems = overrides?.items ?? items;
+    const projectFloorPlan = overrides ? overrides.floorPlan : floorPlan;
+    const projectZoneImages = overrides?.zoneImages ?? zoneImages;
+    const projectZoneLayouts = overrides?.zonePhotoLayouts ?? zonePhotoLayouts;
     const pitchingId =
       formData.pmsPitchingId ||
       existingQuote?.bwfPitchingId ||
@@ -4448,11 +4830,20 @@ export function QuotationDraftEditor({
       priceMultiplier: parseFloat(priceMultiplier) || 1,
       quotePhotoLayouts,
       quotePhotoAssets,
-      floorPlan,
+      floorPlan: projectFloorPlan,
       zoneImages: pruneQuoteZoneImages(
-        zoneImages,
-        items.filter((item) => item.isSectionTitle).map((item) => item.id),
+        projectZoneImages,
+        projectItems.filter((item) => item.isSectionTitle).map((item) => item.id),
       ),
+      zonePhotoLayouts: pruneZonePhotoLayouts(
+        projectZoneLayouts,
+        [
+          ...projectItems.filter((item) => item.isSectionTitle).map((item) => item.id),
+          UNZONED_QUOTE_IMAGE_KEY,
+        ],
+      ),
+      catalogPageAttachments: catalogPages,
+      showCatalogSource,
     };
   };
 
@@ -4467,8 +4858,8 @@ export function QuotationDraftEditor({
     );
     const displayDate = formatQuoteDisplayDate(quoteMeta.date, quoteLocale);
     // 「於PDF 隱藏」lines stay in the editor but are omitted from preview / PDF totals.
-    const pdfSourceItems = items.filter(
-      (item) => hasQuoteItemContent(item) && !item.hideInPdf,
+    const pdfSourceItems = omitEmptyPdfZones(
+      items.filter((item) => hasQuoteItemContent(item) && !item.hideInPdf),
     );
     const pdfItems = pdfSourceItems.map((item) => ({
       image: item.image,
@@ -4489,6 +4880,7 @@ export function QuotationDraftEditor({
       isCustomTerm: item.isCustomTerm,
       isOptional: item.isOptional,
       isSectionTitle: item.isSectionTitle,
+      id: item.isSectionTitle ? item.id : undefined,
       zoneImages: item.isSectionTitle ? zoneImages[item.id] : undefined,
       unit: item.unit,
     }));
@@ -4536,6 +4928,11 @@ export function QuotationDraftEditor({
       url: page.url,
       pageNumber: page.pageNumber,
     }));
+    const pdfLeadImages = zoneImages[UNZONED_QUOTE_IMAGE_KEY] ?? [];
+    const pdfZonePhotoLayouts = pruneZonePhotoLayouts(zonePhotoLayouts, [
+      ...pdfSourceItems.filter((item) => item.isSectionTitle).map((item) => item.id),
+      UNZONED_QUOTE_IMAGE_KEY,
+    ]);
 
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
@@ -4569,6 +4966,8 @@ export function QuotationDraftEditor({
           ...termsContentEn,
           fullHtml: enFullHtml,
         },
+        leadImages: pdfLeadImages,
+        zonePhotoLayouts: pdfZonePhotoLayouts,
         items: pdfItems,
         subtotal: pdfSubtotal,
         discountNote,
@@ -4581,6 +4980,8 @@ export function QuotationDraftEditor({
           subtitle: pdfLabels.installSubtitle,
           conditionText: pdfLabels.installCondition,
         },
+        catalogPages,
+        showCatalogSource,
       };
     }
 
@@ -4615,6 +5016,8 @@ export function QuotationDraftEditor({
       ...termsContent,
       fullHtml: fullHtmlForPdf,
     },
+    leadImages: pdfLeadImages,
+    zonePhotoLayouts: pdfZonePhotoLayouts,
     items: pdfItems,
     subtotal: pdfSubtotal,
     discountNote,
@@ -4622,6 +5025,8 @@ export function QuotationDraftEditor({
     quoteCoverPages: pdfCoverPages,
     quoteContentPages: pdfContentPages,
     installationFee,
+    catalogPages,
+    showCatalogSource,
   };
   };
 
@@ -4741,6 +5146,7 @@ export function QuotationDraftEditor({
   const canNudge = (index: number, dir: -1 | 1) =>
     index + dir >= 0 && index + dir < items.length;
   const summaryLocked = !summaryEditing;
+  const hasFloorPlanPreview = Boolean(floorPlan?.previewUrl || floorPlan?.mimeType.startsWith("image/"));
 
   return (
     <>
@@ -4770,19 +5176,13 @@ export function QuotationDraftEditor({
                 </span>
                 <span>{t.currentVersion} <strong className="font-bold text-black">{shownVersion}</strong></span>
                 <span>{t.nextReviewVersion} <strong className="font-bold text-black">{currentVersion}</strong></span>
-                <span
-                  className={cn(
-                    "ml-2",
-                    autoSaveFailed ? "text-rose-500" : "text-emerald-600",
-                  )}
-                  title={t.autoSaveHint}
-                >
-                  {autoSaveFailed
-                    ? "本機備份失敗；請按「保存現有版本」寫入伺服器"
-                    : lastLocalSavedAt
-                      ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString(quoteLocale === "en" ? "en-GB" : "zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
-                      : t.autoSaveHint}
-                </span>
+                {autoSaveFailed || lastLocalSavedAt ? (
+                  <span className={cn("ml-2", autoSaveFailed ? "text-rose-500" : "text-emerald-600")}>
+                    {autoSaveFailed
+                      ? t.autoSaveFailed
+                      : `${t.autoSavedAt} ${new Date(lastLocalSavedAt as number).toLocaleTimeString(quoteLocale === "en" ? "en-GB" : "zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`}
+                  </span>
+                ) : null}
               </p>
               </div>
             </div>
@@ -4790,23 +5190,17 @@ export function QuotationDraftEditor({
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
-                  disabled={floorPlanBusy || recognizingZones}
+                  disabled={zoneRecognitionActive}
                   onClick={() => floorPlanInputRef.current?.click()}
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
                 >
-                  {floorPlanBusy || recognizingZones ? (
+                  {zoneRecognitionActive ? (
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
                   ) : (
                     <Upload className="h-4 w-4 shrink-0" />
                   )}
                   <span className="truncate">
-                    {floorPlanBusy
-                      ? t.uploadingFloorPlan
-                      : recognizingZones
-                        ? t.recognizingZones
-                        : floorPlan
-                          ? t.replaceFloorPlan
-                          : t.uploadFloorPlan}
+                    {floorPlan ? t.replaceFloorPlan : t.uploadFloorPlan}
                   </span>
                 </button>
                 <button
@@ -4856,7 +5250,6 @@ export function QuotationDraftEditor({
                   onClick={() => void handleSaveExistingVersion()}
                   disabled={isSavingDraft || !hasQuoteData}
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
-                  title={t.autoSaveHint}
                 >
                   {isSavingDraft ? (
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
@@ -4891,7 +5284,7 @@ export function QuotationDraftEditor({
           <div className="quote-editor-metrics" aria-label="報價金額摘要">
             {[
               { label: `${t.grandTotal} HKD`, value: `$${totalAmount.toLocaleString()}`, tone: "total" },
-              { label: "Cost", value: `$${totalProductCost.toLocaleString()}` },
+              { label: "Cost", value: `$${totalProductCost.toLocaleString()}`, tone: "cost" },
               { label: "GP", value: `$${gpValue.toLocaleString()} (${Math.round(gpPercent)}%)`, tone: "gp" },
               { label: "Ship", value: `$${gpSummary.ship.toLocaleString()}` },
               { label: "Installation", value: `$${gpSummary.installation.toLocaleString()}` },
@@ -4934,7 +5327,7 @@ export function QuotationDraftEditor({
               <p className="mb-4 mt-1 font-body text-sm text-muted-foreground">
                 {ui('編輯報價單的基礎資訊，包括公司、專案、客戶及報價設定。', 'Edit company, project, customer and quotation information.')}
               </p>
-            <div className="grid min-w-0 grid-cols-1 items-start gap-3 sm:grid-cols-2">
+            <div className="grid min-w-0 grid-cols-1 items-stretch gap-3 sm:grid-cols-2">
               <InfoPanelColumn
                 english={quoteLocale === 'en'}
                 title={ui('公司資訊', 'Company Information')}
@@ -5043,17 +5436,17 @@ export function QuotationDraftEditor({
                   </>
                 }
               >
-                <div className="flex items-start gap-2">
-                  <label className="w-14 shrink-0 pt-2 font-body text-xs text-muted-foreground">
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
                     {ui('公司名稱', 'Company Name')}
                   </label>
-                  <textarea
+                  <input
+                    type="text"
                     value={clientInfo.name}
                     onChange={(e) =>
                       setClientInfo((p) => ({ ...p, name: e.target.value }))
                     }
-                    rows={2}
-                    className="min-w-0 flex-1 resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground [overflow-wrap:break-word] [word-break:normal] focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                   />
                 </div>
                 <div>
@@ -5097,6 +5490,105 @@ export function QuotationDraftEditor({
                       setClientInfo((p) => ({ ...p, email: e.target.value }))
                     }
                     className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+              </InfoPanelColumn>
+
+              <InfoPanelColumn
+                english={quoteLocale === 'en'}
+                title={t.quoteInfo}
+                icon={<FileText className="h-4 w-4" />}
+                iconClassName="bg-violet-50 text-violet-700"
+                collapsed={collapseQuoteMeta}
+                onToggle={() => setCollapseQuoteMeta((v) => !v)}
+                summary={
+                  <>
+                    <LabelValueRow label={t.quoteNo}>{quoteId || "—"}</LabelValueRow>
+                    <LabelValueRow label={t.pic}>{quoteMeta.pmName || "—"}</LabelValueRow>
+                    <LabelValueRow label={t.quoteDate}>{quoteMeta.date || "—"}</LabelValueRow>
+                    <LabelValueRow label={t.validityDays}>{quoteMeta.validity || "—"}</LabelValueRow>
+                    <LabelValueRow label={t.deliveryAddress}>
+                      {quoteMeta.deliveryAddress || "—"}
+                    </LabelValueRow>
+                  </>
+                }
+              >
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    {t.quoteNo}
+                  </label>
+                  <div className={cn(QUOTE_PANEL_CONTROL_CLASS, "truncate border-border/50 bg-muted/30 font-mono-data text-foreground/80")}>
+                    {quoteId || "—"}
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    {t.pic}
+                  </label>
+                  <input
+                    type="text"
+                    value={quoteMeta.pmName}
+                    onChange={(e) =>
+                      setQuoteMeta((p) => ({ ...p, pmName: e.target.value }))
+                    }
+                    className={QUOTE_PANEL_CONTROL_CLASS}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    {t.quoteDate}
+                  </label>
+                  <input
+                    type="date"
+                    value={quoteMeta.date}
+                    onChange={(e) =>
+                      setQuoteMeta((p) => ({
+                        ...p,
+                        date: e.target.value || todayQuoteDateIso(),
+                      }))
+                    }
+                    className={cn(QUOTE_PANEL_CONTROL_CLASS, "font-mono-data")}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    {t.validityDays}
+                  </label>
+                  <input
+                    type="number"
+                    value={quoteMeta.validity}
+                    onChange={(e) =>
+                      setQuoteMeta((p) => ({
+                        ...p,
+                        validity: e.target.value,
+                      }))
+                    }
+                    className={cn(QUOTE_PANEL_CONTROL_CLASS, "font-mono-data")}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    {t.deliveryAddress}
+                  </label>
+                  <textarea
+                    value={quoteMeta.deliveryAddress}
+                    onChange={(e) => {
+                      const deliveryAddress = e.target.value;
+                      setQuoteMeta((p) => ({
+                        ...p,
+                        deliveryAddress,
+                      }));
+                      setTermsContent((prev) => ({
+                        ...prev,
+                        fullHtml: injectDeliveryAddressIntoTermsHtml(
+                          prev.fullHtml,
+                          deliveryAddress,
+                        ),
+                      }));
+                    }}
+                    placeholder={t.deliveryAddressPlaceholder}
+                    rows={3}
+                    className="min-h-[4.75rem] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                   />
                 </div>
               </InfoPanelColumn>
@@ -5153,7 +5645,7 @@ export function QuotationDraftEditor({
                     defaultValue={formData.quotationType.join('、')}
                     placeholder="以頓號分隔；未指定可留空"
                     onBlur={(e) => onFormDataChange({ quotationType: [...new Set(e.target.value.split(/[、,，]/).map((value) => value.trim()).filter(Boolean))] })}
-                    className={QUOTE_INPUT_CLASS}
+                    className={QUOTE_PANEL_CONTROL_CLASS}
                   />
                 </QuoteFieldBlock>
                 <QuoteMultiChoice
@@ -5168,7 +5660,7 @@ export function QuotationDraftEditor({
                     value={formData.workPeriod || '__none__'}
                     onValueChange={(value) => onFormDataChange({ workPeriod: value === '__none__' ? '' : value })}
                   >
-                    <SelectTrigger aria-label={ui('工期需求', 'Lead Time')}><SelectValue /></SelectTrigger>
+                    <SelectTrigger aria-label={ui('工期需求', 'Lead Time')} className={cn(QUOTE_PANEL_CONTROL_CLASS, "focus:ring-1")}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">未指定</SelectItem>
                       {[...new Set([...workPeriodOptions, formData.workPeriod].filter(Boolean))].map((period) => (
@@ -5183,108 +5675,9 @@ export function QuotationDraftEditor({
                     value={formData.remarks}
                     onChange={(e) => onFormDataChange({ remarks: e.target.value })}
                     rows={3}
-                    className={QUOTE_INPUT_CLASS}
+                    className="min-h-[4.75rem] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground shadow-none placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 md:text-xs"
                   />
                 </QuoteFieldBlock>
-              </InfoPanelColumn>
-
-              <InfoPanelColumn
-                english={quoteLocale === 'en'}
-                title={t.quoteInfo}
-                icon={<FileText className="h-4 w-4" />}
-                iconClassName="bg-violet-50 text-violet-700"
-                collapsed={collapseQuoteMeta}
-                onToggle={() => setCollapseQuoteMeta((v) => !v)}
-                summary={
-                  <>
-                    <LabelValueRow label={t.quoteNo}>{quoteId || "—"}</LabelValueRow>
-                    <LabelValueRow label={t.pic}>{quoteMeta.pmName || "—"}</LabelValueRow>
-                    <LabelValueRow label={t.quoteDate}>{quoteMeta.date || "—"}</LabelValueRow>
-                    <LabelValueRow label={t.validityDays}>{quoteMeta.validity || "—"}</LabelValueRow>
-                    <LabelValueRow label={t.deliveryAddress}>
-                      {quoteMeta.deliveryAddress || "—"}
-                    </LabelValueRow>
-                  </>
-                }
-              >
-                <div>
-                  <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    {t.quoteNo}
-                  </label>
-                  <div className="rounded-md border border-border/50 bg-muted/30 px-3 py-2 font-mono-data text-xs text-foreground/80">
-                    {quoteId || "—"}
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    {t.pic}
-                  </label>
-                  <input
-                    type="text"
-                    value={quoteMeta.pmName}
-                    onChange={(e) =>
-                      setQuoteMeta((p) => ({ ...p, pmName: e.target.value }))
-                    }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    {t.quoteDate}
-                  </label>
-                  <input
-                    type="date"
-                    value={quoteMeta.date}
-                    onChange={(e) =>
-                      setQuoteMeta((p) => ({
-                        ...p,
-                        date: e.target.value || todayQuoteDateIso(),
-                      }))
-                    }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono-data text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    {t.validityDays}
-                  </label>
-                  <input
-                    type="number"
-                    value={quoteMeta.validity}
-                    onChange={(e) =>
-                      setQuoteMeta((p) => ({
-                        ...p,
-                        validity: e.target.value,
-                      }))
-                    }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono-data text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    {t.deliveryAddress}
-                  </label>
-                  <textarea
-                    value={quoteMeta.deliveryAddress}
-                    onChange={(e) => {
-                      const deliveryAddress = e.target.value;
-                      setQuoteMeta((p) => ({
-                        ...p,
-                        deliveryAddress,
-                      }));
-                      setTermsContent((prev) => ({
-                        ...prev,
-                        fullHtml: injectDeliveryAddressIntoTermsHtml(
-                          prev.fullHtml,
-                          deliveryAddress,
-                        ),
-                      }));
-                    }}
-                    placeholder={t.deliveryAddressPlaceholder}
-                    rows={3}
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  />
-                </div>
               </InfoPanelColumn>
             </div>
             </section>
@@ -5322,6 +5715,23 @@ export function QuotationDraftEditor({
                     }}
                   />
                 </div>
+                <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2">
+                  <p className="text-sm text-foreground">
+                    {ui('圖冊附件', 'Catalog pages')}
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {catalogPages.length > 0
+                        ? ui(`${catalogPages.length} 頁，會加在報價 PDF 後面`, `${catalogPages.length} pages, added after the quotation PDF`)
+                        : ui('可選不同圖冊的整頁', 'Whole pages from one or more catalogs')}
+                    </span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogDialogOpen(true)}
+                    className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
+                  >
+                    {ui('選擇頁面', 'Choose pages')}
+                  </button>
+                </div>
                 <p className="mb-4 border-b border-border/80 pb-3 text-xs text-muted-foreground">
                   {ui('產品項目', 'Products')} {productCount} · {ui('增值服務', 'Services')} {serviceCount} · {ui('備註標題', 'Titles')} {titleCount}{ui('；依報價單順序排列，可拖曳或上下移動調整位置。', '; drag or use the arrows to reorder items as they appear in the quotation.')}
                 </p>
@@ -5336,33 +5746,6 @@ export function QuotationDraftEditor({
                     if (file) void handleFloorPlanFile(file);
                   }}
                 />
-                {floorPlan ? (
-                  <button
-                    type="button"
-                    onClick={() => setFloorPlanViewerOpen(true)}
-                    className="mb-4 flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2 text-left hover:bg-muted/40"
-                  >
-                    {floorPlan.previewUrl || floorPlan.mimeType.startsWith("image/") ? (
-                      <LoadingImage
-                        src={floorPlan.previewUrl || floorPlan.url}
-                        alt={floorPlan.fileName}
-                        className="h-16 w-24 rounded-md bg-background"
-                        imgClassName="object-contain"
-                      />
-                    ) : (
-                      <span className="flex h-16 w-24 items-center justify-center rounded-md bg-background text-muted-foreground">
-                        <FileText className="h-6 w-6" />
-                      </span>
-                    )}
-                    <span className="min-w-0">
-                      <span className="block truncate font-body text-sm font-medium text-foreground">{floorPlan.fileName}</span>
-                      <span className="mt-0.5 block font-body text-xs text-muted-foreground">
-                        {ui('點擊查看平面圖', 'View floor plan')}
-                      </span>
-                    </span>
-                  </button>
-                ) : null}
-
                 <div
                   className="space-y-3"
                   onDragOver={(e) => {
@@ -5381,11 +5764,15 @@ export function QuotationDraftEditor({
                     }
                   }}
                 >
+                  {items.length > 0 || !(zoneImages[UNZONED_QUOTE_IMAGE_KEY]?.length || zonePhotoLayouts[UNZONED_QUOTE_IMAGE_KEY]?.length)
+                    ? null
+                    : renderZonePhotoTail(UNZONED_QUOTE_IMAGE_KEY)}
                   {items.length > 0 ? null : (
                     <p className="py-8 text-center font-body text-sm text-muted-foreground">
                       尚未加入報價項目
                     </p>
                   )}
+                  {items[0]?.isSectionTitle ? renderZonePhotoTail(UNZONED_QUOTE_IMAGE_KEY) : null}
                   {items.map((item, index) => {
                     const zonePrefix = zoneItemPrefixAt(items, index);
                     return (
@@ -5418,7 +5805,6 @@ export function QuotationDraftEditor({
                           onMoveDown={() => nudgeItem(item.id, 1)}
                           canMoveUp={canNudge(index, -1)}
                           canMoveDown={canNudge(index, 1)}
-                          zoneImageUrls={zoneImages[item.id] || []}
                           onUploadZoneImage={() => openZoneImageUpload(item.id)}
                           onRemoveZoneImage={(url) => removeZoneImage(item.id, url)}
                           onPreviewZoneImage={(imageIndex) =>
@@ -5458,6 +5844,7 @@ export function QuotationDraftEditor({
                           serialNumber={productSerialAt(items, index)}
                           zonePrefix={zonePrefix}
                           aiChoices={quoteAiChoices}
+                          photoZones={quotePhotoZones}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
                           cutItemId={cutItemId}
@@ -5516,6 +5903,13 @@ export function QuotationDraftEditor({
                           )
                         }
                       />
+                      {index === items.length - 1 || items[index + 1]?.isSectionTitle
+                        ? renderZonePhotoTail(
+                            item.isSectionTitle
+                              ? item.id
+                              : (zoneTitleIdAt(items, index) ?? UNZONED_QUOTE_IMAGE_KEY),
+                          )
+                        : null}
                     </div>
                     );
                   })}
@@ -5594,64 +5988,6 @@ export function QuotationDraftEditor({
                             className="w-28 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
                           />
                         </label>
-                        <div className="quote-lrow">
-                          <span className="quote-lrow-op" aria-hidden="true"></span>
-                          <div className="quote-fee-note">
-                            <input
-                              type="text"
-                              readOnly={summaryLocked}
-                              value={installationFee.title}
-                              onChange={(e) =>
-                                setInstallationFee((prev) => ({ ...prev, title: e.target.value }))
-                              }
-                              className="w-full bg-transparent text-sm font-medium text-foreground focus:outline-none read-only:text-muted-foreground"
-                            />
-                            <input
-                              type="text"
-                              readOnly={summaryLocked}
-                              value={installationFee.subtitle}
-                              onChange={(e) =>
-                                setInstallationFee((prev) => ({ ...prev, subtitle: e.target.value }))
-                              }
-                              className="mt-1 w-full bg-transparent text-xs text-muted-foreground focus:outline-none"
-                            />
-                            <textarea
-                              readOnly={summaryLocked}
-                              value={installationFee.conditionText}
-                              onChange={(e) =>
-                                setInstallationFee((prev) => ({ ...prev, conditionText: e.target.value }))
-                              }
-                              rows={2}
-                              className="mt-2 w-full resize-none rounded-md border border-border/60 bg-background px-2 py-1 text-center text-xs text-muted-foreground focus:outline-none read-only:border-transparent read-only:bg-transparent"
-                            />
-                            <div className="mt-2 flex items-center justify-between gap-2">
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                                {installationFee.freeLabel || "—"}
-                              </span>
-                              {isFreeInstallation ? (
-                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                                  FREE
-                                </span>
-                              ) : (
-                                <input
-                                  type="number"
-                                  min={0}
-                                  readOnly={summaryLocked}
-                                  value={installationFee.amount ?? ""}
-                                  placeholder={installationFee.freeLabel || "另議"}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    setInstallationFee((prev) => ({
-                                      ...prev,
-                                      amount: raw === "" ? null : Math.max(0, parseFloat(raw) || 0),
-                                    }));
-                                  }}
-                                  className="w-24 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </div>
                         <label className="quote-lrow">
                           <span className="quote-lrow-op" aria-hidden="true">－</span>
                           <span className="quote-lrow-label">
@@ -5694,17 +6030,64 @@ export function QuotationDraftEditor({
                             <i style={{ width: `${Math.min(100, Math.max(0, gpPercent))}%` }} />
                           </div>
                         </div>
+                        <div className="quote-fee-note">
+                          <input
+                            type="text"
+                            readOnly={summaryLocked}
+                            value={installationFee.title}
+                            onChange={(e) =>
+                              setInstallationFee((prev) => ({ ...prev, title: e.target.value }))
+                            }
+                            className="w-full bg-transparent text-sm font-medium text-foreground focus:outline-none read-only:text-muted-foreground"
+                          />
+                          <input
+                            type="text"
+                            readOnly={summaryLocked}
+                            value={installationFee.subtitle}
+                            onChange={(e) =>
+                              setInstallationFee((prev) => ({ ...prev, subtitle: e.target.value }))
+                            }
+                            className="mt-1 w-full bg-transparent text-xs text-muted-foreground focus:outline-none"
+                          />
+                          <textarea
+                            readOnly={summaryLocked}
+                            value={installationFee.conditionText}
+                            onChange={(e) =>
+                              setInstallationFee((prev) => ({ ...prev, conditionText: e.target.value }))
+                            }
+                            rows={2}
+                            className="mt-2 w-full resize-none rounded-md border border-border/60 bg-background px-2 py-1 text-center text-xs text-muted-foreground focus:outline-none read-only:border-transparent read-only:bg-transparent"
+                          />
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                              {installationFee.freeLabel || "—"}
+                            </span>
+                            {isFreeInstallation ? (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                FREE
+                              </span>
+                            ) : (
+                              <input
+                                type="number"
+                                min={0}
+                                readOnly={summaryLocked}
+                                value={installationFee.amount ?? ""}
+                                placeholder={installationFee.freeLabel || "另議"}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  setInstallationFee((prev) => ({
+                                    ...prev,
+                                    amount: raw === "" ? null : Math.max(0, parseFloat(raw) || 0),
+                                  }));
+                                }}
+                                className="w-24 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
+                              />
+                            )}
+                          </div>
+                        </div>
                         <div>
-                          <div className="mb-1 flex items-center gap-1 text-xs font-medium text-indigo-700">
+                          <div className="mb-1 text-xs font-medium text-indigo-700">
                             {t.priceMultiplier}
-                            <button
-                              type="button"
-                              className="text-muted-foreground"
-                              title="以 HKD 成本（沒有則用 CNY 成本）乘此倍率，四捨五入後寫入單價。標題列與增值服務不會套用。"
-                              aria-label="倍率說明"
-                            >
-                              <CircleHelp className="h-3.5 w-3.5" />
-                            </button>
                           </div>
                           <div className="flex items-center gap-2">
                             <input
@@ -5751,22 +6134,12 @@ export function QuotationDraftEditor({
 
               {/* 報價單圖片 / QUOTATION IMAGES */}
               <section id="quote-sec-photos" className="order-5 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
-                <h2 className="font-display text-base font-bold text-foreground">{t.quotePhotos}</h2>
-                <p className="mb-3 mt-1 font-body text-sm text-muted-foreground">
-                  排版時會預設帶入報價明細的產品圖，也可由報價設定的圖片庫選圖；內容內頁的圖印在總價之後、訂單確認及交付細節之前。
-                  {quoteContentPages.length > 0
-                    ? `另有 ${quoteContentPages.length} 張內頁獨立整頁（圖片庫設定），每次出 PDF 會插在指定的正文頁數之後。`
-                    : ''}
-                  {quoteCoverPages.length > 0
-                    ? `另有 ${quoteCoverPages.filter((page) => page.placement === 'cover').length} 張封面、${quoteCoverPages.filter((page) => page.placement === 'back').length} 張封底（圖片庫設定），每次出 PDF 會各自插入一整頁。`
-                    : quoteContentPages.length === 0
-                      ? '封面／封底及內頁獨立整頁在報價設定的「圖片庫」設定，每次出 PDF 會各自插入一整頁。'
-                      : '封面／封底在報價設定的「圖片庫」設定，每次出 PDF 會各自插入一整頁。'}
-                </p>
+                <h2 className="mb-3 font-display text-base font-bold text-foreground">{t.quotePhotos}</h2>
                 <QuotePhotoPages
                   layouts={quotePhotoLayouts}
                   assets={quotePhotoAssets}
                   productPhotos={quoteProductPhotos}
+                  photoZones={quotePhotoZones}
                   canManage={canManagePhotos}
                   onChange={(groups, usedAssets) => {
                     setQuotePhotoLayouts(groups);
@@ -5977,7 +6350,7 @@ export function QuotationDraftEditor({
         onClose={() => setShowSubmitModal(false)}
         onSuccess={(result) => {
           setShowSubmitModal(false);
-          baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+          baselineSnapshotRef.current = quoteDraftSnapshot(buildDraftData());
           setSnapshotReady(true);
           unsavedGuard.clear();
           deleteDraft(storageKey).catch(() => {});
@@ -6043,7 +6416,6 @@ export function QuotationDraftEditor({
         size="sm"
         icon={<Percent className="h-5 w-5" />}
         title={t.unifyExchangeRate}
-        description={t.unifyRateHint}
         footer={
           <>
             <ModalButton
@@ -6216,9 +6588,6 @@ export function QuotationDraftEditor({
                   className="h-[220px] w-[220px]"
                 />
               ) : null}
-              <p className="mt-2 text-center font-body text-sm font-medium text-foreground">
-                {formatSettings.qrCaption}
-              </p>
             </div>
             <label className="mb-1 block font-body text-xs text-muted-foreground">
               網址連結
@@ -6234,6 +6603,57 @@ export function QuotationDraftEditor({
               每次按「生成」都會建立全新連結與 QR Code
             </div>
       </Modal>
+
+      {zoneLayoutEditor ? (
+        <QuotePhotoLayoutEditor
+          layouts={zonePhotoLayouts[zoneLayoutEditor.zoneId] ?? []}
+          groupId={zoneLayoutEditor.groupId}
+          assets={photoLibrary}
+          productPhotos={quoteProductPhotos}
+          photoZones={quotePhotoZones}
+          photos={quotePhotoAssets.map((asset) => ({
+            assetId: asset.id,
+            title: asset.title,
+            objectPath: quotePhotoRefUrl(asset),
+          }))}
+          canManage={canManagePhotos}
+          onUploaded={(asset) =>
+            setPhotoLibrary((current) => (current.some((row) => row.id === asset.id) ? current : [...current, asset]))
+          }
+          onSave={(groups, usedAssets) => {
+            const zoneId = zoneLayoutEditor.zoneId;
+            setZonePhotoLayouts((prev) => {
+              const next = { ...prev };
+              if (groups.some((group) => group.placements.length > 0)) next[zoneId] = groups;
+              else delete next[zoneId];
+              return next;
+            });
+            const usedIds = new Set(groups.flatMap((group) => group.placements.map((placement) => placement.assetId)));
+            setQuotePhotoAssets((prev) => {
+              const next = [...prev];
+              const have = new Set(next.map((asset) => asset.id));
+              for (const asset of usedAssets) {
+                if (!usedIds.has(asset.id) || have.has(asset.id)) continue;
+                next.push({
+                  id: asset.id,
+                  title: asset.title,
+                  objectPath: asset.objectPath,
+                  ...(asset.isGenerated ? { isGenerated: true } : {}),
+                });
+                have.add(asset.id);
+              }
+              for (const photo of quoteProductPhotos) {
+                if (!usedIds.has(photo.id) || have.has(photo.id)) continue;
+                next.push({ id: photo.id, title: photo.title, url: photo.url });
+                have.add(photo.id);
+              }
+              return next;
+            });
+            setZoneLayoutEditor(null);
+          }}
+          onClose={() => setZoneLayoutEditor(null)}
+        />
+      ) : null}
 
       <ImageUploadModal
         open={zoneImageTargetId != null}
@@ -6252,95 +6672,217 @@ export function QuotationDraftEditor({
       <Modal
         open={zoneManagerOpen}
         onOpenChange={setZoneManagerOpen}
-        size="md"
+        size="4xl"
+        className="max-w-6xl"
         icon={<FolderKanban className="h-5 w-5" />}
         title={t.manageZones}
-        description={t.manageZonesHint}
+        description={zoneRecognitionActive ? t.recognizingZonesDetail : t.manageZonesHint}
         footer={
           <>
+            <ModalButton
+              variant="secondary"
+              className="border-dashed sm:mr-auto"
+              disabled={zoneRecognitionActive}
+              onClick={() => setZoneManagerDraft((prev) => [...prev, blankZoneManagerRow(generateId())])}
+            >
+              <Plus className="h-4 w-4" />
+              {t.addZoneSpace}
+            </ModalButton>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
               {t.cancel}
             </ModalButton>
-            <ModalButton onClick={saveZoneManager}>{t.confirm}</ModalButton>
+            <ModalButton onClick={() => void saveZoneManager()} disabled={zoneRecognitionActive || isSavingDraft}>{t.confirm}</ModalButton>
           </>
         }
       >
-        <div className="space-y-2">
-          {zoneManagerDraft.length === 0 ? (
-            <p className="font-body text-sm text-muted-foreground">
-              {quoteLocale === "en" ? "No zones yet." : "尚未有分區。"}
-            </p>
+        <div className="space-y-3">
+          {floorPlan?.regions.some((region) => !region.confirmed) ? (
+            <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}
-          {zoneManagerDraft.map((zone, index) => (
-            <div key={zone.id} className="flex items-center gap-2">
-              <span className="w-6 shrink-0 text-center font-mono-data text-xs text-muted-foreground">
-                {index + 1}
-              </span>
-              <Input
-                value={zone.name}
-                aria-label={t.sectionTitleLabel}
-                placeholder={t.sectionTitlePlaceholder}
-                onChange={(e) =>
-                  setZoneManagerDraft((prev) =>
-                    prev.map((row) => (row.id === zone.id ? { ...row, name: e.target.value } : row)),
-                  )
-                }
-                className={QUOTE_INPUT_CLASS}
-              />
-              <button
-                type="button"
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
-                aria-label={quoteLocale === "en" ? "Move zone up" : "上移分區"}
-                disabled={index === 0}
-                onClick={() =>
-                  setZoneManagerDraft((prev) => {
-                    if (index === 0) return prev;
-                    const next = [...prev];
-                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                    return next;
-                  })
-                }
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+            <div className="space-y-2">
+              <div
+                className={cn(
+                  "relative h-[440px] overflow-hidden rounded-lg",
+                  floorPlanDragOver && "ring-2 ring-violet-400",
+                )}
+                onDragOver={(event) => {
+                  if (zoneRecognitionActive || ![...event.dataTransfer.types].includes("Files")) return;
+                  event.preventDefault();
+                  setFloorPlanDragOver(true);
+                }}
+                onDragLeave={(event) => {
+                  if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+                  setFloorPlanDragOver(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setFloorPlanDragOver(false);
+                  if (zoneRecognitionActive) return;
+                  const file = event.dataTransfer.files?.[0];
+                  if (file) void handleFloorPlanFile(file);
+                }}
               >
-                <ChevronUp className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
-                aria-label={quoteLocale === "en" ? "Move zone down" : "下移分區"}
-                disabled={index === zoneManagerDraft.length - 1}
-                onClick={() =>
-                  setZoneManagerDraft((prev) => {
-                    if (index === prev.length - 1) return prev;
-                    const next = [...prev];
-                    [next[index + 1], next[index]] = [next[index], next[index + 1]];
-                    return next;
-                  })
-                }
-              >
-                <ChevronDown className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="rounded-md p-1 text-muted-foreground hover:text-destructive"
-                aria-label={quoteLocale === "en" ? "Remove zone" : "移除分區"}
-                onClick={() =>
-                  setZoneManagerDraft((prev) => prev.filter((row) => row.id !== zone.id))
-                }
-              >
-                <X className="h-4 w-4" />
-              </button>
+                {hasFloorPlanPreview ? (
+                  <FloorPlanZoneCanvas
+                    src={(floorPlan?.previewUrl || floorPlan?.url) as string}
+                    zones={zoneManagerDraft}
+                    activeId={activeZoneId}
+                    createId={generateId}
+                    disabled={zoneRecognitionActive}
+                    deleteLabel={quoteLocale === "en" ? "Delete space" : "刪除空間"}
+                    onChange={setZoneManagerDraft}
+                    onActive={setActiveZoneId}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    disabled={zoneRecognitionActive}
+                    onClick={() => floorPlanInputRef.current?.click()}
+                    className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-violet-500 bg-muted/30 px-6 text-center font-body text-sm text-muted-foreground hover:bg-violet-50 disabled:cursor-default"
+                  >
+                    {t.dropFloorPlan} {t.dropFloorPlanAction}
+                  </button>
+                )}
+                {zoneRecognitionActive ? (
+                  <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-slate-900/40" role="status" aria-live="polite">
+                    <div className="w-[min(18rem,78%)] space-y-1.5 rounded-xl bg-white px-4 py-3 shadow-lg">
+                      <div className="flex items-center justify-between gap-3 font-body text-xs text-foreground">
+                        <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
+                        <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
+                      </div>
+                      <Progress value={zoneRecognitionProgress} />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
             </div>
-          ))}
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-foreground/80 hover:bg-muted/50"
-            onClick={() =>
-              setZoneManagerDraft((prev) => [...prev, { id: generateId(), name: "" }])
-            }
-          >
-            <Plus className="h-3 w-3" />
-            {t.addSectionTitle}
-          </button>
+          <div className="min-w-0 space-y-3">
+          {zoneManagerDraft.length === 0 ? (
+            <Empty className="h-[440px] border border-border bg-muted/20">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Inbox />
+                </EmptyMedia>
+                <EmptyTitle className="text-sm font-normal text-muted-foreground">{t.noZonesYet}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <div className="min-w-0 overflow-x-auto">
+              <div className="min-w-[28rem] space-y-2 lg:min-w-0">
+                <div className="grid grid-cols-[1.25rem_1.5rem_minmax(0,1.4fr)_minmax(0,1.2fr)_4.5rem_2rem] gap-2 px-0.5">
+                  <span />
+                  <span />
+                  <span className="font-body text-xs text-muted-foreground">{t.zoneSpaceName}</span>
+                  <span className="font-body text-xs text-muted-foreground">{t.zoneSpaceType}</span>
+                  <span className="font-body text-xs text-muted-foreground">{t.zoneQuantity}</span>
+                  <span />
+                </div>
+                {zoneManagerDraft.map((zone, index) => (
+                  <div
+                    key={zone.id}
+                    className={`grid grid-cols-[1.25rem_1.5rem_minmax(0,1.4fr)_minmax(0,1.2fr)_4.5rem_2rem] items-center gap-2 ${zoneSortId === zone.id ? "opacity-50" : ""}`}
+                    onDragOver={(event) => {
+                      if (!zoneSortId) return;
+                      event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const fromId = event.dataTransfer.getData("text/plain") || zoneSortId;
+                      setZoneSortId(null);
+                      if (!fromId || fromId === zone.id) return;
+                      setZoneManagerDraft((prev) => {
+                        const from = prev.findIndex((row) => row.id === fromId);
+                        const to = prev.findIndex((row) => row.id === zone.id);
+                        if (from < 0 || to < 0) return prev;
+                        const next = [...prev];
+                        const [moved] = next.splice(from, 1);
+                        next.splice(to, 0, moved);
+                        return next;
+                      });
+                    }}
+                  >
+                    <button
+                      type="button"
+                      draggable
+                      aria-label={quoteLocale === "en" ? "Reorder zone" : "調整順序"}
+                      className="flex h-10 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", zone.id);
+                        setZoneSortId(zone.id);
+                      }}
+                      onDragEnd={() => setZoneSortId(null)}
+                    >
+                      <GripVertical className="h-4 w-4" />
+                    </button>
+                    <span
+                      className="flex h-6 w-6 items-center justify-center rounded font-mono-data text-xs text-white"
+                      style={{ background: floorPlanZoneColor(index) }}
+                    >
+                      {index + 1}
+                    </span>
+                    <Input
+                      value={zone.name}
+                      aria-label={t.zoneSpaceName}
+                      placeholder={t.zoneSpaceNamePlaceholder}
+                      onFocus={() => setActiveZoneId(zone.id)}
+                      onChange={(e) =>
+                        setZoneManagerDraft((prev) =>
+                          prev.map((row) => (row.id === zone.id ? { ...row, name: e.target.value } : row)),
+                        )
+                      }
+                      className="h-10 rounded-xl border-slate-200 bg-white shadow-none"
+                    />
+                    <Input
+                      value={zone.spaceType}
+                      aria-label={t.zoneSpaceType}
+                      placeholder={t.zoneSpaceTypePlaceholder}
+                      onFocus={() => setActiveZoneId(zone.id)}
+                      onChange={(e) =>
+                        setZoneManagerDraft((prev) =>
+                          prev.map((row) => (row.id === zone.id ? { ...row, spaceType: e.target.value } : row)),
+                        )
+                      }
+                      className="h-10 rounded-xl border-slate-200 bg-white shadow-none"
+                    />
+                    <Input
+                      type="number"
+                      min={1}
+                      inputMode="numeric"
+                      value={zone.quantity > 0 ? String(zone.quantity) : ""}
+                      aria-label={t.zoneQuantity}
+                      onFocus={() => setActiveZoneId(zone.id)}
+                      onChange={(e) => {
+                        const nextQuantity = Number.parseInt(e.target.value, 10);
+                        setZoneManagerDraft((prev) =>
+                          prev.map((row) => (
+                            row.id === zone.id
+                              ? { ...row, quantity: Number.isFinite(nextQuantity) && nextQuantity > 0 ? nextQuantity : 0 }
+                              : row
+                          )),
+                        );
+                      }}
+                      className="h-10 rounded-xl border-slate-200 bg-white text-center font-mono-data shadow-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    />
+                    <button
+                      type="button"
+                      className="flex h-10 items-center justify-center text-rose-500 hover:text-rose-600"
+                      aria-label={quoteLocale === "en" ? "Remove zone" : "移除分區"}
+                      onClick={() =>
+                        setZoneManagerDraft((prev) => prev.filter((row) => row.id !== zone.id))
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          </div>
+          </div>
         </div>
       </Modal>
 
@@ -6351,6 +6893,18 @@ export function QuotationDraftEditor({
         type={floorPlan?.mimeType ?? null}
         previewUrl={floorPlan?.previewUrl}
         onClose={() => setFloorPlanViewerOpen(false)}
+      />
+
+      <QuoteCatalogPagesDialog
+        open={catalogDialogOpen}
+        pages={catalogPages}
+        showSource={showCatalogSource}
+        onOpenChange={setCatalogDialogOpen}
+        onConfirm={(nextPages, nextShowSource) => {
+          setCatalogPages(nextPages);
+          setShowCatalogSource(nextShowSource);
+          setCatalogDialogOpen(false);
+        }}
       />
 
       <ImageLightbox

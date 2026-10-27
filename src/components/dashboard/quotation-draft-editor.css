@@ -44,8 +44,9 @@
 }
 .quote-editor-metric:first-child { padding-left: 0; border-left: 0; }
 .quote-editor-metric > span { font-size: .6875rem; color: hsl(var(--muted-foreground)); }
-.quote-editor-metric > strong { font-size: 1rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.quote-editor-metric > strong { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .quote-editor-metric.is-total > strong { color: hsl(239 62% 48%); }
+.quote-editor-metric.is-cost > strong { color: hsl(24 90% 48%); }
 .quote-editor-metric.is-gp > strong { color: hsl(152 60% 30%); }
 
 .quote-editor-workspace {
@@ -158,10 +159,10 @@
   font-variant-numeric: tabular-nums;
 }
 .quote-fee-note {
-  grid-column: 2 / -1;
-  margin: 2px 0;
+  margin: 0;
   border-radius: 10px;
-  background: hsl(240 30% 97%);
+  background: hsl(0 0% 100%);
+  border: 1px solid hsl(var(--border));
   padding: 10px 12px;
   min-width: 0;
 }

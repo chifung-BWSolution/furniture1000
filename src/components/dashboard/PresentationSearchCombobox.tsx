@@ -16,6 +16,8 @@ export function PresentationSearchCombobox({
   ariaLabel,
   onText,
   onPick,
+  filterLocally = true,
+  inputClassName,
 }: {
   value: string;
   placeholder: string;
@@ -25,19 +27,22 @@ export function PresentationSearchCombobox({
   ariaLabel: string;
   onText: (value: string) => void;
   onPick: (option: SearchComboboxOption) => void;
+  /** Remote search may match codes/aliases absent from the display label. */
+  filterLocally?: boolean;
+  inputClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const query = value.trim().toLowerCase();
   const filtered = useMemo(() => {
-    if (!query) return options;
+    if (!filterLocally || !query) return options;
     return options.filter((option) => {
       const label = option.label.toLowerCase();
       const hint = (option.hint ?? '').toLowerCase();
       return label.includes(query) || hint.includes(query);
     });
-  }, [options, query]);
+  }, [options, query, filterLocally]);
 
   useEffect(() => {
     if (!open) return;
@@ -56,7 +61,7 @@ export function PresentationSearchCombobox({
         aria-expanded={open}
         aria-controls={listId}
         aria-autocomplete="list"
-        className="h-10 rounded-lg bg-background"
+        className={`h-10 rounded-lg bg-background ${inputClassName ?? ''}`}
         value={value}
         placeholder={placeholder}
         onFocus={() => setOpen(true)}
@@ -79,7 +84,7 @@ export function PresentationSearchCombobox({
           {!loading && filtered.length === 0 ? (
             <li className="px-2 py-2 text-sm text-muted-foreground">{emptyText}</li>
           ) : null}
-          {filtered.map((option) => (
+          {!loading && filtered.map((option) => (
             <li key={option.id}>
               <button
                 type="button"

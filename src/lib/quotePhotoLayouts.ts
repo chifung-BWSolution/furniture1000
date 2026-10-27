@@ -470,6 +470,32 @@ export function parsePhotoLayouts(value: unknown): PhotoLayoutGroup[] {
   return groups;
 }
 
+export function parseZonePhotoLayouts(value: unknown): Record<string, PhotoLayoutGroup[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const next: Record<string, PhotoLayoutGroup[]> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const id = key.trim();
+    if (!id) continue;
+    const groups = parsePhotoLayouts(raw);
+    if (groups.length) next[id] = groups;
+  }
+  return next;
+}
+
+/** Drop layouts whose zone title is gone. `liveIds` includes the unzoned bucket when that should stay. */
+export function pruneZonePhotoLayouts(
+  layouts: Record<string, PhotoLayoutGroup[]>,
+  liveIds: Iterable<string>,
+): Record<string, PhotoLayoutGroup[]> {
+  const live = new Set(liveIds);
+  const next: Record<string, PhotoLayoutGroup[]> = {};
+  for (const [id, groups] of Object.entries(layouts)) {
+    if (!live.has(id) || groups.length === 0) continue;
+    next[id] = groups;
+  }
+  return next;
+}
+
 /**
  * The visible frame inside a slot. Contain fills the slot and letterboxes the
  * whole photo; cover crops to the chosen ratio, centred in the slot.

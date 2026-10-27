@@ -11,6 +11,7 @@ import { logAiUsage } from "../_shared/usageLog.ts";
  * 前端再放進排版素材區。仍相容舊的 referenceAssetIds（圖片庫 asset id）。
  *
  * 兩個模型都走同一個 slug，前端用 { model: "grok" | "gemini" } 切換。
+ * 未傳 model，或傳了這兩個以外的值時，用 Gemini 3.8。
  * 權限跟圖片庫一致：只有 admin / uploader / pm 可以生成（RLS 同樣會擋）。
  *
  * 注意：函數刻意不 import `_shared/*`，單檔上傳（scripts/deploy-edge-functions.ps1）
@@ -34,7 +35,16 @@ const RATIOS = new Set(["1:1", "3:4", "4:3", "16:9", "9:16"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 
-/** Host allowlist for referenceUrls — only this project's public Storage buckets. */
+/**
+ * 產品圖可能存在正式庫，開發分支的 function 仍要能拿去當參考圖。
+ * 只放行這兩個 Furniture 專案，以及 function 自己的網址。
+ */
+const REFERENCE_STORAGE_HOSTS = new Set([
+  "riaubhtruisbwdlwjzur.supabase.co",
+  "omxizeukbcqzsnjsuwod.supabase.co",
+]);
+
+/** Host allowlist for referenceUrls — public product / quote photo buckets only. */
 function isAllowedReferenceUrl(raw: string, supabaseUrl: string): boolean {
   let parsed: URL;
   try {
@@ -44,13 +54,14 @@ function isAllowedReferenceUrl(raw: string, supabaseUrl: string): boolean {
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
   if (parsed.username || parsed.password) return false;
-  let base: URL;
+  let ownHost = "";
   try {
-    base = new URL(supabaseUrl);
+    ownHost = new URL(supabaseUrl).host.toLowerCase();
   } catch {
     return false;
   }
-  if (parsed.host.toLowerCase() !== base.host.toLowerCase()) return false;
+  const host = parsed.host.toLowerCase();
+  if (host !== ownHost && !REFERENCE_STORAGE_HOSTS.has(host)) return false;
   // Only public object paths for product / quote photo buckets (no SSRF to other hosts).
   const path = parsed.pathname.replace(/\/+/g, "/");
   return /^\/storage\/v1\/object\/public\/(product-images|quote-photos)\//i.test(path);
@@ -217,7 +228,7 @@ async function generateWithGrok(
     prompt,
     aspect_ratio: aspectRatio,
     resolution: "1k",
-    quality: "low",
+    quality: "medium",
     response_format: "b64_json",
   };
   let endpoint = "https://api.x.ai/v1/images/generations";
@@ -383,7 +394,7 @@ Deno.serve(async (req: Request) => {
     ? createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false, autoRefreshToken: false } })
     : client;
 
-  const model: ModelId = raw.model === "gemini" ? "gemini" : "grok";
+  const model: ModelId = raw.model === "grok" ? "grok" : "gemini";
   const prompt = typeof raw.prompt === "string" ? raw.prompt.replace(/\s+/g, " ").trim() : "";
   const aspectRatio = typeof raw.aspectRatio === "string" ? raw.aspectRatio : "";
   const referenceIds = Array.isArray(raw.referenceAssetIds)
@@ -466,7 +477,13 @@ Deno.serve(async (req: Request) => {
     raw.purpose === "orthographic"
       ? `產品 ${productModel}。以下為 AI 根據產品圖及產品描述自動分析的繪圖依據，並非使用者確認的要求：${JSON.stringify(analysis)}。綜合全部2至3張同款產品參考圖。只繪製一件家具，移除場景、配件及其他家具。在白底同一張圖上，以相同比例繪製互相一致的正面、右側及俯視正投影，標示 FRONT、RIGHT、TOP，不使用透視。準確保留圖片可見的外形、支撐數量、折彎及通空處；材質及功能參考產品描述。未知或衝突細節不能變成確定結構，不得憑空新增板件、腳架、插座位置或裝飾。不虛構數字尺寸，宣傳內容不轉成幾何。圖上註明「AI 推測三視圖：隱藏結構及尺寸未核實」，不可宣稱為實測施工圖。`
       : referenceUrls.length > 0
-      ? `${prompt}。參考圖是產品圖：如實保留參考圖中每件產品的外觀、比例與顏色，把它們自然擺放進場景，不要改動產品設計，也不要加插參考圖以外的文字或商標`
+      ? [
+        `把上傳的產品圖原樣放進場景。${referenceUrls.map((_, index) => `第${index + 1}張上傳圖是參考圖${index + 1}`).join('，')}。`,
+        '每一張圖只代表一件傢俬。照抄它的輪廓、腳架數量和形狀、扶手、靠背、坐墊、抽屜、層板、開口、縫線、顏色和比例。',
+        '不要簡化結構，不要把兩件併成一件，不要換成更常見的款式，也不要因為房間偏淺色就改掉產品的顏色或物料。',
+        '只調整擺放和光影。不要加入產品圖以外的文字或商標。',
+        prompt,
+      ].join('')
       : prompt;
 
   // 生成
@@ -534,7 +551,7 @@ Deno.serve(async (req: Request) => {
       sort_order: nextSortOrder,
       created_by: userData.user.id,
       is_generated: true,
-      ...(raw.purpose === 'orthographic' ? { is_active: false } : {}),
+      is_active: false,
     })
     .select("id,title,object_path,mime_type,size_bytes,sort_order,placement,is_active,is_generated")
     .single();
