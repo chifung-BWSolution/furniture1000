@@ -22,6 +22,8 @@ export interface CanvaDesignBrief {
   content?: string;
   /** 確認後大綱（PoC 可手動或由前端整理） */
   outline?: string;
+  /** When true, Canva uses `outline` as the slide list and does not append database product slides. */
+  outlineOnly?: boolean;
   language?: string;
   style?: string;
   pageCount?: number;

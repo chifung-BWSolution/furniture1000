@@ -5,15 +5,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight, Building2, Check, CheckCircle2, ChevronLeft, ChevronRight,
+  ArrowRight, Building2, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
   ExternalLink, FileText, FolderKanban, Hash, Languages, Lightbulb, Link2,
-  ListChecks, Loader2, MoreHorizontal, Package, Palette, Presentation as PresentationIcon,
+  ListChecks, Loader2, MoreHorizontal, Package, Palette, Plus, Presentation as PresentationIcon,
   RefreshCcw, Save, Settings2, Trash2, Unlink, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -27,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { PresentationOutlineStep } from '@/components/dashboard/PresentationOutlineStep';
 import { PresentationProductPicker } from '@/components/dashboard/PresentationProductPicker';
 import { PresentationSearchCombobox } from '@/components/dashboard/PresentationSearchCombobox';
 import type { SearchProduct } from '@/lib/productSearch';
@@ -57,13 +59,21 @@ import { MultiSelect } from '@/components/ui/multi-select';
 import { fetchCaseShowcase, type CaseBrand } from '@/lib/caseShowcase';
 import { fetchZones } from '@/lib/solutionsApi';
 import {
-  buildFiveSectionOutline,
   EMPTY_COMPANY_PROFILE,
   loadPresentationCompanyProfile,
   savePresentationCompanyProfile,
   WEBSITE_COMPANY_PROFILE,
   type PresentationCompanyProfile,
 } from '@/lib/presentationFiveSection';
+import {
+  draftFor,
+  emptyProductDraft,
+  imageLooksCutout,
+  presentationGenerateBlock,
+  presentationOutlineMarkdown,
+  type PresentationProductDraft,
+  type PresentationZoneDraft,
+} from '@/lib/presentationOutlineModel';
 
 const MAX_ITEMS = 30;
 const PRESENTATION_PATH = '/fds/pm/presentation';
@@ -76,33 +86,25 @@ const LANGUAGE_OPTIONS = ['繁體中文', '簡體中文', 'English', '中英對�
 const STYLE_OPTIONS = ['專業、簡潔', '現代、簡約、專業', '簡約現代', '高端精品', '活潑清晰'];
 const WIZARD_STEPS = [
   {
-    title: '簡報內容與設計要求',
-    subtitle: '填寫專業資訊與設計需求',
-    hint: '請填寫專業資訊與設計需求，這些內容將作為 Canva AI 生成簡報的依據，協助產出更符合需求的專業簡報。',
+    title: '項目資料與分區',
+    subtitle: '填寫項目並建立分區',
+    hint: '填寫項目資料、客戶，並建立可自訂名稱的分區。',
   },
   {
-    title: '確認五段大綱',
-    subtitle: '生成簡報內容框架',
-    hint: '系統已根據您填寫的需求資料，為您生成簡報的五段內容大綱。您可以核對各段落，或重新整理大綱。',
+    title: '選擇產品',
+    subtitle: '把家具分到分區',
+    hint: '從產品資料庫選擇家具，並指定所屬分區。',
   },
   {
-    title: '帶入 FDS 產品',
-    subtitle: '選擇產品加入簡報',
-    hint: '可選。點選產品卡片加入，每一件已選產品會成為自己的一頁，並帶入簡報中。',
+    title: '即將生成的大綱',
+    subtitle: '列出並修改每一段',
+    hint: '以下是即將送給 Canva 的大綱。每一段都可以改，改動只留在這份簡報。',
   },
   {
-    title: 'AI 生成與匯出',
-    subtitle: '產生 Canva 簡報並匯出',
-    hint: '點擊「開始 AI 生成」，系統將根據前面設定的內容，在 Canva 中建立專業簡報，生成完成後可進行編輯與匯出。',
+    title: '生成及匯出',
+    subtitle: '用改過的大綱生成',
+    hint: '用上一步的大綱在 Canva 建立簡報。完成後可預覽、編輯與匯出。',
   },
-] as const;
-
-const OUTLINE_CARDS = [
-  { title: '封面', body: '專案名稱、客戶名稱、日期、品牌標識與封面主視覺。' },
-  { title: '公司介紹', body: '必須列出超過 1,000 款傢俬、超過 16 年行業經驗，以及專業資質。' },
-  { title: '平面圖', body: '空間平面配置圖、動線規劃與功能分區說明。' },
-  { title: '方案', body: '設計方案構想、材質選用、傢俬配置、風格參考與預算範圍。' },
-  { title: '參考案例', body: '每個案例獨立一頁，只列出該案例用過的傢俬，不顯示項目名稱。' },
 ] as const;
 
 const GEN_PHASES = ['解析需求', '生成內容', '建立 Canva 簡報', '完成並預覽'] as const;
@@ -583,6 +585,32 @@ export function PresentationView() {
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState('');
   const [wizardStep, setWizardStep] = useState(1);
+  const [zones, setZones] = useState<PresentationZoneDraft[]>([]);
+  const [includeFloor, setIncludeFloor] = useState(false);
+  const [productZone, setProductZone] = useState<Record<string, string>>({});
+  const [productDrafts, setProductDrafts] = useState<Record<string, PresentationProductDraft>>({});
+  const [companyIntro, setCompanyIntro] = useState('');
+  const [qualifications, setQualifications] = useState('');
+  const [servicesText, setServicesText] = useState('');
+  const zonesSeeded = useRef(false);
+  const outlineStateRef = useRef({
+    zones,
+    includeFloor,
+    productZone,
+    productDrafts,
+    companyIntro,
+    qualifications,
+    servicesText,
+  });
+  outlineStateRef.current = {
+    zones,
+    includeFloor,
+    productZone,
+    productDrafts,
+    companyIntro,
+    qualifications,
+    servicesText,
+  };
   const [outline, setOutline] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<CanvaDesignSession[]>([]);
@@ -762,7 +790,12 @@ export function PresentationView() {
     let cancelled = false;
     void loadPresentationCompanyProfile()
       .then((profile) => {
-        if (!cancelled) setCompanyProfile(profile);
+        if (!cancelled) {
+          setCompanyProfile(profile);
+          setCompanyIntro((current) => current || profile.background);
+          setQualifications((current) => current || profile.qualifications);
+          setServicesText((current) => current || profile.services);
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) toast.error('公司介紹未能載入', { description: errorText(err) });
@@ -807,6 +840,11 @@ export function PresentationView() {
       const url = typeof plan.data?.floor_plan_url === 'string' ? plan.data.floor_plan_url.trim() : '';
       setFloorZones(nextZones);
       setFloorPresent(Boolean(url) || nextZones.length > 0);
+      if (!zonesSeeded.current && nextZones.length > 0) {
+        zonesSeeded.current = true;
+        setZones(nextZones.map((zone) => ({ id: crypto.randomUUID(), name: zone.name || zone.code || '分區' })));
+        setIncludeFloor(Boolean(url));
+      }
     })();
     return () => {
       cancelled = true;
@@ -818,58 +856,64 @@ export function PresentationView() {
   const canvaPathReady = Boolean(canva?.configured && canImport && connected);
 
   const nativeTitleOk = Boolean(brief.title.trim() || brief.client?.trim() || brief.project?.trim());
-  const nativeContentOk = Boolean(brief.content?.trim() || outline.trim());
-  const canCreateNative = nativeTitleOk && nativeContentOk && canvaPathReady;
 
-  const composeFive = useCallback(() => {
-    const current = fiveRef.current;
+  const outlineInput = useCallback(() => {
     const briefNow = briefRef.current;
+    const current = fiveRef.current;
+    const state = outlineStateRef.current;
     const chosen = new Set(current.caseIds);
-    return buildFiveSectionOutline({
+    return {
       title: briefNow.title.trim() || briefNow.project?.trim() || '',
       client: briefNow.client?.trim() || '',
-      date: new Intl.DateTimeFormat('zh-HK', {
-        timeZone: 'Asia/Hong_Kong',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(new Date()),
+      includeFloor: state.includeFloor,
+      zones: state.zones,
+      products: current.products,
+      productZone: state.productZone,
+      drafts: state.productDrafts,
       company: current.company,
-      floorPlan: { present: current.floorPresent, zones: current.floorZones },
-      products: current.products.map((product) => {
-        const size = [product.dimension_l_mm, product.dimension_w_mm, product.dimension_h_mm]
-          .filter((value) => value != null)
-          .join('×');
-        const price = product.middle_price ?? product.sale_price;
-        return {
-          title: product.title,
-          model: product.model,
-          spec: size ? `${size} mm` : product.material,
-          price: price != null ? `參考價 ${price}` : null,
-        };
-      }),
+      companyIntro: state.companyIntro,
+      qualifications: state.qualifications,
+      services: state.servicesText,
       cases: current.cases.filter((item) => chosen.has(item.id)).map((item) => ({
-        name: item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
-        industry: item.industries?.[0] ?? null,
-        furniture: [...new Set((item.filter_projects ?? []).flatMap((project) => project.furniture_types ?? []))],
+        id: item.id,
+        title: item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
+        body: [
+          item.industries?.[0] ? `行業：${item.industries[0]}` : '',
+          ...[...new Set((item.filter_projects ?? []).flatMap((project) => project.furniture_types ?? []))].slice(0, 16).map((line) => `- ${line}`),
+        ].filter(Boolean).join('\n'),
       })),
-    });
+    };
   }, []);
 
   const syncOutline = useCallback(() => {
-    const next = composeFive();
+    const next = presentationOutlineMarkdown(outlineInput());
     setOutline(next);
-    setBrief((b) => ({ ...b, outline: next }));
-  }, [composeFive]);
+    setBrief((b) => ({ ...b, outline: next, outlineOnly: true }));
+    return next;
+  }, [outlineInput]);
+
+  const generateBlock = presentationGenerateBlock(outlineInput());
+  const canCreateNative = nativeTitleOk && !generateBlock && canvaPathReady;
+
+  const ensureDrafts = useCallback(() => {
+    setProductDrafts((current) => {
+      const next = { ...current };
+      for (const product of fiveRef.current.products) {
+        if (!next[product.id]) next[product.id] = emptyProductDraft(product);
+      }
+      return next;
+    });
+  }, []);
 
   const saveDraft = useCallback(async () => {
     if (!canImport) return;
     setStatus('creating');
     try {
-      const confirmed = composeFive();
+      const markdown = presentationOutlineMarkdown(outlineInput());
       const payload: CanvaDesignBrief = {
         ...brief,
-        outline: confirmed,
+        outline: markdown,
+        outlineOnly: true,
         confirmedAt: new Date().toISOString(),
       };
       const { session_id } = await saveCanvaDraft(
@@ -885,11 +929,16 @@ export function PresentationView() {
     } finally {
       setStatus('idle');
     }
-  }, [brief, outline, selected, sessionId, canImport, refreshSessions]);
+  }, [brief, selected, sessionId, canImport, refreshSessions, outlineInput]);
 
   const createNative = useCallback(async () => {
     if (!canCreateNative || disabled) return;
     if (activeSession?.canva_design_id) return;
+    const block = presentationGenerateBlock(outlineInput());
+    if (block) {
+      toast.error(block);
+      return;
+    }
     setStatus('creating');
     setGenerationPending(true);
     setGenerationError('');
@@ -898,11 +947,12 @@ export function PresentationView() {
     setActiveSession(null);
     let taskSessionId: string | null = null;
     try {
-      const confirmed = composeFive();
+      const markdown = syncOutline();
       const payload: CanvaDesignBrief = {
         ...brief,
         title: brief.title.trim() || `${brief.client ?? ''} ${brief.project ?? ''}`.trim() || '客戶簡報',
-        outline: confirmed,
+        outline: markdown,
+        outlineOnly: true,
         confirmedAt: new Date().toISOString(),
       };
       const { session_id } = await saveCanvaDraft(
@@ -946,7 +996,7 @@ export function PresentationView() {
       setGenerationPending(false);
       setStatus('idle');
     }
-  }, [canCreateNative, disabled, activeSession, brief, outline, selected, sessionId, refreshSessions, refreshStatus]);
+  }, [canCreateNative, disabled, activeSession, brief, selected, sessionId, refreshSessions, refreshStatus, outlineInput, syncOutline]);
 
   const refreshSessionDetail = useCallback(async (sid: string) => {
     try {
@@ -1069,6 +1119,14 @@ export function PresentationView() {
     autoContent.current = null;
     setBrief(defaultBrief());
     setOutline('');
+    setZones([]);
+    setIncludeFloor(false);
+    setProductZone({});
+    setProductDrafts({});
+    setCompanyIntro('');
+    setQualifications('');
+    setServicesText('');
+    zonesSeeded.current = false;
     setSelected([]);
     setPickerNonce((nonce) => nonce + 1);
     setSessionId(null);
@@ -1129,9 +1187,25 @@ export function PresentationView() {
 
   const goToStep = useCallback((next: number) => {
     const target = Math.min(WIZARD_STEPS.length, Math.max(1, next));
-    if (target > wizardStep) syncOutline();
+    if (target >= 3) {
+      ensureDrafts();
+      syncOutline();
+      void (async () => {
+        for (const product of fiveRef.current.products) {
+          const draft = outlineStateRef.current.productDrafts[product.id] ?? emptyProductDraft(product);
+          if (draft.noBackground || draft.sampleImageUrl || !draft.imageUrl) continue;
+          const cutout = await imageLooksCutout(draft.imageUrl).catch(() => false);
+          if (cutout) {
+            setProductDrafts((current) => ({
+              ...current,
+              [product.id]: { ...(current[product.id] ?? draft), noBackground: true },
+            }));
+          }
+        }
+      })();
+    }
     setWizardStep(target);
-  }, [syncOutline, wizardStep]);
+  }, [ensureDrafts, syncOutline]);
 
   const openDesignRow = (session: CanvaDesignSession) => {
     loadSession(session);
@@ -1249,6 +1323,9 @@ export function PresentationView() {
             void savePresentationCompanyProfile(companyDraft)
               .then(() => {
                 setCompanyProfile({ ...companyDraft });
+                setCompanyIntro((current) => !current || current === companyProfile.background ? companyDraft.background : current);
+                setQualifications((current) => !current || current === companyProfile.qualifications ? companyDraft.qualifications : current);
+                setServicesText((current) => !current || current === companyProfile.services ? companyDraft.services : current);
                 setCompanyPage(false);
                 toast.success('公司介紹已保存');
               })
@@ -1517,6 +1594,82 @@ export function PresentationView() {
                   </div>
                 </Field>
               </div>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={includeFloor}
+                  onCheckedChange={(value) => setIncludeFloor(value === true)}
+                />
+                這份簡報包含整體平面圖
+              </label>
+              <div className="space-y-2 rounded-xl border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">分區</p>
+                  <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => {
+                    setZones((current) => [...current, { id: crypto.randomUUID(), name: '' }]);
+                  }}>
+                    <Plus className="h-4 w-4" />
+                    新增分區
+                  </Button>
+                </div>
+                {zones.length === 0 ? <p className="text-xs text-muted-foreground">尚未建立分區。名稱可自訂，不限 A、B、C、D。</p> : null}
+                {zones.map((zone, index) => (
+                  <div key={zone.id} className="flex items-center gap-2">
+                    <Input
+                      value={zone.name}
+                      disabled={disabled}
+                      placeholder="例如：經理辦公室"
+                      onChange={(event) => setZones((current) => current.map((item) => item.id === zone.id ? { ...item, name: event.target.value } : item))}
+                    />
+                    <Button type="button" variant="outline" className="bg-background px-2" disabled={disabled || index === 0} aria-label="上移分區" onClick={() => setZones((current) => {
+                      const next = [...current];
+                      const [item] = next.splice(index, 1);
+                      next.splice(index - 1, 0, item);
+                      return next;
+                    })}>
+                      <ChevronUp className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" variant="outline" className="bg-background px-2" disabled={disabled || index === zones.length - 1} aria-label="下移分區" onClick={() => setZones((current) => {
+                      const next = [...current];
+                      const [item] = next.splice(index, 1);
+                      next.splice(index + 1, 0, item);
+                      return next;
+                    })}>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" variant="outline" className="bg-background px-2" disabled={disabled} aria-label="刪除分區" onClick={() => {
+                      setZones((current) => current.filter((item) => item.id !== zone.id));
+                      setProductZone((current) => Object.fromEntries(Object.entries(current).filter(([, zoneId]) => zoneId !== zone.id)));
+                    }}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold">公司介紹</p>
+                  <p className="text-xs text-muted-foreground">資質與服務有內容時，會出現在大綱末段。</p>
+                </div>
+                <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => {
+                  setCompanyDraft(Object.values(companyProfile).some((value) => value.trim())
+                    ? { ...companyProfile } : { ...WEBSITE_COMPANY_PROFILE });
+                  setCompanyPage(true);
+                }}>
+                  <Settings2 className="h-4 w-4" />
+                  配置公司介紹
+                </Button>
+              </div>
+              <Field label="參考案例（最多 8 個）" counter={`${selectedCaseIds.length}/8`}>
+                {caseNote ? <p className="text-sm text-destructive">{caseNote}</p> : (
+                  <MultiSelect label="參考案例" placeholder={caseBrands.length ? '搜尋並選擇參考案例' : '沒有可選案例'}
+                    options={caseBrands.map((item) => ({
+                      value: item.id,
+                      label: item.display_name || item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
+                      description: item.industries?.join(' · '),
+                    }))}
+                    value={selectedCaseIds} onValueChange={setSelectedCaseIds} maxSelected={8} disabled={disabled || !caseBrands.length} />
+                )}
+              </Field>
               <Field label="簡報原文" counter={`${contentCount}/${CONTENT_MAX}`}>
                 <Textarea
                   className="min-h-[8rem] rounded-lg bg-background"
@@ -1530,83 +1683,89 @@ export function PresentationView() {
             )}
             {wizardStep === 2 && (
               <div className="space-y-4">
-                <SectionIntro icon={<ListChecks className="h-5 w-5" />} title={WIZARD_STEPS[1].title} hint={WIZARD_STEPS[1].hint} />
-                <Tip>簡報順序固定為封面、公司介紹、平面圖、方案，然後每個參考案例各一頁。沒有平面圖時略過該段。案例頁只列用過的傢俬，不顯示項目名稱。公司介紹會保存下來，下一份簡報繼續用。</Tip>
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold">公司介紹</p>
-                    <p className="text-xs text-muted-foreground">所有簡報共用已保存的公司介紹。</p>
-                  </div>
-                  <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => {
-                    setCompanyDraft(Object.values(companyProfile).some((value) => value.trim())
-                      ? { ...companyProfile } : { ...WEBSITE_COMPANY_PROFILE });
-                    setCompanyPage(true);
-                  }}>
-                    <Settings2 className="h-4 w-4" />
-                    配置公司介紹
-                  </Button>
-                </div>
-                <Field label="參考案例（最多 8 個）" counter={`${selectedCaseIds.length}/8`}>
-                  {caseNote ? <p className="text-sm text-destructive">{caseNote}</p> : (
-                    <MultiSelect label="參考案例" placeholder={caseBrands.length ? '搜尋並選擇參考案例' : '沒有可選案例'}
-                      options={caseBrands.map((item) => ({
-                        value: item.id,
-                        label: item.display_name || item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
-                        description: item.industries?.join(' · '),
-                      }))}
-                      value={selectedCaseIds} onValueChange={setSelectedCaseIds} maxSelected={8} disabled={disabled || !caseBrands.length} />
-                  )}
-                </Field>
-                <div className="rounded-xl border">
-                  <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-                    <p className="text-sm font-semibold">簡報大綱內容</p>
-                    <Button type="button" variant="outline" className="h-8 bg-background text-xs" disabled={disabled} onClick={() => { syncOutline(); toast.success('已重新整理五段大綱'); }}>
-                      <RefreshCcw className="h-3.5 w-3.5" />
-                      重新生成大綱
-                    </Button>
-                  </div>
-                  <ol className="divide-y">
-                    {OUTLINE_CARDS.map((card, index) => {
-                      const skipped = card.title === '平面圖' && !floorPresent;
-                      const extra = card.title === '封面'
-                        ? [brief.title, brief.client].filter(Boolean).join(' · ')
-                        : card.title === '公司介紹'
-                          ? '超過 1,000 款傢俬 · 超過 16 年行業經驗 · 專業資質'
-                        : card.title === '方案'
-                          ? (selected.length ? `已選 ${selected.length} 件產品` : '尚未選擇產品')
-                          : card.title === '參考案例'
-                            ? (selectedCaseIds.length ? `已選 ${selectedCaseIds.length} 個案例，各佔一頁，只列傢俬` : '尚未選擇案例')
-                            : card.title === '平面圖'
-                              ? (floorPresent ? (floorZones.length ? floorZones.map((zone) => zone.name).filter(Boolean).join('、') : '已有平面圖') : '此項目沒有平面圖，生成時略過')
-                              : '';
-                      return (
-                        <li key={card.title} className={cn('flex gap-3 px-4 py-3', skipped && 'opacity-60')}>
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">{index + 1}</span>
-                          <span className="min-w-0">
-                            <span className="block text-sm font-semibold text-foreground">{card.title}</span>
-                            <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{extra || card.body}</span>
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </div>
-              </div>
-            )}
-            {wizardStep === 3 && (
-              <div className="space-y-4">
-                <SectionIntro icon={<Package className="h-5 w-5" />} title={WIZARD_STEPS[2].title} hint={WIZARD_STEPS[2].hint} />
+                <SectionIntro icon={<Package className="h-5 w-5" />} title={WIZARD_STEPS[1].title} hint={WIZARD_STEPS[1].hint} />
                 <PresentationProductPicker
                   key={pickerNonce}
                   selected={selected}
                   maxItems={MAX_ITEMS}
-                  onChange={setSelected}
+                  onChange={(products) => {
+                    const list = typeof products === 'function' ? products(selected) : products;
+                    setSelected(list);
+                    setProductDrafts((current) => {
+                      const drafts = { ...current };
+                      for (const product of list) {
+                        if (!drafts[product.id]) drafts[product.id] = emptyProductDraft(product);
+                      }
+                      return drafts;
+                    });
+                    setProductZone((current) => {
+                      const assigned = { ...current };
+                      const first = zones[0]?.id;
+                      for (const product of list) {
+                        if (!assigned[product.id] && first) assigned[product.id] = first;
+                      }
+                      return assigned;
+                    });
+                  }}
+                />
+                {selected.length > 0 ? (
+                  <div className="space-y-2 rounded-xl border p-4">
+                    <p className="text-sm font-semibold">所屬分區</p>
+                    {zones.length === 0 ? <p className="text-xs text-muted-foreground">請先在上一步建立分區。</p> : null}
+                    {selected.map((product) => (
+                      <div key={product.id} className="grid items-center gap-2 sm:grid-cols-[1fr_12rem]">
+                        <p className="truncate text-sm">{draftFor(product, productDrafts).displayName || product.title}</p>
+                        <Select
+                          value={productZone[product.id] || ''}
+                          disabled={disabled || zones.length === 0}
+                          onValueChange={(value) => setProductZone((current) => ({ ...current, [product.id]: value }))}
+                        >
+                          <SelectTrigger><SelectValue placeholder="選擇分區" /></SelectTrigger>
+                          <SelectContent>
+                            {zones.map((zone) => <SelectItem key={zone.id} value={zone.id}>{zone.name || '未命名分區'}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
+            {wizardStep === 3 && (
+              <div className="space-y-4">
+                <SectionIntro icon={<ListChecks className="h-5 w-5" />} title={WIZARD_STEPS[2].title} hint={WIZARD_STEPS[2].hint} />
+                <PresentationOutlineStep
+                  title={brief.title}
+                  client={brief.client ?? ''}
+                  companyIntro={companyIntro}
+                  qualifications={qualifications}
+                  services={servicesText}
+                  includeFloor={includeFloor}
+                  zones={zones}
+                  products={selected}
+                  productZone={productZone}
+                  drafts={productDrafts}
+                  disabled={disabled}
+                  onTitle={(value) => setBrief((current) => ({ ...current, title: value.slice(0, TITLE_MAX) }))}
+                  onClient={(value) => setBrief((current) => ({ ...current, client: value }))}
+                  onCompanyIntro={setCompanyIntro}
+                  onQualifications={setQualifications}
+                  onServices={setServicesText}
+                  onZoneName={(id, name) => setZones((current) => current.map((zone) => zone.id === id ? { ...zone, name } : zone))}
+                  onDraft={(productId, patch) => setProductDrafts((current) => {
+                    const product = selected.find((item) => item.id === productId);
+                    const base = current[productId] ?? (product ? emptyProductDraft(product) : null);
+                    if (!base) return current;
+                    return { ...current, [productId]: { ...base, ...patch } };
+                  })}
+                  onZone={(productId, zoneId) => setProductZone((current) => ({ ...current, [productId]: zoneId }))}
                 />
               </div>
             )}
             {wizardStep === 4 && (
             <div className="space-y-4">
               <SectionIntro icon={<PresentationIcon className="h-5 w-5" />} title={WIZARD_STEPS[3].title} hint={WIZARD_STEPS[3].hint} />
+              {generateBlock ? <p className="text-sm text-destructive">{generateBlock}</p> : null}
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="min-w-0 flex-1">
                   <Field label="新版本備註">

@@ -768,6 +768,22 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
   return blocks;
 }
 
+/** Space and a hairline between product items. Not used inside an item or around labels. */
+function buildItemGapBlock(ctx: Ctx, key: string): PdfBlock {
+  const P = ctx.P;
+  const heightPt = 10;
+  return {
+    key,
+    heightPt,
+    table: true,
+    node: (
+      <P.View style={{ height: heightPt, justifyContent: 'flex-end', backgroundColor: '#ffffff' }}>
+        <P.View style={{ borderBottomWidth: 0.6, borderColor: RULE }} />
+      </P.View>
+    ),
+  };
+}
+
 // ─── 其他區塊 ───────────────────────────────────────────────────────────────
 
 /** react-pdf ignores objectFit, so both axes on an Image stretch it. Fit from the real ratio instead. */
@@ -1653,6 +1669,10 @@ export function QuotationDocument({
       return;
     }
     tableBlocks.push(...buildItemBlocks(ctx, item, quoteItemSerialLabel(items, index)));
+    const next = items[index + 1];
+    if (!item.isCustomTerm && next && !next.isSectionTitle && !next.isCustomTerm) {
+      tableBlocks.push(buildItemGapBlock(ctx, `item-gap-${index}`));
+    }
     const zone = zoneEndAt.get(index);
     if (zone && showZoneSubtotal) tableBlocks.push(buildZoneBlock(ctx, zone.name, zone.amount));
     if (zone) {

@@ -153,6 +153,7 @@ export function buildGenerationRequest(
   const pageCount = Number(brief.pageCount);
   const content = String(brief.content ?? "").trim();
   const outlineText = String(brief.outline ?? "").trim();
+  const outlineOnly = brief.outlineOnly === true;
 
   const header = [
     `標題：${title}`,
@@ -167,7 +168,7 @@ export function buildGenerationRequest(
     "公司介紹頁必須同時顯示「超過 1,000 款傢俬」、「超過 16 年行業經驗」和專業資質，不可省略。",
   ].filter(Boolean).join("\n");
 
-  const productBlock = products.length
+  const productBlock = !outlineOnly && products.length
     ? `產品：\n${products.map((product, index) => {
       const specs = productSpecLines(product);
       return `${index + 1}. ${specs.join("；") || (product.title ?? "產品")}`;
@@ -200,15 +201,17 @@ export function buildGenerationRequest(
     sections.push(...outlineSections);
   }
   let productsIncluded = 0;
-  for (const product of products) {
-    if (sections.length >= SECTION_MAX) break;
-    const specs = productSpecLines(product);
-    sections.push(section(
-      (product.title ?? "").trim() || (product.model ?? "").trim() || `產品 ${productsIncluded + 1}`,
-      specs.join("\n") || "產品資料",
-      specs,
-    ));
-    productsIncluded += 1;
+  if (!outlineOnly) {
+    for (const product of products) {
+      if (sections.length >= SECTION_MAX) break;
+      const specs = productSpecLines(product);
+      sections.push(section(
+        (product.title ?? "").trim() || (product.model ?? "").trim() || `產品 ${productsIncluded + 1}`,
+        specs.join("\n") || "產品資料",
+        specs,
+      ));
+      productsIncluded += 1;
+    }
   }
 
   return {
