@@ -226,17 +226,17 @@ function TemplateThumb({ templateId, samples }: { templateId: PhotoTemplateId; s
 }
 
 function useStageWidth() {
-  const ref = useRef<HTMLDivElement>(null);
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
-    const node = ref.current;
     if (!node) return;
-    const observer = new ResizeObserver(() => setWidth(node.clientWidth));
+    const measure = () => setWidth(node.clientWidth);
+    const observer = new ResizeObserver(measure);
     observer.observe(node);
-    setWidth(node.clientWidth);
+    measure();
     return () => observer.disconnect();
-  }, []);
-  return { ref, width };
+  }, [node]);
+  return { ref: setNode, width };
 }
 
 /** 單一槽位的裁剪對話框；只有按已放圖片才會開。 */
@@ -259,6 +259,7 @@ function CropDialog({
 }) {
   const [draft, setDraft] = useState(placement);
   const [natural, setNatural] = useState<NaturalSize | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const { ref, width: stageWidth } = useStageWidth();
   const drag = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
@@ -266,8 +267,11 @@ function CropDialog({
   const cover = draft.fitMode === 'cover';
 
   useEffect(() => {
+    setImageFailed(false);
+    setNatural(null);
     const image = new Image();
     image.onload = () => setNatural({ w: image.naturalWidth, h: image.naturalHeight });
+    image.onerror = () => setImageFailed(true);
     image.src = photo.previewUrl;
   }, [photo.previewUrl]);
 
@@ -373,10 +377,15 @@ function CropDialog({
                 drag.current = null;
               }}
             >
-              {stageWidth > 0 && showOriginal ? (
-                <img src={photo.previewUrl} alt={photo.title} draggable={false} className="absolute inset-0 h-full w-full object-contain" />
+              {imageFailed ? (
+                <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white">
+                  圖片載入失敗
+                </p>
               ) : null}
-              {stageWidth > 0 && !showOriginal && cover ? (
+              {!imageFailed && showOriginal ? (
+                <img src={photo.previewUrl} alt={photo.title} draggable={false} className="absolute inset-0 h-full w-full object-contain" onError={() => setImageFailed(true)} />
+              ) : null}
+              {!imageFailed && !showOriginal && cover && stageWidth > 0 ? (
                 <>
                   <img
                     src={photo.previewUrl}
@@ -394,12 +403,16 @@ function CropDialog({
                   </div>
                 </>
               ) : null}
-              {stageWidth > 0 && !showOriginal && !cover ? (
+              {!imageFailed && !showOriginal && !cover ? (
                 <div
                   className="absolute bg-slate-50 ring-2 ring-white"
-                  style={{ left: frameX, top: frameY, width: frameW, height: frameH }}
+                  style={
+                    stageWidth > 0
+                      ? { left: frameX, top: frameY, width: frameW, height: frameH }
+                      : { left: 16, top: 16, right: 16, bottom: 16 }
+                  }
                 >
-                  <img src={photo.previewUrl} alt={photo.title} draggable={false} className="h-full w-full object-contain" />
+                  <img src={photo.previewUrl} alt={photo.title} draggable={false} className="h-full w-full object-contain" onError={() => setImageFailed(true)} />
                 </div>
               ) : null}
               <span className="absolute left-3 top-3 rounded-md bg-slate-950/70 px-2 py-1 text-xs font-semibold text-white">
@@ -621,14 +634,9 @@ export function QuotePhotoLayoutEditor({
 
   function chooseTemplate(templateId: PhotoTemplateId) {
     if (!chosen) {
-      // 第一次選佈局：把素材區（產品圖優先）直接填入未用的槽位。
       const gridSlots = templateId === 'L12' ? 6 : undefined;
-      const slots = templateGeometry(templateId, gridSlots).slots;
-      const queue = trayIds.slice(0, Math.max(0, MAX_LAYOUT_PHOTOS - othersCount));
-      const placements = slots.slice(0, queue.length).map((slot, index) => defaultPlacement(slot, queue[index]));
-      setGroup((current) => ({ ...current, templateId, gridSlots, placements }));
+      setGroup((current) => ({ ...current, templateId, gridSlots, placements: [] }));
       setChosen(true);
-      if (placements.length > 0) toast.success(`已放入 ${placements.length} 張圖片，可拖動調整。`);
       return;
     }
     if (templateId === group.templateId) return;
