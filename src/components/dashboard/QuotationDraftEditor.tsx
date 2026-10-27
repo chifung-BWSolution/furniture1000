@@ -6582,9 +6582,15 @@ export function QuotationDraftEditor({
                     onActive={setActiveZoneId}
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center font-body text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    disabled={zoneRecognitionActive}
+                    onClick={() => floorPlanInputRef.current?.click()}
+                    className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center font-body text-sm text-muted-foreground hover:bg-muted/50 disabled:cursor-default"
+                  >
                     {t.dropFloorPlan}
-                  </div>
+                    <span className="ml-1 text-sky-600 underline underline-offset-2">{t.dropFloorPlanAction}</span>
+                  </button>
                 )}
                 {zoneRecognitionActive ? (
                   <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center" role="status" aria-live="polite">

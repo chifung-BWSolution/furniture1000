@@ -1,0 +1,11 @@
+---
+description: Quotation UI copy is written for staff, and the floor-plan drop area must be clickable
+globs: src/components/dashboard/QuotationDraftEditor.tsx,src/lib/quotationLocale.ts
+alwaysApply: false
+---
+
+# 報價介面文案
+
+分區管理還沒有平面圖時，左邊那一塊要能**點擊**選檔，不只是拖曳。文案裡的「上傳」就是這個動作。
+
+寫給同事看的句子用日常說法，不要寫操作說明腔。例如「把平面圖拖到這裡，或按一下上傳」，不要「拖曳平面圖到這裡上傳」。圈選空間也一樣：說「在圖上空白的地方拉一個框」，不要「拖曳圈選」。
