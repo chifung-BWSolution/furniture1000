@@ -936,6 +936,10 @@ function QuoteItemFlagToggles({
 const QUOTE_INPUT_CLASS =
   "w-full rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
+/** Single-line controls in the info cards. Inputs, selects and choice buttons share this height. */
+const QUOTE_PANEL_CONTROL_CLASS =
+  "h-9 w-full rounded-md border border-border bg-background px-3 py-0 font-body text-xs leading-9 text-foreground shadow-none placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
+
 /** ~15 Chinese characters — 顏色 */
 const QUOTE_SHORT_TEXT_INPUT_CLASS = `${QUOTE_INPUT_CLASS} max-w-[15em]`;
 
@@ -2060,8 +2064,8 @@ function QuoteMultiChoice({ label, values, options, onChange, english = false }:
     <QuoteFieldBlock label={label}>
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" aria-label={label} className="flex min-h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-left text-xs">
-            <span className="min-w-0 flex-1 leading-5">{values.length ? values.join('、') : (english ? `Select ${label.toLowerCase()}` : `選擇${label}`)}</span>
+          <button type="button" aria-label={label} title={values.join('、')} className={cn(QUOTE_PANEL_CONTROL_CLASS, "flex items-center justify-between gap-2 text-left")}>
+            <span className="min-w-0 flex-1 truncate">{values.length ? values.join('、') : (english ? `Select ${label.toLowerCase()}` : `選擇${label}`)}</span>
             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           </button>
         </PopoverTrigger>
@@ -5398,7 +5402,7 @@ export function QuotationDraftEditor({
                     defaultValue={formData.quotationType.join('、')}
                     placeholder="以頓號分隔；未指定可留空"
                     onBlur={(e) => onFormDataChange({ quotationType: [...new Set(e.target.value.split(/[、,，]/).map((value) => value.trim()).filter(Boolean))] })}
-                    className={QUOTE_INPUT_CLASS}
+                    className={QUOTE_PANEL_CONTROL_CLASS}
                   />
                 </QuoteFieldBlock>
                 <QuoteMultiChoice
@@ -5413,7 +5417,7 @@ export function QuotationDraftEditor({
                     value={formData.workPeriod || '__none__'}
                     onValueChange={(value) => onFormDataChange({ workPeriod: value === '__none__' ? '' : value })}
                   >
-                    <SelectTrigger aria-label={ui('工期需求', 'Lead Time')}><SelectValue /></SelectTrigger>
+                    <SelectTrigger aria-label={ui('工期需求', 'Lead Time')} className={cn(QUOTE_PANEL_CONTROL_CLASS, "focus:ring-1")}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">未指定</SelectItem>
                       {[...new Set([...workPeriodOptions, formData.workPeriod].filter(Boolean))].map((period) => (
@@ -5428,7 +5432,7 @@ export function QuotationDraftEditor({
                     value={formData.remarks}
                     onChange={(e) => onFormDataChange({ remarks: e.target.value })}
                     rows={3}
-                    className={QUOTE_INPUT_CLASS}
+                    className="min-h-[4.75rem] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground shadow-none placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 md:text-xs"
                   />
                 </QuoteFieldBlock>
               </InfoPanelColumn>
@@ -5456,7 +5460,7 @@ export function QuotationDraftEditor({
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
                     {t.quoteNo}
                   </label>
-                  <div className="rounded-md border border-border/50 bg-muted/30 px-3 py-2 font-mono-data text-xs text-foreground/80">
+                  <div className={cn(QUOTE_PANEL_CONTROL_CLASS, "truncate border-border/50 bg-muted/30 font-mono-data text-foreground/80")}>
                     {quoteId || "—"}
                   </div>
                 </div>
@@ -5470,7 +5474,7 @@ export function QuotationDraftEditor({
                     onChange={(e) =>
                       setQuoteMeta((p) => ({ ...p, pmName: e.target.value }))
                     }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    className={QUOTE_PANEL_CONTROL_CLASS}
                   />
                 </div>
                 <div>
@@ -5486,7 +5490,7 @@ export function QuotationDraftEditor({
                         date: e.target.value || todayQuoteDateIso(),
                       }))
                     }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono-data text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    className={cn(QUOTE_PANEL_CONTROL_CLASS, "font-mono-data")}
                   />
                 </div>
                 <div>
@@ -5502,7 +5506,7 @@ export function QuotationDraftEditor({
                         validity: e.target.value,
                       }))
                     }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono-data text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    className={cn(QUOTE_PANEL_CONTROL_CLASS, "font-mono-data")}
                   />
                 </div>
                 <div>
@@ -5527,7 +5531,7 @@ export function QuotationDraftEditor({
                     }}
                     placeholder={t.deliveryAddressPlaceholder}
                     rows={3}
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    className="min-h-[4.75rem] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                   />
                 </div>
               </InfoPanelColumn>
