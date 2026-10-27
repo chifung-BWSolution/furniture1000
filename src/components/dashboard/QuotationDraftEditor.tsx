@@ -147,7 +147,6 @@ import {
   sanitizeExchangeRateInput,
   parseExchangeRateValue,
   computeHkdCostPrice,
-  formatHkdCostDisplayCeil,
   exchangeRateInputDisplay,
 } from "@/lib/quoteCostExchange";
 import { parseGpSummary } from "@/lib/quoteGpSummary";
@@ -1437,11 +1436,22 @@ function QuoteProductItemCard({
             />
           </QuoteFieldBlock>
           <QuoteFieldBlock label={labels.hkdCost}>
-            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/40 px-2">
-              <span className="truncate font-mono-data text-xs font-medium text-foreground">
-                {formatHkdCostDisplayCeil(item.hkdCostPrice)}
-              </span>
-            </div>
+            <input
+              type="number"
+              value={item.hkdCostPrice == null ? "" : Math.ceil(item.hkdCostPrice)}
+              placeholder="—"
+              min={0}
+              step={1}
+              onChange={(e) =>
+                updateItem(
+                  item.id,
+                  "hkdCostPrice",
+                  e.target.value === "" ? null : parseFloat(e.target.value),
+                )
+              }
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+              aria-label={labels.hkdCost}
+            />
           </QuoteFieldBlock>
           <QuoteFieldBlock label={labels.hkdUnitPrice}>
             <input
