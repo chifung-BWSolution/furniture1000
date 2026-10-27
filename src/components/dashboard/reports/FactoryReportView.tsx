@@ -248,10 +248,10 @@ export function FactoryReportView() {
             <div className="overflow-hidden rounded-xl border border-border bg-card">
               <div className="border-b border-border px-5 py-3">
                 <h3 className="font-display text-sm font-bold">
-                  廠家產品數量排名（產品目錄）
+                  廠家產品數量排名（圖冊）
                 </h3>
                 <p className="mt-1 font-body text-[11px] text-muted-foreground">
-                  A類＝已上載／準備上載 Shopify；B類＝產品目錄；產品數量＝A＋B
+                  A類＝已上載／準備上載 Shopify；B類＝圖冊；產品數量＝A＋B
                 </p>
               </div>
               {catalog.length === 0 ? (

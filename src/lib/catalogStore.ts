@@ -1,7 +1,7 @@
 // ============================================================================
-// Product Catalog (產品目錄) — Supabase-backed membership.
+// Product Catalog (圖冊) — Supabase-backed membership.
 // Catalog membership lives in products.in_catalog (boolean) so every user on
-// every device sees the same catalog. The 產品目錄 page queries
+// every device sees the same catalog. The 圖冊 page queries
 // products WHERE in_catalog = true. No separate table needed.
 // ============================================================================
 import { supabase } from './supabase';
@@ -39,7 +39,7 @@ export async function removeFromCatalog(ids: string[]): Promise<{ ok: boolean; e
 
 /**
  * A「加入Shopify」: mark products for the Shopify queue AND add to catalog.
- * They appear on 網上發佈>產品文案 (in_shopify_queue) and 產品目錄 (in_catalog),
+ * They appear on 網上發佈>產品文案 (in_shopify_queue) and 圖冊 (in_catalog),
  * and disappear from 所有產品.
  */
 export async function addToShopifyQueue(ids: string[]): Promise<{ ok: boolean; count: number; error?: string }> {
@@ -61,7 +61,7 @@ export async function addToShopifyQueue(ids: string[]): Promise<{ ok: boolean; c
 }
 
 /**
- * C「暫不考慮」: mark products dismissed (hidden from 所有產品 / 產品目錄, kept in DB).
+ * C「暫不考慮」: mark products dismissed (hidden from 所有產品 / 圖冊, kept in DB).
  * Also clears in_catalog so catalog membership does not revive them after refresh.
  */
 export async function dismissProducts(ids: string[]): Promise<{ ok: boolean; count: number; error?: string }> {

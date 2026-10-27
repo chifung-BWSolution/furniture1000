@@ -40,7 +40,7 @@ export type FactoryCatalogCountRow = {
    * A類：會／已上載 Shopify（`shopify_products` + `ready_to_shopify`）。
    */
   classACount: number;
-  /** B類：產品目錄（`products`）。 */
+  /** B類：圖冊（`products`）。 */
   classBCount: number;
   /** A + B 合計（排名用）。 */
   productCount: number;
@@ -180,7 +180,7 @@ async function loadCatalogProductIndex(): Promise<Map<string, CatalogProductRef>
 }
 
 /**
- * 產品目錄索引掃描一次要跑完整張 `products`，但目錄內容不常變。
+ * 圖冊索引掃描一次要跑完整張 `products`，但目錄內容不常變。
  * 5 分鐘內的多次載入（切換日期區間、兩個報告頁）共用同一份結果。
  */
 const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -379,7 +379,7 @@ async function countFactoriesFromColumn(
 
 /**
  * Factory product counts:
- * - B類 = 產品目錄 `products`
+ * - B類 = 圖冊 `products`
  * - A類 = 已上載／準備上載 Shopify（`shopify_products` + `ready_to_shopify`）
  * - 產品數量 = A + B
  */
@@ -428,9 +428,9 @@ export async function fetchFactoryCatalogCounts(): Promise<FactoryCatalogCountRo
 export type ProductReportRange = { from: Date; to: Date };
 
 export type ProductReportRow = QuoteProductUsageRow & {
-  /** 產品目錄 `products.id`（查看詳情用）。 */
+  /** 圖冊 `products.id`（查看詳情用）。 */
   productId: string | null;
-  /** 產品目錄分類，作為名稱下方的副標。 */
+  /** 圖冊分類，作為名稱下方的副標。 */
   category: string | null;
   /** 期間內用過此產品的報價單編號（新 → 舊）。 */
   quoteNumbers: string[];

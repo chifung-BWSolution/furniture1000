@@ -275,7 +275,7 @@ interface QuotationItem {
   dimensionMode?: QuotationDimensionMode;
   deliveryTermName?: string;
   factoryName?: string;
-  /** True when 廠家 was set from 產品目錄 — shown read-only. */
+  /** True when 廠家 was set from 圖冊 — shown read-only. */
   factoryFromCatalog?: boolean;
   /** Reference-only line — excluded from quote 合計 and GP Cost; PDF shows 可選產品 + checkbox. */
   isOptional?: boolean;

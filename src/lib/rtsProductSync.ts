@@ -197,7 +197,7 @@ export async function syncRtsWorkflowToProduct(
   if (error) console.warn('[rtsProductSync] workflow sync failed:', error.message);
 }
 
-/** Push editable RTS content → products so 產品目錄 stays in sync. */
+/** Push editable RTS content → products so 圖冊 stays in sync. */
 export async function syncRtsContentToProduct(
   supabase: SupabaseClient,
   productId: string,

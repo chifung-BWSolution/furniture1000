@@ -219,7 +219,7 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
               delay={0.05}
             />
             <MetricCard
-              label="產品目錄"
+              label="圖冊"
               sub={`Catalog · ${m.categoryCount.toLocaleString()} 個分類`}
               value={m.catalogProducts}
               valueColor="text-emerald-600"

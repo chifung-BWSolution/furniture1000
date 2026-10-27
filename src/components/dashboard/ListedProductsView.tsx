@@ -121,7 +121,7 @@ interface ListedProductsViewProps {
   onSendToPublishQueue?: (products: any[]) => void;
   /** Report total + selected counts (and selected IDs) up to the TopBar */
   onStatsChange?: (stats: { total: number; selected: number; selectedIds: string[] }) => void;
-  /** 'catalog' = 產品目錄頁（僅顯示已加入目錄的產品）; undefined = 所有產品頁 */
+  /** 'catalog' = 圖冊頁（僅顯示已加入目錄的產品）; undefined = 所有產品頁 */
   mode?: 'all' | 'catalog';
 }
 
@@ -138,7 +138,7 @@ function applyPendingProductsFilters(q: any) {
     .not('dismissed', 'is', true);
 }
 
-/** 產品目錄 filter — 僅 in_catalog，並排除已「暫不考慮」。 */
+/** 圖冊 filter — 僅 in_catalog，並排除已「暫不考慮」。 */
 function applyCatalogFilters(q: any) {
   return q.eq('in_catalog', true).not('dismissed', 'is', true);
 }
@@ -618,7 +618,7 @@ export function ListedProductsView({
       if (level1Filter) countQuery = countQuery.eq('level1_category', level1Filter);
       if (level2Filter) countQuery = countQuery.eq('level2_category', level2Filter);
 
-      // 產品目錄頁：只計算已加入目錄、且未「暫不考慮」的產品
+      // 圖冊頁：只計算已加入目錄、且未「暫不考慮」的產品
       if (isCatalog) {
         countQuery = applyCatalogFilters(countQuery);
       } else {
@@ -686,7 +686,7 @@ export function ListedProductsView({
       if (level1Filter) dataQuery = dataQuery.eq('level1_category', level1Filter);
       if (level2Filter) dataQuery = dataQuery.eq('level2_category', level2Filter);
 
-      // 產品目錄頁：只顯示已加入目錄、且未「暫不考慮」的產品
+      // 圖冊頁：只顯示已加入目錄、且未「暫不考慮」的產品
       if (isCatalog) {
         dataQuery = applyCatalogFilters(dataQuery);
       } else {
@@ -1004,13 +1004,13 @@ export function ListedProductsView({
 
     if (productsToDelete.length === 0) return;
 
-    // 產品目錄頁：「刪除」只把產品移出目錄（in_catalog=false），不刪除產品本身
+    // 圖冊頁：「刪除」只把產品移出目錄（in_catalog=false），不刪除產品本身
     if (isCatalog) {
       setShowDeleteConfirm(false);
       const res = await removeFromCatalog(idsToDelete);
       setSelectedIds(new Set());
       if (res.ok) {
-        toast.success(`已從產品目錄移除 ${idsToDelete.length} 件產品`);
+        toast.success(`已從圖冊移除 ${idsToDelete.length} 件產品`);
         fetchProducts();
       } else {
         toast.error('移除失敗', { description: res.error });
@@ -1185,7 +1185,7 @@ export function ListedProductsView({
       upsertToReadyToShopify([product]),
     ]);
     res.ok
-      ? toast.success('已加入 Shopify', { description: `${product.title} — 已送往產品文案與產品目錄` })
+      ? toast.success('已加入 Shopify', { description: `${product.title} — 已送往產品文案與圖冊` })
       : toast.error('操作失敗', { description: res.error });
   }, [dropRowLocally, upsertToReadyToShopify]);
 
@@ -1193,7 +1193,7 @@ export function ListedProductsView({
     dropRowLocally(product.id);
     const res = await addToCatalog([product.id]);
     res.ok
-      ? toast.success('已加到產品目錄', { description: product.title })
+      ? toast.success('已加到圖冊', { description: product.title })
       : toast.error('操作失敗', { description: res.error });
   }, [dropRowLocally]);
 
@@ -1387,7 +1387,7 @@ export function ListedProductsView({
 
   // 「待上傳到 Shopify」（批量）— 與單列「A 加入Shopify」一致：
   // 標記 in_shopify_queue=true + in_catalog=true（寫入 Supabase），
-  // 產品即出現在「網上發佈 > 產品文案」與「產品目錄」，並從本頁前端消失。
+  // 產品即出現在「網上發佈 > 產品文案」與「圖冊」，並從本頁前端消失。
   const [isQueuing, setIsQueuing] = useState(false);
   const handleSendToPublishQueue = useCallback(async () => {
     if (selectedIds.size === 0) return;
@@ -1405,7 +1405,7 @@ export function ListedProductsView({
       ]);
       if (res.ok) {
         toast.success(`已將 ${ids.length} 件產品加入 Shopify`, {
-          description: '已送往「網上發佈 > 產品文案」與「產品目錄」',
+          description: '已送往「網上發佈 > 產品文案」與「圖冊」',
         });
       } else {
         toast.error('操作失敗', { description: res.error });
@@ -1791,7 +1791,7 @@ export function ListedProductsView({
               <Database className="h-3 w-3 text-indigo-500" />
               <span className="text-[11px] text-indigo-500 font-body">
                 {isCatalog
-                  ? `產品目錄 • 共 ${totalCount.toLocaleString()} 件 — 此處只顯示已加入目錄的產品，所有裝置即時同步`
+                  ? `圖冊 • 共 ${totalCount.toLocaleString()} 件 — 此處只顯示已加入目錄的產品，所有裝置即時同步`
                   : `已優化載入速度 • 每次載入 ${pageSize} 件，向下滾動自動載入更多`}
               </span>
             </motion.div>
@@ -1847,11 +1847,11 @@ export function ListedProductsView({
             </div>
           ) : products.length === 0 ? (
             <EmptyState
-              title={debouncedSearch ? '找不到符合搜尋的產品' : '產品目錄是空的'}
+              title={debouncedSearch ? '找不到符合搜尋的產品' : '圖冊是空的'}
               description={debouncedSearch
                 ? '請嘗試其他搜尋字詞'
                 : isCatalog
-                  ? '到「所有產品」勾選產品，按「上傳到產品目錄」即可加入'
+                  ? '到「所有產品」勾選產品，按「上傳到圖冊」即可加入'
                   : '從「上載PDF」新增產品或從 Shopify 同步現有產品'}
             />
           ) : viewMode === 'grid' ? (
@@ -2303,7 +2303,7 @@ export function ListedProductsView({
                             onClick={() => handleRowToCatalog(product)}
                             className="flex items-center justify-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10.5px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
                           >
-                            <Database className="h-3 w-3" /> B 加到產品目錄
+                            <Database className="h-3 w-3" /> B 加到圖冊
                           </button>
                           <button
                             onClick={() => setDismissTarget(product)}

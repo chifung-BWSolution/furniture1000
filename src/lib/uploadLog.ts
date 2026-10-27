@@ -31,7 +31,7 @@ export const UPLOAD_LOG_STAGE_LABELS: Record<UploadLogStage, string> = {
   furniture_group_check: '傢俬組檢查',
   ready_to_publish: '準備上載',
   listed_products: '待處理產品',
-  product_catalog: '產品目錄',
+  product_catalog: '圖冊',
   ai_processor: 'AI 處理',
   settings: '設定',
   general: '系統',
@@ -126,7 +126,7 @@ export async function writeUploadLogBatch(entries: UploadLogEntry[]): Promise<vo
   }
 }
 
-/** Log a product edit from 待處理產品 / 產品目錄 detail modal. */
+/** Log a product edit from 待處理產品 / 圖冊 detail modal. */
 export async function writeProductEditLog(opts: {
   productId: string;
   stage: 'listed_products' | 'product_catalog';

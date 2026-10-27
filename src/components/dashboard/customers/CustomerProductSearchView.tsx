@@ -455,7 +455,7 @@ export function CustomerProductSearchView() {
         />
       </div>
 
-      {/* Level-1 category chips — like 產品目錄 */}
+      {/* Level-1 category chips — like 圖冊 */}
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"

@@ -91,7 +91,7 @@ export function FactoryLoginView() {
           </h1>
           <p className="fds-page-description">
             {isSupplier
-              ? '你的上載會先進入傢俬組審核，不會直接寫進產品目錄。'
+              ? '你的上載會先進入傢俬組審核，不會直接寫進圖冊。'
               : '邀請廠家用自己的電郵登入。帳號角色是 supplier，並綁定一間 PMS 廠家。上載先入審核佇列。'}
           </p>
         </section>

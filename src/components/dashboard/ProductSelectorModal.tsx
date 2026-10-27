@@ -79,7 +79,7 @@ const CATALOG_SOURCE_OPTIONS: Array<{
   label: string;
 }> = [
   { value: 'shopify', label: 'A類產品 - shopify上架' },
-  { value: 'system', label: 'B類產品 - 系統產品目錄(包含shopify產品)' },
+  { value: 'system', label: 'B類產品 - 系統圖冊(包含shopify產品)' },
 ];
 
 export function ProductSelectorModal({
@@ -386,7 +386,7 @@ export function ProductSelectorModal({
       size="5xl"
       className="max-w-[1180px]"
       icon={<Package className="h-6 w-6" />}
-      title="產品目錄"
+      title="圖冊"
       description={
         <>
           從資料庫搜尋產品並加入報價單
