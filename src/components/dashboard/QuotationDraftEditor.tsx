@@ -6527,6 +6527,27 @@ export function QuotationDraftEditor({
         description={zoneRecognitionActive ? t.recognizingZonesDetail : t.manageZonesHint}
         footer={
           <>
+            <button
+              type="button"
+              disabled={zoneRecognitionActive}
+              onClick={() => floorPlanInputRef.current?.click()}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
+            >
+              {zoneRecognitionActive ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4 shrink-0" />
+              )}
+              <span className="truncate">
+                {floorPlanBusy
+                  ? t.uploadingFloorPlan
+                  : recognizingZones
+                    ? t.recognizingZones
+                    : floorPlan
+                      ? t.reuploadFloorPlanRecognize
+                      : t.uploadFloorPlanRecognize}
+              </span>
+            </button>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
               {t.cancel}
             </ModalButton>
@@ -6535,38 +6556,6 @@ export function QuotationDraftEditor({
         }
       >
         <div className="space-y-3">
-          <button
-            type="button"
-            disabled={zoneRecognitionActive}
-            onClick={() => floorPlanInputRef.current?.click()}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
-          >
-            {zoneRecognitionActive ? (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-            ) : (
-              <Upload className="h-4 w-4 shrink-0" />
-            )}
-            <span className="truncate">
-              {floorPlanBusy
-                ? t.uploadingFloorPlan
-                : recognizingZones
-                  ? t.recognizingZones
-                  : floorPlan
-                    ? t.reuploadFloorPlanRecognize
-                    : t.uploadFloorPlanRecognize}
-            </span>
-          </button>
-          {zoneRecognitionActive ? (
-            <div className="space-y-1.5" role="status" aria-live="polite">
-              <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
-                <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
-                <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
-              </div>
-              <Progress value={zoneRecognitionProgress} />
-            </div>
-          ) : (
-            <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
-          )}
           {floorPlan?.regions.some((region) => !region.confirmed) ? (
             <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}
@@ -6680,6 +6669,17 @@ export function QuotationDraftEditor({
             <Plus className="h-3 w-3" />
             {t.addSectionTitle}
           </button>
+          {zoneRecognitionActive ? (
+            <div className="space-y-1.5" role="status" aria-live="polite">
+              <div className="flex items-center justify-between gap-3 font-body text-xs text-muted-foreground">
+                <span>{floorPlanBusy ? t.uploadingFloorPlan : t.recognizingZones}</span>
+                <span className="font-mono-data tabular-nums">{Math.round(zoneRecognitionProgress)}%</span>
+              </div>
+              <Progress value={zoneRecognitionProgress} />
+            </div>
+          ) : (
+            <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
+          )}
         </div>
       </Modal>
 
