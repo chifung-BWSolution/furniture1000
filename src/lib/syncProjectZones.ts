@@ -7,7 +7,8 @@
  * 2. 舊資料（room_key 為 null）退回名稱比對，並順手補上 room_key。
  *
  * 名稱與代號是顯示值：對應到既有分區後，若該分區已被用戶改名／改代號，
- * 就不會被房間清單改回去。
+ * 就不會被房間清單改回去。沒有產品的分區只要對上房間鍵就保留，
+ * 避免改名後被刪掉再以種子名稱重建。
  */
 import {
   createZone,
@@ -62,6 +63,28 @@ export function pairSeedsWithZones(
   return paired;
 }
 
+/**
+ * Empty zones that did not match a room seed.
+ * Matched empty zones stay, so a rename, code, and id survive the next sync.
+ */
+export function emptyZoneIdsToPrune(
+  desired: ZoneSeed[],
+  zones: ProjectZone[],
+  zoneProducts: ZoneProduct[],
+): string[] {
+  const withProducts = new Set(
+    zoneProducts.map((product) => product.zoneId).filter(Boolean) as string[],
+  );
+  const matched = new Set(
+    pairSeedsWithZones(desired, zones)
+      .map((pair) => pair.zone?.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  return zones
+    .filter((zone) => !withProducts.has(zone.id) && !matched.has(zone.id))
+    .map((zone) => zone.id);
+}
+
 export async function syncProjectZones(options: {
   projectId: string;
   desired: ZoneSeed[];
@@ -86,22 +109,19 @@ export async function syncProjectZones(options: {
   } = options;
 
   try {
-    const zonesWithProducts = new Set(
-      zoneProducts.map((p) => p.zoneId).filter(Boolean) as string[],
-    );
-    const kept = zones.filter((z) => zonesWithProducts.has(z.id));
-    const empty = zones.filter((z) => !zonesWithProducts.has(z.id));
-
-    if (pruneEmpty) {
-      for (const zone of empty) {
-        const result = await deleteZone(zone.id);
-        if (!result.ok) {
-          return { ok: false, error: result.error || '刪除間隔失敗' };
-        }
+    // Pair before deleting. An empty zone can still be the renamed room
+    // (room_key, code, id). Deleting it first forces a new zone with the seed name.
+    const pruneIds = pruneEmpty
+      ? new Set(emptyZoneIdsToPrune(desired, zones, zoneProducts))
+      : new Set<string>();
+    for (const zoneId of pruneIds) {
+      const result = await deleteZone(zoneId);
+      if (!result.ok) {
+        return { ok: false, error: result.error || '刪除間隔失敗' };
       }
     }
 
-    const pool = pruneEmpty ? [...kept] : [...zones];
+    const pool = zones.filter((zone) => !pruneIds.has(zone.id));
     const paired = pairSeedsWithZones(desired, pool);
     const usedIds = new Set<string>();
 

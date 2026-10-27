@@ -2929,6 +2929,11 @@ export function QuotationDraftEditor({
     return DEFAULT_ITEMS;
   });
   const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(false);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const itemsLoadedRef = useRef(false);
+  itemsLoadedRef.current = itemsLoadedFromDb;
+  const itemsReadyWaiters = useRef<Array<() => void>>([]);
 
   // 報價明細的產品圖：排版時預設放進素材區，不用再去圖片庫找。
   const quoteProductPhotos = useMemo(() => {
@@ -2957,7 +2962,7 @@ export function QuotationDraftEditor({
       }),
     [quoteProductPhotos],
   );
-  /** Prevents async loadQuoteItems from overwriting in-session user edits. */
+  /** Prevents async loadQuoteItems from overwriting in-session line-item edits. */
   const itemsUserEditedRef = useRef(false);
   /** Tracks which quote uuid already hydrated items in this editor session. */
   const itemsHydratedForUuidRef = useRef<string | null>(null);
@@ -3001,7 +3006,11 @@ export function QuotationDraftEditor({
       return;
     }
     // After 版本審核 a new uuid appears; never clobber in-session edits / current table.
-    if (itemsUserEditedRef.current || itemsHydratedForUuidRef.current) {
+    // A flag with no line content is not an edit — the table is still the unloaded placeholder.
+    if (
+      (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent))
+      || itemsHydratedForUuidRef.current
+    ) {
       itemsHydratedForUuidRef.current = quoteUuid;
       setItemsLoadedFromDb(true);
       return;
@@ -3011,7 +3020,7 @@ export function QuotationDraftEditor({
       try {
         const rows = await loadQuoteItems(quoteUuid);
         if (cancelled) return;
-        if (itemsUserEditedRef.current) {
+        if (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent)) {
           itemsHydratedForUuidRef.current = quoteUuid;
           return;
         }
@@ -3019,6 +3028,11 @@ export function QuotationDraftEditor({
           const linked = await hydrateQuoteItemProductLinks(
             rows.map(normalizeLegacyQuoteItemProductId),
           );
+          if (cancelled) return;
+          if (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent)) {
+            itemsHydratedForUuidRef.current = quoteUuid;
+            return;
+          }
           setItems(linked.map((item) => mapInputToQuotationItem(item)));
         }
         itemsHydratedForUuidRef.current = quoteUuid;
@@ -3034,6 +3048,20 @@ export function QuotationDraftEditor({
     // legacyItems length is stable for this existingQuote mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingQuote?.quoteUuid]);
+
+  useEffect(() => {
+    if (!itemsLoadedFromDb) return;
+    const waiters = itemsReadyWaiters.current;
+    itemsReadyWaiters.current = [];
+    waiters.forEach((resolve) => resolve());
+  }, [itemsLoadedFromDb]);
+
+  const waitForQuoteItems = () => {
+    if (!existingQuote?.quoteUuid || itemsLoadedRef.current) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      itemsReadyWaiters.current.push(resolve);
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -3577,6 +3605,14 @@ export function QuotationDraftEditor({
   const [autoSaveFailed, setAutoSaveFailed] = useState(false);
 
   const handleOpenSubmitReview = () => {
+    if (existingQuote?.quoteUuid && !itemsLoadedFromDb) {
+      toast.error(quoteLocale === "en" ? "Line items are still loading" : "報價明細仍在載入", {
+        description: quoteLocale === "en"
+          ? "Wait until the saved lines finish loading before submitting."
+          : "請等既有明細載入完成再提交，避免用不完整明細覆寫報價。",
+      });
+      return;
+    }
     const missing = [
       !quoteMeta.pmName.trim() && '項目經理姓名',
       !clientInfo.name.trim() && '公司名稱',
@@ -3775,15 +3811,16 @@ export function QuotationDraftEditor({
     try {
       const jpeg = await imageBlobToJpegBase64(blob);
       const names = await detectZonesFromJpegBase64(jpeg);
+      const sourceItems = itemsRef.current;
       const existing = new Set(
-        items
+        sourceItems
           .filter((item) => item.isSectionTitle)
           .map((item) => item.name.trim().toLowerCase()),
       );
       const fresh = names.filter((name) => name.trim() && !existing.has(name.trim().toLowerCase()));
       setZoneManagerDraft([
         ...fresh.map((name) => ({ id: generateId(), name: name.trim() })),
-        ...sectionZonesOf(items),
+        ...sectionZonesOf(sourceItems),
       ]);
       setZoneManagerOpen(true);
       if (!names.length) {
@@ -3828,7 +3865,6 @@ export function QuotationDraftEditor({
         previewUrl = await uploadProjectFloorPlanPreview(quoteImageScope || "quote", rendered.blob);
         visionBlob = rendered.blob;
       }
-      itemsUserEditedRef.current = true;
       setFloorPlan({
         url: uploaded.url,
         mimeType: uploaded.mimeType,
@@ -3836,6 +3872,14 @@ export function QuotationDraftEditor({
         previewUrl,
       });
       toast.success(quoteLocale === "en" ? "Floor plan uploaded. Detecting zones…" : "已上傳平面圖，正在識別分區");
+      // Floor plan metadata is not a line-item edit. Marking items edited while
+      // bwf_quote_item is still loading drops those rows on the way back.
+      if (existingQuote?.quoteUuid && !itemsLoadedRef.current) {
+        await Promise.race([
+          waitForQuoteItems(),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 30000)),
+        ]);
+      }
       setFloorPlanBusy(false);
       await detectZonesFromBlob(visionBlob);
     } catch (error) {
@@ -4147,6 +4191,14 @@ export function QuotationDraftEditor({
 
   /** Save current editor state to Supabase (update open version, or create v1). */
   const handleSaveExistingVersion = async () => {
+    if (existingQuote?.quoteUuid && !itemsLoadedFromDb) {
+      toast.error(quoteLocale === "en" ? "Line items are still loading" : "報價明細仍在載入", {
+        description: quoteLocale === "en"
+          ? "Wait until the saved lines finish loading before saving."
+          : "請等既有明細載入完成再保存，避免用不完整明細覆寫報價。",
+      });
+      return;
+    }
     const contentItems = items.filter(hasQuoteItemContent);
     if (contentItems.length === 0) {
       toast.error("尚無報價內容可保存");
@@ -4536,7 +4588,6 @@ export function QuotationDraftEditor({
       url: page.url,
       pageNumber: page.pageNumber,
     }));
-
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
       const { addressEn, address: _zhAddress, ...companyRest } = companyInfo;

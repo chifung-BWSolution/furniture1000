@@ -17,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
+import { canManageSupplierDocuments, canViewSupplierCatalogs } from '@/lib/supplierDocuments';
 import { DocumentUploadProgress, type DocumentUploadStatus } from './DocumentUploadProgress';
 import {
   fetchProductCategoryPairs,
@@ -70,6 +70,7 @@ export function FactoryCatalogPanel({
   useEffect(() => () => uploadController.current?.abort(), []);
   const [saving, setSaving] = useState(false);
   const [canUpload, setCanUpload] = useState<boolean | null>(null);
+  const [canView, setCanView] = useState<boolean | null>(null);
   const [docType, setDocType] = useState<SupplierDocType>(initialDocType);
   const [year, setYear] = useState(shanghaiYear());
   const [series, setSeries] = useState('');
@@ -100,8 +101,8 @@ export function FactoryCatalogPanel({
   }, [factoryId]);
 
   useEffect(() => {
-    if (canUpload) void load();
-  }, [load, canUpload]);
+    if (canView) void load();
+  }, [load, canView]);
 
   useEffect(() => {
     setDocType(allowedDocTypes.includes(initialDocType) ? initialDocType : allowedDocTypes[0]);
@@ -109,10 +110,18 @@ export function FactoryCatalogPanel({
 
   useEffect(() => {
     let cancelled = false;
-    canManageSupplierDocuments().then(ok => { if (!cancelled) setCanUpload(ok); });
+    Promise.all([canManageSupplierDocuments(), canViewSupplierCatalogs()]).then(([manage, view]) => {
+      if (cancelled) return;
+      setCanUpload(manage);
+      setCanView(manage || view);
+    });
     return () => { cancelled = true; };
   }, []);
 
+  const visibleCatalogs = useMemo(
+    () => (canUpload ? catalogs : catalogs.filter((row) => row.doc_type === 'catalog')),
+    [catalogs, canUpload],
+  );
   const isCatalog = docType === 'catalog';
   const docLabel = supplierDocTypeLabel(docType);
   const selectedSet = useMemo(() => new Set(selectedCategories), [selectedCategories]);
@@ -186,16 +195,20 @@ export function FactoryCatalogPanel({
     setSaving(false);
   };
 
-  if (canUpload === null) return <p className="py-6 text-sm text-muted-foreground">正在確認文件權限…</p>;
-  if (!canUpload) return <p className="py-6 text-sm text-muted-foreground">廠家原始文件可能包含內部價格，只限管理員／上載人員查看。</p>;
+  if (canView === null || canUpload === null) return <p className="py-6 text-sm text-muted-foreground">正在確認文件權限…</p>;
+  if (!canView) return <p className="py-6 text-sm text-muted-foreground">廠家原始文件可能包含內部價格，只限管理員／上載人員查看。</p>;
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
-        <Button className="gap-2" onClick={() => { setShowProgress(false); setUploads([]); setUploadOpen(true); }}>
-          <Upload className="h-4 w-4" />上傳廠家文件
-        </Button>
-      </div>
+      {canUpload ? (
+        <div className="flex justify-end">
+          <Button className="gap-2" onClick={() => { setShowProgress(false); setUploads([]); setUploadOpen(true); }}>
+            <Upload className="h-4 w-4" />上傳廠家文件
+          </Button>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">可以查看及下載圖冊。報價單與價目表只限管理員／上載人員。</p>
+      )}
       <Modal
         open={uploadOpen}
         onOpenChange={(open) => { if (!saving) setUploadOpen(open); }}
@@ -361,14 +374,14 @@ export function FactoryCatalogPanel({
                   正在載入文件…
                 </TableCell>
               </TableRow>
-            ) : catalogs.length === 0 ? (
+            ) : visibleCatalogs.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
-                  尚未上傳廠家文件
+                  {canUpload ? '尚未上傳廠家文件' : '尚未有可查看的圖冊'}
                 </TableCell>
               </TableRow>
             ) : (
-              catalogs.map((catalog) => (
+              visibleCatalogs.map((catalog) => (
                 <TableRow key={catalog.id} className={cn(catalog.id === highlightedId && 'bg-primary/5')}>
                   <TableCell>
                     <span>{supplierDocTypeLabel(catalog.doc_type)}</span>

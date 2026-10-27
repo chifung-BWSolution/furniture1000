@@ -67,21 +67,80 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-  );
-  const { count, error } = await supabase
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const supabase = createClient(url, serviceKey);
+  const { data: claimed, error } = await supabase.rpc("fds_supplier_catalog_jobs_claim", {
+    p_limit: 20,
+  });
+  if (error) return json({ error: error.message }, 500);
+
+  const jobs = (claimed ?? []) as Array<{
+    id: string;
+    document_id: string;
+    attempt_count: number;
+  }>;
+  let parsed = 0;
+  let failed = 0;
+  for (const job of jobs) {
+    const { error: enqueueError } = await supabase.rpc("fds_supplier_document_enqueue_parse", {
+      p_document_id: job.document_id,
+    });
+    if (enqueueError) {
+      const terminal = job.attempt_count >= 5
+        || /certificate_not_parseable|document_not_found|permission_denied/.test(enqueueError.message);
+      const { error: updateError } = await supabase
+        .from("supplier_document_jobs")
+        .update({
+          status: terminal ? "failed" : "pending",
+          error_message: enqueueError.message.slice(0, 500),
+          finished_at: terminal ? new Date().toISOString() : null,
+        })
+        .eq("id", job.id);
+      if (updateError) return json({ error: updateError.message, parsed, failed }, 500);
+      failed += 1;
+      continue;
+    }
+    const { error: updateError } = await supabase
+      .from("supplier_document_jobs")
+      .update({
+        status: "completed",
+        error_message: null,
+        finished_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+    if (updateError) return json({ error: updateError.message, parsed, failed }, 500);
+    parsed += 1;
+  }
+
+  if (parsed > 0 && url && serviceKey) {
+    const kick = fetch(`${url}/functions/v1/supabase-functions-process-jobs`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ source: "supplier-catalogs" }),
+    }).then((response) => response.body?.cancel()).catch((err) => {
+      console.warn("[process-supplier-catalogs] process-jobs wake failed", err);
+    });
+    const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (promise: Promise<unknown>) => void } }).EdgeRuntime;
+    if (runtime?.waitUntil) runtime.waitUntil(kick);
+    else await kick;
+  }
+
+  const { count } = await supabase
     .from("supplier_document_jobs")
     .select("id", { count: "exact", head: true })
     .eq("status", "pending");
-  if (error) return json({ error: error.message }, 500);
 
   return json({
     ok: true,
     skipped: false,
     timezone: TIME_ZONE,
+    claimed: jobs.length,
     pending: count ?? 0,
-    parsed: 0,
+    parsed,
+    failed,
   });
 });

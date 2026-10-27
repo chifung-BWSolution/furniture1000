@@ -172,6 +172,18 @@ export async function canManageSupplierDocuments(): Promise<boolean> {
   return data === true;
 }
 
+/** Catalog PDFs are readable by designers and PMs. Quote and price-list files stay with admin/uploader. */
+export async function canViewSupplierCatalogs(): Promise<boolean> {
+  const { data, error } = await supabase.rpc('bwf_has_role', {
+    p_roles: ['admin', 'uploader', 'designer', 'pm'],
+  });
+  if (error) {
+    console.warn('[supplierDocuments] catalog view check failed:', error.message);
+    return false;
+  }
+  return data === true;
+}
+
 async function uploadOriginalPdf(input: UploadSupplierDocumentInput, path: string): Promise<void> {
   const getSession = async () => {
     const { data, error } = await supabase.auth.getSession();
