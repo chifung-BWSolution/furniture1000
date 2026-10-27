@@ -72,6 +72,7 @@ import {
   parseQuoteFloorPlan,
   parseQuoteZoneImages,
   pruneQuoteZoneImages,
+  UNZONED_QUOTE_IMAGE_KEY,
   type QuoteFloorPlan,
   type QuoteZoneImageMap,
 } from "@/lib/quoteFloorPlan";
@@ -3740,6 +3741,7 @@ export function QuotationDraftEditor({
         }),
     [items, quoteLocale],
   );
+  const unzonedImageUrls = zoneImages[UNZONED_QUOTE_IMAGE_KEY] || [];
 
   const assignItemToZone = (itemId: string, value: string) => {
     itemsUserEditedRef.current = true;
@@ -3784,11 +3786,7 @@ export function QuotationDraftEditor({
   };
 
   const openZoneImageUpload = (zoneId: string | null) => {
-    if (!zoneId) {
-      toast.error(quoteLocale === "en" ? "Add a zone before this row first" : "請先在這件傢俬前面新增分區");
-      return;
-    }
-    setZoneImageTargetId(zoneId);
+    setZoneImageTargetId(zoneId || UNZONED_QUOTE_IMAGE_KEY);
   };
 
   const openZoneManager = () => {
@@ -4588,6 +4586,8 @@ export function QuotationDraftEditor({
       url: page.url,
       pageNumber: page.pageNumber,
     }));
+    const pdfLeadImages = zoneImages[UNZONED_QUOTE_IMAGE_KEY] ?? [];
+
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
       const { addressEn, address: _zhAddress, ...companyRest } = companyInfo;
@@ -4620,6 +4620,7 @@ export function QuotationDraftEditor({
           ...termsContentEn,
           fullHtml: enFullHtml,
         },
+        leadImages: pdfLeadImages,
         items: pdfItems,
         subtotal: pdfSubtotal,
         discountNote,
@@ -4666,6 +4667,7 @@ export function QuotationDraftEditor({
       ...termsContent,
       fullHtml: fullHtmlForPdf,
     },
+    leadImages: pdfLeadImages,
     items: pdfItems,
     subtotal: pdfSubtotal,
     discountNote,
@@ -5412,6 +5414,36 @@ export function QuotationDraftEditor({
                       </span>
                     </span>
                   </button>
+                ) : null}
+
+                {unzonedImageUrls.length > 0 ? (
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {unzonedImageUrls.map((url, imageIndex) => (
+                      <div key={url} className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setZoneLightbox({ urls: unzonedImageUrls, index: imageIndex })}
+                          className="block overflow-hidden rounded-md border border-border bg-background"
+                          aria-label={quoteLocale === "en" ? `Image ${imageIndex + 1}` : `圖片 ${imageIndex + 1}`}
+                        >
+                          <LoadingImage
+                            src={url}
+                            alt=""
+                            className="h-16 w-20"
+                            imgClassName="object-contain"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeZoneImage(UNZONED_QUOTE_IMAGE_KEY, url)}
+                          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"
+                          aria-label={t.removeZoneImage}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 ) : null}
 
                 <div

@@ -768,6 +768,40 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
 
 // ─── 其他區塊 ───────────────────────────────────────────────────────────────
 
+function buildLeadImageBlock(ctx: Ctx, imageUrls: string[]): PdfBlock | null {
+  const P = ctx.P;
+  const images = imageUrls.filter((url) => url.startsWith('http')).slice(0, 6);
+  if (!images.length) return null;
+  const heightPt = 78;
+  return {
+    key: 'lead-images',
+    heightPt,
+    table: true,
+    node: (
+      <P.View
+        style={{
+          height: heightPt,
+          backgroundColor: '#ffffff',
+          borderTopWidth: BORDER,
+          borderLeftWidth: BORDER,
+          borderRightWidth: BORDER,
+          borderColor: RULE,
+        }}
+      >
+        <P.View style={{ height: heightPt, flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 6 }}>
+          {images.map((url) => (
+            <P.Image
+              key={url}
+              src={url}
+              style={{ width: 90, height: 66, objectFit: 'contain', marginRight: 6 }}
+            />
+          ))}
+        </P.View>
+      </P.View>
+    ),
+  };
+}
+
 function buildSectionBlock(ctx: Ctx, text: string, imageUrls: string[] | undefined, index: number): PdfBlock {
   const P = ctx.P;
   const images = (imageUrls ?? []).filter((url) => url.startsWith('http')).slice(0, 6);
@@ -1492,6 +1526,8 @@ export function QuotationDocument({
   const zoneEndAt = new Map(zoneTotals.map((zone) => [zone.endIndex, zone]));
 
   const tableBlocks: PdfBlock[] = [];
+  const leadBlock = buildLeadImageBlock(ctx, data.leadImages ?? []);
+  if (leadBlock) tableBlocks.push(leadBlock);
   items.forEach((item, index) => {
     if (item.isSectionTitle) {
       tableBlocks.push(

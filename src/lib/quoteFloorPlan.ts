@@ -8,6 +8,9 @@ import { DEFAULT_GEMINI_MODEL } from '@/lib/geminiModel';
 
 export const MAX_ZONE_IMAGES = 8;
 
+/** Images uploaded on the quote before any 分區. Not a section-title id. */
+export const UNZONED_QUOTE_IMAGE_KEY = 'unzoned';
+
 export type QuoteFloorPlan = {
   url: string;
   mimeType: string;
@@ -52,12 +55,13 @@ export function parseQuoteZoneImages(value: unknown): QuoteZoneImageMap {
   return next;
 }
 
-/** Drop images whose section title no longer exists. */
+/** Drop images whose section title no longer exists. Unzoned uploads stay. */
 export function pruneQuoteZoneImages(
   images: QuoteZoneImageMap,
   sectionTitleIds: Iterable<string>,
 ): QuoteZoneImageMap {
   const live = new Set(sectionTitleIds);
+  live.add(UNZONED_QUOTE_IMAGE_KEY);
   const next: QuoteZoneImageMap = {};
   for (const [id, urls] of Object.entries(images)) {
     if (!live.has(id) || urls.length === 0) continue;

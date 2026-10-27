@@ -91,6 +91,8 @@ export interface QuotationPDFData {
   };
   /** UI/PDF language for this preview. Product data values are unchanged. */
   locale?: 'zh' | 'en';
+  /** Reference images uploaded before any zone. Shown above the line items. */
+  leadImages?: string[];
   items: {
     image: string;
     referenceImage?: string;
