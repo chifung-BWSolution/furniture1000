@@ -26,7 +26,6 @@ import {
   MessageSquare,
   FileText,
   User,
-  ExternalLink,
   Save,
   Loader2,
   Calendar,
@@ -57,15 +56,6 @@ interface StaffComment {
   created_at: string;
 }
 
-interface ProductRecord {
-  id: string;
-  title: string;
-  factory_id?: string;
-  factory_name?: string;
-  images?: any;
-  category?: string;
-}
-
 interface LinkedProjectRecord {
   id: string;
   project_name: string;
@@ -94,11 +84,10 @@ export function FactoryDetailView({
 
   const [factory, setFactory] = useState<FactoryRecord | null>(null);
   const [comments, setComments] = useState<StaffComment[]>([]);
-  const [products, setProducts] = useState<ProductRecord[]>([]);
   const [linkedProjects, setLinkedProjects] = useState<LinkedProjectRecord[]>([]);
   const [stats, setStats] = useState<{ order_count: number; comment_count: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'info' | 'orders' | 'comments' | 'products' | 'catalogs'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'orders' | 'comments' | 'catalogs'>('info');
   const [urlCopied, setUrlCopied] = useState(false);
   const reduceMotion = useReducedMotion();
 
@@ -136,17 +125,6 @@ export function FactoryDetailView({
               c.factory_id === found.factory_code ||
               c.factory === found.display_name ||
               c.factory === found.factory_code
-          )
-        );
-
-        const allProducts: ProductRecord[] = data.products || [];
-        setProducts(
-          allProducts.filter(
-            (p) =>
-              p.factory_id === found.id ||
-              p.factory_id === found.factory_code ||
-              p.factory_name === found.display_name ||
-              p.factory_name === found.factory_code
           )
         );
 
@@ -209,7 +187,6 @@ export function FactoryDetailView({
           icon: MessageSquare,
         },
         { id: 'catalogs' as const, label: '廠家文件', icon: FileText },
-        { id: 'products' as const, label: `產品PDF (${products.length})`, icon: FileText },
       ]
     : [];
 
@@ -325,11 +302,6 @@ export function FactoryDetailView({
               <p className="font-mono-data text-xl font-bold">{stats?.comment_count ?? comments.length}</p>
               <p className="font-body text-[10px] text-muted-foreground">客戶意見</p>
             </div>
-            <div className="rounded-xl border border-border bg-card p-4 text-center min-w-[90px]">
-              <FileText className="mx-auto h-4 w-4 text-amber-500 mb-1" />
-              <p className="font-mono-data text-xl font-bold">{products.length}</p>
-              <p className="font-body text-[10px] text-muted-foreground">產品PDF</p>
-            </div>
           </div>
         </div>
 
@@ -381,7 +353,6 @@ export function FactoryDetailView({
             {activeTab === 'catalogs' && (
               <FactoryCatalogPanel key={factory.id} factoryId={factory.id} factoryName={factory.display_name} />
             )}
-            {activeTab === 'products' && <FactoryProductsTab products={products} />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -726,47 +697,6 @@ function FactoryCommentsTab({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Tab: Products ────────────────────────────────────────────────────────────
-
-function FactoryProductsTab({ products }: { products: ProductRecord[] }) {
-  if (products.length === 0) {
-    return <CompactEmptyState icon={FileText} title="暫無產品PDF" description="No product catalogs found for this manufacturer." />;
-  }
-  return (
-    <div className="space-y-2">
-      {products.map((product) => {
-        const imageList = Array.isArray(product.images) ? product.images : [];
-        const pdfLinks = imageList.filter((img: any) => typeof img === 'string' && img.toLowerCase().endsWith('.pdf'));
-        return (
-          <div key={product.id} className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/10 p-3 hover:bg-muted/20 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
-                <FileText className="h-4 w-4 text-primary" />
-              </div>
-              <div>
-                <p className="font-body text-sm font-medium truncate max-w-[400px]">{product.title}</p>
-                <p className="font-mono-data text-[10px] text-muted-foreground">
-                  {product.category || 'Uncategorized'} · {imageList.length} media file(s)
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {pdfLinks.length > 0 ? pdfLinks.map((link: string, idx: number) => (
-                <a key={idx} href={link} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-mono-data text-primary hover:bg-primary/10 transition-colors">
-                  <ExternalLink className="h-3 w-3" />PDF {idx + 1}
-                </a>
-              )) : (
-                <span className="font-mono-data text-[10px] text-muted-foreground">No PDF</span>
-              )}
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }
