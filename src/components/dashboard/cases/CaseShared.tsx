@@ -227,32 +227,36 @@ export function CaseSearch({
   children?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <div className="relative min-w-0 flex-1 basis-full lg:min-w-64 lg:basis-64">
-        <Search
-          aria-hidden="true"
-          className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
-          aria-label={label}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder}
-          className="pl-8 text-sm"
-        />
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            aria-label={label}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={placeholder}
+            className="pl-8 text-sm"
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={onReload}
+          className="h-9 w-9 shrink-0"
+          aria-label="重新整理"
+          title="重新整理"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
       </div>
-      {children}
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        onClick={onReload}
-        className="h-9 w-9 shrink-0"
-        aria-label="重新整理"
-        title="重新整理"
-      >
-        <RefreshCw className="h-4 w-4" />
-      </Button>
+      {children ? (
+        <div className="flex flex-wrap items-center gap-2">{children}</div>
+      ) : null}
     </div>
   );
 }
