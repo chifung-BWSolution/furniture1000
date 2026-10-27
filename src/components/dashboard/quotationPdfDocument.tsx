@@ -1000,35 +1000,57 @@ function buildTotalsBlock(ctx: Ctx): PdfBlock {
   };
 }
 
-function buildPhotoBlocks(ctx: Ctx): PdfBlock[] {
+/** Bounding box of the slots that actually have a photo, as fractions of the layout. */
+function occupiedLayoutBox(geometry: PhotoPrintBlock['geometry'], placements: PhotoPrintBlock['placements']) {
+  const used = geometry.slots.filter((slot) => placements.some((entry) => entry.slotId === slot.id));
+  if (!used.length) return { x: 0, y: 0, w: 1, h: 1 };
+  const x = Math.min(...used.map((slot) => slot.x));
+  const y = Math.min(...used.map((slot) => slot.y));
+  const right = Math.max(...used.map((slot) => slot.x + slot.w));
+  const bottom = Math.max(...used.map((slot) => slot.y + slot.h));
+  return { x, y, w: Math.max(0.01, right - x), h: Math.max(0.01, bottom - y) };
+}
+
+function buildPhotoBlocks(ctx: Ctx, options?: { frame?: boolean }): PdfBlock[] {
   const { data } = ctx;
   const P = ctx.P;
   const blocks: PdfBlock[] = [];
+  const frameLayout = options?.frame === true;
 
   const layoutBlocks = (data.quotePhotoLayouts?.groups ?? []).flatMap((group) => printBlocks(group));
   if (layoutBlocks.length) {
     const assets = new Map((data.quotePhotoLayouts?.assets ?? []).map((asset) => [asset.id, asset.url]));
     layoutBlocks.forEach((block: PhotoPrintBlock, index: number) => {
-      const baseWidthPt = PDF_CONTENT_WIDTH_MM * PT_PER_MM;
-      const baseHeightPt = block.geometry.heightMm * PT_PER_MM;
+      const crop = frameLayout
+        ? occupiedLayoutBox(block.geometry, block.placements)
+        : { x: 0, y: 0, w: 1, h: 1 };
+      const pad = frameLayout ? 6 : 0;
+      const baseWidthPt = PDF_CONTENT_WIDTH_MM * PT_PER_MM * crop.w;
+      const baseHeightPt = block.geometry.heightMm * PT_PER_MM * crop.h;
       const maxHeightPt = PDF_CONTENT_HEIGHT_PT - 90;
-      const scale = Math.min(PDF_CONTENT_WIDTH_PT / baseWidthPt, maxHeightPt / baseHeightPt);
-      const widthPt = baseWidthPt * scale;
-      const heightPt = baseHeightPt * scale;
+      const scale = Math.min(PDF_CONTENT_WIDTH_PT / (baseWidthPt + pad * 2), maxHeightPt / (baseHeightPt + pad * 2));
+      const innerW = baseWidthPt * scale;
+      const innerH = baseHeightPt * scale;
+      const widthPt = innerW + pad * 2;
+      const heightPt = innerH + pad * 2;
       const textArea = block.geometry.text;
       const first = block.placements[0];
+      const marginTop = index === 0 ? 12 : 8;
 
       blocks.push({
         key: `photo-layout-${block.key}`,
-        heightPt: heightPt + (index === 0 ? 12 : 8),
+        heightPt: heightPt + marginTop,
         node: (
           <P.View
             style={{
               width: widthPt,
               height: heightPt,
               position: 'relative',
-              marginTop: index === 0 ? 12 : 8,
+              marginTop,
               marginLeft: Math.max(0, (PDF_CONTENT_WIDTH_PT - widthPt) / 2),
+              borderWidth: frameLayout ? 0.8 : 0,
+              borderColor: '#cbd5e1',
+              backgroundColor: '#ffffff',
             }}
           >
             {block.geometry.slots.map((slot) => {
@@ -1042,10 +1064,10 @@ function buildPhotoBlocks(ctx: Ctx): PdfBlock[] {
                   key={slot.id}
                   style={{
                     position: 'absolute',
-                    left: slot.x * widthPt,
-                    top: slot.y * heightPt,
-                    width: slot.w * widthPt,
-                    height: slot.h * heightPt,
+                    left: pad + ((slot.x - crop.x) / crop.w) * innerW,
+                    top: pad + ((slot.y - crop.y) / crop.h) * innerH,
+                    width: (slot.w / crop.w) * innerW,
+                    height: (slot.h / crop.h) * innerH,
                     overflow: 'hidden',
                   }}
                 >
@@ -1109,10 +1131,10 @@ function buildPhotoBlocks(ctx: Ctx): PdfBlock[] {
               <P.View
                 style={{
                   position: 'absolute',
-                  left: textArea.x * widthPt,
-                  top: textArea.y * heightPt,
-                  width: textArea.w * widthPt,
-                  height: textArea.h * heightPt,
+                  left: pad + ((textArea.x - crop.x) / crop.w) * innerW,
+                  top: pad + ((textArea.y - crop.y) / crop.h) * innerH,
+                  width: (textArea.w / crop.w) * innerW,
+                  height: (textArea.h / crop.h) * innerH,
                   justifyContent: 'center',
                   paddingHorizontal: 4,
                 }}
@@ -1214,7 +1236,7 @@ function buildZoneLayoutBlocks(
         assets: ctx.data.quotePhotoLayouts?.assets ?? [],
       },
     },
-  }).map((block, index) => ({ ...block, key: `${keyPrefix}-${block.key}-${index}` }));
+  }, { frame: true }).map((block, index) => ({ ...block, key: `${keyPrefix}-${block.key}-${index}` }));
 }
 
 function buildDeliveryBlock(ctx: Ctx): PdfBlock {

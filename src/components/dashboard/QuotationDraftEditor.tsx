@@ -3847,43 +3847,33 @@ export function QuotationDraftEditor({
     const layouts = (zonePhotoLayouts[zoneId] || []).filter((group) => group.placements.length > 0);
     if (!urls.length && !layouts.length) return null;
     return (
-      <div className="space-y-2 rounded-lg border border-dashed border-border bg-muted/20 p-3">
+      <div className="flex flex-col items-center gap-3">
         {layouts.map((group) => (
-          <div key={group.id} className="flex items-start gap-2">
-            <div className="relative min-w-0 max-w-xl flex-1">
-              <button
-                type="button"
-                onClick={() => openZoneImageUpload(zoneId)}
-                className="block w-full text-left"
-                aria-label={t.uploadZoneImage}
-              >
-                <PhotoLayoutBlock
-                  geometry={groupGeometry(group)}
-                  placements={group.placements}
-                  photoFor={(assetId) => zonePhotoSources.get(assetId)}
-                />
-              </button>
-              <button
-                type="button"
-                onClick={() => removeZoneLayout(zoneId, group.id)}
-                className="absolute -right-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"
-                aria-label={t.removeZoneImage}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
+          <div key={group.id} className="relative w-full max-w-2xl">
+            <button
+              type="button"
+              onClick={() => openZoneImageUpload(zoneId)}
+              className="block w-full overflow-hidden rounded-md border border-border bg-background text-left"
+              aria-label={t.uploadZoneImage}
+            >
+              <PhotoLayoutBlock
+                geometry={groupGeometry(group)}
+                placements={group.placements}
+                photoFor={(assetId) => zonePhotoSources.get(assetId)}
+              />
+            </button>
             <button
               type="button"
               onClick={() => removeZoneLayout(zoneId, group.id)}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2 py-1 font-body text-xs text-muted-foreground hover:border-destructive/40 hover:text-destructive"
+              className="absolute right-2 top-2 z-10 text-destructive hover:text-destructive/80"
+              aria-label={t.removeZoneImage}
             >
-              <Trash2 className="h-3.5 w-3.5" />
-              {t.removeZoneImage}
+              <Trash2 className="h-4 w-4" />
             </button>
           </div>
         ))}
         {urls.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap justify-center gap-2">
             {urls.map((url, imageIndex) => (
               <div key={url} className="relative">
                 <button
@@ -6518,6 +6508,7 @@ export function QuotationDraftEditor({
                     : t.uploadFloorPlanRecognize}
             </span>
           </button>
+          <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
           {floorPlan?.regions.some((region) => !region.confirmed) ? (
             <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}
