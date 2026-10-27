@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Loader2, RefreshCw, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Modal } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -62,12 +63,18 @@ export function FactoryCatalogPanel({
   const [catalogs, setCatalogs] = useState<SupplierCatalogRow[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const uploadController = useRef<AbortController | null>(null);
+  useEffect(() => () => uploadController.current?.abort(), []);
   const [saving, setSaving] = useState(false);
   const [canUpload, setCanUpload] = useState<boolean | null>(null);
   const [docType, setDocType] = useState<SupplierDocType>(initialDocType);
   const [year, setYear] = useState(shanghaiYear());
   const [series, setSeries] = useState('');
-  const [versionLabel, setVersionLabel] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
   const [description, setDescription] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
@@ -117,27 +124,49 @@ export function FactoryCatalogPanel({
     });
   };
 
+  const selectFiles = (selected: File[]) => {
+    const valid = selected.filter(file =>
+      (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) && file.size <= 200 * 1024 * 1024,
+    );
+    if (valid.length !== selected.length) toast.error('只接受每份不超過 200 MB 的 PDF 檔案');
+    setFiles(valid);
+    setUploads([]);
+  };
+
   const handleUpload = async () => {
     if (!files.length) { toast.error(`請選擇 PDF ${docLabel}`); return; }
     if (!Number.isInteger(year) || year < 1990 || year > 2100) { toast.error('請填寫有效年份'); return; }
     if (isCatalog && (!series.trim() || !selectedCategories.length)) {
       toast.error('圖冊必須填寫系列及選擇主要產品類型'); return;
     }
+    if (uploadController.current) return;
+    const controller = new AbortController();
+    uploadController.current = controller;
+    setCancelling(false);
+    setShowProgress(true);
+    setUploads([]);
     setSaving(true);
     const failed: File[] = [];
     let savedCount = 0;
-    for (const file of files) {
+    for (const [index, file] of files.entries()) {
+      if (controller.signal.aborted) { failed.push(...files.slice(index)); break; }
       const id = crypto.randomUUID();
       setUploads(current => [...current, { id, name: file.name, progress: { phase: 'preparing', uploadedBytes: 0, totalBytes: file.size } }]);
       try {
         const saved = await uploadSupplierCatalog({
           factoryId, factoryName, docType, file, year, series,
-          productCategories: selectedCategories, versionLabel, description,
+          signal: controller.signal,
+          productCategories: selectedCategories, description,
           onProgress: progress => setUploads(current => current.map(item => item.id === id ? { ...item, progress } : item)),
         });
         setHighlightedId(saved.id);
         savedCount++;
       } catch (error) {
+        if (controller.signal.aborted) {
+          failed.push(...files.slice(index));
+          setUploads(current => current.map(item => item.id === id ? { ...item, error: '已取消上傳' } : item));
+          break;
+        }
         const message = error instanceof Error ? error.message : '上傳失敗';
         failed.push(file);
         setUploads(current => current.map(item => item.id === id ? { ...item, error: message } : item));
@@ -151,6 +180,9 @@ export function FactoryCatalogPanel({
       await load(true);
       onUploaded?.();
     }
+    if (controller.signal.aborted) toast.info('已取消，已保存的文件會保留');
+    uploadController.current = null;
+    setCancelling(false);
     setSaving(false);
   };
 
@@ -159,17 +191,36 @@ export function FactoryCatalogPanel({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-border bg-card p-5">
-        {embedded ? null : (
-          <>
-            <h2 className="font-display text-base font-semibold">上傳廠家文件</h2>
-            <p className="mt-1 font-body text-xs text-muted-foreground">
-              可一次選擇多份 PDF，共用本次填寫的資料。新檔另存，不覆蓋舊檔；圖冊與報價單在上海時間 23:00–翌日 09:00 解析，證書只保存。
-            </p>
-          </>
-        )}
+      <div className="flex justify-end">
+        <Button className="gap-2" onClick={() => { setShowProgress(false); setUploads([]); setUploadOpen(true); }}>
+          <Upload className="h-4 w-4" />上傳廠家文件
+        </Button>
+      </div>
+      <Modal
+        open={uploadOpen}
+        onOpenChange={(open) => { if (!saving) setUploadOpen(open); }}
+        title={showProgress ? (saving ? '正在上傳廠家文件' : '上傳結果') : '上傳廠家文件'}
+        description={showProgress ? '取消會停止尚未完成的上傳，已保存的文件會保留。文件登記期間會先完成目前文件。' : '可一次選擇多份 PDF，共用本次填寫的資料。新檔另存，不覆蓋舊檔；圖冊與報價單在上海時間 23:00–翌日 09:00 解析，證書只保存。'}
+        size={showProgress ? 'lg' : '3xl'}
+        hideClose={saving}
+        onInteractOutside={(event) => { if (saving) event.preventDefault(); }}
+        footer={showProgress ? <>
+          {!saving && files.length > 0 && <Button variant="outline" onClick={() => setShowProgress(false)}>返回修改／重試</Button>}
+          <Button variant="outline" disabled={cancelling} onClick={() => {
+            if (saving) { setCancelling(true); uploadController.current?.abort(); }
+            else setUploadOpen(false);
+          }}>{saving ? (cancelling ? '正在取消…' : '取消上傳') : '完成'}</Button>
+        </> : <>
+          <Button onClick={() => void handleUpload()} disabled={saving || (isCatalog && !categories.length)} className="gap-2">
+            <Upload className="h-4 w-4" />
+            保存{files.length > 1 ? ` ${files.length} 份` : ''}{docLabel}
+          </Button>
+          <Button variant="outline" onClick={() => setUploadOpen(false)}>取消</Button>
+        </>}
+      >
+        {showProgress ? <DocumentUploadProgress uploads={uploads} /> : <>
         {canUpload ? (
-          <fieldset disabled={saving} className={cn('grid min-w-0 gap-4 md:grid-cols-2', !embedded && 'mt-4')}>
+          <fieldset disabled={saving} className="grid min-w-0 gap-4 md:grid-cols-2">
             <div className="space-y-2 md:col-span-2">
               <Label>文件類型</Label>
               <div className="flex gap-2">
@@ -186,16 +237,34 @@ export function FactoryCatalogPanel({
                 ))}
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 md:col-span-2">
               <Label htmlFor="catalog-file">PDF</Label>
               <Input
+                ref={fileInput}
                 id="catalog-file"
                 key={fileKey}
+                className="sr-only"
                 type="file"
                 multiple
                 accept="application/pdf,.pdf"
-                onChange={(event) => { setFiles(Array.from(event.target.files ?? [])); setUploads([]); }}
+                onChange={(event) => selectFiles(Array.from(event.target.files ?? []))}
               />
+              <Button
+                type="button"
+                variant="outline"
+                className={cn('h-auto w-full flex-col gap-2 whitespace-normal border-dashed px-4 py-6 text-center', dragging && 'border-primary bg-primary/5')}
+                onClick={() => fileInput.current?.click()}
+                onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+                onDrop={(event) => { event.preventDefault(); setDragging(false); selectFiles(Array.from(event.dataTransfer.files)); }}
+              >
+                <Upload className="h-6 w-6 text-primary" />
+                <span>拖拽 PDF 至此，或點擊選擇檔案</span>
+                <span className="text-xs font-normal text-muted-foreground">支援多份 PDF，每份上限 200 MB</span>
+              </Button>
+              {files.length > 0 && <ul className="space-y-1 text-sm" aria-label="已選擇的 PDF">
+                {files.map((file, index) => <li key={`${file.name}-${index}`} className="break-all">{file.name}</li>)}
+              </ul>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="catalog-year">年份</Label>
@@ -215,15 +284,6 @@ export function FactoryCatalogPanel({
                 value={series}
                 onChange={(event) => setSeries(event.target.value)}
                 placeholder="例如 2026 辦公椅"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="catalog-version">版本（可空）</Label>
-              <Input
-                id="catalog-version"
-                value={versionLabel}
-                onChange={(event) => setVersionLabel(event.target.value)}
-                placeholder="例如 A / 修訂"
               />
             </div>
             <div className="space-y-2 md:col-span-2">
@@ -255,10 +315,7 @@ export function FactoryCatalogPanel({
               {!saving && files.length > 0 && uploads.some(item => item.error) && (
                 <p className="mb-2 text-sm text-destructive">有 {files.length} 份未保存，可直接重試或重新選檔。</p>
               )}
-              <Button onClick={() => void handleUpload()} disabled={saving || (isCatalog && !categories.length)} className="gap-2">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                保存{files.length > 1 ? ` ${files.length} 份` : ''}{docLabel}
-              </Button>
+
             </div>
           </fieldset>
         ) : (
@@ -266,9 +323,8 @@ export function FactoryCatalogPanel({
             只有管理員或上載人員可以查看及上傳原始文件。
           </p>
         )}
-      </div>
-
-      <DocumentUploadProgress uploads={uploads} />
+        </>}
+      </Modal>
 
       {highlightedId ? (
         <UploadedStatus

@@ -144,6 +144,7 @@ export async function uploadSupplierCatalog(input: {
   productCategories: string[];
   versionLabel?: string;
   description?: string;
+  signal?: AbortSignal;
   onProgress?: (progress: DocumentUploadProgress) => void;
 }): Promise<Pick<SupplierCatalogRow, 'id' | 'title' | 'doc_type' | 'processing_status'>> {
   const isCatalog = input.docType === 'catalog';
@@ -175,6 +176,7 @@ export async function uploadSupplierCatalog(input: {
       description: input.description?.trim(),
     },
     onProgress: input.onProgress,
+    signal: input.signal,
   });
   if (saved.duplicate) throw new Error(`這份${docLabel}已經上傳過，不會覆蓋舊檔`);
   return {

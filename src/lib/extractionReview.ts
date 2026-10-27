@@ -123,7 +123,7 @@ export const EDITABLE_FIELDS: { key: keyof ExtractedProduct; label: string; kind
   { key: 'depth_mm', label: '深 D (mm)', kind: 'number' },
   { key: 'height_mm', label: '高 H (mm)', kind: 'number' },
   { key: 'material', label: '材質', kind: 'text' },
-  { key: 'colors', label: '顏色（逗號分隔）', kind: 'list' },
+  { key: 'colors', label: '主要顏色（第一個為主色，逗號分隔）', kind: 'list' },
   { key: 'price', label: '成本價', kind: 'number' },
   { key: 'currency', label: '幣種', kind: 'text' },
   { key: 'unit', label: '單位', kind: 'text' },

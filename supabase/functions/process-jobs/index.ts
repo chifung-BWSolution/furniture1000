@@ -628,6 +628,10 @@ Rules:
   document context; null if unknown.
 - Dimensions in millimetres: width_mm (W/L), depth_mm (D), height_mm (H). Convert cm or m to mm. Copy the printed
   size into dimensions_text.
+- colors: the product's colors. The first value is the main color. Use a color name printed on the page when there is one.
+  Otherwise name the dominant color of the product in its picture, in the document's language. Add at most two secondary
+  colors after the main one. If there is no picture and no printed color, leave colors empty and add "colors" to
+  uncertain_fields. Do not guess a color from the product category alone.
 - name and material in the original language. category in English (desk, meeting table, chair, sofa, cabinet, bookcase, ...).
 - valid_from / valid_to as YYYY-MM-DD when printed here or in the document context.
 - images: for each picture "IMAGE n" that shows this product give its index and type (main = clean product photo,
