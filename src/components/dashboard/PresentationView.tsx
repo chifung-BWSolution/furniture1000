@@ -283,12 +283,14 @@ function StepIndicator({
   step: number;
   onSelect: (next: number) => void;
 }) {
+  const reduceMotion = useReducedMotion();
   return (
     <ol aria-label="簡報步驟" className="grid h-16 min-w-0 grid-cols-1 gap-1.5 rounded-2xl border border-border/80 bg-card p-1.5 shadow-sm sm:grid-cols-[repeat(4,minmax(0,1fr))]">
       {WIZARD_STEPS.map((item, index) => {
         const n = index + 1;
         const current = n === step;
         const done = n < step;
+        const mark = done ? 'done' : current ? 'current' : 'waiting';
         return (
           <li key={item.title} className="min-w-0">
             <button
@@ -296,7 +298,7 @@ function StepIndicator({
               aria-current={current ? 'step' : undefined}
               onClick={() => onSelect(n)}
               className={cn(
-                'flex h-full w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors',
+                'flex h-full w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors duration-300',
                 current
                   ? 'border-indigo-500 bg-indigo-50 shadow-sm dark:bg-indigo-950/50'
                   : done
@@ -304,7 +306,11 @@ function StepIndicator({
                     : 'border-transparent bg-muted/50',
               )}
             >
-              <span
+              <motion.span
+                key={mark}
+                initial={reduceMotion ? false : { scale: 0.55, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 28 }}
                 className={cn(
                   'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold',
                   current
@@ -315,7 +321,7 @@ function StepIndicator({
                 )}
               >
                 {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : n}
-              </span>
+              </motion.span>
               <span className="min-w-0">
                 <span className={cn(
                   'block truncate text-[13px] font-semibold leading-tight',
@@ -560,6 +566,10 @@ export function PresentationView() {
   const [caseBrands, setCaseBrands] = useState<CaseBrand[]>([]);
   const [caseNote, setCaseNote] = useState('');
   const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
+  const reduceMotion = useReducedMotion();
+  const panelTransition = reduceMotion
+    ? { duration: 0 }
+    : { type: 'spring' as const, stiffness: 340, damping: 32 };
   const fiveRef = useRef({
     company: EMPTY_COMPANY_PROFILE,
     floorZones: [] as { code: string | null; name: string }[],
@@ -1306,7 +1316,12 @@ export function PresentationView() {
   );
 
   const recentCard = (title: string, kind: 'drafts' | 'designs', preview: ReactNode) => (
-    <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+    <motion.section
+      layout
+      layoutId={kind === 'drafts' ? 'recent-drafts' : 'recent-designs'}
+      transition={panelTransition}
+      className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm"
+    >
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-foreground">{title}</h3>
         <button type="button" className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300" onClick={() => openList(kind)}>
@@ -1314,7 +1329,7 @@ export function PresentationView() {
         </button>
       </div>
       {preview}
-    </section>
+    </motion.section>
   );
 
   return (
@@ -1325,6 +1340,14 @@ export function PresentationView() {
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
           <StepIndicator step={wizardStep} onSelect={goToStep} />
           <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+            <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={wizardStep}
+              initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={reduceMotion ? undefined : { opacity: 0, y: -14 }}
+              transition={panelTransition}
+            >
             {wizardStep === 1 && (
             <div className="space-y-4">
               <SectionIntro icon={<FileText className="h-5 w-5" />} title={WIZARD_STEPS[0].title} hint={WIZARD_STEPS[0].hint} />
@@ -1720,14 +1743,24 @@ export function PresentationView() {
               )}
             </div>
             )}
+            </motion.div>
+            </AnimatePresence>
           </section>
         </div>
 
         <aside className="min-w-0 space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:self-start lg:overflow-y-auto">
           {canvaCard}
-          {wizardStep === 4 ? (
-            <div className="space-y-4">
-              <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+          <AnimatePresence initial={false}>
+          {wizardStep === 4 && (
+            <motion.section
+              key="canva-preview"
+              layout
+              initial={reduceMotion ? false : { opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={reduceMotion ? undefined : { opacity: 0, y: 10, scale: 0.98 }}
+              transition={panelTransition}
+              className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm"
+            >
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-bold text-foreground">Canva 簡報預覽</h3>
                   <div className="flex items-center gap-2">
@@ -1803,16 +1836,11 @@ export function PresentationView() {
                 {previewPages > 1 && (
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">分頁以 Canva 為準，這裡顯示目前封面縮圖。</p>
                 )}
-              </section>
-              {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
-              {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
-            </div>
-          ) : (
-            <>
-              {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
-              {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
-            </>
+              </motion.section>
           )}
+          </AnimatePresence>
+          {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
+          {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
         </aside>
       </div>
       </LayoutGroup>
