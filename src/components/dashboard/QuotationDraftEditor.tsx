@@ -2310,6 +2310,12 @@ function applyZoneManager(
   return next;
 }
 
+/** Dirty checks ignore the draft timestamp so a save can match the next render. */
+function quoteDraftSnapshot(draft: DraftData): string {
+  const { updatedAt: _updatedAt, ...rest } = draft;
+  return JSON.stringify(rest);
+}
+
 function QuoteAddRowButtonGroup({
   labels,
   onCopyFromOther,
@@ -3955,24 +3961,29 @@ export function QuotationDraftEditor({
     return () => window.clearInterval(timer);
   }, [zoneRecognitionActive, floorPlanBusy]);
 
-  const saveZoneManager = () => {
-    itemsUserEditedRef.current = true;
+  const saveZoneManager = async () => {
     const drafts = zoneManagerDraft;
     const existingIds = new Set(
       items.filter((item) => item.isSectionTitle).map((item) => item.id),
     );
     const kept = drafts.filter((row) => row.name.trim() || row.nameEn.trim() || existingIds.has(row.id));
-    setItems((prev) => applyZoneManager(prev, kept));
-    setZoneImages((prev) =>
-      pruneQuoteZoneImages(prev, kept.map((row) => row.id)),
-    );
-    setZonePhotoLayouts((prev) =>
-      pruneZonePhotoLayouts(prev, [...kept.map((row) => row.id), UNZONED_QUOTE_IMAGE_KEY]),
-    );
-    setFloorPlan((prev) => (
-      prev ? { ...prev, regions: regionsFromZoneRows(kept) } : prev
-    ));
-    setZoneManagerOpen(false);
+    const nextItems = applyZoneManager(items, kept);
+    const keptIds = kept.map((row) => row.id);
+    const nextZoneImages = pruneQuoteZoneImages(zoneImages, keptIds);
+    const nextZonePhotoLayouts = pruneZonePhotoLayouts(zonePhotoLayouts, [...keptIds, UNZONED_QUOTE_IMAGE_KEY]);
+    const nextFloorPlan = floorPlan ? { ...floorPlan, regions: regionsFromZoneRows(kept) } : floorPlan;
+    itemsUserEditedRef.current = true;
+    setItems(nextItems);
+    setZoneImages(nextZoneImages);
+    setZonePhotoLayouts(nextZonePhotoLayouts);
+    setFloorPlan(nextFloorPlan);
+    const saved = await handleSaveExistingVersion({
+      items: nextItems,
+      floorPlan: nextFloorPlan,
+      zoneImages: nextZoneImages,
+      zonePhotoLayouts: nextZonePhotoLayouts,
+    });
+    if (saved) setZoneManagerOpen(false);
   };
 
   const detectZonesFromBlob = async (blob: Blob, priorRegions: QuoteZoneRegion[]) => {
@@ -4317,7 +4328,7 @@ export function QuotationDraftEditor({
 
   // Unsaved-work guard: dirty only when content differs from the loaded baseline.
   const currentSnapshot = useMemo(
-    () => JSON.stringify(buildDraftData()),
+    () => quoteDraftSnapshot(buildDraftData()),
     [buildDraftData],
   );
 
@@ -4381,25 +4392,31 @@ export function QuotationDraftEditor({
   }, [hasQuoteData, buildDraftData, persistLocalDraftMarkers]);
 
   /** Save current editor state to Supabase (update open version, or create v1). */
-  const handleSaveExistingVersion = async () => {
+  const handleSaveExistingVersion = async (overrides?: {
+    items: QuotationItem[];
+    floorPlan: QuoteFloorPlan | null;
+    zoneImages: QuoteZoneImageMap;
+    zonePhotoLayouts: Record<string, PhotoLayoutGroup[]>;
+  }): Promise<boolean> => {
+    const sourceItems = overrides?.items ?? items;
     if (existingQuote?.quoteUuid && !itemsLoadedFromDb) {
       toast.error(quoteLocale === "en" ? "The quotation is still loading" : "報價內容仍在載入", {
         description: quoteLocale === "en"
           ? "Wait until everything has loaded before saving."
           : "請等報價內容載入完成再保存，以免漏掉項目。",
       });
-      return;
+      return false;
     }
-    const contentItems = items.filter(hasQuoteItemContent);
+    const contentItems = sourceItems.filter(hasQuoteItemContent);
     if (contentItems.length === 0) {
       toast.error("尚無報價內容可保存");
-      return;
+      return false;
     }
     if (totalAmount <= 0) {
       toast.error("無法保存", {
         description: "報價總金額為 HK$0。請確認品項單價／數量後再保存。",
       });
-      return;
+      return false;
     }
     const fromUrl =
       typeof window !== "undefined"
@@ -4423,20 +4440,33 @@ export function QuotationDraftEditor({
         description:
           "找不到這張報價的單號。請返回重新選擇提案，或重新整理後再保存。",
       });
-      return;
+      return false;
     }
     const submitter = (staffName || userEmail || user?.email || "").trim();
     if (!submitter) {
       toast.error("無法保存", {
         description: "缺少提交者姓名（請確認已登入）。",
       });
-      return;
+      return false;
     }
+
+    const draft = overrides
+      ? {
+          ...buildDraftData(),
+          items: overrides.items.map(
+            ({ id, exchangeRateInput: _exchangeRateInput, ...rest }) =>
+              rest as unknown as Record<string, unknown>,
+          ),
+          floorPlan: overrides.floorPlan as unknown as Record<string, unknown> | null,
+          zoneImages: overrides.zoneImages as unknown as Record<string, unknown>,
+          zonePhotoLayouts: overrides.zonePhotoLayouts as unknown as Record<string, unknown>,
+        }
+      : buildDraftData();
 
     setIsSavingDraft(true);
     try {
       // Best-effort local backup before network save.
-      await saveDraft(buildDraftData()).catch(() => {});
+      await saveDraft(draft).catch(() => {});
       // 複製報價單尚未落庫時不可覆寫舊版本 → 開新版；其餘更新現有版／新單存 v1。
       const persistMode =
         forceNewQuote && !existingQuote?.quoteUuid
@@ -4446,7 +4476,7 @@ export function QuotationDraftEditor({
         mode: persistMode,
         totalAmount,
         totalCostPrice,
-        projectData: buildProjectData(),
+        projectData: buildProjectData(overrides),
         items: contentItems,
         bwfPitchingId:
           formData.pmsPitchingId || existingQuote?.bwfPitchingId || null,
@@ -4468,7 +4498,7 @@ export function QuotationDraftEditor({
         submitter,
       });
       submitChainIdRef.current = result.quoteId;
-      baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+      baselineSnapshotRef.current = quoteDraftSnapshot(draft);
       setSnapshotReady(true);
       unsavedGuard.clear();
       deleteDraft(storageKey).catch(() => {});
@@ -4495,10 +4525,12 @@ export function QuotationDraftEditor({
         },
       );
       onQuotePersisted?.(result);
+      return true;
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "暫時存不了，請稍後再試";
       toast.error("保存失敗", { description: message });
+      return false;
     } finally {
       setIsSavingDraft(false);
     }
@@ -4529,7 +4561,7 @@ export function QuotationDraftEditor({
     if (baselineSnapshotRef.current !== null) return;
 
     const timer = window.setTimeout(() => {
-      baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+      baselineSnapshotRef.current = quoteDraftSnapshot(buildDraftData());
       setSnapshotReady(true);
     }, 0);
 
@@ -4637,7 +4669,16 @@ export function QuotationDraftEditor({
     setActiveItemId(null);
   };
 
-  const buildProjectData = () => {
+  const buildProjectData = (overrides?: {
+    items: QuotationItem[];
+    floorPlan: QuoteFloorPlan | null;
+    zoneImages: QuoteZoneImageMap;
+    zonePhotoLayouts: Record<string, PhotoLayoutGroup[]>;
+  }) => {
+    const projectItems = overrides?.items ?? items;
+    const projectFloorPlan = overrides ? overrides.floorPlan : floorPlan;
+    const projectZoneImages = overrides?.zoneImages ?? zoneImages;
+    const projectZoneLayouts = overrides?.zonePhotoLayouts ?? zonePhotoLayouts;
     const pitchingId =
       formData.pmsPitchingId ||
       existingQuote?.bwfPitchingId ||
@@ -4691,15 +4732,15 @@ export function QuotationDraftEditor({
       priceMultiplier: parseFloat(priceMultiplier) || 1,
       quotePhotoLayouts,
       quotePhotoAssets,
-      floorPlan,
+      floorPlan: projectFloorPlan,
       zoneImages: pruneQuoteZoneImages(
-        zoneImages,
-        items.filter((item) => item.isSectionTitle).map((item) => item.id),
+        projectZoneImages,
+        projectItems.filter((item) => item.isSectionTitle).map((item) => item.id),
       ),
       zonePhotoLayouts: pruneZonePhotoLayouts(
-        zonePhotoLayouts,
+        projectZoneLayouts,
         [
-          ...items.filter((item) => item.isSectionTitle).map((item) => item.id),
+          ...projectItems.filter((item) => item.isSectionTitle).map((item) => item.id),
           UNZONED_QUOTE_IMAGE_KEY,
         ],
       ),
@@ -6209,7 +6250,7 @@ export function QuotationDraftEditor({
         onClose={() => setShowSubmitModal(false)}
         onSuccess={(result) => {
           setShowSubmitModal(false);
-          baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+          baselineSnapshotRef.current = quoteDraftSnapshot(buildDraftData());
           setSnapshotReady(true);
           unsavedGuard.clear();
           deleteDraft(storageKey).catch(() => {});
@@ -6549,7 +6590,7 @@ export function QuotationDraftEditor({
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
               {t.cancel}
             </ModalButton>
-            <ModalButton onClick={saveZoneManager} disabled={zoneRecognitionActive}>{t.confirm}</ModalButton>
+            <ModalButton onClick={() => void saveZoneManager()} disabled={zoneRecognitionActive || isSavingDraft}>{t.confirm}</ModalButton>
           </>
         }
       >
