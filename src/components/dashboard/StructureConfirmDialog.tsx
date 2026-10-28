@@ -1043,7 +1043,7 @@ export function StructureConfirmForm({
               : '生成的 GLB 與 FBX 可在「下載模型」中取得。'}
           </span>
         </p>
-        <div className="flex shrink-0 gap-2">
+        <div className="ml-auto flex shrink-0 gap-2">
           {onSaveDraft && (
             <Button
               type="button"
