@@ -1309,13 +1309,14 @@ type AnalysisRequest = {
  * The prefixed slug is tried first. A legacy 200 that classifies kind but omits
  * structure is not accepted; the bare slug is tried before giving up.
  */
-async function analyzeProductImages(urls: (string | File)[], request: AnalysisRequest = {}): Promise<ImageAnalysis | null> {
+async function analyzeProductImages(urls: (string | File)[], request: AnalysisRequest = {}, signal?: AbortSignal): Promise<ImageAnalysis | null> {
   const furnitureModelSlugs = ['supabase-functions-generate-furniture-model', 'generate-furniture-model'] as const;
   const images: { image_base64: string; mime_type: string }[] = [];
   const seen = new Set<string>();
   for (const url of urls) {
+    if (signal?.aborted) throw new DOMException('已取消', 'AbortError');
     try {
-      const res = typeof url === 'string' ? await fetch(url) : null;
+      const res = typeof url === 'string' ? await fetch(url, { signal }) : null;
       if (res && !res.ok) continue;
       const blob = url instanceof File ? url : await res!.blob();
       const image = await fileToJpeg(new File([blob], 'product.jpg', { type: blob.type || 'image/jpeg' }));
@@ -1323,7 +1324,8 @@ async function analyzeProductImages(urls: (string | File)[], request: AnalysisRe
       seen.add(image);
       images.push({ image_base64: image, mime_type: 'image/jpeg' });
       if (images.length === 6) break;
-    } catch {
+    } catch (err) {
+      if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) throw err;
       // A broken photo should not stop the others from being read.
     }
   }
@@ -1333,7 +1335,8 @@ async function analyzeProductImages(urls: (string | File)[], request: AnalysisRe
   let result: Awaited<ReturnType<typeof invokeEdgeFunctionDirect<AnalysisResponse>>> | null = null;
   let legacy: typeof result = null;
   for (const slug of furnitureModelSlugs) {
-    const next = await invokeEdgeFunctionDirect<AnalysisResponse>(slug, body);
+    const next = await invokeEdgeFunctionDirect<AnalysisResponse>(slug, body, { signal });
+    if (signal?.aborted || next.error?.message === '已取消') throw new DOMException('已取消', 'AbortError');
     if (next.status === 404) continue;
     if (next.error || !next.data) {
       result = next;
@@ -1566,6 +1569,7 @@ function ProductModelsSection({
   const [progressFlow, setProgressFlow] = useState<ProgressFlow>('prepare');
   const creepRef = useRef<number | null>(null);
   const progressCloseRef = useRef<number | null>(null);
+  const progressAbortRef = useRef<AbortController | null>(null);
   const lastProgressRef = useRef<{ percent: number; label: string } | null>(null);
 
   const stopCreep = () => {
@@ -1597,6 +1601,15 @@ function ProductModelsSection({
       progressCloseRef.current = null;
     }
     setGenProgress(null);
+  };
+
+  /** Drop this run. A late response must not open the structure form or show an error. */
+  const cancelProgress = () => {
+    requestSeq.current += 1;
+    progressAbortRef.current?.abort();
+    progressAbortRef.current = null;
+    setBusy(null);
+    clearProgress();
   };
 
   const closeProgressSoon = (label: string) => {
@@ -1719,25 +1732,30 @@ function ProductModelsSection({
 
   /**
    * FDS-06 的按鈕行為：
-   * - 已有可交付檔 → 直接下載（SKP／FBX 各自對應自己的格式）。
+   * - 已有可交付檔 → 工作台重新生成；其他位置直接下載。
    * - 沒有 → 走生成流程。
    * - 生成失敗 → 按鈕轉成「重新生成」。
    */
   // SKP 檔不一定是本系統生成的：管理員可能直接上載 SKP。
   // 所以按鈕以「檔案在不在」為準，job status 只用來顯示生成中／失敗。
+  const workbench = appearance === 'workbench';
   const skpFile = latestSkpFile(files);
   const skpReady = skp?.status === 'ready' || skpFile != null;
   const skpFailed = !skpFile && (skp?.status === 'failed' || skp?.status === 'cancelled');
-  const skpRunning = !skpFile && (skp?.status === 'queued' || skp?.status === 'running');
-  const skpButtonLabel = skpFailed
+  const skpRunning = (workbench || !skpFile) && (skp?.status === 'queued' || skp?.status === 'running');
+  const skpButtonLabel = skpRunning
+    ? 'SKP 生成中'
+    : skpFailed
     ? '重新生成 SKP'
     : skpReady
-      ? '下載 SKP'
-      : skpRunning
-        ? 'SKP 生成中'
-        : '生成 SKP';
+      ? (workbench ? '重新生成 SKP' : '下載 SKP')
+      : '生成 SKP';
 
   const onSkpAction = () => {
+    if (workbench && skpReady) {
+      start('skp', true);
+      return;
+    }
     if (skpReady) {
       if (!skpFile) {
         toast.error('找不到 SKP 檔', { description: '請重新載入後再試' });
@@ -1752,11 +1770,14 @@ function ProductModelsSection({
   };
 
   const fbxFile = latestFbxFile(files);
-  // FDS-06：按鈕名稱必須跟實際動作一致。已有 FBX 就叫「下載 FBX」，
-  // 重新生成另放在「下載模型」下拉選單，避免按鈕說一套做一套。
-  const fbxButtonLabel = fbxFile ? '下載 FBX' : '生成 FBX';
+  // 工作台的既有檔案可從「下載模型」選單下載，主按鈕用於重新生成。
+  const fbxButtonLabel = fbxFile ? (workbench ? '重新生成 FBX' : '下載 FBX') : '生成 FBX';
 
   const onFbxAction = () => {
+    if (workbench && fbxFile) {
+      start('fbx', true);
+      return;
+    }
     if (fbxFile) {
       void downloadModel(fbxFile.storage_path, fbxFile.file_name).catch((err) =>
         toast.error('FBX 下載失敗', { description: errorText(err) }),
@@ -1781,8 +1802,8 @@ function ProductModelsSection({
     try {
       if (target === 'skp') {
         showProgress(8, '檢查 SKP 生成環境');
-        if (!await skpRequirements.check()) {
-          clearProgress();
+        if (!await skpRequirements.check() || seq !== requestSeq.current) {
+          if (seq === requestSeq.current) clearProgress();
           return;
         }
       }
@@ -1800,6 +1821,8 @@ function ProductModelsSection({
       const arrangement = choice?.scope === 'arrangement';
       showProgress(34, '辨認產品圖');
       creepToward(70);
+      const controller = new AbortController();
+      progressAbortRef.current = controller;
       let guess: ImageAnalysis | null;
       try {
         guess = await analyzeProductImages(modelPhotos, {
@@ -1809,9 +1832,10 @@ function ProductModelsSection({
           width_mm: arrangement ? null : catalog.width,
           depth_mm: arrangement ? null : catalog.depth,
           height_mm: arrangement ? null : catalog.height,
-        });
+        }, controller.signal);
       } finally {
         stopCreep();
+        if (progressAbortRef.current === controller) progressAbortRef.current = null;
       }
       if (seq !== requestSeq.current) return;
       if (guess?.requires_product_scope_confirmation && guess.detection) {
@@ -1870,12 +1894,16 @@ function ProductModelsSection({
       handoffToConfirm();
     } catch (err) {
       if (seq !== requestSeq.current) return;
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        clearProgress();
+        return;
+      }
       clearProgress();
       setConfirmShown(false);
       if ((err as { code?: string })?.code === 'reference_images_required') setPhotoRequest({ target, message: errorText(err) });
       else toast.error(`${modelTargetAction(target, '生成')}失敗`, { description: errorText(err) });
     } finally {
-      setBusy(null);
+      if (seq === requestSeq.current) setBusy(null);
     }
   };
 
@@ -2192,7 +2220,8 @@ function ProductModelsSection({
       // The Worker may have gone offline while the structure dialog was open.
       if (target === 'skp') {
         showProgress(12, '檢查 SKP 生成環境');
-        if (!await skpRequirements.check()) {
+        if (!await skpRequirements.check() || seq !== requestSeq.current) {
+          if (seq !== requestSeq.current) return;
           clearProgress();
           setConfirmShown(true);
           return;
@@ -2205,6 +2234,7 @@ function ProductModelsSection({
       if (errors.length) throw new Error(errors.join('；'));
       showProgress(34, '儲存模型');
       const id = await ensureSaved(model, draft.parentId);
+      if (seq !== requestSeq.current) return;
       setDraft(null);
       if (target === 'skp') {
         showProgress(68, '排入 SKP 生成');
@@ -2237,6 +2267,7 @@ function ProductModelsSection({
         } catch (err) {
           problems.push(`FBX：${errorText(err)}`);
         }
+        if (seq !== requestSeq.current) return;
         setReload((n) => n + 1);
         onChanged();
         // FBX 失敗就是這次動作失敗；GLB 只是預覽，不算完成。
@@ -2255,11 +2286,12 @@ function ProductModelsSection({
         }
       }
     } catch (err) {
+      if (seq !== requestSeq.current) return;
       clearProgress();
       setConfirmShown(true);
       toast.error(`${modelTargetAction(target, '生成')}失敗`, { description: errorText(err) });
     } finally {
-      setBusy(null);
+      if (seq === requestSeq.current) setBusy(null);
     }
   };
 
@@ -2267,7 +2299,6 @@ function ProductModelsSection({
     ? resolveStyle(draft.kind, Number(draft.width) || 0, Number(draft.depth) || 0, Number(draft.height) || 0, draft.style)
     : null;
 
-  const workbench = appearance === 'workbench';
   /** Keep the last frame while the dialog animates out, so it never collapses empty. */
   if (genProgress) lastProgressRef.current = genProgress;
   const shownProgress = genProgress ?? lastProgressRef.current;
@@ -2370,7 +2401,7 @@ function ProductModelsSection({
         {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
         <div className="flex flex-wrap gap-1.5">
           {/* FDS-06：兩個明確動作，各自對應一個交付格式；GLB 不當主按鈕名稱。 */}
-          <Button size="sm" className={workbench ? 'h-10 rounded-lg bg-[#5b4dff] px-4 hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null} onClick={onSkpAction}>
+          <Button size="sm" className={workbench ? 'h-10 rounded-lg bg-[#5b4dff] px-4 hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null || skpRunning} onClick={onSkpAction}>
             {busy === 'skp' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : workbench ? <Sparkles className="mr-1 h-3.5 w-3.5" /> : null}
             {skpButtonLabel}
           </Button>
@@ -2574,6 +2605,7 @@ function ProductModelsSection({
         headerClassName="px-6 pt-6 pb-5 sm:px-8 sm:pt-8 sm:pb-6"
         bodyClassName="px-6 pb-7 sm:px-8 sm:pb-8"
         style={workbench ? WORKBENCH_TONE : undefined}
+        footer={<ModalButton variant="secondary" onClick={cancelProgress}>取消</ModalButton>}
       >
         {shownProgress ? (
           <div className="space-y-6">
