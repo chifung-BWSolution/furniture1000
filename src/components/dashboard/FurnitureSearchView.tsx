@@ -76,6 +76,7 @@ import {
   type FurnitureModelVersion,
 } from '@/lib/furnitureModelVersions';
 import { useSkpRequirements } from '@/components/dashboard/SkpRequirementsDialog';
+import { FurnitureModelPhotoChoice } from '@/components/dashboard/FurnitureModelPhotoChoice';
 import { FurnitureProductScopeDialog, type ProductCountDetection, type ProductScopeChoice } from '@/components/dashboard/FurnitureProductScopeDialog';
 import {
   carryResolutions,
@@ -1593,9 +1594,21 @@ function ProductModelsSection({
   const appliedRecognitionRef = useRef<string | null>(null);
   const recognitionDraftJobRef = useRef<string | null>(null);
   const [photoRequest, setPhotoRequest] = useState<{ target: ModelTarget | 'parts'; message: string } | null>(null);
-  const modelPhotos: (string | File)[] = [...extraPhotos, ...new Set((product.images ?? []).filter(src => /^https?:\/\//i.test(src)))];
+  const availableModelPhotos = useMemo<(string | File)[]>(() => [...extraPhotos, ...new Set((product.images ?? []).filter(src => /^https?:\/\//i.test(src)))], [extraPhotos, product.images]);
+  const [selectedModelPhotos, setSelectedModelPhotos] = useState<(string | File)[] | null>(null);
+  const [photoChoiceTarget, setPhotoChoiceTarget] = useState<ModelTarget | null>(null);
+  const modelPhotos = selectedModelPhotos ?? availableModelPhotos;
+  // A subset may be a different variant from the catalog record. Never inherit its dimensions.
+  const recognitionCatalog = () => {
+    const urls = recognitionUrlsRef.current;
+    const originals = [...new Set((product.images ?? []).filter(src => /^https?:\/\//i.test(src)))];
+    const same = urls.length > 0 && urls.length === originals.length && originals.every(url => urls.includes(url));
+    return same ? { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm }
+      : { width: null, depth: null, height: null };
+  };
   useEffect(() => {
     requestSeq.current++;
+    setSelectedModelPhotos(null); setPhotoChoiceTarget(null);
     setExtraPhotos([]); setDraft(null); setPhotoRequest(null); setSuggestion(null); setVersions(null); setReviewId(null);
     setRecognition(null);
     recognitionUrlsRef.current = [];
@@ -1750,7 +1763,7 @@ function ProductModelsSection({
       return;
     }
     setReuse(null);
-    void prepare(target);
+    setPhotoChoiceTarget(target);
   };
 
   /**
@@ -1825,7 +1838,7 @@ function ProductModelsSection({
       product.model,
     ]);
     if (guess.kind) kind = guess.kind;
-    const catalog = { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm };
+    const catalog = recognitionCatalog();
     const arrangement = choice?.scope === 'arrangement';
     const parts = ensurePartIds(sanitizeCustomParts(guess.parts));
     const structure = hasStructureEvidence(guess.structure) ? guess.structure : undefined;
@@ -1887,7 +1900,7 @@ function ProductModelsSection({
     if (appliedRecognitionRef.current === status.jobId) return;
     if (confirmShownRef.current && draftRef.current && recognitionDraftJobRef.current == null) return;
     appliedRecognitionRef.current = status.jobId;
-    if (status.imageUrls.length > 0) recognitionUrlsRef.current = status.imageUrls;
+    if (status.imageUrls.length > 0) { recognitionUrlsRef.current = status.imageUrls; setSelectedModelPhotos(status.imageUrls); }
     const choice: ProductScopeChoice | undefined = status.productScope === 'arrangement' && status.productCount
       ? { scope: 'arrangement', count: status.productCount }
       : status.productScope === 'single'
@@ -1923,7 +1936,7 @@ function ProductModelsSection({
         const status = await fetchFurnitureRecognition(productId);
         if (cancelled) return;
         setRecognition(status.status === 'none' ? null : status);
-        if (status.imageUrls.length > 0) recognitionUrlsRef.current = status.imageUrls;
+        if (status.imageUrls.length > 0) { recognitionUrlsRef.current = status.imageUrls; setSelectedModelPhotos(status.imageUrls); }
         if ((status.status === 'queued' || status.status === 'running') && status.jobId) {
           if (kickedRecognitionRef.current !== status.jobId) {
             kickedRecognitionRef.current = status.jobId;
@@ -1945,15 +1958,16 @@ function ProductModelsSection({
   }, [productId, recognition?.jobId]);
 
   /** Queue image recognition. The confirm dialog opens when the job finishes, even after leaving this page. */
-  const prepare = async (target: ModelTarget, choice = scopeChoice, reuseUrls = false) => {
-    if (!reuseUrls && recognition?.status === 'succeeded' && recognition.result && recognition.jobId) {
+  const prepare = async (target: ModelTarget, choice: ProductScopeChoice | null | undefined = scopeChoice, reuseUrls = false, selectedPhotos?: (string | File)[]) => {
+    const photos = selectedPhotos ?? modelPhotos;
+    if (!selectedPhotos && !reuseUrls && recognition?.status === 'succeeded' && recognition.result && recognition.jobId) {
       appliedRecognitionRef.current = null;
       openRecognitionResult(recognition);
       return;
     }
     const stored = reuseUrls ? recognitionUrlsRef.current : [];
-    if (stored.length < 2 && modelPhotos.length < 2) {
-      setPhotoRequest({ target, message: `目前只有 ${modelPhotos.length} 張候選圖片，最少需要 2 張不同角度圖片。` });
+    if (stored.length < 2 && photos.length < 2) {
+      setPhotoRequest({ target, message: `目前只有 ${photos.length} 張候選圖片，最少需要 2 張不同角度圖片。` });
       return;
     }
     const seq = ++requestSeq.current;
@@ -1963,7 +1977,7 @@ function ProductModelsSection({
       if (target === 'skp') {
         if (!await skpRequirements.check() || seq !== requestSeq.current) return;
       }
-      const urls = stored.length >= 2 ? stored : await collectRecognitionUrls(productId, modelPhotos);
+      const urls = stored.length >= 2 ? stored : await collectRecognitionUrls(productId, photos);
       if (seq !== requestSeq.current) return;
       if (urls.length < 2) {
         setPhotoRequest({ target, message: `只有 ${urls.length} 張可讀取的不同圖片，請補充至最少 2 張` });
@@ -1971,12 +1985,12 @@ function ProductModelsSection({
       }
       recognitionUrlsRef.current = urls;
       const arrangement = choice?.scope === 'arrangement';
-      const catalog = { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm };
+      const catalog = recognitionCatalog();
       const queued = await enqueueFurnitureRecognition({
         productId,
         target,
         imageUrls: urls,
-        title: [product.model, product.title].filter(Boolean).join(' '),
+        title: '使用者選定的家具款式，請以本次參考圖片為準',
         widthMm: arrangement ? null : catalog.width,
         depthMm: arrangement ? null : catalog.depth,
         heightMm: arrangement ? null : catalog.height,
@@ -2060,7 +2074,7 @@ function ProductModelsSection({
     if (!current.evidence) return current;
     const extra = labelledDimensionsFrom(labels);
     if (extra.length === 0) return current;
-    const base = evidenceInputRef.current ?? { productScope: current.evidence.product_scope, catalog: { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm } };
+    const base = evidenceInputRef.current ?? { productScope: current.evidence.product_scope, catalog: recognitionCatalog() };
     const input = { ...base, labels: [...(base.labels ?? []), ...extra] };
     evidenceInputRef.current = input;
     return { ...current, evidence: buildEvidence({ ...input, previous: current.evidence }) };
@@ -2073,7 +2087,7 @@ function ProductModelsSection({
   const loadParts = async (choice = scopeChoice) => {
     const start = draftRef.current;
     if (!start) return;
-    const photos = modelPhotos;
+    const photos = recognitionUrlsRef.current.length >= 2 ? recognitionUrlsRef.current : modelPhotos;
     if (photos.length < 2) {
       setConfirmShown(false);
       setPhotoRequest({ target: 'parts', message: '最少需要 2 張不同角度圖片，請補充參考圖。' });
@@ -2087,7 +2101,7 @@ function ProductModelsSection({
         product_scope: choice?.scope,
         product_count: choice?.count,
         mode: 'parts',
-        title: [product.model, product.title].filter(Boolean).join(' '),
+        title: '使用者選定的家具款式，請以本次參考圖片為準',
         width_mm: size(start.width),
         depth_mm: size(start.depth),
         height_mm: size(start.height),
@@ -2534,6 +2548,27 @@ function ProductModelsSection({
   return (
     <section className="space-y-1.5">
       {skpRequirements.dialog}
+          <input ref={photoInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={event => {
+            const selected = Array.from(event.target.files ?? []);
+            event.target.value = '';
+            setExtraPhotos(current => [...current, ...selected].slice(0, 6));
+          }} />
+      <FurnitureModelPhotoChoice
+        open={photoChoiceTarget != null}
+        images={availableModelPhotos}
+        onCancel={() => setPhotoChoiceTarget(null)}
+        onAddPhotos={() => photoInputRef.current?.click()}
+        onChoose={photos => {
+          const target = photoChoiceTarget;
+          if (!target) return;
+          setPhotoChoiceTarget(null);
+          setSelectedModelPhotos(photos);
+          setScopeChoice(undefined);
+          recognitionUrlsRef.current = [];
+          appliedRecognitionRef.current = null;
+          void prepare(target, null, false, photos);
+        }}
+      />
       <FurnitureProductScopeDialog detection={scopeRequest?.detection ?? null} images={modelPhotos}
         onCancel={() => {
           const jobId = scopeRequest?.jobId;
@@ -2605,7 +2640,7 @@ function ProductModelsSection({
       </div>
       {!workbench && (
         <p className="text-xs text-muted-foreground">
-          用這件產品的尺寸和產品圖辨認結構，確認後生成。SU 是 SKP，完成後可下載；3D 會同時寫出 GLB 和 FBX。
+          先選擇同一款式的參考圖片，辨認結構並確認尺寸後生成。SU 是 SKP，完成後可下載；3D 會同時寫出 GLB 和 FBX。
         </p>
       )}
       {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
@@ -2649,11 +2684,6 @@ function ProductModelsSection({
           <p>請包含同款家具的正面、側面及背面／底部；重複或無法讀取的圖片不計算，最多使用 6 張。</p>
           <p>候選參考圖：{modelPhotos.length} 張</p>
           <Button size="sm" variant="outline" onClick={() => photoInputRef.current?.click()}>補充參考圖</Button>
-          <input ref={photoInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={event => {
-            const selected = Array.from(event.target.files ?? []);
-            event.target.value = '';
-            setExtraPhotos(current => [...current, ...selected].slice(0, 6));
-          }} />
           {extraPhotos.length > 0 && <div className="space-y-1 text-xs text-muted-foreground"><p>補圖只用於本次建模：</p>{extraPhotos.map((file, index) => <button type="button" key={index} className="mr-2 break-all underline" aria-label={`移除 ${file.name}`} onClick={() => setExtraPhotos(current => current.filter((_, i) => i !== index))}>{file.name} ×</button>)}</div>}
         </div>
       </Modal>
