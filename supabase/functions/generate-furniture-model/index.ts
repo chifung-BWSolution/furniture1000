@@ -227,7 +227,7 @@ function json(body: unknown, status = 200) {
 class AnalysisError extends Error {}
 
 // The gateway closes the request at about 150s and the browser only sees HTTP 504.
-const REQUEST_BUDGET_MS = 125_000;
+const REQUEST_BUDGET_MS = 140_000;
 let requestDeadline = 0;
 
 function analysisBudget(capMs: number) {
@@ -244,7 +244,7 @@ async function askModel<T>(
   schema: unknown,
   options?: { timeoutMs?: number },
 ): Promise<T> {
-  const timeoutMs = analysisBudget(options?.timeoutMs ?? 70_000);
+  const timeoutMs = analysisBudget(options?.timeoutMs ?? 115_000);
   const model = resolveGeminiModel();
   let res: Response;
   try {
@@ -273,7 +273,9 @@ async function askModel<T>(
         signal: AbortSignal.timeout(timeoutMs),
       },
     );
-  } catch {
+  } catch (err) {
+    const name = err instanceof Error ? err.name : "error";
+    console.error("Furniture analysis Gemini call failed", name, timeoutMs);
     throw new AnalysisError("圖片分析連線失敗或逾時，請重試");
   }
   const payload = await res.json().catch(() => ({}));
@@ -481,7 +483,7 @@ Deno.serve(async (req: Request) => {
     if (!body.product_scope) {
       let detection: {product_count:number;possible_arrangement:boolean;uncertain:boolean;reason:string;per_image_counts:number[]};
       try {
-        detection = await askModel(apiKey, COUNT_PROMPT, `Target product: ${title.slice(0,200)}`, images, COUNT_SCHEMA, { timeoutMs: 25_000 });
+        detection = await askModel(apiKey, COUNT_PROMPT, `Target product: ${title.slice(0,200)}`, images, COUNT_SCHEMA, { timeoutMs: 20_000 });
       } catch (err) {
         if (!(err instanceof AnalysisError)) throw err;
         detection = { product_count: 1, possible_arrangement: false, uncertain: false, reason: "", per_image_counts: images.map(() => 1) };
@@ -505,7 +507,32 @@ Deno.serve(async (req: Request) => {
       return json({ supported: true, kind: "custom", parts: extraction.parts, structure: extraction.structure, structure_notes: extraction.notes, dimension_estimates: extraction.dimension_estimates, labelled_dimensions: extraction.labelled_dimensions, image_count: images.length, source_dimensions_scope: "unknown" });
     }
 
-    const parsed = await askModel<{
+    let parsed: {
+      kind?: string;
+      width_mm?: number;
+      depth_mm?: number;
+      height_mm?: number;
+      source_dimensions_scope?: "single" | "arrangement" | "unknown";
+      return_side?: string;
+      top_shape?: string;
+      leg_style?: string;
+      cable_tray?: boolean;
+      screen?: boolean;
+      doors?: number;
+      drawers?: number;
+      shelves?: number;
+      tiers?: number;
+      seats?: number;
+      arms?: boolean;
+      chair_base?: string;
+      frame?: boolean;
+      structure_notes?: string;
+      reason?: string;
+      dimension_estimates?: { view?: string; width_mm?: number; depth_mm?: number; height_mm?: number }[];
+      labelled_dimensions?: unknown;
+    };
+    try {
+      parsed = await askModel<{
       kind?: string;
       width_mm?: number;
       depth_mm?: number;
@@ -529,6 +556,10 @@ Deno.serve(async (req: Request) => {
       dimension_estimates?: { view?: string; width_mm?: number; depth_mm?: number; height_mm?: number }[];
       labelled_dimensions?: unknown;
     }>(apiKey, `${CLASSIFY_PROMPT} ${LABELLED_PROMPT}`, [drawingScope, title ? `Product name: ${title.slice(0, 200)}.` : "", `Reference catalogue dimensions (may describe the whole arrangement): width=${positive(body.width_mm) ?? "unknown"}, depth=${positive(body.depth_mm) ?? "unknown"}, height=${positive(body.height_mm) ?? "unknown"} mm.`, "Return the furniture kind, SINGLE-item size, source_dimensions_scope, and the structure fields that apply."].join(" "), images, CLASSIFY_SCHEMA);
+    } catch (err) {
+      if (!(err instanceof AnalysisError)) throw err;
+      return json({ supported: true, kind: "custom", parts: extraction.parts, structure: extraction.structure, structure_notes: extraction.notes, dimension_estimates: extraction.dimension_estimates, labelled_dimensions: extraction.labelled_dimensions, image_count: images.length, source_dimensions_scope: "unknown" });
+    }
 
     const dimension_estimates = dimensionEstimatesFrom(parsed.dimension_estimates);
     const labelled_dimensions = [...labelledDimensionsFrom(parsed.labelled_dimensions, photoCount), ...extraction.labelled_dimensions].slice(0, 24);
