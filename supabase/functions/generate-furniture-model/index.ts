@@ -98,9 +98,9 @@ const PARTS_PROMPT = [
   "Each part: shape 'box' with size_mm = [x, y, z] lengths and center_mm = its centre;",
   "'cylinder' for tubes, posts and round parts, axis = the direction of its length, size_mm = its bounding box;",
   "'profile' for slanted, bent, or shaped pieces: a prism, axis = the extrusion direction,",
-  "points_mm = the outline across the axis relative to center_mm (axis z: [x, y]; axis y: [x, z]; axis x: [y, z]),",
+  "points_mm = the outline across the axis relative to center_mm. Each point is {a, b}: axis z uses a=x b=y; axis y uses a=x b=z; axis x uses a=y b=z.",
   "a simple polygon without crossing edges, size_mm = its bounding box.",
-  "Use shape 'sweep' for a straight/slanted tube, tapered leg, or bent tube. path_mm is 2 to 32 centreline [x,y,z] points relative to center_mm, section is round or rect, section_mm=[width,depth] in mm; end_section_mm optionally gives the far-end cross-section for taper. Supply intermediate points along real bends, never a path that reverses onto itself. size_mm must enclose the swept part. Do not use a bent path for a straight leg.",
+  "Use shape 'sweep' for a straight/slanted tube, tapered leg, or bent tube. path_mm is 2 to 32 centreline points relative to center_mm, each {x, y, z}. section is round or rect, section_mm=[width,depth] in mm; end_section_mm optionally gives the far-end cross-section for taper. Supply intermediate points along real bends, never a path that reverses onto itself. size_mm must enclose the swept part. Do not use a bent path for a straight leg.",
   "Identify structure BEFORE selecting any template: every part needs role (leg/top/seat/back/arm/frame/body/shelf/other), form (straight/slanted/bent/tapered/panel), and connects_to (zero-based indices of all directly touching parts). Include every major structural part. For four separate feet leg_count must be 4, never infer a runner from the name. structure contains leg_count, symmetric (left-right symmetry of supports), and uncertainties (specific hidden/ambiguous major details; empty only when supported by matching views). Do not fabricate a connection or symmetry. A single visible unit must be analysed, not a catalogue arrangement.",
   "structure.part_counts is the independently observed count for every role (leg, top, seat, back, arm, frame, body, shelf, other), including zero for absent roles. The part list must account for every observed major component; never lower the observed counts just to simplify the model.",
   "Preserve the actual number, straightness, orientation, and placement of supports. Four separate straight legs must remain four separate straight solids; do not invent curved profiles or join them into runners. Use profiles only when the matching views visibly support that outline. Keep repeated supports consistent in cross-section and height unless the photos show a difference. Do not invent hidden structural details; describe uncertainty in notes.",
@@ -113,7 +113,6 @@ const LABELLED_PROMPT = "labelled_dimensions: only sizes PRINTED in the supplied
 
 const LABELLED_DIMENSIONS_SCHEMA = {
   type: "array",
-  maxItems: 24,
   items: {
     type: "object",
     properties: {
@@ -135,7 +134,6 @@ const PART_SCHEMA = {
     labelled_dimensions: LABELLED_DIMENSIONS_SCHEMA,
     parts: {
       type: "array",
-      maxItems: MAX_PARTS,
       items: {
         type: "object",
         properties: {
@@ -145,14 +143,14 @@ const PART_SCHEMA = {
           role: { type: "string", enum: ["leg", "top", "seat", "back", "arm", "frame", "body", "shelf", "other"] },
           form: { type: "string", enum: ["straight", "slanted", "bent", "tapered", "panel"] },
           connects_to: { type: "array", items: { type: "integer" } },
-          path_mm: { type: "array", items: { type: "array", items: { type: "number" } } },
+          path_mm: { type: "array", items: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, z: { type: "number" } }, required: ["x", "y", "z"] } },
           section: { type: "string", enum: ["round", "rect"] },
           section_mm: { type: "array", items: { type: "number" } },
           end_section_mm: { type: "array", items: { type: "number" } },
           size_mm: { type: "array", items: { type: "number" } },
           center_mm: { type: "array", items: { type: "number" } },
           axis: { type: "string", enum: ["x", "y", "z"] },
-          points_mm: { type: "array", items: { type: "array", items: { type: "number" } } },
+          points_mm: { type: "array", items: { type: "object", properties: { a: { type: "number" }, b: { type: "number" } }, required: ["a", "b"] } },
         },
         required: ["name", "shape", "size_mm", "center_mm", "role", "form", "connects_to"],
       },
@@ -281,7 +279,7 @@ async function askModel<T>(
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = typeof payload?.error?.message === "string" ? payload.error.message : "";
-    console.error("Furniture analysis Gemini request failed", res.status, detail);
+    console.error("Furniture analysis Gemini request failed", res.status, detail, JSON.stringify(payload?.error ?? {}).slice(0, 800));
     throw new AnalysisError(`圖片分析失敗（HTTP ${res.status}）`);
   }
   const usage = payload?.usageMetadata as {
@@ -367,6 +365,21 @@ const DIMENSION_ESTIMATE_SCHEMA = {
 
 type Size = { width_mm: number | null; depth_mm: number | null; height_mm: number | null };
 
+/** Gemini structured output cannot contain an array of arrays, so points come back as objects. */
+function normalizePartGeometry(part: unknown): unknown {
+  if (!part || typeof part !== "object") return part;
+  const row = part as Record<string, unknown>;
+  const tuple = (value: unknown, keys: string[]) => {
+    if (Array.isArray(value)) return value;
+    if (!value || typeof value !== "object") return value;
+    const point = value as Record<string, unknown>;
+    return keys.map((key) => point[key]);
+  };
+  if (Array.isArray(row.path_mm)) row.path_mm = row.path_mm.map((point) => tuple(point, ["x", "y", "z"]));
+  if (Array.isArray(row.points_mm)) row.points_mm = row.points_mm.map((point) => tuple(point, ["a", "b"]));
+  return row;
+}
+
 /** Shape only: the browser runs the full geometry checks (sanitizeCustomParts). */
 async function extractParts(apiKey: string, images: InlineImage[], size: Size, title: string, scope = 'Default: model one product only.', withEstimates = false, photoCount = images.length) {
   const known = [size.width_mm, size.depth_mm, size.height_mm].every((n) => n != null)
@@ -380,7 +393,7 @@ async function extractParts(apiKey: string, images: InlineImage[], size: Size, t
     ? `${PARTS_PROMPT} ${LABELLED_PROMPT} When views or dimension diagrams show labelled sizes, list each distinct reading of the whole arrangement in dimension_estimates (view = front/side/top/diagram in English). ${scope}`
     : `${PARTS_PROMPT} ${LABELLED_PROMPT} ${scope}`;
   const parsed = await askModel<{ parts?: unknown[]; notes?: string; structure?: { leg_count?: number; part_counts?: Record<string,number>; symmetric?: boolean; uncertainties?: string[] }; dimension_estimates?: DimensionEstimate[]; labelled_dimensions?: unknown }>(apiKey, system, prompt, images, schema);
-  const parts = Array.isArray(parsed.parts) ? parsed.parts : [];
+  const parts = (Array.isArray(parsed.parts) ? parsed.parts : []).map(normalizePartGeometry);
   if (parts.length === 0 || parts.length > MAX_PARTS) throw new AnalysisError("部件清單不完整或超出上限，請重新辨認部件");
   if (parts.some((part, index) => {
     if (!part || typeof part !== 'object') return true;
