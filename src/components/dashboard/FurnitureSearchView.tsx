@@ -32,6 +32,15 @@ import type { SourcePageRequest } from '@/lib/sourcePage';
 import { fetchEmbeddingStatus, searchByImage, startImageIndex, type EmbeddingStatus } from '@/lib/imageSearch';
 import { supabase } from '@/lib/supabase';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
+import {
+  acknowledgeFurnitureRecognition,
+  cancelFurnitureRecognition,
+  collectRecognitionUrls,
+  enqueueFurnitureRecognition,
+  fetchFurnitureRecognition,
+  kickFurnitureRecognition,
+  type FurnitureRecognitionStatus,
+} from '@/lib/furnitureRecognitionJob';
 import { buildFurnitureGlb } from '@/lib/furnitureGlb';
 import { buildFurnitureFbx } from '@/lib/furnitureFbx';
 import { ProductWorkbench } from '@/components/dashboard/ProductWorkbench';
@@ -1309,6 +1318,8 @@ type ImageAnalysis = {
   dimension_estimates?: DimensionEstimate[];
   /** Sizes printed on the photos, read by the AI with raw text and image position. */
   labelled_dimensions?: unknown;
+  supported?: boolean;
+  reason?: string;
 };
 
 type AnalysisRequest = {
@@ -1575,18 +1586,31 @@ function ProductModelsSection({
   const [pendingModelNote, setPendingModelNote] = useState('');
   const [extraPhotos, setExtraPhotos] = useState<File[]>([]);
   const [scopeChoice, setScopeChoice] = useState<ProductScopeChoice>();
-  const [scopeRequest, setScopeRequest] = useState<{ target: ModelTarget | 'parts'; detection: ProductCountDetection } | null>(null);
+  const [scopeRequest, setScopeRequest] = useState<{ target: ModelTarget | 'parts'; detection: ProductCountDetection; jobId?: string } | null>(null);
+  /** Background recognition for this product. Survives leaving the page. */
+  const [recognition, setRecognition] = useState<FurnitureRecognitionStatus | null>(null);
+  const recognitionUrlsRef = useRef<string[]>([]);
+  const appliedRecognitionRef = useRef<string | null>(null);
+  const recognitionDraftJobRef = useRef<string | null>(null);
   const [photoRequest, setPhotoRequest] = useState<{ target: ModelTarget | 'parts'; message: string } | null>(null);
   const modelPhotos: (string | File)[] = [...extraPhotos, ...new Set((product.images ?? []).filter(src => /^https?:\/\//i.test(src)))];
   useEffect(() => {
     requestSeq.current++;
     setExtraPhotos([]); setDraft(null); setPhotoRequest(null); setSuggestion(null); setVersions(null); setReviewId(null);
+    setRecognition(null);
+    recognitionUrlsRef.current = [];
+    appliedRecognitionRef.current = null;
+    recognitionDraftJobRef.current = null;
+    kickedRecognitionRef.current = null;
   }, [productId]);
   useEffect(() => { setScopeChoice(undefined); setScopeRequest(null); }, [productId, extraPhotos, product.images]);
   const [genProgress, setGenProgress] = useState<{ percent: number; label: string } | null>(null);
   const skpRequirements = useSkpRequirements();
   /** Gate for the structure form: opened once the progress dialog hands over. */
   const [confirmShown, setConfirmShown] = useState(false);
+  const confirmShownRef = useRef(false);
+  confirmShownRef.current = confirmShown;
+  const kickedRecognitionRef = useRef<string | null>(null);
   const [progressFlow, setProgressFlow] = useState<ProgressFlow>('prepare');
   const creepRef = useRef<number | null>(null);
   const progressCloseRef = useRef<number | null>(null);
@@ -1602,17 +1626,6 @@ function ProductModelsSection({
 
   const showProgress = (percent: number, label: string) => {
     setGenProgress({ percent: Math.max(0, Math.min(100, Math.round(percent))), label });
-  };
-
-  /** While an AI call is in flight, ease the number forward but stop short of the next real step. */
-  const creepToward = (cap: number) => {
-    stopCreep();
-    creepRef.current = window.setInterval(() => {
-      setGenProgress((current) => {
-        if (!current || current.percent >= cap) return current;
-        return { ...current, percent: current.percent + 1 };
-      });
-    }, 450);
   };
 
   const clearProgress = () => {
@@ -1641,18 +1654,6 @@ function ProductModelsSection({
       progressCloseRef.current = null;
       setGenProgress(null);
     }, 700);
-  };
-
-  /** Hold 100%, then cross-fade into the structure form. */
-  const handoffToConfirm = () => {
-    stopCreep();
-    showProgress(100, '結構已辨認');
-    if (progressCloseRef.current != null) window.clearTimeout(progressCloseRef.current);
-    progressCloseRef.current = window.setTimeout(() => {
-      progressCloseRef.current = null;
-      setConfirmShown(true);
-      setGenProgress(null);
-    }, 420);
   };
 
   useEffect(() => () => {
@@ -1809,119 +1810,195 @@ function ProductModelsSection({
     start('fbx');
   };
 
-  /** T-801 / FR-03: read kind, parts and printed sizes, then hand the draft and its evidence to the user. */
-  const prepare = async (target: ModelTarget, choice = scopeChoice) => {
-    if (modelPhotos.length < 2) {
+  /** Turn a stored recognition into the confirm-dialog draft. No network. */
+  const materializeGuess = (guess: ImageAnalysis, target: ModelTarget, choice?: ProductScopeChoice): ModelDraft | { detection: ProductCountDetection } => {
+    if (guess.requires_product_scope_confirmation && guess.detection) return { detection: guess.detection };
+    if (guess.supported === false || !guess.kind) throw new Error(guess.reason || '無法辨認圖片');
+    const text = [product.title, product.model, product.category, product.level1_category, product.level2_category]
+      .filter(Boolean)
+      .join(' ');
+    let kind = inferFurnitureKindFrom([
+      product.level2_category,
+      product.title,
+      product.level1_category,
+      product.category,
+      product.model,
+    ]);
+    if (guess.kind) kind = guess.kind;
+    const catalog = { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm };
+    const arrangement = choice?.scope === 'arrangement';
+    const parts = ensurePartIds(sanitizeCustomParts(guess.parts));
+    const structure = hasStructureEvidence(guess.structure) ? guess.structure : undefined;
+    let style: Partial<ModelStyle> = initialModelStyle(kind, text, guess.style);
+    const tiers = kind === 'shelf' ? inferShelfTiers(text) : undefined;
+    if (tiers !== undefined && style.shelves == null) style = { ...style, shelves: tiers - 2 };
+    if (!structure) throw new Error('缺少結構辨認資料，請重新辨認圖片');
+    const partsSize = customPartsSize(parts);
+    const input: Omit<EvidenceInput, 'previous' | 'keyDimensions'> = {
+      productScope: arrangement ? 'arrangement' : 'single',
+      catalog,
+      catalogScope: guess.source_dimensions_scope,
+      aiOverall: {
+        width: guess.width_mm ?? partsSize?.[0],
+        depth: guess.depth_mm ?? partsSize?.[1],
+        height: guess.height_mm ?? partsSize?.[2],
+      },
+      estimates: guess.dimension_estimates ?? [],
+      labels: labelledDimensionsFrom(guess.labelled_dimensions),
+    };
+    evidenceInputRef.current = input;
+    let evidence = buildEvidence(input);
+    const size = OVERALL_KEYS.map((key) => valueOf(findDimension(evidence, key)!, evidence.product_scope));
+    if (size.some((n) => n == null)) throw new Error('讀不到闊、深、高，請補充有尺寸的產品資料或圖片');
+    const [width, depth, height] = size as number[];
+    const selected = selectFurnitureGeometry({ kind: kind ?? 'custom', width_mm: width, depth_mm: depth, height_mm: height, style, parts });
+    kind = selected.kind;
+    if (kind === 'custom') evidence = refreshKeyDimensions(evidence, deriveKeyDimensions(fitCustomPartsWithConstraints(parts, width, depth, height).parts));
+    const notes = `${selected.templateMatched ? '部件形狀與模板吻合。' : '按圖片實際部件建模，未套用固定模板。'}${guess.structure_notes ?? ''}`;
+    return {
+      structure,
+      target,
+      kind,
+      width: String(width),
+      depth: String(depth),
+      height: String(height),
+      estimated: estimatedOverallAxes(evidence),
+      style,
+      styleSource: 'image',
+      notes,
+      parts,
+      dimensionEstimates: input.estimates,
+      evidence,
+      parentId: null,
+    };
+  };
+
+  const dismissRecognition = (jobId?: string | null) => {
+    const id = jobId ?? recognitionDraftJobRef.current;
+    if (!id) return;
+    if (recognitionDraftJobRef.current === id) recognitionDraftJobRef.current = null;
+    appliedRecognitionRef.current = id;
+    void acknowledgeFurnitureRecognition(id).catch(() => undefined);
+    setRecognition((current) => (current?.jobId === id ? null : current));
+  };
+
+  const openRecognitionResult = (status: FurnitureRecognitionStatus) => {
+    if (!status.jobId || !status.result || status.target == null) return;
+    if (appliedRecognitionRef.current === status.jobId) return;
+    if (confirmShownRef.current && draftRef.current && recognitionDraftJobRef.current == null) return;
+    appliedRecognitionRef.current = status.jobId;
+    if (status.imageUrls.length > 0) recognitionUrlsRef.current = status.imageUrls;
+    const choice: ProductScopeChoice | undefined = status.productScope === 'arrangement' && status.productCount
+      ? { scope: 'arrangement', count: status.productCount }
+      : status.productScope === 'single'
+        ? { scope: 'single', count: 1 }
+        : undefined;
+    if (choice) setScopeChoice(choice);
+    try {
+      const built = materializeGuess(status.result as ImageAnalysis, status.target, choice);
+      if ('detection' in built) {
+        recognitionDraftJobRef.current = null;
+        setScopeRequest({ target: status.target, detection: built.detection, jobId: status.jobId });
+        return;
+      }
+      setSuggestion(null);
+      setReuse(null);
+      setDraft(built);
+      setConfirmShown(true);
+      recognitionDraftJobRef.current = status.jobId;
+    } catch (err) {
+      recognitionDraftJobRef.current = null;
+      toast.error('辨認結果無法打開', { description: errorText(err) });
+      void acknowledgeFurnitureRecognition(status.jobId).catch(() => undefined);
+    }
+  };
+  const openRecognitionRef = useRef(openRecognitionResult);
+  openRecognitionRef.current = openRecognitionResult;
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    const tick = async () => {
+      try {
+        const status = await fetchFurnitureRecognition(productId);
+        if (cancelled) return;
+        setRecognition(status.status === 'none' ? null : status);
+        if (status.imageUrls.length > 0) recognitionUrlsRef.current = status.imageUrls;
+        if ((status.status === 'queued' || status.status === 'running') && status.jobId) {
+          if (kickedRecognitionRef.current !== status.jobId) {
+            kickedRecognitionRef.current = status.jobId;
+            kickFurnitureRecognition(status.jobId);
+          }
+          timer = window.setTimeout(() => void tick(), 4000);
+          return;
+        }
+        if (status.status === 'succeeded') openRecognitionRef.current(status);
+      } catch {
+        if (!cancelled) timer = window.setTimeout(() => void tick(), 8000);
+      }
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [productId, recognition?.jobId]);
+
+  /** Queue image recognition. The confirm dialog opens when the job finishes, even after leaving this page. */
+  const prepare = async (target: ModelTarget, choice = scopeChoice, reuseUrls = false) => {
+    if (!reuseUrls && recognition?.status === 'succeeded' && recognition.result && recognition.jobId) {
+      appliedRecognitionRef.current = null;
+      openRecognitionResult(recognition);
+      return;
+    }
+    const stored = reuseUrls ? recognitionUrlsRef.current : [];
+    if (stored.length < 2 && modelPhotos.length < 2) {
       setPhotoRequest({ target, message: `目前只有 ${modelPhotos.length} 張候選圖片，最少需要 2 張不同角度圖片。` });
       return;
     }
     const seq = ++requestSeq.current;
     setBusy(target);
     setConfirmShown(false);
-    clearProgress();
-    setProgressFlow('prepare');
-    showProgress(8, modelTargetAction(target, '生成'));
     try {
       if (target === 'skp') {
-        showProgress(8, '檢查 SKP 生成環境');
-        if (!await skpRequirements.check() || seq !== requestSeq.current) {
-          if (seq === requestSeq.current) clearProgress();
-          return;
-        }
+        if (!await skpRequirements.check() || seq !== requestSeq.current) return;
       }
-      const text = [product.title, product.model, product.category, product.level1_category, product.level2_category]
-        .filter(Boolean)
-        .join(' ');
-      let kind = inferFurnitureKindFrom([
-        product.level2_category,
-        product.title,
-        product.level1_category,
-        product.category,
-        product.model,
-      ]);
-      const catalog = { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm };
-      const arrangement = choice?.scope === 'arrangement';
-      showProgress(34, '辨認產品圖');
-      creepToward(70);
-      const controller = new AbortController();
-      progressAbortRef.current = controller;
-      let guess: ImageAnalysis | null;
-      try {
-        guess = await analyzeProductImages(modelPhotos, {
-          product_scope: choice?.scope,
-          product_count: choice?.count,
-          title: [product.model, product.title].filter(Boolean).join(' '),
-          width_mm: arrangement ? null : catalog.width,
-          depth_mm: arrangement ? null : catalog.depth,
-          height_mm: arrangement ? null : catalog.height,
-        }, controller.signal);
-      } finally {
-        stopCreep();
-        if (progressAbortRef.current === controller) progressAbortRef.current = null;
-      }
+      const urls = stored.length >= 2 ? stored : await collectRecognitionUrls(productId, modelPhotos);
       if (seq !== requestSeq.current) return;
-      if (guess?.requires_product_scope_confirmation && guess.detection) {
-        clearProgress();
-        setScopeRequest({ target, detection: guess.detection });
+      if (urls.length < 2) {
+        setPhotoRequest({ target, message: `只有 ${urls.length} 張可讀取的不同圖片，請補充至最少 2 張` });
         return;
       }
-      if (!guess) throw new Error('無法辨認圖片');
-      if (guess.kind) kind = guess.kind;
-      const parts = ensurePartIds(sanitizeCustomParts(guess.parts));
-      const structure = hasStructureEvidence(guess.structure) ? guess.structure : undefined;
-      let style: Partial<ModelStyle> = initialModelStyle(kind, text, guess.style);
-      showProgress(82, '整理結構');
-      const tiers = kind === 'shelf' ? inferShelfTiers(text) : undefined;
-      if (tiers !== undefined && style.shelves == null) style = { ...style, shelves: tiers - 2 };
-      if (!structure) throw new Error('缺少結構辨認資料，請重新辨認圖片');
-      const partsSize = customPartsSize(parts);
-      const input: Omit<EvidenceInput, 'previous' | 'keyDimensions'> = {
-        productScope: arrangement ? 'arrangement' : 'single',
-        catalog,
-        catalogScope: guess.source_dimensions_scope,
-        aiOverall: {
-          width: guess.width_mm ?? partsSize?.[0],
-          depth: guess.depth_mm ?? partsSize?.[1],
-          height: guess.height_mm ?? partsSize?.[2],
-        },
-        estimates: guess.dimension_estimates ?? [],
-        labels: labelledDimensionsFrom(guess.labelled_dimensions),
-      };
-      evidenceInputRef.current = input;
-      let evidence = buildEvidence(input);
-      const size = OVERALL_KEYS.map((key) => valueOf(findDimension(evidence, key)!, evidence.product_scope));
-      if (size.some((n) => n == null)) throw new Error('讀不到闊、深、高，請補充有尺寸的產品資料或圖片');
-      const [width, depth, height] = size as number[];
-      const selected = selectFurnitureGeometry({ kind: kind ?? 'custom', width_mm: width, depth_mm: depth, height_mm: height, style, parts });
-      kind = selected.kind;
-      if (kind === 'custom') evidence = refreshKeyDimensions(evidence, deriveKeyDimensions(fitCustomPartsWithConstraints(parts, width, depth, height).parts));
-      const notes = `${selected.templateMatched ? '部件形狀與模板吻合。' : '按圖片實際部件建模，未套用固定模板。'}${guess.structure_notes ?? ''}`;
-      setSuggestion(null);
-      setDraft({
-        structure,
+      recognitionUrlsRef.current = urls;
+      const arrangement = choice?.scope === 'arrangement';
+      const catalog = { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm };
+      const queued = await enqueueFurnitureRecognition({
+        productId,
         target,
-        kind,
-        width: String(width),
-        depth: String(depth),
-        height: String(height),
-        estimated: estimatedOverallAxes(evidence),
-        style,
-        styleSource: 'image',
-        notes,
-        parts,
-        dimensionEstimates: input.estimates,
-        evidence,
-        parentId: null,
+        imageUrls: urls,
+        title: [product.model, product.title].filter(Boolean).join(' '),
+        widthMm: arrangement ? null : catalog.width,
+        depthMm: arrangement ? null : catalog.depth,
+        heightMm: arrangement ? null : catalog.height,
+        productScope: choice?.scope ?? null,
+        productCount: choice?.scope === 'arrangement' ? choice.count : null,
       });
-      handoffToConfirm();
+      if (seq !== requestSeq.current) return;
+      if (queued.alreadyQueued) toast('這件產品正在辨認，完成後會打開確認');
+      kickFurnitureRecognition(queued.jobId);
+      kickedRecognitionRef.current = queued.jobId;
+      setRecognition({
+        jobId: queued.jobId,
+        status: 'queued',
+        target,
+        error: null,
+        result: null,
+        imageUrls: urls,
+        productScope: choice?.scope ?? null,
+        productCount: choice?.scope === 'arrangement' ? choice.count : null,
+      });
     } catch (err) {
       if (seq !== requestSeq.current) return;
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        clearProgress();
-        return;
-      }
-      clearProgress();
-      setConfirmShown(false);
       if ((err as { code?: string })?.code === 'reference_images_required') setPhotoRequest({ target, message: errorText(err) });
       else toast.error(`${modelTargetAction(target, '生成')}失敗`, { description: errorText(err) });
     } finally {
@@ -2185,6 +2262,7 @@ function ProductModelsSection({
     if (!current || !model) return;
     try {
       const id = await ensureSaved(model, current.parentId);
+      dismissRecognition();
       toast.success('已保存草稿', { description: `版本 ${id.slice(0, 8)}；可在「已有模型」中以此版本繼續修改。` });
       setReload((n) => n + 1);
     } catch (err) {
@@ -2273,6 +2351,7 @@ function ProductModelsSection({
       if (errors.length) throw new Error(errors.join('；'));
       showProgress(34, '儲存模型');
       const id = await ensureSaved(model, draft.parentId);
+      dismissRecognition();
       if (seq !== requestSeq.current) return;
       setDraft(null);
       if (target === 'skp') {
@@ -2415,10 +2494,37 @@ function ProductModelsSection({
     </>
   ) : null;
 
+  const recognitionActive = recognition?.status === 'queued' || recognition?.status === 'running';
+  const recognitionNote = recognitionActive ? (
+    <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      正在背景辨認產品圖，可以離開此頁。完成後再打開這件產品，會自動出現確認。
+      <button
+        type="button"
+        className="text-primary hover:underline"
+        onClick={() => {
+          const id = recognition?.jobId;
+          if (!id) return;
+          void cancelFurnitureRecognition(id)
+            .then(() => setRecognition((current) => (current?.jobId === id ? null : current)))
+            .catch((err) => toast.error('取消辨認失敗', { description: errorText(err) }));
+        }}
+      >
+        取消
+      </button>
+    </p>
+  ) : recognition?.status === 'failed' ? (
+    <p className="flex flex-wrap items-center gap-x-2 text-xs text-destructive">
+      辨認失敗：{recognition.error || '請再試一次'}
+      <button type="button" className="text-primary hover:underline" onClick={() => dismissRecognition(recognition.jobId)}>關閉</button>
+    </p>
+  ) : null;
+
   if (!files) {
     return (
       <section className="space-y-1.5">
         {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
+        {recognitionNote}
         <p className="flex items-center text-xs text-muted-foreground">
           <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> 載入模型…
         </p>
@@ -2429,26 +2535,32 @@ function ProductModelsSection({
     <section className="space-y-1.5">
       {skpRequirements.dialog}
       <FurnitureProductScopeDialog detection={scopeRequest?.detection ?? null} images={modelPhotos}
-        onCancel={() => { setScopeRequest(null); if (scopeRequest?.target === 'parts') setConfirmShown(true); }}
+        onCancel={() => {
+          const jobId = scopeRequest?.jobId;
+          const target = scopeRequest?.target;
+          setScopeRequest(null);
+          if (target === 'parts') setConfirmShown(true);
+          else if (jobId) dismissRecognition(jobId);
+        }}
         onChoose={choice => {
           if (!scopeRequest) return;
           const target = scopeRequest.target;
           setScopeChoice(choice);
           setScopeRequest(null);
           if (target === 'parts') { setConfirmShown(true); void loadParts(choice); }
-          else void prepare(target, choice);
+          else void prepare(target, choice, true);
         }} />
       <div className={workbench ? 'flex flex-wrap gap-2' : 'flex flex-wrap items-center justify-between gap-2'}>
         {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
         <div className="flex flex-wrap gap-1.5">
           {/* FDS-06：兩個明確動作，各自對應一個交付格式；GLB 不當主按鈕名稱。 */}
-          <Button size="sm" className={workbench ? 'h-10 rounded-lg bg-[#5b4dff] px-4 hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null || skpRunning} onClick={onSkpAction}>
-            {busy === 'skp' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : workbench ? <Sparkles className="mr-1 h-3.5 w-3.5" /> : null}
-            {skpButtonLabel}
+          <Button size="sm" className={workbench ? 'h-10 rounded-lg bg-[#5b4dff] px-4 hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null || skpRunning || recognitionActive} onClick={onSkpAction}>
+            {busy === 'skp' || recognitionActive ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : workbench ? <Sparkles className="mr-1 h-3.5 w-3.5" /> : null}
+            {recognitionActive ? '辨認中' : skpButtonLabel}
           </Button>
-          <Button size="sm" variant="outline" className={workbench ? 'h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50' : 'h-7'} disabled={busy != null} onClick={onFbxAction}>
-            {busy === 'fbx' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-            {fbxButtonLabel}
+          <Button size="sm" variant="outline" className={workbench ? 'h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50' : 'h-7'} disabled={busy != null || recognitionActive} onClick={onFbxAction}>
+            {busy === 'fbx' || recognitionActive ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            {recognitionActive ? '辨認中' : fbxButtonLabel}
           </Button>
           {workbench ? (
             <DropdownMenu>
@@ -2497,6 +2609,7 @@ function ProductModelsSection({
         </p>
       )}
       {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
+      {recognitionNote}
       <ProductModelPreviewModal
         file={previewFile}
         open={previewFile != null}
@@ -2690,6 +2803,7 @@ function ProductModelsSection({
               onChange={updateDraft}
               onGenerate={() => void generate()}
               onCancel={() => {
+                dismissRecognition();
                 setDraft(null);
                 setConfirmShown(false);
               }}
