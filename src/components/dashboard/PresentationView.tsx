@@ -1,4 +1,7 @@
 import { PresentationImageField } from './PresentationImageField';
+import { PresentationZoneManager } from './PresentationZoneManager';
+import { floorPlanZoneColor } from './FloorPlanZoneCanvas';
+import { cropPresentationFloorPlan, recognizePresentationFloorPlan } from '@/lib/presentationFloorPlan';
 // ============================================================================
 // FDS 2.1 — 客戶簡報（F-AI-009）
 // Canva AI POST /v1/generations（canvaNativeDesign.ts）。
@@ -6,9 +9,9 @@ import { PresentationImageField } from './PresentationImageField';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight, Building2, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
-  ExternalLink, FileText, FolderKanban, Hash, Languages, Lightbulb, Link2,
-  ListChecks, Loader2, MoreHorizontal, Package, Palette, Plus, Presentation as PresentationIcon,
+  ArrowRight, Box, Building2, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, FolderInput,
+  ExternalLink, FileText, FolderKanban, Hash, Image, Languages, LayoutTemplate, Lightbulb, Link2,
+  ListChecks, Loader2, MapPin, MoreHorizontal, Package, Palette, Plus, Presentation as PresentationIcon,
   RefreshCcw, Save, Settings2, Trash2, Unlink, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion';
@@ -29,6 +32,12 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { confirm } from '@/components/ui/confirm-dialog';
+import { PresentationQuoteImportModal } from '@/components/dashboard/PresentationQuoteImportModal';
+import {
+  loadPresentationQuote,
+  type PresentationQuoteOption,
+} from '@/lib/presentationQuoteImport';
 import { PresentationOutlineStep } from '@/components/dashboard/PresentationOutlineStep';
 import { PresentationProductPicker } from '@/components/dashboard/PresentationProductPicker';
 import { PresentationSearchCombobox } from '@/components/dashboard/PresentationSearchCombobox';
@@ -99,7 +108,7 @@ const WIZARD_STEPS = [
   {
     title: '即將生成的大綱',
     subtitle: '列出並修改每一段',
-    hint: '以下是即將送給 Canva 的大綱。每一段都可以改，改動只留在這份簡報。',
+    hint: '以下是即將送給 Canva 的大綱。每一段都可以改；改過只會在這份簡報。',
   },
   {
     title: '生成及匯出',
@@ -113,7 +122,11 @@ const GEN_PHASES = ['解析需求', '生成內容', '建立 Canva 簡報', '完�
 type Status = 'idle' | 'creating' | 'exporting';
 
 function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  const raw = err instanceof Error ? err.message : String(err);
+  if (raw.includes('revoked_access_token') || raw.includes('Access token is revoked')) {
+    return 'Canva 授權已失效，請重新連接。';
+  }
+  return raw;
 }
 
 function optionsWithCurrent(options: string[], current?: string): string[] {
@@ -269,6 +282,18 @@ function generationPhase(session: CanvaDesignSession | null, generating: boolean
   if (session?.populate_report?.generation_job_id || job === 'queued' || job === 'accepted') return 2;
   if (generating || session?.status === 'creating') return 1;
   return 0;
+}
+
+function ZoneEmptyArt() {
+  return (
+    <svg viewBox="0 0 140 88" className="h-16 w-28" aria-hidden>
+      <rect x="28" y="14" width="78" height="54" rx="8" fill="#eef2ff" stroke="#c7d2fe" />
+      <rect x="40" y="26" width="30" height="22" rx="3" fill="none" stroke="#818cf8" strokeDasharray="3 2" />
+      <path d="M78 48h16M86 40v16" stroke="#a5b4fc" strokeWidth="1.5" />
+      <path d="M96 58l10 12" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" />
+      <path d="M108 68l6 2-4 5z" fill="#6366f1" />
+    </svg>
+  );
 }
 
 function StepIndicator({
@@ -589,6 +614,44 @@ export function PresentationView() {
   const [zones, setZones] = useState<PresentationZoneDraft[]>([]);
   const [includeFloor, setIncludeFloor] = useState(false);
   const [pendingUploads, setPendingUploads] = useState(0);
+  const [zoneManagerOpen, setZoneManagerOpen] = useState(false);
+  const [quoteImportOpen, setQuoteImportOpen] = useState(false);
+  const [recognizingFloor, setRecognizingFloor] = useState(false);
+  const floorRecognitionRequest = useRef(0);
+  useEffect(() => () => { floorRecognitionRequest.current += 1; }, []);
+  const recognizeFloor = async (blob: Blob) => {
+    const request = ++floorRecognitionRequest.current;
+    zonesSeeded.current = true;
+    setRecognizingFloor(true);
+    try {
+      const result = await recognizePresentationFloorPlan(blob);
+      if (request !== floorRecognitionRequest.current) return;
+      setZones((current) => {
+        const next = [...current];
+        for (const detected of result.zones) {
+          const index = next.findIndex((zone) => zone.name.trim().toLowerCase() === detected.name.toLowerCase());
+          if (index >= 0) {
+            next[index] = { ...next[index], rect: detected.rect, ...(detected.imageUrl ? { imageUrl: detected.imageUrl } : {}) };
+          } else {
+            next.push({ id: crypto.randomUUID(), ...detected });
+          }
+        }
+        return next;
+      });
+      setZoneManagerOpen(true);
+      if (!result.zones.length) toast.message('未找到已標示名稱的分區，請在分區管理中框選或新增');
+      else {
+        const missing = result.zones.filter((zone) => !zone.imageUrl).length;
+        toast.success(`已識別 ${result.zones.length} 個分區`, {
+          description: missing ? `${missing} 個分區未能產生截圖，請手動補圖${result.failedCrops ? '或重新識別' : ''}。` : '已加入對應的分區截圖，請檢查名稱與範圍。',
+        });
+      }
+    } catch (error) {
+      if (request === floorRecognitionRequest.current) toast.error('分區識別失敗，平面圖已保留', { description: errorText(error) });
+    } finally {
+      if (request === floorRecognitionRequest.current) setRecognizingFloor(false);
+    }
+  };
   const trackUpload = useCallback((delta: number) => setPendingUploads((count) => Math.max(0, count + delta)), []);
   const [productZone, setProductZone] = useState<Record<string, string>>({});
   const [productDrafts, setProductDrafts] = useState<Record<string, PresentationProductDraft>>({});
@@ -857,7 +920,7 @@ export function PresentationView() {
     };
   }, [brief.projectId]);
 
-  const disabled = status !== 'idle' || generating || pendingUploads > 0;
+  const disabled = status !== 'idle' || generating || pendingUploads > 0 || recognizingFloor;
   const connected = canva?.connected ?? false;
   const canvaPathReady = Boolean(canva?.configured && canImport && connected);
 
@@ -1189,6 +1252,106 @@ export function PresentationView() {
     });
   };
 
+  const applyQuoteImport = async (quote: PresentationQuoteOption): Promise<boolean> => {
+    const current = briefRef.current;
+    const hasExisting = zones.length > 0 || selected.length > 0 || Boolean(current.floorImageUrl);
+    if (hasExisting) {
+      const accepted = await confirm({
+        title: '以這張報價單更新簡報？',
+        description: '報價單裡的平面圖、分區和產品會取代目前已填的對應內容。標題、目的和原文若已填寫會保留。',
+        confirmLabel: '導入',
+      });
+      if (!accepted) return false;
+    }
+    const imported = await loadPresentationQuote(quote.id, MAX_ITEMS);
+    const latest = briefRef.current;
+    if (imported.zones.length) zonesSeeded.current = true;
+    const clientChanged = Boolean(imported.client) && imported.client !== (latest.client ?? '');
+    const projectChanged = Boolean(imported.project) && imported.project !== (latest.project ?? '');
+    setBrief({
+      ...latest,
+      client: imported.client || latest.client,
+      clientId: clientChanged ? undefined : latest.clientId,
+      pmsClientId: imported.pmsClientId || (clientChanged ? undefined : latest.pmsClientId),
+      project: imported.project || latest.project,
+      projectId: imported.projectId || (projectChanged ? undefined : latest.projectId),
+      pmsProjectId: imported.pmsProjectId || (projectChanged ? undefined : latest.pmsProjectId),
+      title: latest.title.trim() ? latest.title : imported.title,
+      purpose: latest.purpose?.trim() ? latest.purpose : imported.purpose,
+      content: latest.content?.trim() ? latest.content : imported.content,
+      coverImageUrl: latest.coverImageUrl || imported.coverImageUrl || undefined,
+      floorImageUrl: imported.floorImageUrl || latest.floorImageUrl,
+    });
+    if (imported.floorImageUrl) setIncludeFloor(true);
+    if (imported.zones.length) {
+      setZones(imported.zones);
+      if (!imported.products.length && selected.length) {
+        const first = imported.zones[0]?.id;
+        if (first) setProductZone(Object.fromEntries(selected.map((product) => [product.id, first])));
+      }
+    }
+    if (imported.products.length) {
+      setSelected(imported.products);
+      setProductDrafts(imported.productDrafts);
+      setProductZone(imported.productZone);
+      setPickerNonce((nonce) => nonce + 1);
+    }
+    const brought = [
+      imported.floorImageUrl ? '平面圖' : '',
+      imported.zones.length ? `${imported.zones.length} 個分區` : '',
+      imported.products.length ? `${imported.products.length} 件產品` : '',
+    ].filter(Boolean);
+    const skipped = imported.skippedProducts ? `另有 ${imported.skippedProducts} 件超出上限，未帶入。` : '';
+    if (brought.length) {
+      toast.success(`已從 ${imported.quoteId || '報價單'} ${imported.versionLabel} 導入`, {
+        description: [brought.join('、'), skipped].filter(Boolean).join(' '),
+      });
+    } else {
+      toast.message(`已帶入 ${imported.quoteId || '報價單'} 的客戶與專案資料`, {
+        description: '這張報價單沒有可導入的平面圖、分區或產品。',
+      });
+    }
+    if (imported.floorImageUrl && !imported.floorIsImage) {
+      toast.message('平面圖是 PDF，已帶入檔案。若要自動框選分區，請先在報價單產生預覽圖。');
+    } else if (imported.floorIsImage && imported.floorImageUrl) {
+      const needsDetection = imported.zones.length === 0 || imported.zones.some((zone) => !zone.rect);
+      const needsCrop = imported.zones.some((zone) => zone.rect && !zone.imageUrl);
+      if (needsDetection) {
+        try {
+          const response = await fetch(imported.floorImageUrl);
+          if (!response.ok) throw new Error('無法讀取平面圖');
+          await recognizeFloor(await response.blob());
+        } catch (error) {
+          toast.error('平面圖已帶入，分區識別未完成', { description: errorText(error) });
+        }
+      } else if (needsCrop) {
+        const request = ++floorRecognitionRequest.current;
+        setRecognizingFloor(true);
+        try {
+          const response = await fetch(imported.floorImageUrl);
+          if (!response.ok) throw new Error('無法讀取平面圖');
+          const cropped = await cropPresentationFloorPlan(
+            await response.blob(),
+            imported.zones.map((zone) => ({ name: zone.name, rect: zone.rect ?? null })),
+          );
+          if (request !== floorRecognitionRequest.current) return true;
+          setZones((list) => list.map((zone, index) => {
+            const imageUrl = cropped.zones[index]?.imageUrl;
+            return imageUrl && !zone.imageUrl ? { ...zone, imageUrl } : zone;
+          }));
+          if (cropped.failedCrops) toast.message('部分分區未能產生截圖，可在分區管理補圖');
+        } catch (error) {
+          if (request === floorRecognitionRequest.current) {
+            toast.error('分區截圖失敗', { description: errorText(error) });
+          }
+        } finally {
+          if (request === floorRecognitionRequest.current) setRecognizingFloor(false);
+        }
+      }
+    }
+    return true;
+  };
+
   const selectProject = (project: PresentationProjectOption) => {
     const current = briefRef.current;
     const owner = project.client ?? null;
@@ -1371,7 +1534,7 @@ export function PresentationView() {
 
   const canvaCard = (
     <CanvaConnectionCard
-      compact={wizardStep === 4}
+      compact={false}
       canva={canva}
       connected={connected}
       canImport={canImport}
@@ -1463,15 +1626,23 @@ export function PresentationView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-none">
+      <div className={cn('min-h-0 flex-1 overscroll-y-none', wizardStep === 2 ? 'overflow-hidden' : 'overflow-y-auto')}>
       <LayoutGroup id="presentation-canva">
-      <div className="mx-auto grid w-full max-w-none items-start gap-5 fds-page-padding lg:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+      <div className={cn(
+        'mx-auto grid w-full max-w-none items-start gap-4 fds-page-padding lg:grid-cols-[minmax(0,1fr)_22rem]',
+        wizardStep === 2 && 'h-full min-h-0 grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden',
+      )}>
+        <div className={cn('flex min-w-0 flex-col gap-4', wizardStep === 2 && 'h-full min-h-0 overflow-hidden')}>
           <StepIndicator step={wizardStep} onSelect={goToStep} />
-          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+          <section className={cn(
+            'rounded-2xl border border-border/80 bg-card shadow-sm',
+            wizardStep === 2 || wizardStep === 3 ? 'rounded-none border-0 bg-transparent p-0 shadow-none' : 'p-4 sm:p-6',
+            wizardStep === 2 && 'flex min-h-0 flex-1 flex-col overflow-hidden',
+          )}>
             <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={wizardStep}
+              className={wizardStep === 2 ? 'h-full min-h-0' : undefined}
               initial={reduceMotion ? false : { opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               exit={reduceMotion ? undefined : { opacity: 0, y: -14 }}
@@ -1481,6 +1652,16 @@ export function PresentationView() {
             <div className="space-y-4">
               <SectionIntro icon={<FileText className="h-5 w-5" />} title={WIZARD_STEPS[0].title} hint={WIZARD_STEPS[0].hint} />
               <Tip>填寫越完整，AI 生成的簡報內容會越貼近您的需求，包含內容架構、設計風格與產品建議。</Tip>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-3 dark:border-border dark:bg-card">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">從現有報價單導入</p>
+                  <p className="mt-0.5 text-xs leading-5 text-muted-foreground">帶入平面圖、分區、報價產品，以及單價、數量、尺寸、備註和聯絡資料。</p>
+                </div>
+                <Button type="button" variant="outline" className="bg-white dark:bg-background" disabled={disabled} onClick={() => setQuoteImportOpen(true)}>
+                  <FolderInput className="h-4 w-4" />
+                  選擇報價單
+                </Button>
+              </div>
               <Field label="簡報標題" required counter={`${titleCount}/${TITLE_MAX}`}>
                 <Input
                   className="h-10 rounded-lg bg-background"
@@ -1622,66 +1803,121 @@ export function PresentationView() {
                   </div>
                 </Field>
               </div>
-              <PresentationImageField onUploadState={trackUpload} label="封面圖（可選）" value={brief.coverImageUrl} disabled={disabled} onChange={(url) => setBrief((current) => ({ ...current, coverImageUrl: url }))} />
-              <PresentationImageField onUploadState={trackUpload} label="整體平面圖（可選）" value={brief.floorImageUrl} disabled={disabled} onChange={(url) => { setBrief((current) => ({ ...current, floorImageUrl: url })); setIncludeFloor(Boolean(url)); }} />
-              <label className="flex items-center gap-2 text-sm">
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 dark:border-border dark:bg-card">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 gap-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#efedff] text-[#5b4dff] dark:bg-indigo-950/60 dark:text-indigo-200">
+                      <Image className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground">上傳簡報素材</p>
+                      <p className="mt-0.5 text-xs leading-5 text-muted-foreground">上傳封面圖與整體平面圖，讓系統自動識別分區並生成對應截圖。</p>
+                    </div>
+                  </div>
+                  <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <MapPin className="h-3.5 w-3.5" aria-hidden />
+                    建議 8-20 頁
+                  </p>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <PresentationImageField
+                    variant="dropzone"
+                    icon={<Image className="h-5 w-5" strokeWidth={1.75} aria-hidden />}
+                    hint="支援 JPG、PNG、PDF。建議比例 16:9"
+                    onUploadState={trackUpload}
+                    label="封面圖（可選）"
+                    value={brief.coverImageUrl}
+                    disabled={disabled}
+                    onChange={(url) => setBrief((current) => ({ ...current, coverImageUrl: url }))}
+                  />
+                  <PresentationImageField
+                    variant="dropzone"
+                    icon={<FileText className="h-5 w-5" strokeWidth={1.75} aria-hidden />}
+                    hint="支援 JPG、PNG、PDF"
+                    onUploadState={trackUpload}
+                    label="整體平面圖（可選）"
+                    value={brief.floorImageUrl}
+                    disabled={disabled}
+                    onUploaded={recognizeFloor}
+                    onChange={(url) => { setBrief((current) => ({ ...current, floorImageUrl: url })); setIncludeFloor(Boolean(url)); }}
+                  />
+                </div>
+              </div>
+              <label className="flex items-start gap-3 rounded-2xl border border-indigo-100 bg-[#f3f1ff] px-4 py-3 dark:border-indigo-900 dark:bg-indigo-950/40">
                 <Checkbox
+                  className="mt-0.5"
                   checked={includeFloor}
                   onCheckedChange={(value) => setIncludeFloor(value === true)}
                 />
-                這份簡報包含整體平面圖
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-foreground">這份簡報包含整體平面圖</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-muted-foreground" role="status" aria-live="polite">
+                    {recognizingFloor ? '正在識別分區並產生對應截圖，請稍候…' : '上傳後自動識別分區，並在下方加入對應截圖。'}
+                  </span>
+                </span>
               </label>
-              <div className="space-y-2 rounded-xl border p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold">分區</p>
-                  <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => {
-                    setZones((current) => [...current, { id: crypto.randomUUID(), name: '' }]);
-                  }}>
-                    <Plus className="h-4 w-4" />
-                    新增分區
-                  </Button>
-                </div>
-                {zones.length === 0 ? <p className="text-xs text-muted-foreground">尚未建立分區。名稱可自訂，不限 A、B、C、D。</p> : null}
-                {zones.map((zone, index) => (
-                  <div key={zone.id} className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={zone.name}
-                      disabled={disabled}
-                      placeholder="例如：經理辦公室"
-                      onChange={(event) => setZones((current) => current.map((item) => item.id === zone.id ? { ...item, name: event.target.value } : item))}
-                    />
-                    <Button type="button" variant="outline" className="bg-background px-2" disabled={disabled || index === 0} aria-label="上移分區" onClick={() => setZones((current) => {
-                      const next = [...current];
-                      const [item] = next.splice(index, 1);
-                      next.splice(index - 1, 0, item);
-                      return next;
-                    })}>
-                      <ChevronUp className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" variant="outline" className="bg-background px-2" disabled={disabled || index === zones.length - 1} aria-label="下移分區" onClick={() => setZones((current) => {
-                      const next = [...current];
-                      const [item] = next.splice(index, 1);
-                      next.splice(index + 1, 0, item);
-                      return next;
-                    })}>
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" variant="outline" className="bg-background px-2" disabled={disabled} aria-label="刪除分區" onClick={() => {
-                      setZones((current) => current.filter((item) => item.id !== zone.id));
-                      setProductZone((current) => Object.fromEntries(Object.entries(current).filter(([, zoneId]) => zoneId !== zone.id)));
-                    }}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                    <PresentationImageField onUploadState={trackUpload} label="分區平面圖或空間參考圖（可選）" value={zone.imageUrl} disabled={disabled} onChange={(url) => setZones((current) => current.map((item) => item.id === zone.id ? { ...item, imageUrl: url } : item))} />
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 dark:border-border dark:bg-card">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 gap-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#efedff] text-[#5b4dff] dark:bg-indigo-950/60 dark:text-indigo-200">
+                      <Box className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground">分區管理（{zones.length}）</p>
+                      <p className="mt-0.5 text-xs leading-5 text-muted-foreground">框選平面圖、調整分區與對應截圖。</p>
+                    </div>
                   </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold">公司介紹</p>
-                  <p className="text-xs text-muted-foreground">資質與服務有內容時，會出現在大綱末段。</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {brief.floorImageUrl ? (
+                      <Button type="button" variant="outline" className="bg-white dark:bg-background" disabled={disabled || recognizingFloor} onClick={async () => {
+                        trackUpload(1);
+                        try {
+                          const response = await fetch(brief.floorImageUrl!);
+                          if (!response.ok) throw new Error('無法讀取平面圖');
+                          await recognizeFloor(await response.blob());
+                        } catch (error) { toast.error('無法重新識別分區', { description: errorText(error) }); }
+                        finally { trackUpload(-1); }
+                      }}>重新識別</Button>
+                    ) : null}
+                    <Button type="button" className="bg-indigo-600 text-white hover:bg-indigo-500" disabled={disabled} onClick={() => setZoneManagerOpen(true)}>
+                      <LayoutTemplate className="h-4 w-4" aria-hidden />
+                      分區管理
+                    </Button>
+                  </div>
                 </div>
-                <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => {
+                {!zones.length && !brief.floorImageUrl ? (
+                  <div className="mt-4 flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center dark:border-border">
+                    <ZoneEmptyArt />
+                    <p className="mt-3 text-sm font-semibold text-foreground">尚未建立分區。</p>
+                    <p className="mt-1 text-xs text-muted-foreground">上傳平面圖自動識別，或開啟分區管理新增。</p>
+                  </div>
+                ) : (
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                      {!zones.length ? <p className="col-span-3 py-6 text-sm text-muted-foreground">尚未建立分區。上傳平面圖自動識別，或開啟分區管理新增。</p> : null}
+                      {zones.map((zone, index) => <button type="button" key={zone.id} disabled={disabled} onClick={() => setZoneManagerOpen(true)} className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left hover:bg-muted/30 dark:border-border">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs text-white" style={{ background: floorPlanZoneColor(index) }}>{index + 1}</span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{zone.name || '未命名分區'}</span><span className="text-xs text-muted-foreground">{[zone.spaceType, zone.quantity ? '數量 ' + zone.quantity : '', !zone.imageUrl ? '尚未有截圖' : ''].filter(Boolean).join(' · ')}</span></span>
+                        {zone.imageUrl ? <LoadingImage src={zone.imageUrl} alt={zone.name} className="h-16 w-24 shrink-0 rounded border" imgClassName="object-contain" /> : null}
+                      </button>)}
+                  </div>
+                )}
+              </div>
+              {zoneManagerOpen ? <PresentationZoneManager zones={zones} floorUrl={brief.floorImageUrl} onClose={() => setZoneManagerOpen(false)} onSave={(next) => {
+                setZones(next);
+                const ids = new Set(next.map((zone) => zone.id));
+                setProductZone((current) => Object.fromEntries(Object.entries(current).filter(([, id]) => ids.has(id))));
+              }} /> : null}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-3 dark:border-border dark:bg-card">
+                <div className="flex min-w-0 gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#efedff] text-[#5b4dff] dark:bg-indigo-950/60 dark:text-indigo-200">
+                    <FileText className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">公司介紹</p>
+                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">資質與服務內容將會出現在大綱末段。</p>
+                  </div>
+                </div>
+                <Button type="button" variant="outline" className="bg-white dark:bg-background" disabled={disabled} onClick={() => {
                   setCompanyDraft(Object.values(companyProfile).some((value) => value.trim())
                     ? { ...companyProfile } : { ...WEBSITE_COMPANY_PROFILE });
                   setCompanyPage(true);
@@ -1713,8 +1949,7 @@ export function PresentationView() {
             </div>
             )}
             {wizardStep === 2 && (
-              <div className="space-y-4">
-                <SectionIntro icon={<Package className="h-5 w-5" />} title={WIZARD_STEPS[1].title} hint={WIZARD_STEPS[1].hint} />
+              <div className="h-full min-h-0">
                 <PresentationProductPicker
                   key={pickerNonce}
                   selected={selected}
@@ -1768,6 +2003,8 @@ export function PresentationView() {
                   onQualifications={setQualifications}
                   onServices={setServicesText}
                   onZoneName={(id, name) => setZones((current) => current.map((zone) => zone.id === id ? { ...zone, name } : zone))}
+                  onZonePatch={(id, patch) => setZones((current) => current.map((zone) => zone.id === id ? { ...zone, ...patch } : zone))}
+                  onReorder={setZones}
                   onDraft={(productId, patch) => setProductDrafts((current) => {
                     const product = selected.find((item) => item.id === productId);
                     const base = current[productId] ?? (product ? emptyProductDraft(product) : null);
@@ -1781,17 +2018,7 @@ export function PresentationView() {
             {wizardStep === 4 && (
             <div className="space-y-4">
               <SectionIntro icon={<PresentationIcon className="h-5 w-5" />} title={WIZARD_STEPS[3].title} hint={WIZARD_STEPS[3].hint} />
-              <p className="text-sm text-muted-foreground">產品圖片會上傳至 Canva 素材庫，請依下列名稱搜尋並放入對應產品頁。AI 排版仍需人工替換產品圖；平面圖也需自行補上。</p>
-              {Array.isArray(activeSession?.populate_report?.product_assets) ? (
-                <ul className="space-y-1 text-sm">
-                  {(activeSession.populate_report.product_assets as { product_id: string; name: string; url?: string; asset_id?: string; error?: string }[]).map((asset) => (
-                    <li key={asset.product_id} className="space-x-2">
-                      <span>{asset.name}：{asset.asset_id ? '已上傳至 Canva' : asset.error?.includes('missing_asset_write_scope') ? '請重新連接 Canva 以授權上傳圖片' : '上傳失敗，請手動上傳原圖'}</span>
-                      {asset.url && /^https:\/\//i.test(asset.url) ? <a className="underline underline-offset-2" href={asset.url} target="_blank" rel="noopener noreferrer">開啟原圖</a> : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+              <p className="text-sm text-muted-foreground">產品圖片會上傳至 Canva 素材庫。AI 排版仍需人工替換產品圖；平面圖也需自行補上。</p>
               {generateBlock ? <p className="text-sm text-destructive">{generateBlock}</p> : null}
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="min-w-0 flex-1">
@@ -1844,6 +2071,42 @@ export function PresentationView() {
                       <p className="text-xs text-muted-foreground">完成時間：{formatStamp(activeSession.updated_at)}</p>
                     )}
                   </div>
+                  {Array.isArray(activeSession?.populate_report?.product_assets) && (activeSession.populate_report.product_assets as { product_id: string }[]).length > 0 && (
+                    <ol className="relative ml-1 space-y-0 border-l border-indigo-200 py-1 pl-5 dark:border-indigo-800">
+                      <AnimatePresence initial={false}>
+                        {(activeSession.populate_report.product_assets as { product_id: string; name: string; url?: string; asset_id?: string; error?: string }[]).map((asset, index, list) => {
+                          const ok = Boolean(asset.asset_id);
+                          const label = ok
+                            ? '已上傳至 Canva'
+                            : asset.error?.includes('missing_asset_write_scope')
+                              ? '請重新連接 Canva 以授權上傳圖片'
+                              : '上傳失敗，請手動上傳原圖';
+                          return (
+                            <motion.li
+                              key={asset.product_id}
+                              layout
+                              initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 32 }}
+                              className={cn('relative', index < list.length - 1 && 'pb-4')}
+                            >
+                              <span className={cn(
+                                'absolute -left-[1.45rem] top-1 h-2.5 w-2.5 rounded-full ring-4 ring-background',
+                                ok ? 'bg-indigo-500' : 'bg-red-500',
+                              )} />
+                              <p className="text-sm leading-5 text-foreground">
+                                {asset.name}
+                                <span className="text-muted-foreground">：{label}</span>
+                                {asset.url && /^https:\/\//i.test(asset.url) ? (
+                                  <a className="ml-2 text-indigo-600 underline underline-offset-2 dark:text-indigo-300" href={asset.url} target="_blank" rel="noopener noreferrer">開啟原圖</a>
+                                ) : null}
+                              </p>
+                            </motion.li>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </ol>
+                  )}
                   {phase > 0 && phase < 4 && (
                     <ol className="grid gap-2 sm:grid-cols-4">
                       {GEN_PHASES.map((label, index) => {
@@ -1960,7 +2223,7 @@ export function PresentationView() {
           </section>
         </div>
 
-        <aside className="min-w-0 space-y-4 lg:sticky lg:top-5 lg:self-start">
+        <aside className="min-w-0 space-y-4 lg:sticky lg:top-4 lg:self-start">
           {canvaCard}
           <AnimatePresence initial={false}>
           {wizardStep === 4 && (
@@ -2052,6 +2315,12 @@ export function PresentationView() {
       </div>
       </LayoutGroup>
       </div>
+      <PresentationQuoteImportModal
+        open={quoteImportOpen}
+        disabled={disabled}
+        onOpenChange={setQuoteImportOpen}
+        onPick={applyQuoteImport}
+      />
       <Sheet open={listDrawer !== null} onOpenChange={(open) => { if (!open) setListDrawer(null); }}>
         <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
           <SheetHeader className="space-y-1 border-b px-5 py-4 pr-12 text-left">
@@ -2066,7 +2335,10 @@ export function PresentationView() {
         </SheetContent>
       </Sheet>
 
-          <div className="z-20 shrink-0 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-12px_rgba(15,23,42,0.35)] sm:px-6">
+          <div className={cn(
+            'z-20 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border bg-card pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-12px_rgba(15,23,42,0.35)]',
+            'px-4 sm:px-6',
+          )}>
             <Button
               type="button"
               variant="outline"
