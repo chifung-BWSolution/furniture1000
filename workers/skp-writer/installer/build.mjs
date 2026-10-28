@@ -24,6 +24,7 @@ const result = await build({
 await copyFile(process.execPath, join(output, 'node.exe'));
 await copyFile(join(installer, '../skp_build.rb'), join(output, 'skp_build.rb'));
 await copyFile(join(installer, '../skp_seed.rb'), join(output, 'skp_seed.rb'));
+await copyFile(join(installer, '../skp_preview.rb'), join(output, 'skp_preview.rb'));
 const response = await fetch(`https://raw.githubusercontent.com/nodejs/node/${process.version}/LICENSE`);
 if (!response.ok) throw new Error(`Cannot fetch matching Node.js license: ${response.status}`);
 await writeFile(join(licenses, 'Node-LICENSE.txt'), await response.text());

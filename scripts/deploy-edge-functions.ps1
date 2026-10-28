@@ -175,4 +175,13 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\fetch-manufacturer-directory\index.ts') `
   -Name 'fetch-manufacturer-directory'
 
+Deploy-Function `
+  -Slug 'supabase-functions-skp-worker-agent' `
+  -FilePath (Join-Path $root 'supabase\functions\skp-worker-agent\index.ts') `
+  -Name 'skp-worker-agent'
+Deploy-Function `
+  -Slug 'skp-worker-agent' `
+  -FilePath (Join-Path $root 'supabase\functions\skp-worker-agent\index.ts') `
+  -Name 'skp-worker-agent'
+
 Write-Host 'All functions deployed successfully.'
