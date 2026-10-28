@@ -133,7 +133,10 @@ export function validateFurnitureStructure(model: ParametricModel, evidence: Str
   if (!hasStructureEvidence(evidence)) return ['缺少完整的結構辨認資料，請重新辨認部件'];
   errors.push(...unresolvedUncertainties(evidence).map(n => `${STRUCTURE_PENDING_PREFIX}${n}`));
   const specs = model.custom_parts ?? referenceParts ?? model.structure_parts ?? [];
-  if (specs.length !== model.components.length || specs.some(p => !p.role || !p.form || !Array.isArray(p.connects_to))) return [...errors, '部件用途、形狀或接合關係不完整，請重新辨認部件'];
+  if (specs.length !== model.components.length) return [...errors, model.kind === 'custom'
+    ? '部件清單與模型不一致，請重新辨認部件'
+    : `「${model.label}」模板有 ${model.components.length} 個部件，圖片辨認出 ${specs.length} 個，形狀對不上，請改用「其他（AI 部件）」`];
+  if (specs.some(p => !p.role || !p.form || !Array.isArray(p.connects_to))) return [...errors, '部件用途、形狀或接合關係不完整，請重新辨認部件'];
   if (evidence.product_count && evidence.product_count > 1 &&
     (specs.some(p => !Number.isInteger(p.product_index) || p.product_index! < 0 || p.product_index! >= evidence.product_count!) || new Set(specs.map(p => p.product_index)).size !== evidence.product_count)) errors.push('模型中的產品件數與確認的整組數量不符');
   const roles = ['leg','top','seat','back','arm','frame','body','shelf','other'];

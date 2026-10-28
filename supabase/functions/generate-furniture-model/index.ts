@@ -423,14 +423,38 @@ async function extractParts(apiKey: string, images: InlineImage[], size: Size, t
   const system = withEstimates
     ? `${PARTS_PROMPT} ${LABELLED_PROMPT} When views or dimension diagrams show labelled sizes, list each distinct reading of the whole arrangement in dimension_estimates (view = front/side/top/diagram in English). ${scope}`
     : `${PARTS_PROMPT} ${LABELLED_PROMPT} ${scope}`;
-  const parsed = await askModel<{ parts?: unknown[]; notes?: string; structure?: { leg_count?: number; part_counts?: Record<string,number>; symmetric?: boolean; uncertainties?: string[] }; dimension_estimates?: DimensionEstimate[]; labelled_dimensions?: unknown }>(apiKey, system, prompt, images, schema);
-  const parts = (Array.isArray(parsed.parts) ? parsed.parts : []).map(normalizePartGeometry);
-  if (parts.length === 0 || parts.length > MAX_PARTS) throw new AnalysisError("部件清單不完整或超出上限，請重新辨認部件");
-  if (parts.some((part, index) => {
-    if (!part || typeof part !== 'object') return true;
-    const p = part as Record<string, unknown>;
-    return !['leg','top','seat','back','arm','frame','body','shelf','other'].includes(String(p.role)) || !['straight','slanted','bent','tapered','panel'].includes(String(p.form)) || !Array.isArray(p.connects_to) || !p.connects_to.every(n => Number.isInteger(n) && n >= 0 && n < parts.length && n !== index);
-  })) throw new AnalysisError("部件用途、形狀或接合關係不完整，請重新辨認部件");
+  type PartReply = { parts?: unknown[]; notes?: string; structure?: { leg_count?: number; part_counts?: Record<string,number>; symmetric?: boolean; uncertainties?: string[] }; dimension_estimates?: DimensionEstimate[]; labelled_dimensions?: unknown };
+  const read = (parsed: PartReply) => {
+    const parts = (Array.isArray(parsed.parts) ? parsed.parts : []).map(normalizePartGeometry);
+    if (parts.length === 0 || parts.length > MAX_PARTS) throw new AnalysisError("部件清單不完整或超出上限，請重新辨認部件");
+    parts.forEach((part, index) => {
+      if (!part || typeof part !== 'object') return;
+      const p = part as Record<string, unknown>;
+      // A link to itself or to a part that does not exist is not evidence of contact; the browser's
+      // floating-part check still rejects a part left with no real connection.
+      if (Array.isArray(p.connects_to)) p.connects_to = [...new Set(p.connects_to.filter(n => Number.isInteger(n) && n >= 0 && n < parts.length && n !== index))];
+    });
+    if (parts.some((part) => {
+      if (!part || typeof part !== 'object') return true;
+      const p = part as Record<string, unknown>;
+      return !['leg','top','seat','back','arm','frame','body','shelf','other'].includes(String(p.role)) || !['straight','slanted','bent','tapered','panel'].includes(String(p.form)) || !Array.isArray(p.connects_to);
+    })) throw new AnalysisError("部件用途、形狀或接合關係不完整，請重新辨認部件");
+    return parts;
+  };
+  let parsed = await askModel<PartReply>(apiKey, system, prompt, images, schema);
+  let parts: unknown[];
+  try {
+    parts = read(parsed);
+  } catch (err) {
+    if (!(err instanceof AnalysisError)) throw err;
+    console.warn("Furniture parts reply incomplete, asking once more:", err.message);
+    try {
+      parsed = await askModel<PartReply>(apiKey, system, prompt, images, schema);
+    } catch {
+      throw err;
+    }
+    parts = read(parsed);
+  }
   if (!parsed.structure || !Number.isInteger(parsed.structure.leg_count) || parsed.structure.leg_count! < 0 || parsed.structure.leg_count! > 20 || typeof parsed.structure.symmetric !== 'boolean' || !Array.isArray(parsed.structure.uncertainties) || !parsed.structure.uncertainties.every(n => typeof n === 'string')) throw new AnalysisError("缺少完整結構辨認資料，請重新辨認部件");
   if (!parsed.structure.part_counts || ['leg','top','seat','back','arm','frame','body','shelf','other'].some(role => !Number.isInteger(parsed.structure!.part_counts![role]) || parsed.structure!.part_counts![role] < 0 || parsed.structure!.part_counts![role] > MAX_PARTS)) throw new AnalysisError("缺少主要部件數量，請重新辨認部件");
   return {
@@ -727,7 +751,7 @@ async function executeRecognition(
   }
 }
 
-async function handleRecognitionJob(req: Request, body: Record<string, unknown>, apiKey: string): Promise<Response> {
+async function handleRecognitionJob(req: Request, body: { job_id?: string; source?: string }, apiKey: string): Promise<Response> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
