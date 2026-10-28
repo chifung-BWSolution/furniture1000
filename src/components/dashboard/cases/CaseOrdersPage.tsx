@@ -171,6 +171,8 @@ export function CaseOrdersPage() {
             onChange={setSearch}
             placeholder="項目編號、名稱、產品、工廠或 PM"
             onReload={data.reload}
+            searchClassName="w-full sm:w-96 sm:flex-1"
+            filtersClassName="sm:flex-none"
           >
             <CaseFilter
               label="訂單狀態"
@@ -184,6 +186,18 @@ export function CaseOrdersPage() {
               onChange={setPm}
               options={options("pm_name")}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={!picked.size}
+              onClick={openExport}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              導出已選（{picked.size}）
+            </Button>
+          </CaseSearch>
+          <div className="flex flex-wrap items-center gap-2">
             <CaseFilter
               label="工廠"
               value={factory}
@@ -199,31 +213,7 @@ export function CaseOrdersPage() {
               furnitureTypes={uniqueSorted(data.items.map((item) => item.product_type))}
               brands={uniqueSorted(data.items.map((item) => item.famous_brand))}
             />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-9 text-sm"
-              onClick={() => {
-                setSearch("");
-                setStatus("");
-                setPm("");
-                setFactory("");
-                setListFilters(EMPTY_CASE_LIST_FILTERS);
-              }}
-            >
-              清除篩選
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9"
-              disabled={!picked.size}
-              onClick={openExport}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              導出已選（{picked.size}）
-            </Button>
-          </CaseSearch>
+          </div>
           <div className="text-xs text-muted-foreground" role="status">
             共 {grouped.length} 個項目
           </div>

@@ -433,6 +433,8 @@ export function CasePhotosPage() {
                 onChange={setSearch}
                 placeholder="項目編號、名稱、客戶或地址"
                 onReload={data.reload}
+                searchClassName="w-full sm:w-96 sm:flex-1"
+                filtersClassName="sm:flex-none"
               >
                 <CaseFilter
                   label="項目狀態"
@@ -447,61 +449,10 @@ export function CasePhotosPage() {
                   options={options("pm_name")}
                 />
                 <CaseFilter
-                  label="財政年度"
-                  value={year}
-                  onChange={setYear}
-                  options={options("financial_year")}
-                />
-                <CaseFilter
-                  label="排序"
-                  value={sortMode}
-                  onChange={(value) => setSortMode(value as SortMode)}
-                  includeAll={false}
-                  options={[
-                    { value: "handover-desc", label: "交付日期（最新）" },
-                    { value: "handover-asc", label: "交付日期（最早）" },
-                    { value: "project-asc", label: "項目編號" },
-                    { value: "customer-asc", label: "客戶名稱" },
-                  ]}
-                />
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant={viewMode === "grid" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="h-9 w-9"
-                    aria-label="格狀檢視"
-                    aria-pressed={viewMode === "grid"}
-                    title="格狀檢視"
-                    onClick={() => setViewMode("grid")}
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={viewMode === "list" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="h-9 w-9"
-                    aria-label="列表檢視"
-                    aria-pressed={viewMode === "list"}
-                    title="列表檢視"
-                    onClick={() => setViewMode("list")}
-                  >
-                    <List className="h-4 w-4" />
-                  </Button>
-                </div>
-                <CaseListFilters
-                  state={listFilters}
-                  onChange={(patch) =>
-                    setListFilters((current) => ({ ...current, ...patch }))
-                  }
-                  industries={uniqueSorted(
-                    data.items.flatMap((project) => project.industries || []),
-                  )}
-                  furnitureTypes={uniqueSorted(
-                    data.items.flatMap((project) => project.furniture_types || []),
-                  )}
-                  brands={uniqueSorted(data.items.map((project) => project.famous_brand))}
+                  label="傢俬類型"
+                  value={listFilters.furniture}
+                  onChange={(furniture) => setListFilters((current) => ({ ...current, furniture }))}
+                  options={uniqueSorted(data.items.flatMap((project) => project.furniture_types || []))}
                 />
                 {(search ||
                   status ||
@@ -533,7 +484,67 @@ export function CasePhotosPage() {
                   <Download className="mr-2 h-4 w-4" />
                   導出已選（{picked.size}）
                 </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant={viewMode === "grid" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-9 w-9"
+                    aria-label="格狀檢視"
+                    aria-pressed={viewMode === "grid"}
+                    title="格狀檢視"
+                    onClick={() => setViewMode("grid")}
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={viewMode === "list" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-9 w-9"
+                    aria-label="列表檢視"
+                    aria-pressed={viewMode === "list"}
+                    title="列表檢視"
+                    onClick={() => setViewMode("list")}
+                  >
+                    <List className="h-4 w-4" />
+                  </Button>
+                </div>
               </CaseSearch>
+              <div className="flex flex-wrap items-center gap-2">
+                <CaseFilter
+                  label="財政年度"
+                  value={year}
+                  onChange={setYear}
+                  options={options("financial_year")}
+                />
+                <CaseFilter
+                  label="排序"
+                  value={sortMode}
+                  onChange={(value) => setSortMode(value as SortMode)}
+                  includeAll={false}
+                  options={[
+                    { value: "handover-desc", label: "交付日期（最新）" },
+                    { value: "handover-asc", label: "交付日期（最早）" },
+                    { value: "project-asc", label: "項目編號" },
+                    { value: "customer-asc", label: "客戶名稱" },
+                  ]}
+                />
+                <CaseListFilters
+                  showFurniture={false}
+                  state={listFilters}
+                  onChange={(patch) =>
+                    setListFilters((current) => ({ ...current, ...patch }))
+                  }
+                  industries={uniqueSorted(
+                    data.items.flatMap((project) => project.industries || []),
+                  )}
+                  furnitureTypes={uniqueSorted(
+                    data.items.flatMap((project) => project.furniture_types || []),
+                  )}
+                  brands={uniqueSorted(data.items.map((project) => project.famous_brand))}
+                />
+              </div>
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <p role="status">共 {filtered.length} 個專案</p>
                 {viewMode === "grid" && (
