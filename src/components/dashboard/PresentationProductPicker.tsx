@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronLeft, ChevronRight, Loader2, Package, Search, X } from 'lucide-react';
+import { Box, Check, ChevronLeft, ChevronRight, Loader2, MapPin, Package, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LoadingImage } from '@/components/ui/loading-image';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { productThumbUrl } from '@/lib/imageThumb';
 import {
@@ -106,10 +109,18 @@ export function PresentationProductPicker({
   selected,
   maxItems,
   onChange,
+  zones,
+  productZone,
+  onZoneChange,
+  zoneDisabled = false,
 }: {
   selected: SearchProduct[];
   maxItems: number;
   onChange: (next: SearchProduct[] | ((current: SearchProduct[]) => SearchProduct[])) => void;
+  zones: { id: string; name: string }[];
+  productZone: Record<string, string>;
+  onZoneChange: (productId: string, zoneId: string) => void;
+  zoneDisabled?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [level1, setLevel1] = useState('');
@@ -249,55 +260,89 @@ export function PresentationProductPicker({
 
   return (
     <div ref={pickerRef} className="space-y-4">
-      <div className="rounded-xl border border-border bg-muted/40 p-3 dark:bg-muted/20">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-medium text-foreground" aria-live="polite">
-            已選
-            {' '}
-            <span className={cn('tabular-nums', atLimit && 'text-amber-600 dark:text-amber-400')}>
-              {selected.length}
+      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_12px_32px_-24px_rgba(15,23,42,0.45)] dark:border-border dark:bg-card">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#efedff] text-[#5b4dff] dark:bg-indigo-950/60 dark:text-indigo-200">
+              <Box className="h-5 w-5" strokeWidth={1.75} aria-hidden />
             </span>
-            <span className="text-muted-foreground"> / {maxItems}</span>
-            {atLimit ? <span className="ml-2 text-xs font-normal text-amber-600 dark:text-amber-400">已達上限</span> : null}
-          </p>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">已選擇產品</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">從產品資料庫選擇家具，並指定所屬分區。</p>
+              <p className="sr-only" aria-live="polite">
+                已選 {selected.length} / {maxItems}{atLimit ? '，已達上限' : ''}
+              </p>
+              {atLimit ? <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">已達上限 {maxItems} 件</p> : null}
+            </div>
+          </div>
           <Button
             type="button"
-            variant="ghost"
-            className="h-11 px-3"
+            variant="outline"
+            className="h-10 shrink-0 rounded-xl bg-white px-3 dark:bg-background"
             disabled={selected.length === 0}
             onClick={() => onChange((current) => (current.length === 0 ? current : []))}
           >
-            清除全部
+            <Trash2 className="h-4 w-4" aria-hidden />
+            清除全部 ({selected.length})
           </Button>
         </div>
+        {selected.length > 0 && zones.length === 0 ? (
+          <p className="mt-3 text-xs text-muted-foreground">請先在上一步建立分區。</p>
+        ) : null}
         {selected.length === 0 ? (
-          <p className="px-1 py-3 text-sm text-muted-foreground">尚未選擇。點下方產品卡片即可加入。</p>
+          <p className="mt-4 rounded-xl border border-dashed border-slate-200 px-4 py-6 text-sm text-muted-foreground dark:border-border">尚未選擇。點下方產品卡片即可加入。</p>
         ) : (
-          <ul className="mt-2 flex flex-wrap gap-2">
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {selected.map((product) => {
-              const { primary } = splitTitle(product.title);
+              const { primary, secondary } = splitTitle(product.title);
               const label = primary || product.title;
+              const zoneId = productZone[product.id] || '';
               return (
                 <li
                   key={product.id}
-                  className="flex max-w-full items-center gap-1 rounded-full border border-border bg-background py-1 pl-1 pr-1 shadow-sm"
+                  className="flex min-w-0 items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-[0_10px_28px_-20px_rgba(15,23,42,0.4)] dark:border-border dark:bg-background"
                 >
                   <Thumb
                     url={coverUrl(product)}
                     alt=""
-                    className="h-8 w-8 shrink-0 overflow-hidden rounded-full"
+                    className="h-12 w-12 shrink-0 overflow-hidden rounded-full"
                   />
-                  <span className="max-w-[10rem] truncate px-1 text-xs font-medium text-foreground sm:max-w-[14rem]">
-                    {label}
-                  </span>
-                  <button
-                    type="button"
-                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                    aria-label={`移除 ${label}`}
-                    onClick={() => toggle(product)}
-                  >
-                    <X className="h-4 w-4" aria-hidden />
-                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start gap-1">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold leading-5 text-foreground">{label}</p>
+                        {secondary ? (
+                          <p className="truncate text-xs leading-5 text-muted-foreground">{secondary}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                        aria-label={`移除 ${label}`}
+                        onClick={() => toggle(product)}
+                      >
+                        <X className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+                    <Select
+                      value={zoneId || undefined}
+                      disabled={zoneDisabled || zones.length === 0}
+                      onValueChange={(value) => onZoneChange(product.id, value)}
+                    >
+                      <SelectTrigger
+                        aria-label={`${label} 所屬分區`}
+                        className="relative mt-2 h-8 w-fit max-w-full rounded-full border-slate-200 bg-white pl-8 pr-2 text-xs shadow-none dark:border-border dark:bg-card"
+                      >
+                        <MapPin className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-slate-400" aria-hidden />
+                        <SelectValue placeholder="選擇分區" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {zones.map((zone) => (
+                          <SelectItem key={zone.id} value={zone.id}>{zone.name || '未命名分區'}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </li>
               );
             })}
