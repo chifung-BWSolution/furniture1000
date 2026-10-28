@@ -72,3 +72,18 @@ test('cached images obey the vision image and byte limits', async () => {
   assert.equal((await preparePdfUnitImages({ ...h.options, maxImages: 1 })).length, 1);
   assert.equal((await preparePdfUnitImages({ ...h.options, totalBytes: 0 })).length, 0);
 });
+
+test('private scan rejection checkpoints without publishing and is not retried', async () => {
+ const h=harness(); const rejectedHashes=[]; let checks=0;
+ const options={...h.options,rejectedHashes,validateImage:async()=>{checks++;return false;}};
+ assert.equal(await preparePdfUnitImages(options),null);
+ assert.equal(await preparePdfUnitImages(options),null);
+ assert.deepEqual(await preparePdfUnitImages(options),[]);
+ assert.equal(checks,2);assert.equal(h.uploads.length,0);assert.equal(h.rows.size,0);
+});
+test('small product pictures are retained after screening',async()=>{
+ const h=harness();h.options.collectImages=()=>[{bytes:new Uint8Array([1]),width:248,height:156,area:38688}];
+ const options={...h.options,validateImage:async()=>true};
+ assert.equal(await preparePdfUnitImages(options),null);
+ assert.equal((await preparePdfUnitImages(options)).length,1);
+});

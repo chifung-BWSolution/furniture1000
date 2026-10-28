@@ -25,3 +25,5 @@ test('segment with no text and no images is skipped', () => {
   const pages = [2, 3, 4, 5, 6, 7, 8, 9].map((n) => page(n, 0, 0));
   assert.deepEqual(planStructureUnits([seg], pages, opts), []);
 });
+
+ test('outlined catalogue pages remain image candidates', async () => { const {unitImagePages}=await import('./structureUnits.mjs'); assert.deepEqual(unitImagePages({start:8,end:8},[{page_no:8,text_source:'none',image_count:21}]),[8]); });

@@ -62,8 +62,8 @@ const VISION_MAX_PAGES = 2;
 // The unit's pages are also sent as a small PDF so the model sees the whole rendered page
 // (captions are often vector outlines, invisible to text extraction and absent from embedded photos).
 const MAX_PAGE_PDF_BYTES = 8 * 1024 * 1024;
-const STRUCTURE_MAX_IMAGES = 10;
-const MIN_IMAGE_PX = 200;
+const STRUCTURE_MAX_IMAGES = 40;
+const MIN_IMAGE_PX = 100;
 const MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024;
 // Edge CPU budget: base64-encoding inline images is the expensive part of a structure batch.
 const MAX_INLINE_TOTAL_BYTES = 12 * 1024 * 1024;
@@ -102,6 +102,7 @@ type ParseState = {
   units?: StructureUnit[];
   segments?: number;
   currencies?: Record<string, number>;
+  rejected_image_hashes?: string[];
 };
 
 type PageRow = {
@@ -308,7 +309,8 @@ async function grokOcr(apiKey: string, model: string, jpeg: Uint8Array): Promise
   if (!res.ok) {
     throw new Error(`Grok ${res.status}: ${body?.error?.message ?? body?.error ?? res.statusText}`);
   }
-  const text = String(body?.choices?.[0]?.message?.content ?? "").trim();
+  if (typeof body?.choices?.[0]?.message?.content !== "string") throw new Error("OCR returned no content");
+  const text = body.choices[0].message.content.trim();
   return { text: isNoTextReply(text) ? "" : text, tokens: Number(body?.usage?.total_tokens ?? 0) };
 }
 
@@ -789,10 +791,12 @@ async function collectUnitImages(
   documentId: string,
   doc: PDFDocument | null,
   textPages: number[],
+  validateImage: (bytes: Uint8Array, page: number) => Promise<boolean>,
+  rejectedHashes: string[],
 ): Promise<UnitImage[] | null> {
   return preparePdfUnitImages({ admin, documentId, document: doc, pages: textPages,
     collectImages: pageImages, normalizeImage: normalizePdfImage, hashBytes: sha256Hex,
-    minPixels: MIN_IMAGE_PX, maxImageBytes: MAX_INLINE_IMAGE_BYTES,
+    validateImage, rejectedHashes, minPixels: MIN_IMAGE_PX, maxImageBytes: MAX_INLINE_IMAGE_BYTES,
     totalBytes: MAX_INLINE_TOTAL_BYTES, maxImages: STRUCTURE_MAX_IMAGES, logoPages: LOGO_PAGE_OCCURRENCES });
 }
 
@@ -964,7 +968,16 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
   } catch {
     pdfDoc = null;
   }
-  const images = await collectUnitImages(admin, documentId, pdfDoc, imagePages);
+  // Untrusted embedded images may be complete scanned price sheets. Inspect
+  // normalized pixels privately before publishing; any readable text is excluded.
+  const images = await collectUnitImages(admin, documentId, pdfDoc, imagePages, async (bytes, page) => {
+    if (target.find((p) => p.page_no === page)?.text_source === "text") return true;
+    const key = Deno.env.get("XAI_API_KEY") ?? "";
+    if (!key) throw new Error("XAI_API_KEY required to screen image-only page pictures");
+    const checked = await grokOcr(key, Deno.env.get("XAI_OCR_MODEL") || "grok-4.7", bytes);
+    state.tokens += checked.tokens;
+    return checked.text.trim() === "";
+  }, state.rejected_image_hashes ??= []);
   // Color preparation checkpoint: retain this unit's cursor until all its images
   // are cached as RGB. Existing job checkpoint/chain/parse-window rules apply.
   if (images === null) return;

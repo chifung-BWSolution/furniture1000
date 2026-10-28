@@ -44,12 +44,11 @@ export function planStructureUnits(segments, pages, opts) {
   return units;
 }
 
-/** Pages whose embedded product images may be published. Full scans stay private
+/** Pages whose embedded product images may be published. Candidates are screened before publication; full scans stay private
  * and reach the vision model only through extractPagesPdf. */
 export function unitImagePages(unit, pages) {
   return pages
     .filter((p) => p.page_no >= unit.start && p.page_no <= unit.end)
-    .filter((p) => p.text_source === 'text')
     .map((p) => p.page_no);
 }
 

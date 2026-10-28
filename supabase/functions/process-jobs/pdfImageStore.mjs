@@ -4,15 +4,17 @@ export const PDF_IMAGE_COLOR_VERSION = 'rgb-v1';
  * Prepare one unit without exceeding Edge's CPU budget. At most one picture is
  * decoded per invocation. The caller checkpoints the same unit on null; once all
  * pictures are ready, cached RGB bytes are loaded for the vision model.
+ * @param {any} options
  */
 export async function preparePdfUnitImages({ admin, documentId, document, pages,
-  collectImages, normalizeImage, hashBytes, minPixels = 200, maxImageBytes = 4 * 1024 * 1024,
+  collectImages, normalizeImage, hashBytes, minPixels = 100, validateImage = null, rejectedHashes = [], maxImageBytes = 4 * 1024 * 1024,
   totalBytes = 12 * 1024 * 1024, maxImages = 10, logoPages = 3 }) {
   if (!document || pages.length === 0) return [];
   const found = new Map();
   for (const page of pages) for (const image of collectImages(document, page)) {
     if (image.width < minPixels || image.height < minPixels || image.bytes.length > maxImageBytes) continue;
     const hash = await hashBytes(image.bytes);
+    if (rejectedHashes.includes(hash)) continue;
     const existing = found.get(hash);
     if (existing) existing.pages.add(page);
     else found.set(hash, { page, pages: new Set([page]), image });
@@ -34,6 +36,10 @@ export async function preparePdfUnitImages({ admin, documentId, document, pages,
     if (row?.storage_path !== storagePath) {
       if (decoded) return null;
       const bytes = await normalizeImage(document, entry.image);
+      if (validateImage && !(await validateImage(bytes, entry.page))) {
+        rejectedHashes.push(hash);
+        return null;
+      }
       const upload = async path => {
         const { error } = await bucket.upload(path, bytes, { contentType: 'image/jpeg', cacheControl: '60', upsert: true });
         if (error) throw new Error(`image upload failed: ${error.message}`);
