@@ -17,6 +17,11 @@ import type { QuoteUiLabels } from "@/lib/quotationLocale";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Modal, ModalButton } from "@/components/ui/modal";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -284,60 +289,71 @@ export function CopyQuoteItemsModal({
             <label className="font-body text-xs font-medium text-muted-foreground">
               {labels.copyFromOtherQuoteName}
             </label>
-            <div className="relative space-y-1.5">
-              <button
-                type="button"
-                disabled={listLoading}
-                onClick={() => setNameOpen((prev) => !prev)}
-                className="flex h-10 w-full items-center justify-between rounded-md border border-border bg-background px-3 font-body text-sm text-foreground disabled:opacity-60"
+            <Popover
+              open={nameOpen}
+              onOpenChange={(next) => {
+                setNameOpen(next);
+                if (!next) setNameQuery("");
+              }}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  disabled={listLoading}
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-border bg-background px-3 font-body text-sm text-foreground disabled:opacity-60"
+                >
+                  <span className="truncate">
+                    {listLoading
+                      ? labels.copyFromOtherQuoteLoading
+                      : selectedChain?.label || labels.copyFromOtherQuotePickName}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                sideOffset={4}
+                collisionPadding={16}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+                className="relative z-[80] w-[var(--radix-popover-trigger-width)] overflow-hidden p-0 pointer-events-auto"
               >
-                <span className="truncate">
-                  {listLoading
-                    ? labels.copyFromOtherQuoteLoading
-                    : selectedChain?.label || labels.copyFromOtherQuotePickName}
-                </span>
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-              </button>
-              {nameOpen ? (
-                <div className="absolute inset-x-0 top-full z-50 mt-1 overflow-hidden rounded-md border border-border bg-popover shadow-md">
-                  <input
-                    type="text"
-                    autoFocus
-                    value={nameQuery}
-                    onChange={(e) => setNameQuery(e.target.value)}
-                    placeholder={labels.copyFromOtherQuoteSearch}
-                    className="h-9 w-full border-b border-border bg-transparent px-3 font-body text-sm outline-none placeholder:text-muted-foreground"
-                  />
-                  <div className="max-h-[220px] overflow-y-auto">
-                    {filteredChains.length === 0 ? (
-                      <p className="px-3 py-6 text-center font-body text-sm text-muted-foreground">
-                        沒有符合的提案
-                      </p>
-                    ) : (
-                      filteredChains.map((chain) => (
-                        <button
-                          type="button"
-                          key={chain.quoteId}
-                          onClick={() => handleSelectName(chain.quoteId)}
+                <input
+                  type="text"
+                  autoFocus
+                  value={nameQuery}
+                  onChange={(e) => setNameQuery(e.target.value)}
+                  placeholder={labels.copyFromOtherQuoteSearch}
+                  className="h-9 w-full border-b border-border bg-transparent px-3 font-body text-sm outline-none placeholder:text-muted-foreground"
+                />
+                <div className="max-h-[min(280px,var(--radix-popover-content-available-height))] overflow-y-auto overscroll-contain">
+                  {filteredChains.length === 0 ? (
+                    <p className="px-3 py-6 text-center font-body text-sm text-muted-foreground">
+                      沒有符合的提案
+                    </p>
+                  ) : (
+                    filteredChains.map((chain) => (
+                      <button
+                        type="button"
+                        key={chain.quoteId}
+                        onClick={() => handleSelectName(chain.quoteId)}
+                        className={cn(
+                          "flex w-full select-none items-center gap-2 px-3 py-2 text-left font-body text-sm hover:bg-accent",
+                          selectedQuoteId === chain.quoteId && "bg-accent",
+                        )}
+                      >
+                        <Check
                           className={cn(
-                            "flex w-full select-none items-center gap-2 px-3 py-2 text-left font-body text-sm hover:bg-accent",
-                            selectedQuoteId === chain.quoteId && "bg-accent",
+                            "h-4 w-4 shrink-0",
+                            selectedQuoteId === chain.quoteId ? "opacity-100" : "opacity-0",
                           )}
-                        >
-                          <Check
-                            className={cn(
-                              "h-4 w-4 shrink-0",
-                              selectedQuoteId === chain.quoteId ? "opacity-100" : "opacity-0",
-                            )}
-                          />
-                          <span className="truncate">{chain.label}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
+                        />
+                        <span className="truncate">{chain.label}</span>
+                      </button>
+                    ))
+                  )}
                 </div>
-              ) : null}
-            </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
           <div className="min-w-0 space-y-1.5">
