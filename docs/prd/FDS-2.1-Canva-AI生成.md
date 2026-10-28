@@ -1,6 +1,7 @@
 # FDS 2.1 — Canva AI 生成簡報
 
 建立客戶簡報只走 Canva Design Generation（preview）：`POST /v1/generations`。
+V2.2.1 圖片流程以 `FDS-V2.2.1.md` 的 2026-10-28 修訂為準：文字大綱交給生成接口，指定圖片另上傳素材庫，由使用者依對應清單手動放圖；自動放入投影片不在本版範圍。本輪相關程式修改仍需部署與真實驗收。
 不使用品牌模板，不使用 Autofill，也不再讀 `CANVA_BRAND_TEMPLATE_ID`。
 
 ## 帳戶

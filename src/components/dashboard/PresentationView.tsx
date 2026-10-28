@@ -1,3 +1,4 @@
+import { PresentationImageField } from './PresentationImageField';
 // ============================================================================
 // FDS 2.1 — 客戶簡報（F-AI-009）
 // Canva AI POST /v1/generations（canvaNativeDesign.ts）。
@@ -587,11 +588,14 @@ export function PresentationView() {
   const [wizardStep, setWizardStep] = useState(1);
   const [zones, setZones] = useState<PresentationZoneDraft[]>([]);
   const [includeFloor, setIncludeFloor] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState(0);
+  const trackUpload = useCallback((delta: number) => setPendingUploads((count) => Math.max(0, count + delta)), []);
   const [productZone, setProductZone] = useState<Record<string, string>>({});
   const [productDrafts, setProductDrafts] = useState<Record<string, PresentationProductDraft>>({});
   const [companyIntro, setCompanyIntro] = useState('');
   const [qualifications, setQualifications] = useState('');
   const [servicesText, setServicesText] = useState('');
+  const [caseDrafts, setCaseDrafts] = useState<Record<string, { title: string; body: string }>>({});
   const zonesSeeded = useRef(false);
   const outlineStateRef = useRef({
     zones,
@@ -601,6 +605,7 @@ export function PresentationView() {
     companyIntro,
     qualifications,
     servicesText,
+    caseDrafts,
   });
   outlineStateRef.current = {
     zones,
@@ -610,6 +615,7 @@ export function PresentationView() {
     companyIntro,
     qualifications,
     servicesText,
+    caseDrafts,
   };
   const [outline, setOutline] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -851,7 +857,7 @@ export function PresentationView() {
     };
   }, [brief.projectId]);
 
-  const disabled = status !== 'idle' || generating;
+  const disabled = status !== 'idle' || generating || pendingUploads > 0;
   const connected = canva?.connected ?? false;
   const canvaPathReady = Boolean(canva?.configured && canImport && connected);
 
@@ -876,8 +882,8 @@ export function PresentationView() {
       services: state.servicesText,
       cases: current.cases.filter((item) => chosen.has(item.id)).map((item) => ({
         id: item.id,
-        title: item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
-        body: [
+        title: state.caseDrafts[item.id]?.title ?? (item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例'),
+        body: state.caseDrafts[item.id]?.body ?? [
           item.industries?.[0] ? `行業：${item.industries[0]}` : '',
           ...[...new Set((item.filter_projects ?? []).flatMap((project) => project.furniture_types ?? []))].slice(0, 16).map((line) => `- ${line}`),
         ].filter(Boolean).join('\n'),
@@ -906,7 +912,7 @@ export function PresentationView() {
   }, []);
 
   const saveDraft = useCallback(async () => {
-    if (!canImport) return;
+    if (!canImport || pendingUploads > 0) return;
     setStatus('creating');
     try {
       const markdown = presentationOutlineMarkdown(outlineInput());
@@ -914,6 +920,7 @@ export function PresentationView() {
         ...brief,
         outline: markdown,
         outlineOnly: true,
+        presentationDraft: { zones, products: selected.map(({ id, title, model, sku, image_url, image_urls, dimension_l_mm, dimension_w_mm, dimension_h_mm, material, color, created_at, on_shopify, in_catalog, exact }) => ({ id, title, model, sku, image_url, image_urls, dimension_l_mm, dimension_w_mm, dimension_h_mm, material, color, created_at, on_shopify, in_catalog, exact })), productZone, productDrafts, includeFloor, companyIntro, qualifications, services: servicesText, caseIds: selectedCaseIds, caseDrafts },
         confirmedAt: new Date().toISOString(),
       };
       const { session_id } = await saveCanvaDraft(
@@ -929,7 +936,7 @@ export function PresentationView() {
     } finally {
       setStatus('idle');
     }
-  }, [brief, selected, sessionId, canImport, refreshSessions, outlineInput]);
+  }, [brief, selected, sessionId, canImport, refreshSessions, outlineInput, zones, productZone, productDrafts, includeFloor, companyIntro, qualifications, servicesText, selectedCaseIds, caseDrafts, pendingUploads]);
 
   const createNative = useCallback(async () => {
     if (!canCreateNative || disabled) return;
@@ -953,6 +960,7 @@ export function PresentationView() {
         title: brief.title.trim() || `${brief.client ?? ''} ${brief.project ?? ''}`.trim() || '客戶簡報',
         outline: markdown,
         outlineOnly: true,
+        presentationDraft: { zones, products: selected.map(({ id, title, model, sku, image_url, image_urls, dimension_l_mm, dimension_w_mm, dimension_h_mm, material, color, created_at, on_shopify, in_catalog, exact }) => ({ id, title, model, sku, image_url, image_urls, dimension_l_mm, dimension_w_mm, dimension_h_mm, material, color, created_at, on_shopify, in_catalog, exact })), productZone, productDrafts, includeFloor, companyIntro, qualifications, services: servicesText, caseIds: selectedCaseIds, caseDrafts },
         confirmedAt: new Date().toISOString(),
       };
       const { session_id } = await saveCanvaDraft(
@@ -996,7 +1004,7 @@ export function PresentationView() {
       setGenerationPending(false);
       setStatus('idle');
     }
-  }, [canCreateNative, disabled, activeSession, brief, selected, sessionId, refreshSessions, refreshStatus, outlineInput, syncOutline]);
+  }, [canCreateNative, disabled, activeSession, brief, selected, sessionId, refreshSessions, refreshStatus, outlineInput, syncOutline, zones, productZone, productDrafts, includeFloor, companyIntro, qualifications, servicesText, selectedCaseIds, caseDrafts, pendingUploads]);
 
   const refreshSessionDetail = useCallback(async (sid: string) => {
     try {
@@ -1045,6 +1053,21 @@ export function PresentationView() {
     }
   }, [refreshSessionDetail]);
 
+  const restorePresentationDraft = (brief: CanvaDesignBrief) => {
+    const draft = brief.presentationDraft;
+    setZones(draft?.zones ?? []);
+    setSelected(draft?.products ?? []);
+    setProductZone(draft?.productZone ?? {});
+    setProductDrafts(draft?.productDrafts ?? {});
+    setIncludeFloor(draft?.includeFloor ?? false);
+    setCompanyIntro(draft?.companyIntro ?? '');
+    setQualifications(draft?.qualifications ?? '');
+    setServicesText(draft?.services ?? '');
+    setSelectedCaseIds(draft?.caseIds ?? []);
+    setCaseDrafts(draft?.caseDrafts ?? {});
+    zonesSeeded.current = Boolean(draft);
+  };
+
   const loadSession = (s: CanvaDesignSession) => {
     if (disabled) return;
     setGenerationError('');
@@ -1054,6 +1077,7 @@ export function PresentationView() {
     autoContent.current = null;
     setSessionId(s.id);
     setBrief({ ...defaultBrief(), ...(s.brief as CanvaDesignBrief) });
+    restorePresentationDraft(s.brief as CanvaDesignBrief);
     setOutline(String((s.brief as CanvaDesignBrief).outline ?? ''));
     setVersionNote(s.version_note ?? '');
     setActiveSession(s);
@@ -1071,6 +1095,7 @@ export function PresentationView() {
     autoContent.current = null;
     setSessionId(null);
     setBrief({ ...(parent.brief as CanvaDesignBrief), confirmedAt: undefined });
+    restorePresentationDraft(parent.brief as CanvaDesignBrief);
     setOutline(String((parent.brief as CanvaDesignBrief).outline ?? ''));
     setActiveSession(null);
     try {
@@ -1126,6 +1151,7 @@ export function PresentationView() {
     setCompanyIntro('');
     setQualifications('');
     setServicesText('');
+    setCaseDrafts({});
     zonesSeeded.current = false;
     setSelected([]);
     setPickerNonce((nonce) => nonce + 1);
@@ -1186,6 +1212,7 @@ export function PresentationView() {
   };
 
   const goToStep = useCallback((next: number) => {
+    if (pendingUploads > 0) return;
     const target = Math.min(WIZARD_STEPS.length, Math.max(1, next));
     if (target >= 3) {
       ensureDrafts();
@@ -1194,18 +1221,19 @@ export function PresentationView() {
         for (const product of fiveRef.current.products) {
           const draft = outlineStateRef.current.productDrafts[product.id] ?? emptyProductDraft(product);
           if (draft.noBackground || draft.sampleImageUrl || !draft.imageUrl) continue;
-          const cutout = await imageLooksCutout(draft.imageUrl).catch(() => false);
+          const cutout = await imageLooksCutout(draft.imageUrl).catch(() => true);
           if (cutout) {
-            setProductDrafts((current) => ({
-              ...current,
-              [product.id]: { ...(current[product.id] ?? draft), noBackground: true },
-            }));
+            setProductDrafts((current) => {
+              const latest = current[product.id] ?? draft;
+              if (latest.imageUrl !== draft.imageUrl || latest.sampleImageUrl) return current;
+              return { ...current, [product.id]: { ...latest, noBackground: true } };
+            });
           }
         }
       })();
     }
     setWizardStep(target);
-  }, [ensureDrafts, syncOutline]);
+  }, [ensureDrafts, syncOutline, pendingUploads]);
 
   const openDesignRow = (session: CanvaDesignSession) => {
     loadSession(session);
@@ -1594,6 +1622,8 @@ export function PresentationView() {
                   </div>
                 </Field>
               </div>
+              <PresentationImageField onUploadState={trackUpload} label="封面圖（可選）" value={brief.coverImageUrl} disabled={disabled} onChange={(url) => setBrief((current) => ({ ...current, coverImageUrl: url }))} />
+              <PresentationImageField onUploadState={trackUpload} label="整體平面圖（可選）" value={brief.floorImageUrl} disabled={disabled} onChange={(url) => { setBrief((current) => ({ ...current, floorImageUrl: url })); setIncludeFloor(Boolean(url)); }} />
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={includeFloor}
@@ -1613,7 +1643,7 @@ export function PresentationView() {
                 </div>
                 {zones.length === 0 ? <p className="text-xs text-muted-foreground">尚未建立分區。名稱可自訂，不限 A、B、C、D。</p> : null}
                 {zones.map((zone, index) => (
-                  <div key={zone.id} className="flex items-center gap-2">
+                  <div key={zone.id} className="flex flex-wrap items-center gap-2">
                     <Input
                       value={zone.name}
                       disabled={disabled}
@@ -1642,6 +1672,7 @@ export function PresentationView() {
                     }}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
+                    <PresentationImageField onUploadState={trackUpload} label="分區平面圖或空間參考圖（可選）" value={zone.imageUrl} disabled={disabled} onChange={(url) => setZones((current) => current.map((item) => item.id === zone.id ? { ...item, imageUrl: url } : item))} />
                   </div>
                 ))}
               </div>
@@ -1748,6 +1779,8 @@ export function PresentationView() {
                   disabled={disabled}
                   onTitle={(value) => setBrief((current) => ({ ...current, title: value.slice(0, TITLE_MAX) }))}
                   onClient={(value) => setBrief((current) => ({ ...current, client: value }))}
+                  cases={outlineInput().cases}
+                  onCase={(id, value) => setCaseDrafts((current) => ({ ...current, [id]: value }))}
                   onCompanyIntro={setCompanyIntro}
                   onQualifications={setQualifications}
                   onServices={setServicesText}
@@ -1765,6 +1798,17 @@ export function PresentationView() {
             {wizardStep === 4 && (
             <div className="space-y-4">
               <SectionIntro icon={<PresentationIcon className="h-5 w-5" />} title={WIZARD_STEPS[3].title} hint={WIZARD_STEPS[3].hint} />
+              <p className="text-sm text-muted-foreground">產品圖片會上傳至 Canva 素材庫，請依下列名稱搜尋並放入對應產品頁。AI 排版仍需人工替換產品圖；平面圖也需自行補上。</p>
+              {Array.isArray(activeSession?.populate_report?.product_assets) ? (
+                <ul className="space-y-1 text-sm">
+                  {(activeSession.populate_report.product_assets as { product_id: string; name: string; url?: string; asset_id?: string; error?: string }[]).map((asset) => (
+                    <li key={asset.product_id} className="space-x-2">
+                      <span>{asset.name}：{asset.asset_id ? '已上傳至 Canva' : asset.error?.includes('missing_asset_write_scope') ? '請重新連接 Canva 以授權上傳圖片' : '上傳失敗，請手動上傳原圖'}</span>
+                      {asset.url && /^https:\/\//i.test(asset.url) ? <a className="underline underline-offset-2" href={asset.url} target="_blank" rel="noopener noreferrer">開啟原圖</a> : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {generateBlock ? <p className="text-sm text-destructive">{generateBlock}</p> : null}
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="min-w-0 flex-1">

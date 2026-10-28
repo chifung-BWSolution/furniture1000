@@ -1,11 +1,15 @@
 // FDS 2.1 — Canva AI 簡報（POST /v1/generations，非品牌模板 Autofill）
 import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import { supabase } from '@/lib/supabase';
+import type { SearchProduct } from '@/lib/productSearch';
+import type { PresentationProductDraft, PresentationZoneDraft } from '@/lib/presentationOutlineModel';
 
 const EDGE = 'supabase-functions-generate-canva-presentation';
 
 export interface CanvaDesignBrief {
   title: string;
+  coverImageUrl?: string;
+  floorImageUrl?: string;
   /** PMS customer display name, or free text. */
   client?: string;
   /** client_companies.id when the user picked an existing client. */
@@ -24,6 +28,18 @@ export interface CanvaDesignBrief {
   outline?: string;
   /** When true, Canva uses `outline` as the slide list and does not append database product slides. */
   outlineOnly?: boolean;
+  presentationDraft?: {
+    zones: PresentationZoneDraft[];
+    products: SearchProduct[];
+    productZone: Record<string, string>;
+    productDrafts: Record<string, PresentationProductDraft>;
+    includeFloor: boolean;
+    companyIntro: string;
+    qualifications: string;
+    services: string;
+    caseIds: string[];
+    caseDrafts?: Record<string, { title: string; body: string }>;
+  };
   language?: string;
   style?: string;
   pageCount?: number;

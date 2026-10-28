@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { LoaderCircle, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -6,11 +6,12 @@ import { Input } from '@/components/ui/input';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { generateQuoteReferenceImage, quotePhotoErrorText } from '@/lib/quotePhotoLibrary';
+import { generateQuoteReferenceImage, quotePhotoErrorText, QUOTE_PHOTO_GENERATE_MODELS, type QuotePhotoGenerateModel } from '@/lib/quotePhotoLibrary';
 import type { SearchProduct } from '@/lib/productSearch';
+import { generatePresentationCopy } from '@/lib/presentationCopy';
 import {
   draftFor,
-  draftFromProductFacts,
+  imageLooksCutout,
   type PresentationProductDraft,
   type PresentationZoneDraft,
 } from '@/lib/presentationOutlineModel';
@@ -35,7 +36,7 @@ export function PresentationOutlineStep({
   products,
   productZone,
   drafts,
-  disabled,
+  disabled: parentDisabled,
   onTitle,
   onClient,
   onCompanyIntro,
@@ -44,6 +45,8 @@ export function PresentationOutlineStep({
   onZoneName,
   onDraft,
   onZone,
+  cases,
+  onCase,
 }: {
   title: string;
   client: string;
@@ -64,8 +67,21 @@ export function PresentationOutlineStep({
   onZoneName: (id: string, name: string) => void;
   onDraft: (productId: string, patch: Partial<PresentationProductDraft>) => void;
   onZone: (productId: string, zoneId: string) => void;
+  cases: { id: string; title: string; body: string }[];
+  onCase: (id: string, value: { title: string; body: string }) => void;
 }) {
   const [samplingId, setSamplingId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const disabled = parentDisabled || copyingId !== null;
+  const [sampleModel, setSampleModel] = useState<QuotePhotoGenerateModel>('gemini');
+  const imageSelections = useRef<Record<string, string>>({});
+
+  async function selectImage(productId: string, url: string) {
+    imageSelections.current[productId] = url;
+    onDraft(productId, { imageUrl: url, sampleImageUrl: '', noBackground: true });
+    const cutout = await imageLooksCutout(url).catch(() => true);
+    if (imageSelections.current[productId] === url) onDraft(productId, { noBackground: cutout });
+  }
 
   async function generateSample(product: SearchProduct) {
     const draft = draftFor(product, drafts);
@@ -77,7 +93,7 @@ export function PresentationOutlineStep({
     setSamplingId(product.id);
     try {
       const asset = await generateQuoteReferenceImage({
-        model: 'gemini',
+        model: sampleModel,
         aspectRatio: '4:3',
         referenceUrls: [reference],
         prompt: `Keep the exact product in the reference photo. Do not change its shape, material, color, or proportions. Place that same product in a simple office scene. The result is a presentation sample, not a new product design. ${draft.displayName} ${draft.model}`.trim(),
@@ -122,9 +138,11 @@ export function PresentationOutlineStep({
           <Field label="分區">
             <Input value={zone.name} disabled={disabled} onChange={(event) => onZoneName(zone.id, event.target.value)} />
           </Field>
+          {zone.imageUrl ? <LoadingImage src={zone.imageUrl} alt={`${zone.name}參考圖`} className="h-40 w-full" imgClassName="object-contain" /> : null}
           {products.filter((product) => productZone[product.id] === zone.id).map((product) => {
             const draft = draftFor(product, drafts);
             const shown = draft.sampleImageUrl || draft.imageUrl;
+            const images = Array.from(new Set([product.image_url, ...(product.image_urls ?? [])].filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url)))));
             return (
               <div key={product.id} className="space-y-3 rounded-lg bg-muted/30 p-3">
                 <div className="flex gap-3">
@@ -138,6 +156,14 @@ export function PresentationOutlineStep({
                     </Field>
                   </div>
                 </div>
+                {images.length > 1 ? (
+                  <Field label="產品圖片">
+                    <Select value={draft.imageUrl} onValueChange={(url) => void selectImage(product.id, url)} disabled={disabled || samplingId !== null}>
+                      <SelectTrigger><SelectValue placeholder="選擇產品圖片" /></SelectTrigger>
+                      <SelectContent>{images.map((url, index) => <SelectItem key={url} value={url}>圖片 {index + 1}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </Field>
+                ) : null}
                 <Field label="描述">
                   <Textarea className="min-h-20" value={draft.description} disabled={disabled} onChange={(event) => onDraft(product.id, { description: event.target.value })} />
                 </Field>
@@ -160,14 +186,22 @@ export function PresentationOutlineStep({
                     </SelectContent>
                   </Select>
                 </Field>
+                <Field label="示例圖模型">
+                  <Select value={sampleModel} onValueChange={(value) => setSampleModel(value as QuotePhotoGenerateModel)} disabled={disabled || samplingId !== null}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{QUOTE_PHOTO_GENERATE_MODELS.map((model) => <SelectItem key={model.id} value={model.id}>{model.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </Field>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => {
-                    const facts = draftFromProductFacts(product);
-                    onDraft(product.id, facts);
+                  <Button type="button" variant="outline" className="bg-background" disabled={disabled || copyingId !== null} onClick={async () => {
+                    setCopyingId(product.id);
+                    try { onDraft(product.id, await generatePresentationCopy(product)); }
+                    catch (error) { toast.error(error instanceof Error ? error.message : 'AI 初稿生成失敗'); }
+                    finally { setCopyingId(null); }
                   }}>
-                    依產品資料產生初稿
+                    {copyingId === product.id ? 'AI 正在產生初稿…' : 'AI 產生初稿'}
                   </Button>
-                  <Button type="button" variant="outline" className="bg-background" disabled={disabled || samplingId === product.id} onClick={() => void generateSample(product)}>
+                  <Button type="button" variant="outline" className="bg-background" disabled={disabled || samplingId !== null} onClick={() => void generateSample(product)}>
                     {samplingId === product.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                     {draft.noBackground ? '生成示例圖' : '這張圖沒有背景，生成示例圖'}
                   </Button>
@@ -190,9 +224,28 @@ export function PresentationOutlineStep({
       ))}
 
       {products.some((product) => !zones.some((zone) => zone.id === productZone[product.id])) ? (
-        <p className="text-sm text-destructive">還有產品未分到分區。請在上方選擇所屬分區，或回到上一步調整。</p>
+        <section className="space-y-3 rounded-xl border p-4">
+          <p className="text-sm font-semibold">未分區</p>
+          {products.filter((product) => !zones.some((zone) => zone.id === productZone[product.id])).map((product) => (
+            <div key={product.id} className="space-y-2">
+              <p className="text-sm">{draftFor(product, drafts).displayName || product.title || '未命名產品'}</p>
+              <Select value="" onValueChange={(value) => onZone(product.id, value)} disabled={disabled || zones.length === 0}>
+                <SelectTrigger><SelectValue placeholder="選擇分區" /></SelectTrigger>
+                <SelectContent>{zones.map((zone) => <SelectItem key={zone.id} value={zone.id}>{zone.name || '未命名分區'}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          ))}
+          {zones.length === 0 ? <p className="text-sm text-destructive">請先返回第一步建立分區。</p> : null}
+        </section>
       ) : null}
 
+      {cases.map((item) => (
+        <section key={item.id} className="space-y-3 rounded-xl border p-4">
+          <p className="text-sm font-semibold">參考案例</p>
+          <Field label="案例標題"><Input value={item.title} disabled={disabled} onChange={(event) => onCase(item.id, { title: event.target.value, body: item.body })} /></Field>
+          <Field label="案例內容"><Textarea value={item.body} disabled={disabled} onChange={(event) => onCase(item.id, { title: item.title, body: event.target.value })} /></Field>
+        </section>
+      ))}
       {qualifications.trim() || services.trim() ? (
         <section className="space-y-3 rounded-xl border p-4">
           {qualifications.trim() ? (

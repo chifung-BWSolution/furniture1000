@@ -4,6 +4,7 @@ import type { PresentationCompanyProfile } from '@/lib/presentationFiveSection';
 export interface PresentationZoneDraft {
   id: string;
   name: string;
+  imageUrl?: string;
 }
 
 export interface PresentationProductDraft {
@@ -47,7 +48,7 @@ function line(label: string, value: string): string {
 
 export function emptyProductDraft(product: SearchProduct): PresentationProductDraft {
   const images = (product.image_urls ?? []).filter((url) => url.startsWith('http'));
-  const imageUrl = images[0] || (product.image_url?.startsWith('http') ? product.image_url : '');
+  const imageUrl = (product.image_url?.startsWith('http') ? product.image_url : '') || images[0] || '';
   return {
     displayName: product.title?.trim() || '',
     model: product.model?.trim() || product.sku?.trim() || '',
@@ -93,7 +94,7 @@ export function presentationOutlineMarkdown(input: PresentationOutlineInput): st
     ].filter(Boolean),
   ].join('\n'));
 
-  const intro = input.companyIntro.trim() || input.company.background.trim();
+  const intro = input.companyIntro.trim();
   if (intro) {
     blocks.push([heading('公司介紹'), intro].join('\n'));
   }
@@ -117,7 +118,7 @@ export function presentationOutlineMarkdown(input: PresentationOutlineInput): st
       const body = [
         line('展示名稱', draft.displayName),
         line('型號', draft.model),
-        image ? '產品圖：已附' : '',
+        image ? '產品圖：需在 Canva 中補上所選圖片' : '',
         draft.sampleImageUrl.trim() ? '示例圖：僅供參考' : '',
         line('描述', draft.description),
         line('賣點', draft.sellingPoints),
@@ -148,6 +149,13 @@ export function presentationOutlineMarkdown(input: PresentationOutlineInput): st
 }
 
 export function presentationGenerateBlock(input: PresentationOutlineInput): string | null {
+  if (!input.title.trim()) return '請填寫項目名稱。';
+  if (!input.client.trim()) return '請填寫客戶名稱。';
+  const sections = 1 + Number(Boolean(input.companyIntro.trim())) + Number(input.includeFloor)
+    + input.zones.length + input.products.length
+    + input.cases.filter((item) => item.title.trim() || item.body.trim()).length
+    + Number(Boolean(input.qualifications.trim())) + Number(Boolean(input.services.trim()));
+  if (sections > 100) return '大綱超過 Canva 的 100 頁上限，請減少分區、產品或案例。';
   if (input.zones.filter((zone) => zone.name.trim()).length === 0) return '請先建立至少一個分區。';
   for (const product of input.products) {
     const zoneId = input.productZone[product.id];
