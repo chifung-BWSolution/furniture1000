@@ -1,5 +1,5 @@
 import { Box3, Ray, Triangle, Vector3 } from 'three';
-import { buildParametric, fitCustomParts, sanitizeCustomParts, triangulateFace, type CustomPartSpec, type FurnitureKind, type ModelPart, type ModelStyle, type ParametricModel } from './furnitureParametric';
+import { buildParametric, fitCustomParts, MAX_CUSTOM_PARTS, partPolygons, sanitizeCustomParts, type CustomPartSpec, type FurnitureKind, type ModelPart, type ModelStyle, type ParametricModel } from './furnitureParametric';
 
 export interface StructureEvidence {
   leg_count: number;
@@ -86,10 +86,11 @@ function matchingParts(a: ModelPart[], b: ModelPart[]): boolean {
 /** Conservative contact test: surface proximity or a mesh edge crossing a surface. */
 function touches(a: ModelPart, b: ModelPart): boolean {
   if (!bounds(a).expandByScalar(3).intersectsBox(bounds(b))) return false;
-  const tris = (p: ModelPart) => p.faces_mm.flatMap(face => {
-    return triangulateFace(face).map(([a,b,c]) => new Triangle(new Vector3(...face[a]), new Vector3(...face[b]), new Vector3(...face[c])));
+  const tris = (p: ModelPart) => partPolygons(p).flatMap(({ points, triangles }) => {
+    return triangles.map(([a,b,c]) => new Triangle(new Vector3(...points[a]), new Vector3(...points[b]), new Vector3(...points[c])));
   });
-  const near = (p: ModelPart, other: Triangle[]) => p.faces_mm.some(face => face.some((v, i) => {
+  const loops = (p: ModelPart) => [...p.faces_mm, ...(p.face_holes_mm ?? []).flat()];
+  const near = (p: ModelPart, other: Triangle[]) => loops(p).some(face => face.some((v, i) => {
     const start = new Vector3(...v), end = new Vector3(...face[(i + 1) % face.length]);
     const direction = end.clone().sub(start), length = direction.length();
     const ray = new Ray(start, direction.normalize());
@@ -140,7 +141,7 @@ export function validateFurnitureStructure(model: ParametricModel, evidence: Str
   if (evidence.product_count && evidence.product_count > 1 &&
     (specs.some(p => !Number.isInteger(p.product_index) || p.product_index! < 0 || p.product_index! >= evidence.product_count!) || new Set(specs.map(p => p.product_index)).size !== evidence.product_count)) errors.push('模型中的產品件數與確認的整組數量不符');
   const roles = ['leg','top','seat','back','arm','frame','body','shelf','other'];
-  if (!evidence.part_counts || roles.some(role => !Number.isInteger(evidence.part_counts[role]) || evidence.part_counts[role] < 0 || evidence.part_counts[role] > 40)) errors.push('缺少完整主要部件數量，請重新辨認部件');
+  if (!evidence.part_counts || roles.some(role => !Number.isInteger(evidence.part_counts[role]) || evidence.part_counts[role] < 0 || evidence.part_counts[role] > MAX_CUSTOM_PARTS)) errors.push('缺少完整主要部件數量，請重新辨認部件');
   else for (const role of roles) {
     if (specs.filter(p => p.role === role).length !== evidence.part_counts[role]) errors.push(`主要部件數量不符：${({leg:'腳',top:'桌面',seat:'座面',back:'靠背',arm:'扶手',frame:'框架',body:'主體',shelf:'層板',other:'其他'})[role]}`);
   }
@@ -158,7 +159,10 @@ export function validateFurnitureStructure(model: ParametricModel, evidence: Str
   const edges: [number, number][] = [];
   specs.forEach((spec, i) => {
     if (spec.form === 'bent' && spec.shape !== 'profile' && !(spec.shape === 'sweep' && spec.path_mm!.length > 2) && !(spec.shape === 'loft' && spec.sections_mm!.length > 2)) errors.push(`「${spec.name}」彎曲形狀未表達`);
-    if ((spec.form === 'slanted' || spec.form === 'tapered') && !['profile', 'sweep', 'loft'].includes(spec.shape)) errors.push(`「${spec.name}」斜向或錐形結構未表達`);
+    // Slanted: a turned box／cylinder also leans. Tapered: a lathe narrows along its axis.
+    const leans = !!spec.rotation_deg && ['box', 'cylinder', 'profile', 'lathe'].includes(spec.shape);
+    if (spec.form === 'slanted' && !['profile', 'sweep', 'loft'].includes(spec.shape) && !leans) errors.push(`「${spec.name}」斜向或錐形結構未表達`);
+    if (spec.form === 'tapered' && !['profile', 'sweep', 'loft', 'lathe'].includes(spec.shape)) errors.push(`「${spec.name}」斜向或錐形結構未表達`);
     for (const j of spec.connects_to ?? []) {
       // 辨認結果常差幾毫米，接觸檢查會把能生成的模型整份擋下。只把真正碰到的接合拿來判斷有沒有懸空。
       if (j >= 0 && j < geometry.length && j !== i && touches(geometry[i], geometry[j])) edges.push([i, j]);

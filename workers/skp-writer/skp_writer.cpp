@@ -5,15 +5,20 @@
 //   part\t<component name>\t<x>\t<y>\t<z>        origin of the component in the model
 //   face\tx,y,z;x,y,z;...                         polygon relative to that origin,
 //                                                  counter-clockwise seen from outside
+//   hole\tx,y,z;...                               inner loop cut out of the face above it
+//   mat\t#rrggbb\t<opacity 0..1>\t<kind>          colour of the part above it
 //
 // Writes one top-level component holding one component per part, so each part
 // can be opened and edited on its own in SketchUp. Needs the SketchUp C API (Windows).
 
 #include <SketchUpAPI/sketchup.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -22,12 +27,25 @@ namespace {
 
 constexpr double kMmPerInch = 25.4;
 
-using Face = std::vector<SUPoint3D>;
+using Loop = std::vector<SUPoint3D>;
+
+struct Face {
+  Loop outer;
+  std::vector<Loop> holes;
+};
+
+struct Look {
+  bool set = false;
+  std::string color;  // #rrggbb
+  double opacity = 1.0;
+  std::string kind;
+};
 
 struct Part {
   std::string name;
   double x = 0, y = 0, z = 0;
   std::vector<Face> faces;
+  Look look;
 };
 
 void check(SUResult result, const char* what) {
@@ -45,15 +63,20 @@ std::vector<std::string> split(const std::string& text, char sep) {
   return out;
 }
 
-bool parse_face(const std::string& text, Face& face) {
+bool parse_loop(const std::string& text, Loop& loop) {
   for (const auto& vertex : split(text, ';')) {
     const auto xyz = split(vertex, ',');
     if (xyz.size() != 3) return false;
-    face.push_back({std::atof(xyz[0].c_str()) / kMmPerInch,
+    loop.push_back({std::atof(xyz[0].c_str()) / kMmPerInch,
                     std::atof(xyz[1].c_str()) / kMmPerInch,
                     std::atof(xyz[2].c_str()) / kMmPerInch});
   }
-  return face.size() >= 3;
+  return loop.size() >= 3;
+}
+
+bool hex_color(const std::string& text) {
+  if (text.size() != 7 || text[0] != '#') return false;
+  return std::all_of(text.begin() + 1, text.end(), [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; });
 }
 
 bool read_input(const char* path, std::string& name, std::vector<Part>& parts) {
@@ -74,8 +97,19 @@ bool read_input(const char* path, std::string& name, std::vector<Part>& parts) {
       parts.push_back(part);
     } else if (cells.size() == 2 && cells[0] == "face") {
       Face face;
-      if (parts.empty() || !parse_face(cells[1], face)) return false;
+      if (parts.empty() || !parse_loop(cells[1], face.outer)) return false;
       parts.back().faces.push_back(face);
+    } else if (cells.size() == 2 && cells[0] == "hole") {
+      Loop hole;
+      if (parts.empty() || parts.back().faces.empty() || !parse_loop(cells[1], hole)) return false;
+      parts.back().faces.back().holes.push_back(hole);
+    } else if (cells.size() >= 2 && cells[0] == "mat") {
+      if (parts.empty() || !hex_color(cells[1])) return false;
+      Look& look = parts.back().look;
+      look.set = true;
+      look.color = cells[1];
+      look.opacity = cells.size() >= 3 ? std::min(1.0, std::max(0.05, std::atof(cells[2].c_str()))) : 1.0;
+      look.kind = cells.size() >= 4 ? cells[3] : "";
     }
   }
   if (parts.empty()) return false;
@@ -99,15 +133,23 @@ void fill_faces(SUEntitiesRef entities, const std::vector<Face>& faces) {
   SUGeometryInputRef input = SU_INVALID;
   check(SUGeometryInputCreate(&input), "SUGeometryInputCreate");
   size_t next_vertex = 0;
-  for (const auto& face : faces) {
+  auto make_loop = [&](const Loop& points) {
     SULoopInputRef loop = SU_INVALID;
     check(SULoopInputCreate(&loop), "SULoopInputCreate");
-    for (const auto& point : face) {
+    for (const auto& point : points) {
       check(SUGeometryInputAddVertex(input, &point), "SUGeometryInputAddVertex");
       check(SULoopInputAddVertexIndex(loop, next_vertex++), "SULoopInputAddVertexIndex");
     }
+    return loop;
+  };
+  for (const auto& face : faces) {
+    SULoopInputRef outer = make_loop(face.outer);
     size_t added = 0;
-    check(SUGeometryInputAddFace(input, &loop, &added), "SUGeometryInputAddFace");
+    check(SUGeometryInputAddFace(input, &outer, &added), "SUGeometryInputAddFace");
+    for (const auto& hole : face.holes) {
+      SULoopInputRef inner = make_loop(hole);
+      check(SUGeometryInputFaceAddInnerLoop(input, added, &inner), "SUGeometryInputFaceAddInnerLoop");
+    }
   }
   check(SUEntitiesFill(entities, input, true), "SUEntitiesFill");
   SUGeometryInputRelease(&input);
@@ -121,12 +163,34 @@ SUComponentDefinitionRef new_definition(SUModelRef model, const std::string& nam
   return definition;
 }
 
-void place(SUEntitiesRef into, SUComponentDefinitionRef definition, const std::string& name, const SUTransformation& at) {
+SUComponentInstanceRef place(SUEntitiesRef into, SUComponentDefinitionRef definition, const std::string& name, const SUTransformation& at) {
   SUComponentInstanceRef instance = SU_INVALID;
   check(SUComponentDefinitionCreateInstance(definition, &instance), "SUComponentDefinitionCreateInstance");
   check(SUComponentInstanceSetName(instance, name.c_str()), "SUComponentInstanceSetName");
   check(SUComponentInstanceSetTransform(instance, &at), "SUComponentInstanceSetTransform");
   check(SUEntitiesAddInstance(into, instance, nullptr), "SUEntitiesAddInstance");
+  return instance;
+}
+
+// One material per colour, opacity and kind; parts with the same look share it.
+SUMaterialRef material_for(SUModelRef model, std::map<std::string, SUMaterialRef>& cache, const Look& look) {
+  const int percent = static_cast<int>(look.opacity * 100 + 0.5);
+  const std::string name = "FDS " + (look.kind.empty() ? std::string("colour") : look.kind) + " " + look.color + " " + std::to_string(percent);
+  const auto found = cache.find(name);
+  if (found != cache.end()) return found->second;
+  SUMaterialRef material = SU_INVALID;
+  check(SUMaterialCreate(&material), "SUMaterialCreate");
+  check(SUMaterialSetName(material, name.c_str()), "SUMaterialSetName");
+  const auto channel = [&](int at) { return static_cast<SUByte>(std::strtol(look.color.substr(at, 2).c_str(), nullptr, 16)); };
+  SUColor color{channel(1), channel(3), channel(5), 255};
+  check(SUMaterialSetColor(material, &color), "SUMaterialSetColor");
+  if (percent < 100) {
+    check(SUMaterialSetOpacity(material, look.opacity), "SUMaterialSetOpacity");
+    check(SUMaterialSetUseOpacity(material, true), "SUMaterialSetUseOpacity");
+  }
+  check(SUModelAddMaterials(model, 1, &material), "SUModelAddMaterials");
+  cache[name] = material;
+  return material;
 }
 
 // Show millimetres in SketchUp; geometry itself is always stored in inches.
@@ -167,12 +231,17 @@ int main(int argc, char** argv) {
   SUEntitiesRef furniture_entities = SU_INVALID;
   check(SUComponentDefinitionGetEntities(furniture, &furniture_entities), "SUComponentDefinitionGetEntities");
 
+  std::map<std::string, SUMaterialRef> materials;
   for (const auto& part : parts) {
     SUComponentDefinitionRef definition = new_definition(model, part.name);
     SUEntitiesRef entities = SU_INVALID;
     check(SUComponentDefinitionGetEntities(definition, &entities), "SUComponentDefinitionGetEntities");
     fill_faces(entities, part.faces);
-    place(furniture_entities, definition, part.name, translation(part.x, part.y, part.z));
+    SUComponentInstanceRef instance = place(furniture_entities, definition, part.name, translation(part.x, part.y, part.z));
+    if (part.look.set) {
+      check(SUDrawingElementSetMaterial(SUComponentInstanceToDrawingElement(instance), material_for(model, materials, part.look)),
+            "SUDrawingElementSetMaterial");
+    }
   }
 
   SUEntitiesRef root = SU_INVALID;

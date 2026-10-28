@@ -12,10 +12,19 @@ const context = {
   console, Request, Response, AbortSignal, atob, btoa,
   Deno: { env: { get: () => 'fixture-only' }, serve: fn => { handler = fn; } },
   createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'fixture-user' } } }) }, rpc: async () => ({ data: true }) }),
+  resolveGeminiModel: () => 'gemini-fixture',
+  geminiThinkingConfig: () => ({}),
+  logAiUsage: async () => {},
   fetch: async (_url, init) => {
-    requests.push(JSON.parse(init.body));
+    // Recorded in the system/user message shape the assertions below read.
+    const body = JSON.parse(init.body);
+    const parts = body.contents[0].parts;
+    requests.push({ messages: [
+      { content: body.systemInstruction.parts[0].text },
+      { content: parts.map(part => part.inline_data ? { type: 'image_url' } : { type: 'text', text: part.text }) },
+    ] });
     assert.ok(replies.length, 'Unexpected extra AI request');
-    return Response.json({ choices: [{ message: { content: JSON.stringify(replies.shift()) } }] });
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(replies.shift()) }] } }] });
   },
 };
 vm.createContext(context);
@@ -48,7 +57,7 @@ assert.equal(requests.length, 2, 'Custom structures must use the existing part e
 assert.ok(requests[0].messages[1].content.at(-1).text.includes('width 500 mm'));
 assert.ok(requests[0].messages[0].content.includes('Identify structure BEFORE'));
 assert.equal(custom.body.structure.leg_count, 1);
-for (const parts of [[], Array(31).fill(customPart)]) {
+for (const parts of [[], Array(41).fill(customPart)]) {
   const invalid = await analyze({ mode: 'parts' }, [{ parts }]);
   assert.equal(invalid.status, 502, 'Do not silently truncate or accept an empty list');
 }
@@ -65,10 +74,10 @@ assert.equal(legacy.status, 400, 'Legacy single-image requests cannot bypass the
 const pair = await analyze({ images: ['AAAA', 'BBBB'].map(image_base64 => ({ image_base64 })) }, [{ kind: 'side_chair', chair_base: 'four', arms: false }]);
 assert.equal(pair.status, 200);
 assert.equal(pair.body.structure.leg_count, 1, 'Two distinct views must still return structure evidence');
-for (const extraction of [{ parts:[defaultPart],structure:{} }, { parts:[{ ...defaultPart, role:undefined }],structure }]) {
-  const invalid=await analyze({},[extraction,{kind:'side_chair'}]);
+for (const [extraction, calls] of [[{ parts:[defaultPart],structure:{} }, 1], [{ parts:[{ ...defaultPart, role:undefined }],structure }, 2]]) {
+  const invalid=await analyze({},[extraction,extraction,{kind:'side_chair'}],true);
   assert.equal(invalid.status,502,'Incomplete structural evidence must never fall back to a template');
-  assert.equal(requests.length,1);
+  assert.equal(requests.length,calls,'An incomplete part list is asked once more; missing structure is not');
 }
 console.log('PASS: classify and parts reject missing, unreadable-count and duplicate references before Grok');
 const detection={product_count:2,possible_arrangement:true,uncertain:false,reason:'同一場景有兩張同款椅',per_image_counts:[2,2,1]};

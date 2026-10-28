@@ -1,4 +1,4 @@
-import { partFaces, triangulateFace, type ModelPart, type ParametricModel, type Vec3 } from '@/lib/furnitureParametric';
+import { partAppearance, partPolygons, type ModelPart, type ParametricModel, type Vec3 } from '@/lib/furnitureParametric';
 
 /**
  * FBX ASCII 7.4, Y-up, metres — the same frame as the GLB preview.
@@ -12,14 +12,13 @@ function num(n: number): string {
 }
 
 function meshOf(part: ModelPart): { vertices: number[]; indices: number[] } {
-  const faces = part.faces_mm?.length ? part.faces_mm : partFaces(part);
   const [cx, cy, cz] = part.position_mm;
   const vertices: number[] = [];
   const indices: number[] = [];
-  for (const face of faces) {
+  for (const face of partPolygons(part)) {
     const base = vertices.length / 3;
-    for (const point of face) vertices.push(...toYUp([point[0] - cx, point[1] - cy, point[2] - cz]));
-    for (const [i, j, k] of triangulateFace(face)) {
+    for (const point of face.points) vertices.push(...toYUp([point[0] - cx, point[1] - cy, point[2] - cz]));
+    for (const [i, j, k] of face.triangles) {
       // FBX marks the last vertex of a polygon by storing ~(index).
       indices.push(base + i, base + j, -(base + k + 1));
     }
@@ -41,11 +40,34 @@ export function buildFurnitureFbx(model: ParametricModel): Blob {
 \t\tShading: Y
 \t\tCulling: "CullingOff"
 \t}`);
+  const materialIds = new Map<string, number>();
+  const materialOf = (part: ModelPart): number | null => {
+    if (!part.color && !part.material && part.opacity === undefined) return null;
+    const { color, opacity, material } = partAppearance(part);
+    const key = `${material ?? 'colour'}-${color.slice(1)}-${Math.round(opacity * 100)}`;
+    const known = materialIds.get(key);
+    if (known) return known;
+    const id = 500000 + materialIds.size;
+    materialIds.set(key, id);
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255);
+    objects.push(`Material: ${id}, "Material::${key}", "" {
+\t\tVersion: 102
+\t\tShadingModel: "phong"
+\t\tMultiLayer: 0
+\t\tProperties70:  {
+\t\t\tP: "DiffuseColor", "Color", "", "A",${num(r)},${num(g)},${num(b)}
+\t\t\tP: "TransparencyFactor", "Number", "", "A",${num(1 - opacity)}
+\t\t\tP: "Opacity", "double", "Number", "",${num(opacity)}
+\t\t}
+\t}`);
+    return id;
+  };
   model.components.forEach((part, index) => {
     const modelId = 1000 + index * 2;
     const geometryId = modelId + 1;
     const [px, py, pz] = toYUp(part.position_mm);
     const mesh = meshOf(part);
+    const materialId = materialOf(part);
     objects.push(`Model: ${modelId}, "Model::${safeName(part.name)}", "Mesh" {
 \t\tVersion: 232
 \t\tProperties70:  {
@@ -57,9 +79,24 @@ export function buildFurnitureFbx(model: ParametricModel): Blob {
     objects.push(`Geometry: ${geometryId}, "Geometry::${safeName(part.name)}", "Mesh" {
 \t\tVertices: ${mesh.vertices.map(num).join(',')}
 \t\tPolygonVertexIndex: ${mesh.indices.join(',')}
-\t\tGeometryVersion: 124
+\t\tGeometryVersion: 124${materialId ? `
+\t\tLayerElementMaterial: 0 {
+\t\t\tVersion: 101
+\t\t\tName: ""
+\t\t\tMappingInformationType: "AllSame"
+\t\t\tReferenceInformationType: "IndexToDirect"
+\t\t\tMaterials: 0
+\t\t}
+\t\tLayer: 0 {
+\t\t\tVersion: 100
+\t\t\tLayerElement:  {
+\t\t\t\tType: "LayerElementMaterial"
+\t\t\t\tTypedIndex: 0
+\t\t\t}
+\t\t}` : ''}
 \t}`);
     connections.push(`\tC: "OO",${geometryId},${modelId}`);
+    if (materialId) connections.push(`\tC: "OO",${materialId},${modelId}`);
     connections.push(`\tC: "OO",${modelId},${rootId}`);
   });
 
@@ -85,9 +122,10 @@ GlobalSettings:  {
 }
 Definitions:  {
 \tVersion: 100
-\tCount: 2
+\tCount: ${materialIds.size ? 3 : 2}
 \tObjectType: "Model" { Count: ${model.components.length + 1} }
-\tObjectType: "Geometry" { Count: ${model.components.length} }
+\tObjectType: "Geometry" { Count: ${model.components.length} }${materialIds.size ? `
+\tObjectType: "Material" { Count: ${materialIds.size} }` : ''}
 }
 Objects:  {
 \t${objects.join('\n\t')}

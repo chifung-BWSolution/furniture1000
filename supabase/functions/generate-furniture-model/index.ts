@@ -30,7 +30,9 @@ const COUNT_SCHEMA = { type: 'object', properties: {
   product_count: { type: 'integer' }, possible_arrangement: { type: 'boolean' }, uncertain: { type: 'boolean' }, reason: { type: 'string' },
   per_image_counts: { type: 'array', items: { type: 'integer' } },
 }, required: ['product_count','possible_arrangement','uncertain','reason','per_image_counts'] };
-const MAX_PARTS = 30;
+/** Entries in one reply; repeat／mirror expand them in the browser, up to MAX_SOLIDS (furnitureParametric MAX_CUSTOM_PARTS). */
+const MAX_PARTS = 40;
+const MAX_SOLIDS = 160;
 
 const KINDS: Record<string, string> = {
   desk: "office desk, workstation, executive desk, training table, height-adjustable desk, student desk, lab bench",
@@ -107,15 +109,24 @@ const PARTS_PROMPT = [
   "'profile' for slanted, bent, or shaped pieces: a prism, axis = the extrusion direction,",
   "points_mm = the outline across the axis relative to center_mm. Each point is {a, b}: axis z uses a=x b=y; axis y uses a=x b=z; axis x uses a=y b=z.",
   "a simple polygon without crossing edges, size_mm = its bounding box.",
-  "Use shape 'sweep' for a straight/slanted tube, tapered leg, or bent tube. path_mm is 2 to 32 centreline points relative to center_mm, each {x, y, z}. section is round or rect, section_mm=[width,depth] in mm; end_section_mm optionally gives the far-end cross-section for taper. Supply intermediate points along real bends, never a path that reverses onto itself. size_mm must enclose the swept part. Do not use a bent path for a straight leg.",
+  "Use shape 'sweep' for a straight/slanted tube, tapered leg, or bent tube. path_mm is 2 to 32 centreline points relative to center_mm, each {x, y, z}. section is round or rect, section_mm=[first,second] in mm: on a path that is not vertical, first is the vertical size and second the size across the path; on a vertical path, first runs along x and second along y; end_section_mm optionally gives the far-end cross-section for taper. Supply intermediate points along real bends, never a path that reverses onto itself. size_mm must enclose the swept part. Do not use a bent path for a straight leg.",
   "Use shape 'loft' whenever the cross-section changes along the part, so the model follows the photo instead of a plain slab: a tabletop whose edge is thinner than its body or bevelled/chamfered underneath, a folded plate leg whose upper part leans inward and narrows, a tapered rectangular leg, a sculpted base. axis = the direction the sections are stacked along; sections_mm = 2 to 12 sections in increasing order of `at` (offset along the axis from center_mm, mm), each with points_mm = its outline across the axis relative to center_mm (same {a, b} convention as profile).",
   "Every loft section must have the SAME number of points, start at the corresponding corner and run in the same direction, so point i of one section joins point i of the next; ridges and creases in the photo come from where these points sit. Example: a 40 mm tabletop with a thin 15 mm edge bevelled underneath = axis z, sections at -20 (outline inset by the bevel width), at -5 (full outline), at 20 (full outline). Example: a folded plate leg = axis z, sections at floor, at the fold, and under the top, each a thin rectangle, the top one shifted inward and narrower or wider as seen.",
   "smooth=true (profile or loft) makes the points control points of a smooth closed curve: use it for curved outlines such as boat-shaped or oval tabletops, arcs and rounded ends, giving 8 to 24 control points with extra points close together at tight corners. Leave smooth false for straight-edged, sharp-cornered outlines.",
   "Identify structure BEFORE selecting any template: every part needs role (leg/top/seat/back/arm/frame/body/shelf/other), form (straight/slanted/bent/tapered/panel), and connects_to (zero-based indices of all directly touching parts). Include every major structural part. For four separate feet leg_count must be 4, never infer a runner from the name. structure contains leg_count, symmetric (left-right symmetry of supports), and uncertainties (specific hidden/ambiguous major details; empty only when supported by matching views). Do not fabricate a connection or symmetry. A single visible unit must be analysed, not a catalogue arrangement.",
   "structure.part_counts is the independently observed count for every role (leg, top, seat, back, arm, frame, body, shelf, other), including zero for absent roles. The part list must account for every observed major component; never lower the observed counts just to simplify the model.",
-  "form and shape must agree: a part with form 'slanted' or 'tapered' must be a 'sweep' (or 'loft'/'profile'), never a box or cylinder; form 'bent' needs a sweep with intermediate points, a loft with 3+ sections, or a profile. Splayed legs (common under sofas, armchairs and lounge chairs) are sweeps whose path runs from the joint under the frame to a foot further out, with end_section_mm smaller at the foot when they taper. Put each leg where it actually meets the frame in the photo, usually close to the corners, and match its visible thickness and colour-separated length rather than a generic 60 mm post.",
+  "form and shape must agree: a part with form 'slanted' must be a 'sweep', 'loft' or 'profile', or a box/cylinder with rotation_deg; form 'tapered' must be a 'sweep' with end_section_mm, a 'loft', 'profile' or 'lathe', never a plain box or cylinder; form 'bent' needs a sweep with intermediate points, a loft with 3+ sections, or a profile. Splayed legs (common under sofas, armchairs and lounge chairs) are sweeps whose path runs from the joint under the frame to a foot further out, with end_section_mm smaller at the foot when they taper. Put each leg where it actually meets the frame in the photo, usually close to the corners, and match its visible thickness and colour-separated length rather than a generic 60 mm post.",
   "Preserve the actual number, straightness, orientation, and placement of supports. Four separate straight legs must remain four separate straight solids; do not invent curved profiles or join them into runners. Use profiles only when the matching views visibly support that outline. Keep repeated supports consistent in cross-section and height unless the photos show a difference. Do not invent hidden structural details; describe uncertainty in notes.",
-  `Use at most ${MAX_PARTS} parts; leave out screws, hinges and small hardware.`,
+  "Optional fields that make the model follow the photo more closely:",
+  "rotation_deg = [x, y, z] degrees (box, cylinder, profile, sphere, lathe): turns the part about center_mm, x first, then y, then z; size_mm stays the part's own unturned size. Use it for a straight leg or post that leans (a slanted leg can be a cylinder or box with rotation_deg and form 'slanted'), a tilted back panel, an angled shelf.",
+  "bulge_mm (box only): how far the middle of the top face rises above its edges, for crowned seat cushions, pillow-top backs and domed ottomans; combine with radius_mm.",
+  "holes_mm (profile only): through-holes cut out of the outline, each {points: [{a, b}, ...]} in the same convention as points_mm, fully inside the outline and not touching each other: handle cut-outs, cable grommets, perforated side panels with a few large holes.",
+  "shape 'sphere' for balls and domes: size_mm is its bounding box (unequal sizes make an ellipsoid), axis its pole direction, hemisphere 'up' or 'down' keeps one half (a dome cap, a round foot).",
+  "shape 'lathe' for turned or rotationally symmetric parts (turned wooden legs, round pedestal bases, tulip bases, bun feet, vase-shaped columns): axis = the turning axis, profile_mm = 2 to 32 points {r, at} from one end to the other with at strictly increasing (offset along the axis from center_mm) and r the radius there; r may be 0 only at the two ends. size_mm is the bounding box; form 'tapered' when the radius narrows.",
+  "sweep section may also be 'oval' (flat oval tube), 'angle' (L angle iron) or 'channel' (U channel); section_thickness_mm gives the wall thickness of angle and channel. A channel opens toward the first axis (upward on a non-vertical path, like a cable tray); an angle has one leg along the first axis and one along the second.",
+  "Appearance: material = fabric, leather, wood, metal, glass, mesh, plastic or stone as seen; color = the visible colour as #rrggbb; opacity (0.05 to 1) only for see-through parts — glass about 0.3, chair mesh backs and seats (網面) about 0.55, perforated boards about 0.7 — otherwise omit it.",
+  "repeat = {count, step_mm: [x, y, z]} places count identical copies, each step_mm further on (shelf boards, slats, rails, drawer fronts, chair seats in a row); mirror = 'x' adds a left/right mirror copy across x = 0 (or 'y' across y = 0). Describe only the first copy; repeat and mirror can be combined (two legs with mirror 'x' make four). connects_to may point at a repeated or mirrored part and then joins every copy. structure.part_counts counts every copy.",
+  `Use at most ${MAX_PARTS} part entries (at most ${MAX_SOLIDS} solids after repeat and mirror); leave out screws, hinges and small hardware.`,
   "Name each part in Traditional Chinese (Hong Kong), for example 側板, 層板, 腳, 橫管.",
   "notes: one short sentence in Traditional Chinese (Hong Kong) on what the product is and how it is built.",
 ].join(" ");
@@ -150,7 +161,20 @@ const PART_SCHEMA = {
         properties: {
           name: { type: "string" },
           product_index: { type: 'integer' },
-          shape: { type: "string", enum: ["box", "cylinder", "profile", "sweep", "loft"] },
+          shape: { type: "string", enum: ["box", "cylinder", "profile", "sweep", "loft", "sphere", "lathe"] },
+          rotation_deg: { type: "array", items: { type: "number" } },
+          bulge_mm: { type: "number" },
+          holes_mm: { type: "array", items: { type: "object", properties: {
+            points: { type: "array", items: { type: "object", properties: { a: { type: "number" }, b: { type: "number" } }, required: ["a", "b"] } },
+          }, required: ["points"] } },
+          hemisphere: { type: "string", enum: ["up", "down"] },
+          profile_mm: { type: "array", items: { type: "object", properties: { r: { type: "number" }, at: { type: "number" } }, required: ["r", "at"] } },
+          section_thickness_mm: { type: "number" },
+          material: { type: "string", enum: ["fabric", "leather", "wood", "metal", "glass", "mesh", "plastic", "stone"] },
+          color: { type: "string" },
+          opacity: { type: "number" },
+          repeat: { type: "object", properties: { count: { type: "integer" }, step_mm: { type: "array", items: { type: "number" } } }, required: ["count", "step_mm"] },
+          mirror: { type: "string", enum: ["x", "y"] },
           sections_mm: { type: "array", items: { type: "object", properties: {
             at: { type: "number" },
             points_mm: { type: "array", items: { type: "object", properties: { a: { type: "number" }, b: { type: "number" } }, required: ["a", "b"] } },
@@ -160,7 +184,7 @@ const PART_SCHEMA = {
           form: { type: "string", enum: ["straight", "slanted", "bent", "tapered", "panel"] },
           connects_to: { type: "array", items: { type: "integer" } },
           path_mm: { type: "array", items: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, z: { type: "number" } }, required: ["x", "y", "z"] } },
-          section: { type: "string", enum: ["round", "rect"] },
+          section: { type: "string", enum: ["round", "rect", "oval", "angle", "channel"] },
           section_mm: { type: "array", items: { type: "number" } },
           end_section_mm: { type: "array", items: { type: "number" } },
           radius_mm: { type: "number" },
@@ -407,6 +431,13 @@ function normalizePartGeometry(part: unknown): unknown {
   };
   if (Array.isArray(row.path_mm)) row.path_mm = row.path_mm.map((point) => tuple(point, ["x", "y", "z"]));
   if (Array.isArray(row.points_mm)) row.points_mm = row.points_mm.map((point) => tuple(point, ["a", "b"]));
+  if (Array.isArray(row.profile_mm)) row.profile_mm = row.profile_mm.map((point) => tuple(point, ["r", "at"]));
+  if (Array.isArray(row.holes_mm)) {
+    row.holes_mm = row.holes_mm.map((hole) => {
+      const points = hole && typeof hole === "object" && !Array.isArray(hole) ? (hole as Record<string, unknown>).points : hole;
+      return Array.isArray(points) ? points.map((point) => tuple(point, ["a", "b"])) : points;
+    });
+  }
   if (Array.isArray(row.sections_mm)) {
     row.sections_mm = row.sections_mm.map((section) => {
       if (!section || typeof section !== "object") return section;
@@ -448,7 +479,12 @@ async function extractParts(apiKey: string, images: InlineImage[], size: Size, t
     // 說是斜腳／錐形卻畫成方塊，模型就會出現照片沒有的直身方腳。
     const unexpressed = parts.find((part) => {
       const p = part as Record<string, unknown>;
-      return ["slanted", "tapered", "bent"].includes(String(p.form)) && !["sweep", "loft", "profile"].includes(String(p.shape));
+      const turned = Array.isArray(p.rotation_deg) && p.rotation_deg.some((n) => typeof n === "number" && Math.abs(n) >= 0.1);
+      const shape = String(p.shape);
+      if (["sweep", "loft", "profile"].includes(shape)) return false;
+      if (p.form === "slanted") return !(turned && ["box", "cylinder", "lathe"].includes(shape));
+      if (p.form === "tapered") return shape !== "lathe";
+      return p.form === "bent";
     }) as Record<string, unknown> | undefined;
     if (unexpressed) {
       throw new AnalysisError(`「${String(unexpressed.name ?? "部件")}」是斜向或錐形，卻畫成${unexpressed.shape === "cylinder" ? "圓柱" : "方塊"}，請重新辨認部件`);
@@ -470,7 +506,7 @@ async function extractParts(apiKey: string, images: InlineImage[], size: Size, t
     parts = read(parsed);
   }
   if (!parsed.structure || !Number.isInteger(parsed.structure.leg_count) || parsed.structure.leg_count! < 0 || parsed.structure.leg_count! > 20 || typeof parsed.structure.symmetric !== 'boolean' || !Array.isArray(parsed.structure.uncertainties) || !parsed.structure.uncertainties.every(n => typeof n === 'string')) throw new AnalysisError("缺少完整結構辨認資料，請重新辨認部件");
-  if (!parsed.structure.part_counts || ['leg','top','seat','back','arm','frame','body','shelf','other'].some(role => !Number.isInteger(parsed.structure!.part_counts![role]) || parsed.structure!.part_counts![role] < 0 || parsed.structure!.part_counts![role] > MAX_PARTS)) throw new AnalysisError("缺少主要部件數量，請重新辨認部件");
+  if (!parsed.structure.part_counts || ['leg','top','seat','back','arm','frame','body','shelf','other'].some(role => !Number.isInteger(parsed.structure!.part_counts![role]) || parsed.structure!.part_counts![role] < 0 || parsed.structure!.part_counts![role] > MAX_SOLIDS)) throw new AnalysisError("缺少主要部件數量，請重新辨認部件");
   return {
     parts,
     notes: typeof parsed.notes === "string" ? parsed.notes : null,

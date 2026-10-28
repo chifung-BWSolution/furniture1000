@@ -266,9 +266,17 @@ function writerInput(model) {
     const faces = part.faces_mm?.length ? part.faces_mm : boxFaces(part.size_mm, part.position_mm);
     const origin = [0, 1, 2].map((axis) => Math.min(...faces.flat().map((pt) => pt[axis])));
     lines.push(['part', clean(part.name || part.id), ...origin].join('\t'));
-    for (const face of faces) {
-      lines.push(`face\t${face.map((pt) => pt.map((n, axis) => +(n - origin[axis]).toFixed(3)).join(',')).join(';')}`);
+    // mat\t#rrggbb\topacity\tmaterial — colour and see-through parts (glass, mesh).
+    if (/^#[0-9a-f]{6}$/i.test(part.color ?? '')) {
+      const opacity = Number.isFinite(part.opacity) ? Math.min(1, Math.max(0.05, part.opacity)) : 1;
+      lines.push(['mat', part.color.toLowerCase(), +opacity.toFixed(2), clean(part.material ?? '')].join('\t'));
     }
+    const loop = (points) => points.map((pt) => pt.map((n, axis) => +(n - origin[axis]).toFixed(3)).join(',')).join(';');
+    faces.forEach((face, index) => {
+      lines.push(`face\t${loop(face)}`);
+      // hole\t… — inner loop cut out of the face just above (through-holes in a profile).
+      for (const hole of part.face_holes_mm?.[index] ?? []) lines.push(`hole\t${loop(hole)}`);
+    });
   }
   if (lines.length < 2) throw new Error('model_has_no_parts');
   return `${lines.join('\n')}\n`;
@@ -434,7 +442,7 @@ async function reportReadiness() {
   const canGenerate = (checks.writer && checks.api_dll && checks.preferences_dll) || (checks.sketchup && checks.ruby_script);
   const canPreview = checks.sketchup && checks.preview_ruby;
   const ready = canGenerate || canPreview;
-  await callAgent('ready', { ready, checks, version: 'device-auth-1' });
+  await callAgent('ready', { ready, checks, version: 'device-auth-2' });
   return ready;
 }
 

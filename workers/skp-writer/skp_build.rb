@@ -19,17 +19,39 @@ module FdsSkpBuild
         name = cells[1].to_s unless cells[1].to_s.empty?
       when 'part'
         raise 'part line invalid' unless cells.size == 5
-        parts << { name: cells[1], origin: cells[2, 3].map(&:to_f), faces: [] }
+        parts << { name: cells[1], origin: cells[2, 3].map(&:to_f), faces: [], material: nil }
+      when 'mat'
+        raise 'mat before part' if parts.empty?
+        raise 'mat invalid' unless cells[1].to_s =~ /\A#\h{6}\z/
+        parts.last[:material] = { color: cells[1].downcase, opacity: (cells[2] || '1').to_f.clamp(0.05, 1.0), kind: cells[3].to_s }
       when 'face'
         raise 'face before part' if parts.empty?
-        points = cells[1].to_s.split(';').map { |v| v.split(',').map(&:to_f) }
-        raise 'face invalid' unless points.size >= 3 && points.all? { |p| p.size == 3 }
-        parts.last[:faces] << points
+        parts.last[:faces] << { outer: read_loop(cells[1]), holes: [] }
+      when 'hole'
+        raise 'hole before face' if parts.empty? || parts.last[:faces].empty?
+        parts.last[:faces].last[:holes] << read_loop(cells[1])
       end
     end
     raise 'input has no parts' if parts.empty?
     raise 'part has fewer than 4 faces' if parts.any? { |p| p[:faces].size < 4 }
     [name, parts]
+  end
+
+  def read_loop(text)
+    points = text.to_s.split(';').map { |v| v.split(',').map(&:to_f) }
+    raise 'face invalid' unless points.size >= 3 && points.all? { |p| p.size == 3 }
+    points
+  end
+
+  # One SketchUp material per colour, opacity and kind, shared by every part that uses it.
+  def material_for(model, spec)
+    name = "FDS #{spec[:kind].empty? ? 'colour' : spec[:kind]} #{spec[:color]} #{(spec[:opacity] * 100).round}"
+    material = model.materials[name]
+    return material if material
+    material = model.materials.add(name)
+    material.color = Sketchup::Color.new(spec[:color][1, 2].to_i(16), spec[:color][3, 2].to_i(16), spec[:color][5, 2].to_i(16))
+    material.alpha = spec[:opacity]
+    material
   end
 
   # Newell normal of the polygon as given (wound counter-clockwise seen from outside).
@@ -54,9 +76,17 @@ module FdsSkpBuild
     furniture = model.definitions.add(name)
     parts.each do |part|
       definition = model.definitions.add(part[:name])
-      part[:faces].each do |points|
-        face = definition.entities.add_face(points.map { |x, y, z| Geom::Point3d.new(x.mm, y.mm, z.mm) })
+      to_points = ->(loop) { loop.map { |x, y, z| Geom::Point3d.new(x.mm, y.mm, z.mm) } }
+      part[:faces].each do |spec|
+        points = spec[:outer]
+        face = definition.entities.add_face(to_points.call(points))
         next unless face
+        # Drawing a loop on a face splits off an inner face; erasing it leaves the hole.
+        spec[:holes].each do |hole|
+          inner = definition.entities.add_face(to_points.call(hole))
+          inner.erase! if inner && inner.valid? && inner != face
+        end
+        next unless face.valid?
         # SketchUp turns faces on the ground plane downward; keep the outward winding we sent.
         expected = newell(points)
         dot = face.normal.x * expected[0] + face.normal.y * expected[1] + face.normal.z * expected[2]
@@ -65,6 +95,7 @@ module FdsSkpBuild
       x, y, z = part[:origin]
       instance = furniture.entities.add_instance(definition, Geom::Transformation.translation([x.mm, y.mm, z.mm]))
       instance.name = part[:name]
+      instance.material = material_for(model, part[:material]) if part[:material]
     end
     # Our +y is the front; SketchUp's front view looks at -y, so turn the piece round to face it.
     turn = Geom::Transformation.rotation(ORIGIN, Z_AXIS, 180.degrees)

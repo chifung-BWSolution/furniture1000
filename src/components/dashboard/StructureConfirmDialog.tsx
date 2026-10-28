@@ -27,6 +27,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { confirm } from '@/components/ui/confirm-dialog';
 import { DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { ModelEvidence } from '@/lib/modelEvidence';
 import { STRUCTURE_PENDING_PREFIX, type StructureEvidence, type UncertaintyResolution } from '@/lib/furnitureStructure';
@@ -36,10 +37,11 @@ import {
   FURNITURE_KINDS,
   STYLE_FIELDS,
   STYLE_LIMITS,
-  faceNormal,
-  partFaces,
-  triangulateFace,
+  PART_MATERIALS,
+  partAppearance,
+  partPolygons,
   type CustomPartSpec,
+  type PartMaterial,
   type FurnitureKind,
   type ModelStyle,
   type ParametricModel,
@@ -88,7 +90,7 @@ function countLabel(kind: FurnitureKind | null, field: StyleField): string {
   if (kind === 'desk' && field === 'drawers') return '活動櫃抽屜';
   return COUNT_LABELS[field] ?? field;
 }
-const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓', sweep: '路徑件', loft: '放樣件' };
+const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓', sweep: '路徑件', loft: '放樣件', sphere: '球體', lathe: '旋轉體' };
 
 export type StructureDraft = {
   structure?: StructureEvidence;
@@ -127,21 +129,25 @@ function previewOffset(model: ParametricModel): THREE.Vector3 | null {
   return box ? new THREE.Vector3(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2) : null;
 }
 
-function buildPreviewGeometry(model: ParametricModel, only?: number | null, offset?: THREE.Vector3 | null): THREE.BufferGeometry | null {
+/** `see` keeps only opaque parts or only see-through ones (glass, mesh), which draw in a separate pass. */
+function buildPreviewGeometry(model: ParametricModel, only?: number | null, offset?: THREE.Vector3 | null, see?: 'solid' | 'clear'): THREE.BufferGeometry | null {
   const positions: number[] = [];
   const normals: number[] = [];
+  const colors: number[] = [];
   for (const [index, part] of model.components.entries()) {
     if (only != null && index !== only) continue;
-    const faces = part.faces_mm?.length ? part.faces_mm : partFaces(part);
-    for (const face of faces) {
-      if (face.length < 3) continue;
-      const normal = toPreview(faceNormal(face).map((n) => n * 1000) as [number, number, number]);
-      for (const [i, j, k] of triangulateFace(face)) {
+    const look = partAppearance(part);
+    if ((see === 'solid' && look.opacity < 1) || (see === 'clear' && look.opacity >= 1)) continue;
+    const rgb = new THREE.Color(look.color);
+    for (const face of partPolygons(part)) {
+      const normal = toPreview(face.normal.map((n) => n * 1000) as [number, number, number]);
+      for (const [i, j, k] of face.triangles) {
         for (const index of [i, j, k]) {
-          const point = face[index];
+          const point = face.points[index];
           if (!point) continue;
           positions.push(...toPreview(point));
           normals.push(...normal);
+          colors.push(rgb.r, rgb.g, rgb.b, look.opacity);
         }
       }
     }
@@ -150,6 +156,7 @@ function buildPreviewGeometry(model: ParametricModel, only?: number | null, offs
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
   geometry.computeBoundingBox();
   const box = geometry.boundingBox;
   if (offset) geometry.translate(offset.x, offset.y, offset.z);
@@ -227,7 +234,7 @@ export function StudioPreview({ model, highlight = null }: { model: ParametricMo
     scene.add(fill);
 
     const material = new THREE.MeshStandardMaterial({
-      color: 0xd5dae3,
+      vertexColors: true,
       roughness: 0.62,
       metalness: 0.02,
       side: THREE.DoubleSide,
@@ -236,6 +243,17 @@ export function StudioPreview({ model, highlight = null }: { model: ParametricMo
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
+    const clearMaterial = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      roughness: 0.2,
+      metalness: 0.02,
+      side: THREE.DoubleSide,
+    });
+    const clear = new THREE.Mesh(new THREE.BufferGeometry(), clearMaterial);
+    clear.renderOrder = 1;
+    scene.add(clear);
     const edgeMaterial = new THREE.LineBasicMaterial({ color: 0x8b93a1, transparent: true, opacity: 0.45 });
     const edges = new THREE.LineSegments(new THREE.BufferGeometry(), edgeMaterial);
     scene.add(edges);
@@ -258,8 +276,8 @@ export function StudioPreview({ model, highlight = null }: { model: ParametricMo
     const target = new THREE.Vector3(0, 0.25, 0);
 
     const fit = () => {
-      mesh.geometry.computeBoundingBox();
-      const box = mesh.geometry.boundingBox;
+      edges.geometry.computeBoundingBox();
+      const box = edges.geometry.boundingBox;
       const size = new THREE.Vector3(0.8, 0.5, 0.8);
       const center = new THREE.Vector3(0, 0.25, 0);
       if (box && !box.isEmpty()) {
@@ -294,21 +312,26 @@ export function StudioPreview({ model, highlight = null }: { model: ParametricMo
     };
 
     const show = (next: ParametricModel | null, markIndex: number | null) => {
-      const geometry = next ? buildPreviewGeometry(next) : null;
+      const offset = next ? previewOffset(next) : null;
+      const geometry = next && offset ? buildPreviewGeometry(next, null, offset) : null;
       mesh.geometry.dispose();
+      clear.geometry.dispose();
       edges.geometry.dispose();
       mark.geometry.dispose();
       mark.geometry = new THREE.BufferGeometry();
-      if (!geometry) {
+      if (!geometry || !next) {
         mesh.geometry = new THREE.BufferGeometry();
+        clear.geometry = new THREE.BufferGeometry();
         edges.geometry = new THREE.BufferGeometry();
         setEmpty(true);
         return;
       }
-      mesh.geometry = geometry;
+      mesh.geometry = buildPreviewGeometry(next, null, offset, 'solid') ?? new THREE.BufferGeometry();
+      clear.geometry = buildPreviewGeometry(next, null, offset, 'clear') ?? new THREE.BufferGeometry();
       edges.geometry = new THREE.EdgesGeometry(geometry, 18);
-      if (next && markIndex != null) {
-        const marked = buildPreviewGeometry(next, markIndex, previewOffset(next));
+      geometry.dispose();
+      if (markIndex != null) {
+        const marked = buildPreviewGeometry(next, markIndex, offset);
         if (marked) mark.geometry = marked;
       }
       setEmpty(false);
@@ -318,7 +341,7 @@ export function StudioPreview({ model, highlight = null }: { model: ParametricMo
 
     const reset = () => {
       userMoved = false;
-      if (mesh.geometry.boundingSphere) fit();
+      if (edges.geometry.getAttribute('position')) fit();
     };
 
     const showView = (next: PreviewView) => {
@@ -625,6 +648,14 @@ export function StructureConfirmForm({
       return { ...part, locked_axes: (['x', 'y', 'z'] as const).filter((a) => locked.has(a)) };
     }));
   };
+  const setLook = (index: number, look: Partial<Pick<CustomPartSpec, 'color' | 'material' | 'opacity'>>) => {
+    onPartsChange((parts) => parts.map((part, i) => {
+      if (i !== index) return part;
+      const next: CustomPartSpec = { ...part, ...look };
+      for (const key of ['color', 'material', 'opacity'] as const) if (next[key] === undefined) delete next[key];
+      return next;
+    }));
+  };
 
   let step = 0;
   const stepNo = () => String(++step).padStart(2, '0');
@@ -913,7 +944,27 @@ export function StructureConfirmForm({
                               >
                                 {part.name}
                               </button>
-                              <span className="w-8 text-xs text-slate-400">{SHAPE_LABELS[part.shape]}</span>
+                              <span className="w-10 text-xs text-slate-400">{SHAPE_LABELS[part.shape]}</span>
+                              <input
+                                type="color"
+                                value={partAppearance(own ?? {}).color}
+                                aria-label={`${part.name} 顏色`}
+                                title="顏色"
+                                className="h-6 w-6 cursor-pointer rounded border border-slate-200 bg-white p-0"
+                                onChange={(event) => setLook(index, { color: event.target.value })}
+                              />
+                              <Select
+                                value={own?.material ?? 'none'}
+                                onValueChange={(value) => setLook(index, { material: value === 'none' ? undefined : (value as PartMaterial), opacity: undefined })}
+                              >
+                                <SelectTrigger aria-label={`${part.name} 材質`} className="h-7 w-[68px] rounded-md border-slate-200 bg-white px-2 text-xs shadow-none">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">材質</SelectItem>
+                                  {PART_MATERIALS.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
                               {([0, 1, 2] as const).map((axis) => {
                                 const name = (['x', 'y', 'z'] as const)[axis];
                                 const locked = own?.locked_axes?.includes(name) ?? false;
