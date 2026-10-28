@@ -116,6 +116,7 @@ export function diffParts(current: CustomPartSpec[], next: CustomPartSpec[]): Pa
     if (!geometryEqual(c.path_mm, part.path_mm)) notes.push('彎曲路徑改變');
     if (!geometryEqual(c.sections_mm, part.sections_mm)) notes.push('漸變截面改變');
     if (Boolean(c.smooth) !== Boolean(part.smooth)) notes.push('曲線平滑設定改變');
+    if ((c.radius_mm ?? 0) !== (part.radius_mm ?? 0)) notes.push(`圓角 ${c.radius_mm ?? 0} → ${part.radius_mm ?? 0} mm`);
     if (c.section !== part.section || !geometryEqual(c.section_mm, part.section_mm) || !geometryEqual(c.end_section_mm, part.end_section_mm)) notes.push('管材截面改變');
     if (!geometryEqual(c.geometry_scale ?? [1, 1, 1], part.geometry_scale ?? [1, 1, 1], 0.000001)) notes.push('幾何比例改變');
     if (c.role !== part.role) notes.push('部件用途改變');

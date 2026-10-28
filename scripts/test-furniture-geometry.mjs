@@ -147,4 +147,27 @@ generatedCamera.updateMatrixWorld(true);
 const generatedCenter = new THREE.Box3().setFromObject(generatedRoot, true).getCenter(new THREE.Vector3()).project(generatedCamera);
 assert.ok(Math.abs(generatedCenter.x) < 0.02 && Math.abs(generatedCenter.y) < 0.02, `generated GLB should land in the middle, got ${generatedCenter.toArray()}`);
 
+{
+  const cushion = p.sanitizeCustomParts([{ name: '座墊', shape: 'box', role: 'seat', form: 'panel', size_mm: [640, 600, 160], center_mm: [0, 0, 80], radius_mm: 50, connects_to: [] }]);
+  assert.equal(cushion[0].radius_mm, 50);
+  const model = p.buildParametric({ kind: 'custom', width_mm: 640, depth_mm: 600, height_mm: 160, parts: cushion });
+  const mesh = model.components[0];
+  assert.ok(mesh.faces_mm.length > 6, 'Rounded box must not fall back to six faces');
+  const edges = new Map();
+  for (const face of mesh.faces_mm) for (let i = 0; i < face.length; i++) { const key = [face[i], face[(i + 1) % face.length]].map(v => v.map(n => n.toFixed(5)).join(',')).sort().join('|'); edges.set(key, (edges.get(key) ?? 0) + 1); }
+  assert.ok([...edges.values()].every(n => n === 2), 'Rounded box must be watertight');
+  const pts = mesh.faces_mm.flat();
+  for (const [k, size] of [[0, 640], [1, 600], [2, 160]]) {
+    const span = Math.max(...pts.map(q => q[k])) - Math.min(...pts.map(q => q[k]));
+    assert.ok(Math.abs(span - size) < 0.01, `Rounded box keeps its size on axis ${k}`);
+  }
+  assert.ok(!pts.some(q => Math.abs(q[0]) > 319.9 && Math.abs(q[1]) > 299.9), 'Corners are rounded off');
+  const tiny = p.buildParametric({ kind: 'custom', width_mm: 600, depth_mm: 400, height_mm: 18, parts: p.sanitizeCustomParts([{ name: '板', shape: 'box', role: 'top', form: 'panel', size_mm: [600, 400, 18], center_mm: [0, 0, 9], radius_mm: 40, connects_to: [] }]) });
+  assert.equal(tiny.components[0].faces_mm.length, 6, 'A radius larger than a thin board allows falls back to a sharp box');
+  const serialized = writerContext.writerInput({ parametric: model });
+  assert.ok(JSON.stringify(serialized).length > 0, 'SKP writer accepts a rounded box');
+  const fitted = p.fitCustomParts(cushion, 800, 600, 160);
+  assert.equal(fitted[0].radius_mm, 50, 'Overall resize keeps the radius');
+}
+
 console.log('PASS: structural counts, uncertainty, symmetry, contact, grounding, exact template matching, watertight slanted/bent/tapered solids, scaling, GLB/FBX and unchanged SKP writer vertices');
