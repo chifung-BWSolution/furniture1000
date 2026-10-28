@@ -117,7 +117,12 @@ export function diffParts(current: CustomPartSpec[], next: CustomPartSpec[]): Pa
     if (!geometryEqual(c.sections_mm, part.sections_mm)) notes.push('漸變截面改變');
     if (Boolean(c.smooth) !== Boolean(part.smooth)) notes.push('曲線平滑設定改變');
     if ((c.radius_mm ?? 0) !== (part.radius_mm ?? 0)) notes.push(`圓角 ${c.radius_mm ?? 0} → ${part.radius_mm ?? 0} mm`);
-    if (c.section !== part.section || !geometryEqual(c.section_mm, part.section_mm) || !geometryEqual(c.end_section_mm, part.end_section_mm)) notes.push('管材截面改變');
+    if ((c.bulge_mm ?? 0) !== (part.bulge_mm ?? 0)) notes.push(`頂面隆起 ${c.bulge_mm ?? 0} → ${part.bulge_mm ?? 0} mm`);
+    if (!geometryEqual(c.rotation_deg ?? [0, 0, 0], part.rotation_deg ?? [0, 0, 0])) notes.push(`傾斜角度 ${(c.rotation_deg ?? [0, 0, 0]).join(', ')}° → ${(part.rotation_deg ?? [0, 0, 0]).join(', ')}°`);
+    if (!geometryEqual(c.holes_mm, part.holes_mm)) notes.push('孔位改變');
+    if (!geometryEqual(c.profile_mm, part.profile_mm) || c.hemisphere !== part.hemisphere) notes.push('旋轉輪廓改變');
+    if (c.color !== part.color || c.material !== part.material || c.opacity !== part.opacity) notes.push('顏色或材質改變');
+    if (c.section !== part.section || c.section_thickness_mm !== part.section_thickness_mm || !geometryEqual(c.section_mm, part.section_mm) || !geometryEqual(c.end_section_mm, part.end_section_mm)) notes.push('管材截面改變');
     if (!geometryEqual(c.geometry_scale ?? [1, 1, 1], part.geometry_scale ?? [1, 1, 1], 0.000001)) notes.push('幾何比例改變');
     if (c.role !== part.role) notes.push('部件用途改變');
     if (c.product_index !== part.product_index) notes.push('所屬產品改變');

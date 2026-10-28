@@ -49,7 +49,7 @@ check('malformed or oversized part lists cannot silently lose supports', () => {
   const leg = { name: '腳', shape: 'box', size_mm: [30, 30, 450], center_mm: [0, 0, 225] };
   assert.throws(() => sanitizeCustomParts([leg, { ...leg, size_mm: [0, 30, 450] }]));
   assert.throws(() => sanitizeCustomParts([leg, { ...leg, shape: 'unknown' }]));
-  assert.throws(() => sanitizeCustomParts(Array(100).fill(leg)));
+  assert.throws(() => sanitizeCustomParts(Array(200).fill(leg)));
 });
 check('image false and zero values override name hints; absent fields retain hints', () => {
   const style = initialModelStyle('cabinet', '三抽雙門扶手', { drawers: 0, doors: 0, arms: false });

@@ -12,6 +12,7 @@ const flags = { legacyFirst: false };
 let calls = [];
 const context = {
   File,
+  DOMException,
   fileToJpeg: async file => Buffer.from(await file.arrayBuffer()).toString('base64'),
   hasStructureEvidence: (value) => !!value && Number.isInteger(value.leg_count) && typeof value.symmetric === 'boolean' && Array.isArray(value.uncertainties),
   fetch: async url => {

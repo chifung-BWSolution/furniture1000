@@ -327,6 +327,10 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
  照圖還原靠 AI 部件（`custom`），**不要**為新風格加模板參數：截面會變的零件（桌邊斜收、折板腳、錐腳）用 `loft`
  （`sections_mm` 各截面點數相同、順序對應），曲線輪廓用 `smooth: true`（控制點 → centripetal Catmull-Rom）。
  模板只在 AI 部件與模板逐點一致時才採用（`selectFurnitureGeometry`）。
+ 部件上限分兩層：AI 最多回 40 項（`MAX_PART_ENTRIES`＝edge `MAX_PARTS`），`repeat`／`mirror` 在 `sanitizeCustomParts` 展開後最多 160 件
+ （`MAX_CUSTOM_PARTS`＝edge `MAX_SOLIDS`，`part_counts` 按展開後計）；兩邊數字要一起改。
+ 匯出一律經 `partPolygons`（含孔位）。SKP 輸入格式在部件行後加 `mat\t#rrggbb\t<不透明度>\t<材質>`、面行後加 `hole\t…`；
+ 舊寫檔程式會略過不認得的行，但要顏色和孔位就要重裝最新 Worker（版本 `CURRENT_SKP_WORKER_VERSION`）。
 - Canva（F-AI-009）：edge slug `supabase-functions-generate-canva-presentation`。
   建立簡報＝Canva AI `POST /v1/generations`（preview），先查 `GET /v1/users/me/capabilities` 的 `design_generation`。
   不用品牌模板、不用 Autofill、不需要 `CANVA_BRAND_TEMPLATE_ID`。

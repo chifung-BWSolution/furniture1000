@@ -42,7 +42,28 @@ export interface ModelPart {
   outline?: PartOutline;
   /** Polygons in model space (mm, Z up), counter-clockwise seen from outside. */
   faces_mm: Vec3[][];
+  /** Inner loops cut out of faces_mm[i] (through-holes); same length as faces_mm when present. */
+  face_holes_mm?: Vec3[][][];
+  /** Resolved appearance; missing on template parts, which keep the default grey. */
+  color?: string;
+  material?: PartMaterial;
+  opacity?: number;
 }
+
+export type PartMaterial = 'fabric' | 'leather' | 'wood' | 'metal' | 'glass' | 'mesh' | 'plastic' | 'stone';
+
+export const PART_MATERIALS: { id: PartMaterial; label: string; color: string; opacity: number }[] = [
+  { id: 'fabric', label: '布', color: '#8a8f99', opacity: 1 },
+  { id: 'leather', label: '皮', color: '#6b4a35', opacity: 1 },
+  { id: 'wood', label: '木', color: '#b08354', opacity: 1 },
+  { id: 'metal', label: '金屬', color: '#9aa0a6', opacity: 1 },
+  { id: 'glass', label: '玻璃', color: '#cfe3ea', opacity: 0.35 },
+  { id: 'mesh', label: '網面', color: '#3a3a3a', opacity: 0.6 },
+  { id: 'plastic', label: '塑膠', color: '#e5e5e5', opacity: 1 },
+  { id: 'stone', label: '石材', color: '#d9d6cf', opacity: 1 },
+];
+
+export const DEFAULT_PART_COLOR = '#d5dae3';
 
 /** L = desk with a return on one side (L 形／F 型屏風位). */
 export type TopShape = 'rect' | 'boat' | 'round' | 'L';
@@ -144,7 +165,7 @@ export interface ParametricModel {
  */
 export interface CustomPartSpec {
   name: string;
-  shape: 'box' | 'cylinder' | 'profile' | 'sweep' | 'loft';
+  shape: 'box' | 'cylinder' | 'profile' | 'sweep' | 'loft' | 'sphere' | 'lathe';
   /** Bounding lengths along x, y, z. */
   size_mm: Vec3;
   center_mm: Vec3;
@@ -161,11 +182,34 @@ export interface CustomPartSpec {
   smooth?: boolean;
   /** Sweep centreline, relative to center_mm; two points = straight/slanted support. */
   path_mm?: Vec3[];
-  section?: 'round' | 'rect';
+  /** oval = flat oval tube; angle = L angle iron; channel = U channel open toward +b of the section. */
+  section?: 'round' | 'rect' | 'oval' | 'angle' | 'channel';
+  /** [first, second]: on a non-vertical path first is vertical and second is across the path; on a vertical path first is x, second y. */
   section_mm?: [number, number];
   end_section_mm?: [number, number];
+  /** angle／channel: wall thickness. */
+  section_thickness_mm?: number;
   /** box only: radius of every edge and corner (upholstery, cushions). Clamped to the part's thinnest side. */
   radius_mm?: number;
+  /** box only: how far the middle of the top face rises above its edges (crowned cushions, dished seats). */
+  bulge_mm?: number;
+  /** profile only: through-holes, each a simple outline inside points_mm (same {a, b} convention). */
+  holes_mm?: [number, number][][];
+  /** sphere only: keep the half on the + or − side of its axis. */
+  hemisphere?: 'up' | 'down';
+  /** lathe only: [radius, offset along the axis] from one end to the other; offsets strictly increase. */
+  profile_mm?: [number, number][];
+  /** box／cylinder／profile／sphere／lathe: rotation about x, then y, then z around center_mm, degrees. */
+  rotation_deg?: Vec3;
+  /** #rrggbb */
+  color?: string;
+  material?: PartMaterial;
+  /** 0.05–1; glass and mesh default below 1. */
+  opacity?: number;
+  /** Expanded by sanitizeCustomParts into separate parts; never present afterwards. */
+  repeat?: { count: number; step_mm: Vec3 };
+  /** Also add a copy mirrored across the x = 0 (left/right) or y = 0 (front/back) plane; expanded like repeat. */
+  mirror?: 'x' | 'y';
   /** Axis scaling preserves oriented sections when the overall size is edited. */
   geometry_scale?: Vec3;
   role?: 'leg' | 'top' | 'seat' | 'back' | 'arm' | 'frame' | 'body' | 'shelf' | 'other';
@@ -187,9 +231,12 @@ export interface LoftSection {
 }
 
 /** Bump when the same parameters would produce different geometry. */
-export const PARAMETRIC_ENGINE_VERSION = 'fds-parametric-4';
+export const PARAMETRIC_ENGINE_VERSION = 'fds-parametric-5';
 
-export const MAX_CUSTOM_PARTS = 40;
+/** Entries the AI may return (edge MAX_PARTS uses the same number); repeat／mirror expand them. */
+export const MAX_PART_ENTRIES = 40;
+/** Solids after repeat／mirror expansion: the limit every built part list is checked against. */
+export const MAX_CUSTOM_PARTS = 160;
 
 export const FURNITURE_GROUPS: { label: string; kinds: FurnitureKind[] }[] = [
   { label: '枱／桌', kinds: ['desk', 'conference', 'dining', 'coffee', 'bar_counter', 'reception', 'lectern'] },
@@ -281,21 +328,66 @@ export function faceNormal(points: Vec3[]): Vec3 {
 }
 
 /**
- * Ear-clipping triangulation of one planar face (convex or concave).
- * Returns index triples that keep the face's winding.
+ * Ear-clipping triangulation of one planar face (convex or concave), with optional holes.
+ * Each hole is bridged into the outer loop from its rightmost vertex, then the joined loop is clipped.
+ * Returns index triples into [...face, ...holes.flat()] that keep the face's winding.
  */
-export function triangulateFace(face: Vec3[]): [number, number, number][] {
+export function triangulateFace(face: Vec3[], holes: Vec3[][] = []): [number, number, number][] {
   const n = newellNormal(face);
   const drop = Math.abs(n[0]) >= Math.abs(n[1]) && Math.abs(n[0]) >= Math.abs(n[2]) ? 0 : Math.abs(n[1]) >= Math.abs(n[2]) ? 1 : 2;
   const [a, b] = [0, 1, 2].filter((axis) => axis !== drop);
   // Flip the 2D frame when needed so the face always reads counter-clockwise.
   const flip = n[drop] * (drop === 1 ? -1 : 1) < 0 ? -1 : 1;
-  const pts = face.map((p) => [p[a], p[b] * flip] as [number, number]);
+  const pts = [face, ...holes].flat().map((p) => [p[a], p[b] * flip] as [number, number]);
   const cross = (o: [number, number], p: [number, number], q: [number, number]) =>
     (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
   const inside = (p: [number, number], x: [number, number], y: [number, number], z: [number, number]) =>
     cross(x, y, p) >= 0 && cross(y, z, p) >= 0 && cross(z, x, p) >= 0;
-  const remaining = face.map((_, i) => i);
+  const same = (p: [number, number], q: [number, number]) => p[0] === q[0] && p[1] === q[1];
+  const signedArea = (loop: number[]) => loop.reduce((s, i, k) => {
+    const j = loop[(k + 1) % loop.length];
+    return s + pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1];
+  }, 0);
+  let ring = face.map((_, i) => i);
+  let offset = face.length;
+  const loops = holes.map((hole) => {
+    const loop = hole.map((_, i) => offset + i);
+    offset += hole.length;
+    return signedArea(loop) > 0 ? loop.reverse() : loop;
+  }).sort((p, q) => Math.max(...q.map((i) => pts[i][0])) - Math.max(...p.map((i) => pts[i][0])));
+  for (const loop of loops) {
+    const mi = loop.reduce((best, i, k) => (pts[i][0] > pts[loop[best]][0] ? k : best), 0);
+    const m = pts[loop[mi]];
+    let cand = -1;
+    let hit: [number, number] = m;
+    let nearest = Infinity;
+    for (let k = 0; k < ring.length; k += 1) {
+      const p = pts[ring[k]], q = pts[ring[(k + 1) % ring.length]];
+      // An earlier bridge is in the loop twice, once each way; only the copy with the hole on its inner (left) side may be joined.
+      if (p[1] === q[1] || (p[1] - m[1]) * (q[1] - m[1]) > 0 || cross(p, q, m) <= 0) continue;
+      const x = p[0] + ((m[1] - p[1]) * (q[0] - p[0])) / (q[1] - p[1]);
+      if (x < m[0] || x - m[0] >= nearest) continue;
+      nearest = x - m[0];
+      hit = [x, m[1]];
+      cand = p[0] > q[0] ? k : (k + 1) % ring.length;
+    }
+    if (cand < 0) {
+      cand = ring.reduce((best, i, k) => (Math.hypot(pts[i][0] - m[0], pts[i][1] - m[1]) < Math.hypot(pts[ring[best]][0] - m[0], pts[ring[best]][1] - m[1]) ? k : best), 0);
+    } else {
+      // A vertex inside the triangle (hole point, ray hit, chosen end) would block the bridge; take the one at the smallest angle.
+      const end = pts[ring[cand]];
+      const [t0, t1, t2] = cross(m, hit, end) >= 0 ? [m, hit, end] : [m, end, hit];
+      let angle = Infinity;
+      ring.forEach((i, k) => {
+        const v = pts[i];
+        if (k === cand || same(v, end) || !inside(v, t0, t1, t2) || v[0] <= m[0]) return;
+        const t = Math.atan2(Math.abs(v[1] - m[1]), v[0] - m[0]);
+        if (t < angle) { angle = t; cand = k; }
+      });
+    }
+    ring = [...ring.slice(0, cand + 1), ...loop.slice(mi), ...loop.slice(0, mi), loop[mi], ...ring.slice(cand)];
+  }
+  const remaining = ring;
   const out: [number, number, number][] = [];
   let guard = remaining.length * remaining.length;
   while (remaining.length > 3 && guard-- > 0) {
@@ -304,7 +396,9 @@ export function triangulateFace(face: Vec3[]): [number, number, number][] {
       const j = remaining[k];
       const l = remaining[(k + 1) % remaining.length];
       if (cross(pts[i], pts[j], pts[l]) <= 0) continue;
-      const blocked = remaining.some((m) => m !== i && m !== j && m !== l && inside(pts[m], pts[i], pts[j], pts[l]));
+      const blocked = remaining.some((m) => m !== i && m !== j && m !== l
+        && !same(pts[m], pts[i]) && !same(pts[m], pts[j]) && !same(pts[m], pts[l])
+        && inside(pts[m], pts[i], pts[j], pts[l]));
       if (blocked) continue;
       out.push([i, j, l]);
       remaining.splice(k, 1);
@@ -313,6 +407,33 @@ export function triangulateFace(face: Vec3[]): [number, number, number][] {
   }
   if (remaining.length === 3) out.push([remaining[0], remaining[1], remaining[2]]);
   return out;
+}
+
+export interface PartPolygon {
+  /** Outer loop followed by every hole loop; triangle indices point into this list. */
+  points: Vec3[];
+  triangles: [number, number, number][];
+  normal: Vec3;
+}
+
+/** Faces of one part ready to draw: holes cut out, triangles keep the outward winding. */
+export function partPolygons(part: ModelPart): PartPolygon[] {
+  const faces = part.faces_mm?.length ? part.faces_mm : partFaces(part);
+  return faces.flatMap((face, i) => {
+    if (face.length < 3) return [];
+    const holes = part.face_holes_mm?.[i] ?? [];
+    return [{ points: [face, ...holes].flat(), triangles: triangulateFace(face, holes), normal: faceNormal(face) }];
+  });
+}
+
+/** Resolved colour and opacity of a part; parts without an appearance keep the default grey. */
+export function partAppearance(part: Pick<ModelPart, 'color' | 'material' | 'opacity'>): { color: string; opacity: number; material?: PartMaterial } {
+  const preset = PART_MATERIALS.find((m) => m.id === part.material);
+  return {
+    color: part.color ?? preset?.color ?? DEFAULT_PART_COLOR,
+    opacity: part.opacity ?? preset?.opacity ?? 1,
+    ...(part.material ? { material: part.material } : {}),
+  };
 }
 
 /** Caps and side walls of a prism, each wound counter-clockwise seen from outside. */
@@ -1076,9 +1197,92 @@ function simpleOutline(points: [number, number][]): boolean {
   return true;
 }
 
+function pointInPolygon([x, y]: [number, number], polygon: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [xi, yi] = polygon[i], [xj, yj] = polygon[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function loopsCross(p: [number, number][], q: [number, number][]): boolean {
+  return p.some((a, i) => q.some((c, j) => segmentsCross(a, p[(i + 1) % p.length], c, q[(j + 1) % q.length])));
+}
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const ROTATABLE: CustomPartSpec['shape'][] = ['box', 'cylinder', 'profile', 'sphere', 'lathe'];
+const MAX_REPEAT = 20;
+
+const SIGNED_PLANE = (axis: 'x' | 'y' | 'z', k: number): number => PLANE[axis].indexOf(k as 0 | 1 | 2);
+
+/** The same part reflected across the x = 0 or y = 0 plane; every stored coordinate flips with it. */
+function mirrorSpec(spec: CustomPartSpec, m: 0 | 1): CustomPartSpec {
+  const out: CustomPartSpec = { ...spec, center_mm: spec.center_mm.map((n, k) => (k === m ? -n : n)) as Vec3 };
+  const flip2 = (points: [number, number][], axis: 'x' | 'y' | 'z') => {
+    const j = SIGNED_PLANE(axis, m);
+    return j < 0 ? points.map((pt) => [...pt] as [number, number]) : points.map((pt) => pt.map((n, i) => (i === j ? -n : n)) as [number, number]);
+  };
+  if (spec.rotation_deg) {
+    const [rx, ry, rz] = spec.rotation_deg;
+    out.rotation_deg = m === 0 ? [rx, -ry, -rz] : [-rx, ry, -rz];
+  }
+  if (spec.points_mm && spec.axis) out.points_mm = flip2(spec.points_mm, spec.axis);
+  if (spec.holes_mm && spec.axis) out.holes_mm = spec.holes_mm.map((hole) => flip2(hole, spec.axis!));
+  if (spec.path_mm) out.path_mm = spec.path_mm.map((pt) => pt.map((n, k) => (k === m ? -n : n)) as Vec3);
+  if (spec.sections_mm && spec.axis) {
+    out.sections_mm = AXIS_INDEX[spec.axis] === m
+      ? [...spec.sections_mm].reverse().map((s) => ({ at: -s.at, points_mm: s.points_mm.map((pt) => [...pt] as [number, number]) }))
+      : spec.sections_mm.map((s) => ({ at: s.at, points_mm: flip2(s.points_mm, spec.axis!) }));
+  }
+  if (spec.profile_mm && spec.axis && AXIS_INDEX[spec.axis] === m) {
+    out.profile_mm = [...spec.profile_mm].reverse().map(([r, at]) => [r, -at] as [number, number]);
+  }
+  if (spec.hemisphere && (spec.axis ?? 'z') === (['x', 'y'] as const)[m]) out.hemisphere = spec.hemisphere === 'up' ? 'down' : 'up';
+  return out;
+}
+
+/** Repeat and mirror become separate parts; joints to an entry reach every copy of it. */
+function expandEntries(entries: CustomPartSpec[]): CustomPartSpec[] {
+  const groups: number[][] = [];
+  const copies: { spec: CustomPartSpec; entry: number }[] = [];
+  entries.forEach((entry, e) => {
+    const { repeat, mirror, ...base } = entry;
+    const count = repeat?.count ?? 1;
+    const ids: number[] = [];
+    const add = (spec: CustomPartSpec) => { ids.push(copies.length); copies.push({ spec, entry: e }); };
+    for (let n = 0; n < count; n += 1) {
+      const step = repeat?.step_mm ?? [0, 0, 0];
+      const copy: CustomPartSpec = {
+        ...base,
+        name: count > 1 ? `${base.name} ${n + 1}`.slice(0, 40) : base.name,
+        center_mm: base.center_mm.map((c, k) => round(c + step[k] * n)) as Vec3,
+        ...(base.part_id && n > 0 ? { part_id: `${base.part_id}-${n + 1}`.slice(0, 40) } : {}),
+      };
+      add(copy);
+      if (mirror) {
+        add({
+          ...mirrorSpec(copy, mirror === 'x' ? 0 : 1),
+          name: `${copy.name}（對稱）`.slice(0, 40),
+          ...(copy.part_id ? { part_id: `${copy.part_id}-m`.slice(0, 40) } : {}),
+        });
+      }
+    }
+    groups.push(ids);
+  });
+  if (copies.length > MAX_CUSTOM_PARTS) throw new Error(`部件展開後共 ${copies.length} 件，超出上限 ${MAX_CUSTOM_PARTS} 件，請重新辨認部件`);
+  if (!entries.some((s) => s.repeat || s.mirror)) return entries;
+  return copies.map(({ spec, entry }, index) => {
+    if (!entries[entry].connects_to) return spec;
+    const linked = entries[entry].connects_to!.flatMap((j) => groups[j] ?? []).filter((j) => j !== index);
+    return { ...spec, connects_to: [...new Set(linked)] };
+  });
+}
+
 /**
  * Validate the entire list: silently dropping a support or replacing its shape changes
  * the furniture's structure. Reject malformed parts so the user can retry extraction.
+ * Limits count solids after repeat／mirror expansion (MAX_CUSTOM_PARTS).
  */
 export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
   if (!Array.isArray(input)) return [];
@@ -1092,7 +1296,7 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
     const center = Array.isArray(r.center_mm) ? r.center_mm.slice(0, 3) : [];
     if (size.length !== 3 || center.length !== 3 || !size.every(finite) || !center.every(finite)) throw invalid();
     if (!size.every((n) => n >= 3 && n <= 10000) || !center.every((n) => Math.abs(n) <= 10000)) throw invalid();
-    if (!['box', 'cylinder', 'profile', 'sweep', 'loft'].includes(String(r.shape))) throw invalid();
+    if (!['box', 'cylinder', 'profile', 'sweep', 'loft', 'sphere', 'lathe'].includes(String(r.shape))) throw invalid();
     const shape = r.shape as CustomPartSpec['shape'];
     const axisValue = r.axis === 'x' || r.axis === 'y' || r.axis === 'z' ? r.axis : undefined;
     const spec: CustomPartSpec = {
@@ -1123,11 +1327,18 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
       if (path.some((p, i) => i > 0 && Math.hypot(...p.map((n, k) => n - path[i - 1][k])) < 1)) throw invalid();
       if (new Set(path.map(p => p.join(','))).size !== path.length) throw invalid();
       const section = (v: unknown): v is [number, number] => Array.isArray(v) && v.length === 2 && v.every(n => finite(n) && n >= 3 && n <= 1000);
-      if (!section(r.section_mm) || (r.end_section_mm !== undefined && !section(r.end_section_mm)) || !['round', 'rect'].includes(String(r.section))) throw invalid();
+      if (!section(r.section_mm) || (r.end_section_mm !== undefined && !section(r.end_section_mm)) || !['round', 'rect', 'oval', 'angle', 'channel'].includes(String(r.section))) throw invalid();
       spec.path_mm = path.map(p => [...p] as Vec3);
-      spec.section = r.section as 'round' | 'rect';
+      spec.section = r.section as NonNullable<CustomPartSpec['section']>;
       spec.section_mm = r.section_mm;
       spec.end_section_mm = r.end_section_mm as [number, number] | undefined;
+      if (spec.section === 'angle' || spec.section === 'channel') {
+        const thinnest = Math.min(...spec.section_mm, ...(spec.end_section_mm ?? spec.section_mm));
+        const wall = finite(r.section_thickness_mm) ? r.section_thickness_mm : Math.max(1.5, thinnest * 0.12);
+        // A channel needs room for both walls and an opening; an angle needs one wall plus the leg.
+        if (wall < 1 || wall > thinnest / (spec.section === 'channel' ? 3 : 2)) throw invalid();
+        spec.section_thickness_mm = round(wall);
+      }
       if (r.geometry_scale !== undefined) {
         if (!Array.isArray(r.geometry_scale) || r.geometry_scale.length !== 3 || !r.geometry_scale.every(n => finite(n) && n > 0.001 && n < 1000)) throw invalid();
         spec.geometry_scale = r.geometry_scale as Vec3;
@@ -1138,7 +1349,24 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
       if (!finite(r.radius_mm) || r.radius_mm < 0 || r.radius_mm > 1000) throw invalid();
       if (r.radius_mm >= 1) spec.radius_mm = round(r.radius_mm);
     }
-    if (shape === 'cylinder') spec.axis = axisValue ?? 'z';
+    if (shape === 'box' && r.bulge_mm !== undefined && r.bulge_mm !== null) {
+      if (!finite(r.bulge_mm) || r.bulge_mm < 0 || r.bulge_mm > 500) throw invalid();
+      if (r.bulge_mm >= 1) spec.bulge_mm = round(r.bulge_mm);
+    }
+    if (shape === 'cylinder' || shape === 'sphere') spec.axis = axisValue ?? 'z';
+    if (shape === 'sphere' && (r.hemisphere === 'up' || r.hemisphere === 'down')) spec.hemisphere = r.hemisphere;
+    if (shape === 'lathe') {
+      const badLathe = () => new Error(`部件「${spec.name}」旋轉輪廓無效，請重新辨認部件`);
+      const rows = Array.isArray(r.profile_mm) ? r.profile_mm : [];
+      if (rows.length < 2 || rows.length > 32 || !rows.every((p) => Array.isArray(p) && p.length === 2 && p.every(finite))) throw badLathe();
+      const profile = (rows as [number, number][]).map(([rad, at]) => [rad, at] as [number, number]);
+      // Radius 0 is only allowed at the two ends (a point); in between it would pinch the solid apart.
+      if (profile.some(([rad, at], i) => rad < 0 || rad > 5000 || Math.abs(at) > 10000 || (i > 0 && at - profile[i - 1][1] < 1)
+        || (rad < 0.5 && i > 0 && i < profile.length - 1))) throw badLathe();
+      if (!profile.some(([rad]) => rad >= 0.5)) throw badLathe();
+      spec.axis = axisValue ?? 'z';
+      spec.profile_mm = profile.map(([rad, at]) => [rad < 0.5 ? 0 : rad, at] as [number, number]);
+    }
     if (shape === 'profile') {
       if (!Array.isArray(r.points_mm) || r.points_mm.some((p) =>
         !Array.isArray(p) || p.length !== 2 || !p.every((n) => finite(n) && Math.abs(n) <= 10000))) throw invalid();
@@ -1154,7 +1382,45 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
       } else {
         throw new Error(`部件「${spec.name}」輪廓無效，請重新辨認部件`);
       }
+      if (Array.isArray(r.holes_mm) && r.holes_mm.length > 0) {
+        const badHoles = () => new Error(`部件「${spec.name}」的孔位無效，請重新辨認部件`);
+        if (r.holes_mm.length > 12) throw badHoles();
+        const holes = r.holes_mm.map((hole) => {
+          if (!Array.isArray(hole) || hole.some((p) => !Array.isArray(p) || p.length !== 2 || !p.every((n) => finite(n) && Math.abs(n) <= 10000))) throw badHoles();
+          return (hole as [number, number][]).map(([u, v]) => [u, v] as [number, number]);
+        });
+        // Each hole lies inside the outline and clear of the outline and of every other hole.
+        if (holes.some((hole, i) => !simpleOutline(hole)
+          || !hole.every((pt) => pointInPolygon(pt, points))
+          || loopsCross(hole, points)
+          || holes.some((other, j) => j !== i && (loopsCross(hole, other) || pointInPolygon(hole[0], other))))) throw badHoles();
+        spec.holes_mm = holes;
+      }
     }
+    if (r.rotation_deg !== undefined && r.rotation_deg !== null) {
+      if (!Array.isArray(r.rotation_deg) || r.rotation_deg.length !== 3 || !r.rotation_deg.every((n) => finite(n) && Math.abs(n) <= 360)) throw invalid();
+      const rotation = (r.rotation_deg as number[]).map((n) => round(n)) as Vec3;
+      if (rotation.some((n) => Math.abs(n) >= 0.1)) {
+        // Sweeps and lofts already carry their direction in path／sections.
+        if (!ROTATABLE.includes(shape)) throw invalid();
+        spec.rotation_deg = rotation;
+      }
+    }
+    // Appearance does not change the structure, so an unreadable colour or material is dropped instead of failing the part.
+    if (PART_MATERIALS.some((m) => m.id === r.material)) spec.material = r.material as PartMaterial;
+    if (typeof r.color === 'string' && HEX_COLOR.test(r.color)) spec.color = r.color.toLowerCase();
+    if (finite(r.opacity)) spec.opacity = Math.round(clamp(r.opacity, 0.05, 1) * 100) / 100;
+    if (r.repeat !== undefined && r.repeat !== null) {
+      const rep = r.repeat as Record<string, unknown>;
+      const step = Array.isArray(rep.step_mm) ? rep.step_mm : [];
+      if (!Number.isInteger(rep.count) || Number(rep.count) < 1 || Number(rep.count) > MAX_REPEAT
+        || step.length !== 3 || !step.every((n) => finite(n) && Math.abs(n) <= 5000)) throw invalid();
+      if (Number(rep.count) > 1) {
+        if (step.every((n) => Math.abs(n as number) < 1)) throw invalid();
+        spec.repeat = { count: Number(rep.count), step_mm: (step as number[]).map(round) as Vec3 };
+      }
+    }
+    if (r.mirror === 'x' || r.mirror === 'y') spec.mirror = r.mirror;
     if (shape === 'loft') {
       const badLoft = () => new Error(`部件「${spec.name}」截面無效，請重新辨認部件`);
       const raws = Array.isArray(r.sections_mm) ? r.sections_mm : [];
@@ -1178,43 +1444,100 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
     }
     out.push(spec);
   }
-  return out;
+  return expandEntries(out);
 }
 
-/** Every face must triangulate to its own area, otherwise the outline folded over itself. */
+/** Every face must triangulate to its own area (holes subtracted), otherwise the outline folded over itself. */
 function facesSound(p: ModelPart): boolean {
-  return p.faces_mm.every((face) => {
-    const n = newellNormal(face);
-    const area = Math.hypot(n[0], n[1], n[2]) / 2;
-    if (area < 0.5) return false;
-    const tris = triangulateFace(face);
-    if (tris.length !== face.length - 2) return false;
-    const sum = tris.reduce((acc, [i, j, k]) => {
-      const t = newellNormal([face[i], face[j], face[k]]);
-      return acc + Math.hypot(t[0], t[1], t[2]) / 2;
-    }, 0);
-    return Math.abs(sum - area) <= Math.max(1, area * 0.01);
+  return p.faces_mm.every((face, f) => {
+    const holes = p.face_holes_mm?.[f] ?? [];
+    const area = (loop: Vec3[]) => { const n = newellNormal(loop); return Math.hypot(n[0], n[1], n[2]) / 2; };
+    const net = area(face) - holes.reduce((s, h) => s + area(h), 0);
+    if (net < 0.5) return false;
+    const pts = [face, ...holes].flat();
+    const tris = triangulateFace(face, holes);
+    if (tris.length !== face.length - 2 + holes.reduce((s, h) => s + h.length + 2, 0)) return false;
+    const sum = tris.reduce((acc, [i, j, k]) => acc + area([pts[i], pts[j], pts[k]]), 0);
+    return Math.abs(sum - net) <= Math.max(1, net * 0.01);
   });
 }
 
 function specPart(spec: CustomPartSpec, index: number, scale: Vec3, shift: Vec3): ModelPart {
+  const built = specGeometry(spec, `part-${index + 1}`, scale, shift);
+  if (!spec.color && !spec.material && spec.opacity === undefined) return built;
+  const look = partAppearance(spec);
+  return { ...built, color: look.color, opacity: look.opacity, ...(look.material ? { material: look.material } : {}) };
+}
+
+function specGeometry(spec: CustomPartSpec, id: string, scale: Vec3, shift: Vec3): ModelPart {
   const size = spec.size_mm.map((n, i) => n * scale[i]) as Vec3;
   const center = spec.center_mm.map((n, i) => (n - shift[i]) * scale[i]) as Vec3;
-  const id = `part-${index + 1}`;
   if (spec.shape === 'sweep') return sweepPart(spec, id, scale, shift);
   if (spec.shape === 'loft') return loftPart(spec, id, scale, shift);
+  const along = spec.axis ?? 'z';
+  let solid: { faces: Vec3[][]; holes?: Vec3[][][] };
   if (spec.shape === 'box') {
     const radius = roundedBoxRadius(size, spec.radius_mm);
-    return radius > 0 ? roundedBoxPart(id, spec.name, size, center, radius) : part(id, spec.name, size, center);
+    const bulge = (spec.bulge_mm ?? 0) * scale[2];
+    if (radius > 0 || bulge >= 1) solid = { faces: boxMesh(size, center, radius, bulge) };
+    else if (!spec.rotation_deg) return part(id, spec.name, size, center);
+    else solid = { faces: partFaces({ size_mm: size, position_mm: center }) };
+  } else if (spec.shape === 'sphere') {
+    solid = { faces: latheMesh(sphereProfile(spec.hemisphere), along, size, center) };
+  } else if (spec.shape === 'lathe') {
+    solid = { faces: latheMesh(spec.profile_mm!, along, size, center) };
+  } else {
+    const [u, v] = PLANE[along];
+    const scaled = (pts: [number, number][]) => pts.map(([a, b]) => [a * scale[u], b * scale[v]] as [number, number]);
+    const shaped = (pts: [number, number][]) => (spec.smooth ? smoothOutline(scaled(pts)) : scaled(pts));
+    const points = spec.shape === 'cylinder' ? ellipse(size[u] / 2, size[v] / 2, 20) : shaped(spec.points_mm ?? []);
+    if (!spec.holes_mm?.length && !spec.rotation_deg) return part(id, spec.name, size, center, { axis: along, points_mm: points });
+    solid = holedPrism(size, center, along, points, (spec.holes_mm ?? []).map(shaped));
   }
-  const along = spec.axis ?? 'z';
-  const [u, v] = PLANE[along];
-  const scaled = (spec.points_mm ?? []).map(([a, b]) => [a * scale[u], b * scale[v]] as [number, number]);
-  const points =
-    spec.shape === 'cylinder'
-      ? ellipse(size[u] / 2, size[v] / 2, 20)
-      : spec.smooth ? smoothOutline(scaled) : scaled;
-  return part(id, spec.name, size, center, { axis: along, points_mm: points });
+  if (spec.rotation_deg) {
+    const turn = rotateAbout(spec.rotation_deg, center);
+    solid = { faces: solid.faces.map((f) => f.map(turn)), holes: solid.holes?.map((loops) => loops.map((h) => h.map(turn))) };
+  }
+  return meshPart(id, spec.name, solid.faces, solid.holes);
+}
+
+function meshPart(id: string, name: string, faces: Vec3[][], holes?: Vec3[][][]): ModelPart {
+  const pts = faces.flat();
+  const lo = [0, 1, 2].map((k) => Math.min(...pts.map((p) => p[k])));
+  const hi = [0, 1, 2].map((k) => Math.max(...pts.map((p) => p[k])));
+  return {
+    id,
+    name,
+    size_mm: hi.map((n, k) => n - lo[k]) as Vec3,
+    position_mm: hi.map((n, k) => (n + lo[k]) / 2) as Vec3,
+    faces_mm: faces,
+    ...(holes?.some((h) => h.length > 0) ? { face_holes_mm: holes } : {}),
+  };
+}
+
+/** Rotation about x, then y, then z (R = Rz·Ry·Rx), around `center`. */
+function rotateAbout(degrees: Vec3, center: Vec3): (p: Vec3) => Vec3 {
+  const [a, b, c] = degrees.map((d) => (d * Math.PI) / 180);
+  const [ca, sa, cb, sb, cc, sc] = [Math.cos(a), Math.sin(a), Math.cos(b), Math.sin(b), Math.cos(c), Math.sin(c)];
+  const m = [
+    [cc * cb, cc * sb * sa - sc * ca, cc * sb * ca + sc * sa],
+    [sc * cb, sc * sb * sa + cc * ca, sc * sb * ca - cc * sa],
+    [-sb, cb * sa, cb * ca],
+  ];
+  return (p) => {
+    const d = p.map((n, k) => n - center[k]);
+    return m.map((row, k) => center[k] + row[0] * d[0] + row[1] * d[1] + row[2] * d[2]) as Vec3;
+  };
+}
+
+/** Quads that are not flat are split, so every exporter receives planar faces. */
+function planar(quad: Vec3[]): Vec3[][] {
+  const [a, b, c, d] = quad;
+  const e1 = b.map((n, k) => n - a[k]), e2 = c.map((n, k) => n - a[k]);
+  const nrm = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+  const len = Math.hypot(nrm[0], nrm[1], nrm[2]);
+  const off = len > 0 ? Math.abs(nrm.reduce((s, n, m) => s + n * (d[m] - a[m]), 0)) / len : Infinity;
+  return off < 0.01 ? [quad] : [[a, b, c], [a, c, d]];
 }
 
 /** Below this the fillet facets are slivers too small to export; the edge stays sharp. */
@@ -1227,64 +1550,144 @@ function roundedBoxRadius(size: Vec3, radius: number | undefined): number {
   return r >= MIN_ROUND_RADIUS ? r : 0;
 }
 
-const ROUND_CORNER_STEPS = 4;
-const ROUND_EDGE_STEPS = 3;
+const ROUND_STEPS = 3;
+const BULGE_STEPS = 6;
 
 /**
- * Box with every edge filleted: horizontal rounded-rectangle rings stacked through the bottom
- * and top fillets. Collapsed points at the flat caps are dropped, and side quads that are not
- * flat are split, so every exporter receives planar faces.
+ * Box built as a grid on each of its six faces, then each grid point is pushed onto the rounded
+ * surface (edge radius r) and lifted by the crown of the top (bulge). Neighbouring faces generate
+ * their shared edge from the same numbers, so the solid stays closed.
  */
-function roundedBoxPart(id: string, name: string, size: Vec3, center: Vec3, r: number): ModelPart {
-  const [hx, hy, hz] = size.map((n) => n / 2);
-  const corners: [number, number, number][] = [[1, -1, -Math.PI / 2], [1, 1, 0], [-1, 1, Math.PI / 2], [-1, -1, Math.PI]];
-  const ring = (rho: number, z: number): Vec3[] =>
-    corners.flatMap(([sx, sy, base]) =>
-      Array.from({ length: ROUND_CORNER_STEPS + 1 }, (_, j) => {
-        const a = base + (j / ROUND_CORNER_STEPS) * (Math.PI / 2);
-        return [
-          center[0] + sx * (hx - r) + rho * Math.cos(a),
-          center[1] + sy * (hy - r) + rho * Math.sin(a),
-          center[2] + z,
-        ] as Vec3;
-      }),
-    );
-  const rings: Vec3[][] = [];
-  for (let k = 0; k <= ROUND_EDGE_STEPS; k += 1) {
-    const t = (k / ROUND_EDGE_STEPS) * (Math.PI / 2);
-    rings.push(ring(r * Math.sin(t), -hz + r - r * Math.cos(t)));
-  }
-  for (let k = ROUND_EDGE_STEPS; k >= 0; k -= 1) {
-    const t = (k / ROUND_EDGE_STEPS) * (Math.PI / 2);
-    rings.push(ring(r * Math.sin(t), hz - r + r * Math.cos(t)));
-  }
-  const distinct = (face: Vec3[]): Vec3[] =>
-    face.filter((p, i) => {
-      const q = face[(i + 1) % face.length];
-      return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) > 1e-6;
-    });
-  const sub = (a: Vec3, b: Vec3) => a.map((n, k) => n - b[k]) as Vec3;
-  const faces: Vec3[][] = [distinct([...rings[0]].reverse()), distinct(rings[rings.length - 1])];
-  for (let i = 0; i < rings.length - 1; i += 1) {
-    const [lo, hi] = [rings[i], rings[i + 1]];
-    for (let j = 0; j < lo.length; j += 1) {
-      const k = (j + 1) % lo.length;
-      const quad = distinct([lo[j], lo[k], hi[k], hi[j]]);
-      if (quad.length < 3) continue;
-      if (quad.length === 3) {
-        faces.push(quad);
-        continue;
+function boxMesh(size: Vec3, center: Vec3, r: number, bulge: number): Vec3[][] {
+  const half = size.map((n) => n / 2) as Vec3;
+  const inner = half.map((h) => h - r);
+  const ticks = half.map((h, k) => {
+    const mid = bulge >= 1 ? BULGE_STEPS : 1;
+    const middle = Array.from({ length: mid + 1 }, (_, i) => -inner[k] + (2 * inner[k] * i) / mid);
+    if (r <= 0) return middle;
+    // Equal angles around the fillet: tan spacing on the cube face maps to even arc steps.
+    const arc = Array.from({ length: ROUND_STEPS }, (_, i) => (i === ROUND_STEPS - 1 ? h : inner[k] + r * Math.tan(((i + 1) / ROUND_STEPS) * (Math.PI / 4))));
+    return [...[...arc].reverse().map((n) => -n), ...middle, ...arc];
+  });
+  const project = (p: Vec3): Vec3 => {
+    const q = p.map((n, k) => clamp(n, -inner[k], inner[k]));
+    const d = p.map((n, k) => n - q[k]);
+    const len = Math.hypot(d[0], d[1], d[2]);
+    const s = r > 0 && len > 0 ? r / len : 1;
+    const out = q.map((n, k) => n + d[k] * s);
+    if (bulge >= 1) {
+      const f = Math.max(0, 1 - (out[0] / half[0]) ** 2) * Math.max(0, 1 - (out[1] / half[1]) ** 2);
+      out[2] += bulge * f * ((out[2] + half[2]) / (2 * half[2])) ** 2;
+    }
+    return out.map((n, k) => n + center[k]) as Vec3;
+  };
+  const faces: Vec3[][] = [];
+  for (let k = 0; k < 3; k += 1) {
+    const u = (k + 1) % 3, v = (k + 2) % 3;
+    for (const sign of [1, -1]) {
+      const at = (i: number, j: number) => {
+        const p: Vec3 = [0, 0, 0];
+        p[k] = sign * half[k];
+        p[u] = ticks[u][i];
+        p[v] = ticks[v][j];
+        return project(p);
+      };
+      for (let i = 0; i < ticks[u].length - 1; i += 1) {
+        for (let j = 0; j < ticks[v].length - 1; j += 1) {
+          const quad = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)];
+          faces.push(...planar(sign > 0 ? quad : quad.reverse()));
+        }
       }
-      const [a, b, c, d] = quad;
-      const e1 = sub(b, a), e2 = sub(c, a);
-      const nrm: Vec3 = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
-      const len = Math.hypot(...nrm);
-      const off = len > 0 ? Math.abs(nrm.reduce((s, n, m) => s + n * (d[m] - a[m]), 0)) / len : Infinity;
-      if (off < 0.01) faces.push(quad);
-      else faces.push([a, b, c], [a, c, d]);
     }
   }
-  return { id, name, size_mm: size.map(round) as Vec3, position_mm: center.map(round) as Vec3, faces_mm: faces };
+  return faces;
+}
+
+/** Prism of an outline with through-holes; hole walls face into the hole. */
+function holedPrism(size: Vec3, center: Vec3, axis: PartOutline['axis'], outline: [number, number][], holes: [number, number][][]): { faces: Vec3[][]; holes: Vec3[][][] } {
+  const along = AXIS_INDEX[axis];
+  const [u, v] = PLANE[axis];
+  const half = size[along] / 2;
+  const at = (pt: [number, number], offset: number): Vec3 => {
+    const out: Vec3 = [...center];
+    out[u] += pt[0];
+    out[v] += pt[1];
+    out[along] += offset;
+    return out;
+  };
+  const ccw = (loop: [number, number][]) => (newellNormal(loop.map((pt) => at(pt, 0)))[along] < 0 ? [...loop].reverse() : loop);
+  const ring = ccw(outline);
+  const inner = holes.map(ccw);
+  const faces: Vec3[][] = [ring.map((pt) => at(pt, half)), ring.map((pt) => at(pt, -half)).reverse()];
+  const faceHoles: Vec3[][][] = [inner.map((h) => h.map((pt) => at(pt, half)).reverse()), inner.map((h) => h.map((pt) => at(pt, -half)))];
+  const walls = (loop: [number, number][], outward: boolean) => loop.forEach((_, i) => {
+    const j = (i + 1) % loop.length;
+    const [bi, bj, ti, tj] = [at(loop[i], -half), at(loop[j], -half), at(loop[i], half), at(loop[j], half)];
+    faces.push(outward ? [bi, bj, tj, ti] : [ti, tj, bj, bi]);
+    faceHoles.push([]);
+  });
+  walls(ring, true);
+  inner.forEach((h) => walls(h, false));
+  return { faces, holes: faceHoles };
+}
+
+const SPHERE_STEPS = 12;
+const LATHE_SEGMENTS = 24;
+
+/** Half circle from the bottom pole to the top pole as [radius, height]; a hemisphere keeps one half. */
+function sphereProfile(hemisphere?: 'up' | 'down'): [number, number][] {
+  const from = hemisphere === 'up' ? SPHERE_STEPS / 2 : 0;
+  const to = hemisphere === 'down' ? SPHERE_STEPS / 2 : SPHERE_STEPS;
+  return Array.from({ length: to - from + 1 }, (_, i) => {
+    const step = from + i;
+    const t = (step / SPHERE_STEPS) * Math.PI;
+    return [step === 0 || step === SPHERE_STEPS ? 0 : Math.sin(t), -Math.cos(t)] as [number, number];
+  });
+}
+
+/**
+ * Solid of revolution: [radius, height] rings around `axis`, then fitted to the bounding box
+ * `size` (so a round profile can also become an oval base). Radius 0 at an end closes it to a point.
+ */
+function latheMesh(profile: [number, number][], axis: PartOutline['axis'], size: Vec3, center: Vec3): Vec3[][] {
+  const along = AXIS_INDEX[axis];
+  const [u, v] = PLANE[axis];
+  const maxR = Math.max(...profile.map(([r]) => r));
+  const h0 = profile[0][1], h1 = profile[profile.length - 1][1];
+  const place = (x: number, y: number, h: number): Vec3 => {
+    const out: Vec3 = [...center];
+    out[u] += (x / maxR) * (size[u] / 2);
+    out[v] += (y / maxR) * (size[v] / 2);
+    out[along] += ((h - (h0 + h1) / 2) / (h1 - h0)) * size[along];
+    return out;
+  };
+  const rings = profile.map(([r, h]) => (r > 0
+    ? Array.from({ length: LATHE_SEGMENTS }, (_, j) => {
+      const a = (j / LATHE_SEGMENTS) * Math.PI * 2;
+      return place(r * Math.cos(a), r * Math.sin(a), h);
+    })
+    : [place(0, 0, h)]));
+  const faces: Vec3[][] = [];
+  if (rings[0].length > 1) faces.push([...rings[0]].reverse());
+  for (let i = 0; i < rings.length - 1; i += 1) {
+    const [lo, hi] = [rings[i], rings[i + 1]];
+    for (let j = 0; j < LATHE_SEGMENTS; j += 1) {
+      const k = (j + 1) % LATHE_SEGMENTS;
+      if (lo.length === 1) faces.push([lo[0], hi[k], hi[j]]);
+      else if (hi.length === 1) faces.push([lo[j], lo[k], hi[0]]);
+      else faces.push(...planar([lo[j], lo[k], hi[k], hi[j]]));
+    }
+  }
+  if (rings[rings.length - 1].length > 1) faces.push(rings[rings.length - 1]);
+  // The (u, v, axis) frame is left-handed for axis y; turn every face round when the solid came out inside-out.
+  let volume = 0;
+  for (const f of faces) {
+    for (let k = 1; k < f.length - 1; k += 1) {
+      const [p, q, s] = [f[0], f[k], f[k + 1]];
+      volume += p[0] * (q[1] * s[2] - q[2] * s[1]) - p[1] * (q[0] * s[2] - q[2] * s[0]) + p[2] * (q[0] * s[1] - q[1] * s[0]);
+    }
+  }
+  return volume < 0 ? faces.map((f) => [...f].reverse()) : faces;
 }
 
 const SMOOTH_POINTS = 64;
@@ -1349,6 +1752,34 @@ function loftPart(spec: CustomPartSpec, id: string, scale: Vec3, shift: Vec3): M
   return { id, name: spec.name, size_mm: hi.map((n, k) => n - lo[k]) as Vec3, position_mm: hi.map((n, k) => (n + lo[k]) / 2) as Vec3, faces_mm: faces };
 }
 
+/**
+ * Tube cross-section, counter-clockwise, centred on the bounding box. oval = flat oval (two half
+ * circles joined by straight sides); angle = L with legs along −a and −b; channel = U open toward +b.
+ */
+function sectionRing(section: NonNullable<CustomPartSpec['section']>, w: number, d: number, wall: number): [number, number][] {
+  const [x0, x1, y0, y1] = [-w / 2, w / 2, -d / 2, d / 2];
+  if (section === 'round') return ellipse(w / 2, d / 2, 16);
+  if (section === 'oval') {
+    const r = Math.min(w, d) / 2;
+    const cx = Math.max(0, w / 2 - r), cy = Math.max(0, d / 2 - r);
+    const out: [number, number][] = [];
+    // Four quarter arcs; along the long side their centres sit apart, which leaves the straight sides.
+    [[cx, cy, 0], [-cx, cy, 1], [-cx, -cy, 2], [cx, -cy, 3]].forEach(([ox, oy, q]) => {
+      for (let i = 0; i <= 4; i += 1) {
+        if (i === 0 && cx === 0 && cy === 0 && q > 0) continue;
+        const a = ((q + i / 4) * Math.PI) / 2;
+        out.push([ox + r * Math.cos(a), oy + r * Math.sin(a)]);
+      }
+    });
+    return out.filter((p, i) => { const q = out[(i + 1) % out.length]; return Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-6; });
+  }
+  const t = Math.min(wall, Math.min(w, d) / 2 - 0.5);
+  if (section === 'angle') return [[x0, y0], [x1, y0], [x1, y0 + t], [x0 + t, y0 + t], [x0 + t, y1], [x0, y1]];
+  // Opens toward +first axis (up on a non-vertical path), like a cable tray or U rail.
+  if (section === 'channel') return [[x0, y0], [x1, y0], [x1, y0 + t], [x0 + t, y0 + t], [x0 + t, y1 - t], [x1, y1 - t], [x1, y1], [x0, y1]];
+  return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+}
+
 /** Parallel-transported frames avoid twisting when a tube bends across several axes. */
 function sweepPart(spec: CustomPartSpec, id: string, scale: Vec3, shift: Vec3): ModelPart {
   const path = spec.path_mm!;
@@ -1375,7 +1806,7 @@ function sweepPart(spec: CustomPartSpec, id: string, scale: Vec3, shift: Vec3): 
     const u = unit(projected); previous = u;
     const v = cross(tangent, u);
     const dims = spec.section_mm!.map((n, k) => n + ((spec.end_section_mm ?? spec.section_mm!)[k] - n) * distance / total);
-    const ring: [number, number][] = spec.section === 'round' ? ellipse(dims[0] / 2, dims[1] / 2, 16) : [[-dims[0]/2,-dims[1]/2],[dims[0]/2,-dims[1]/2],[dims[0]/2,dims[1]/2],[-dims[0]/2,dims[1]/2]];
+    const ring = sectionRing(spec.section ?? 'rect', dims[0], dims[1], spec.section_thickness_mm ?? 0);
     return ring.map(([a,b]) => p.map((n,k) => (spec.center_mm[k] - shift[k] + (n + u[k]*a + v[k]*b)*(spec.geometry_scale?.[k] ?? 1))*scale[k]) as Vec3);
   });
   const faces: Vec3[][] = [[...rings[0]].reverse(), rings[rings.length - 1]];
@@ -1442,6 +1873,19 @@ export function scaleLoft(spec: CustomPartSpec, k: number, ratio: number): Custo
   return out;
 }
 
+/** Sets the part's own length along local axis j; a profile's outline and holes scale with it. */
+function resizeLocal(spec: CustomPartSpec, j: number, length: number): CustomPartSpec {
+  const ratio = spec.size_mm[j] > 0 ? length / spec.size_mm[j] : 1;
+  const out: CustomPartSpec = { ...spec, size_mm: spec.size_mm.map((n, i) => (i === j ? length : n)) as Vec3 };
+  if (spec.shape === 'profile' && spec.points_mm && spec.axis && AXIS_INDEX[spec.axis] !== j) {
+    const i = PLANE[spec.axis].indexOf(j as 0 | 1 | 2);
+    const scale2 = (pts: [number, number][]) => pts.map((pt) => pt.map((n, q) => (q === i ? n * ratio : n)) as [number, number]);
+    out.points_mm = scale2(spec.points_mm);
+    if (spec.holes_mm) out.holes_mm = spec.holes_mm.map(scale2);
+  }
+  return out;
+}
+
 export function moveAlong(spec: CustomPartSpec, k: number, delta: number): CustomPartSpec {
   const center_mm = [...spec.center_mm] as Vec3;
   center_mm[k] = round(center_mm[k] + delta);
@@ -1476,12 +1920,35 @@ export function stretchAlong(spec: CustomPartSpec, k: number, lo: number, hi: nu
     const b = specBounds(out);
     return moveAlong(out, k, lo - b.min[k]);
   }
+  if (spec.rotation_deg || (spec.bulge_mm && k === 2)) {
+    // A turned part grows along its own axes: lengthen the one that reaches furthest along k until the bounds fit.
+    const turn = spec.rotation_deg ? rotateAbout(spec.rotation_deg, [0, 0, 0]) : (p: Vec3) => p;
+    const reach = [0, 1, 2].map((j) => {
+      const e: Vec3 = [0, 0, 0];
+      e[j] = 1;
+      return Math.abs(turn(e)[k]) * spec.size_mm[j];
+    });
+    const j = reach.indexOf(Math.max(...reach));
+    if (reach[j] < 1) return null;
+    const withLength = (len: number) => resizeLocal(spec, j, Math.max(3, len));
+    const extent = (len: number) => { const b = specBounds(withLength(len)); return b.max[k] - b.min[k]; };
+    let l0 = spec.size_mm[j], f0 = oldSize - size;
+    let l1 = Math.max(3, l0 + (size - oldSize) * (spec.size_mm[j] / reach[j])), f1 = extent(l1) - size;
+    for (let i = 0; i < 8 && Math.abs(f1) > 0.01 && Math.abs(f1 - f0) > 1e-9; i++) {
+      const l2 = Math.max(3, l1 - (f1 * (l1 - l0)) / (f1 - f0));
+      l0 = l1; f0 = f1; l1 = l2; f1 = extent(l1) - size;
+    }
+    const out = withLength(l1);
+    return moveAlong(out, k, lo - specBounds(out).min[k]);
+  }
   const out: CustomPartSpec = { ...spec, size_mm: [...spec.size_mm] as Vec3, center_mm: [...spec.center_mm] as Vec3 };
   out.size_mm[k] = round(size);
   if (spec.shape === 'profile' && spec.points_mm && spec.axis && AXIS_INDEX[spec.axis] !== k) {
     const j = PLANE[spec.axis].indexOf(k);
     const ratio = oldSize > 0 ? size / oldSize : 1;
-    out.points_mm = spec.points_mm.map((pt) => pt.map((n, i) => (i === j ? round(n * ratio) : n)) as [number, number]);
+    const scale2 = (pts: [number, number][]) => pts.map((pt) => pt.map((n, i) => (i === j ? round(n * ratio) : n)) as [number, number]);
+    out.points_mm = scale2(spec.points_mm);
+    if (spec.holes_mm) out.holes_mm = spec.holes_mm.map(scale2);
   }
   const after = specBounds(out);
   out.center_mm[k] = round(out.center_mm[k] + lo - after.min[k]);
@@ -1550,8 +2017,8 @@ export function fitCustomPartsWithConstraints(specs: CustomPartSpec[], w: number
   };
   const parts = specs.map((spec, i) => {
     let out = apply(spec, plans[i], true);
-    // A slanted tube stretched along one axis also changes its extent on the others.
-    for (let pass = 0; out.shape === 'sweep' && pass < 6; pass++) {
+    // A slanted tube or turned part stretched along one axis also changes its extent on the others.
+    for (let pass = 0; (out.shape === 'sweep' || out.rotation_deg) && pass < 6; pass++) {
       const cur = specBounds(out);
       const off = plans[i].some((step, k) => step && (step.stretch
         ? Math.abs(cur.min[k] - step.lo) > 0.05 || Math.abs(cur.max[k] - step.hi) > 0.05

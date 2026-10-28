@@ -17,6 +17,7 @@ import {
   FURNITURE_KINDS,
   buildParametric,
   faceNormal,
+  partAppearance,
   partFaces,
   sanitizeCustomParts,
   resolveStyle,
@@ -97,8 +98,13 @@ function drawPreview(canvas: HTMLCanvasElement, model: ParametricModel) {
   ctx.fillStyle = '#f4f4f5';
   ctx.fillRect(0, 0, width, height);
   const raw = (x: number, y: number, z: number) => ({ x: x + y * 0.45, y: -(z + y * 0.3) });
-  const faces = model.components.flatMap((part) => (part.faces_mm?.length ? part.faces_mm : partFaces(part)));
-  const projected = faces.flatMap((face) => face.map(([x, y, z]) => raw(x, y, z)));
+  const faces = model.components.flatMap((part) => {
+    const look = partAppearance(part);
+    const rgb = [1, 3, 5].map((i) => parseInt(look.color.slice(i, i + 2), 16));
+    const all = part.faces_mm?.length ? part.faces_mm : partFaces(part);
+    return all.map((face, i) => ({ face, holes: part.face_holes_mm?.[i] ?? [], rgb, opacity: look.opacity }));
+  });
+  const projected = faces.flatMap(({ face }) => face.map(([x, y, z]) => raw(x, y, z)));
   const minX = Math.min(...projected.map((p) => p.x));
   const maxX = Math.max(...projected.map((p) => p.x));
   const minY = Math.min(...projected.map((p) => p.y));
@@ -109,19 +115,21 @@ function drawPreview(canvas: HTMLCanvasElement, model: ParametricModel) {
   const depth = (face: Vec3[]) => face.reduce((sum, [, y, z]) => sum + y - z * 0.2, 0) / face.length;
   ctx.lineWidth = 1;
   ctx.strokeStyle = '#44403c';
-  for (const face of [...faces].sort((a, b) => depth(b) - depth(a))) {
-    const shade = 0.25 + 0.2 * Math.abs(faceNormal(face)[2]);
+  for (const { face, holes, rgb, opacity } of [...faces].sort((a, b) => depth(b.face) - depth(a.face))) {
+    const light = 0.7 + 0.3 * Math.abs(faceNormal(face)[2]);
     ctx.beginPath();
-    face.forEach(([x, y, z], index) => {
-      const p = raw(x, y, z);
-      const sx = offX + p.x * scale;
-      const sy = offY + p.y * scale;
-      if (index === 0) ctx.moveTo(sx, sy);
-      else ctx.lineTo(sx, sy);
-    });
-    ctx.closePath();
-    ctx.fillStyle = `rgba(120, 113, 108, ${shade})`;
-    ctx.fill();
+    for (const loop of [face, ...holes]) {
+      loop.forEach(([x, y, z], index) => {
+        const p = raw(x, y, z);
+        const sx = offX + p.x * scale;
+        const sy = offY + p.y * scale;
+        if (index === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      ctx.closePath();
+    }
+    ctx.fillStyle = `rgba(${rgb.map((c) => Math.round(c * light)).join(', ')}, ${opacity})`;
+    ctx.fill('evenodd');
     ctx.stroke();
   }
 }

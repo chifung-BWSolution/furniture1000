@@ -7,6 +7,7 @@ import { confirm } from '@/components/ui/confirm-dialog';
 import { usePlatformRole } from '@/hooks/use-platform-role';
 import { canManageSkpWorkers } from './navConfig';
 import {
+  CURRENT_SKP_WORKER_VERSION,
   decideSkpPairing,
   listSkpDevices,
   lookupSkpPairing,
@@ -214,7 +215,7 @@ export function SkpWorkersView() {
                     <dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
                       <div><dt className="text-muted-foreground">環境</dt><dd>{skpEnvironmentLabel(row.environment)}</dd></div>
                       <div><dt className="text-muted-foreground">狀態</dt><dd>{statusLabel(row.status)}</dd></div>
-                      <div><dt className="text-muted-foreground">版本</dt><dd>{row.workerVersion || '—'}</dd></div>
+                      <div><dt className="text-muted-foreground">版本</dt><dd>{row.workerVersion || '—'}{row.workerVersion && row.workerVersion !== CURRENT_SKP_WORKER_VERSION && <span className="ml-1.5 text-amber-600">需更新（重新執行最新安裝程式）</span>}</dd></div>
                       <div><dt className="text-muted-foreground">授權者</dt><dd>{row.approverEmail || '—'}</dd></div>
                       <div><dt className="text-muted-foreground">批准時間</dt><dd>{when(row.approvedAt)}</dd></div>
                       <div><dt className="text-muted-foreground">憑證到期</dt><dd>{when(row.expiresAt)}</dd></div>
