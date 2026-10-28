@@ -32,6 +32,15 @@ import type { SourcePageRequest } from '@/lib/sourcePage';
 import { fetchEmbeddingStatus, searchByImage, startImageIndex, type EmbeddingStatus } from '@/lib/imageSearch';
 import { supabase } from '@/lib/supabase';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
+import {
+  acknowledgeFurnitureRecognition,
+  cancelFurnitureRecognition,
+  collectRecognitionUrls,
+  enqueueFurnitureRecognition,
+  fetchFurnitureRecognition,
+  kickFurnitureRecognition,
+  type FurnitureRecognitionStatus,
+} from '@/lib/furnitureRecognitionJob';
 import { buildFurnitureGlb } from '@/lib/furnitureGlb';
 import { buildFurnitureFbx } from '@/lib/furnitureFbx';
 import { ProductWorkbench } from '@/components/dashboard/ProductWorkbench';
@@ -88,6 +97,7 @@ import {
   inferShelfTiers,
   resolveStyle,
   sanitizeCustomParts,
+  scaleLoft,
   type CustomPartSpec,
   type FurnitureKind,
   type ModelStyle,
@@ -1308,6 +1318,8 @@ type ImageAnalysis = {
   dimension_estimates?: DimensionEstimate[];
   /** Sizes printed on the photos, read by the AI with raw text and image position. */
   labelled_dimensions?: unknown;
+  supported?: boolean;
+  reason?: string;
 };
 
 type AnalysisRequest = {
@@ -1574,18 +1586,30 @@ function ProductModelsSection({
   const [pendingModelNote, setPendingModelNote] = useState('');
   const [extraPhotos, setExtraPhotos] = useState<File[]>([]);
   const [scopeChoice, setScopeChoice] = useState<ProductScopeChoice>();
-  const [scopeRequest, setScopeRequest] = useState<{ target: ModelTarget | 'parts'; detection: ProductCountDetection } | null>(null);
+  const [scopeRequest, setScopeRequest] = useState<{ target: ModelTarget | 'parts'; detection: ProductCountDetection; jobId?: string } | null>(null);
+  /** Background recognition for this product. Survives leaving the page. */
+  const [recognition, setRecognition] = useState<FurnitureRecognitionStatus | null>(null);
+  const recognitionUrlsRef = useRef<string[]>([]);
+  const appliedRecognitionRef = useRef<string | null>(null);
+  const recognitionDraftJobRef = useRef<string | null>(null);
   const [photoRequest, setPhotoRequest] = useState<{ target: ModelTarget | 'parts'; message: string } | null>(null);
   const modelPhotos: (string | File)[] = [...extraPhotos, ...new Set((product.images ?? []).filter(src => /^https?:\/\//i.test(src)))];
   useEffect(() => {
     requestSeq.current++;
     setExtraPhotos([]); setDraft(null); setPhotoRequest(null); setSuggestion(null); setVersions(null); setReviewId(null);
+    setRecognition(null);
+    recognitionUrlsRef.current = [];
+    appliedRecognitionRef.current = null;
+    recognitionDraftJobRef.current = null;
   }, [productId]);
   useEffect(() => { setScopeChoice(undefined); setScopeRequest(null); }, [productId, extraPhotos, product.images]);
   const [genProgress, setGenProgress] = useState<{ percent: number; label: string } | null>(null);
   const skpRequirements = useSkpRequirements();
   /** Gate for the structure form: opened once the progress dialog hands over. */
   const [confirmShown, setConfirmShown] = useState(false);
+  const confirmShownRef = useRef(false);
+  confirmShownRef.current = confirmShown;
+  const kickedRecognitionRef = useRef<string | null>(null);
   const [progressFlow, setProgressFlow] = useState<ProgressFlow>('prepare');
   const creepRef = useRef<number | null>(null);
   const progressCloseRef = useRef<number | null>(null);
@@ -1601,17 +1625,6 @@ function ProductModelsSection({
 
   const showProgress = (percent: number, label: string) => {
     setGenProgress({ percent: Math.max(0, Math.min(100, Math.round(percent))), label });
-  };
-
-  /** While an AI call is in flight, ease the number forward but stop short of the next real step. */
-  const creepToward = (cap: number) => {
-    stopCreep();
-    creepRef.current = window.setInterval(() => {
-      setGenProgress((current) => {
-        if (!current || current.percent >= cap) return current;
-        return { ...current, percent: current.percent + 1 };
-      });
-    }, 450);
   };
 
   const clearProgress = () => {
@@ -1640,18 +1653,6 @@ function ProductModelsSection({
       progressCloseRef.current = null;
       setGenProgress(null);
     }, 700);
-  };
-
-  /** Hold 100%, then cross-fade into the structure form. */
-  const handoffToConfirm = () => {
-    stopCreep();
-    showProgress(100, '結構已辨認');
-    if (progressCloseRef.current != null) window.clearTimeout(progressCloseRef.current);
-    progressCloseRef.current = window.setTimeout(() => {
-      progressCloseRef.current = null;
-      setConfirmShown(true);
-      setGenProgress(null);
-    }, 420);
   };
 
   useEffect(() => () => {
@@ -1808,119 +1809,190 @@ function ProductModelsSection({
     start('fbx');
   };
 
-  /** T-801 / FR-03: read kind, parts and printed sizes, then hand the draft and its evidence to the user. */
-  const prepare = async (target: ModelTarget, choice = scopeChoice) => {
-    if (modelPhotos.length < 2) {
+  /** Turn a stored recognition into the confirm-dialog draft. No network. */
+  const materializeGuess = (guess: ImageAnalysis, target: ModelTarget, choice?: ProductScopeChoice): ModelDraft | { detection: ProductCountDetection } => {
+    if (guess.requires_product_scope_confirmation && guess.detection) return { detection: guess.detection };
+    if (guess.supported === false || !guess.kind) throw new Error(guess.reason || '無法辨認圖片');
+    const text = [product.title, product.model, product.category, product.level1_category, product.level2_category]
+      .filter(Boolean)
+      .join(' ');
+    let kind = inferFurnitureKindFrom([
+      product.level2_category,
+      product.title,
+      product.level1_category,
+      product.category,
+      product.model,
+    ]);
+    if (guess.kind) kind = guess.kind;
+    const catalog = { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm };
+    const arrangement = choice?.scope === 'arrangement';
+    const parts = ensurePartIds(sanitizeCustomParts(guess.parts));
+    const structure = hasStructureEvidence(guess.structure) ? guess.structure : undefined;
+    let style: Partial<ModelStyle> = initialModelStyle(kind, text, guess.style);
+    const tiers = kind === 'shelf' ? inferShelfTiers(text) : undefined;
+    if (tiers !== undefined && style.shelves == null) style = { ...style, shelves: tiers - 2 };
+    if (!structure) throw new Error('缺少結構辨認資料，請重新辨認圖片');
+    const partsSize = customPartsSize(parts);
+    const input: Omit<EvidenceInput, 'previous' | 'keyDimensions'> = {
+      productScope: arrangement ? 'arrangement' : 'single',
+      catalog,
+      catalogScope: guess.source_dimensions_scope,
+      aiOverall: {
+        width: guess.width_mm ?? partsSize?.[0],
+        depth: guess.depth_mm ?? partsSize?.[1],
+        height: guess.height_mm ?? partsSize?.[2],
+      },
+      estimates: guess.dimension_estimates ?? [],
+      labels: labelledDimensionsFrom(guess.labelled_dimensions),
+    };
+    evidenceInputRef.current = input;
+    let evidence = buildEvidence(input);
+    const size = OVERALL_KEYS.map((key) => valueOf(findDimension(evidence, key)!, evidence.product_scope));
+    if (size.some((n) => n == null)) throw new Error('讀不到闊、深、高，請補充有尺寸的產品資料或圖片');
+    const [width, depth, height] = size as number[];
+    const selected = selectFurnitureGeometry({ kind: kind ?? 'custom', width_mm: width, depth_mm: depth, height_mm: height, style, parts });
+    kind = selected.kind;
+    if (kind === 'custom') evidence = refreshKeyDimensions(evidence, deriveKeyDimensions(fitCustomPartsWithConstraints(parts, width, depth, height).parts));
+    const notes = `${selected.templateMatched ? '部件形狀與模板吻合。' : '按圖片實際部件建模，未套用固定模板。'}${guess.structure_notes ?? ''}`;
+    return {
+      structure,
+      target,
+      kind,
+      width: String(width),
+      depth: String(depth),
+      height: String(height),
+      estimated: estimatedOverallAxes(evidence),
+      style,
+      styleSource: 'image',
+      notes,
+      parts,
+      dimensionEstimates: input.estimates,
+      evidence,
+      parentId: null,
+    };
+  };
+
+  const dismissRecognition = (jobId?: string | null) => {
+    const id = jobId ?? recognitionDraftJobRef.current;
+    if (!id) return;
+    if (recognitionDraftJobRef.current === id) recognitionDraftJobRef.current = null;
+    appliedRecognitionRef.current = id;
+    void acknowledgeFurnitureRecognition(id).catch(() => undefined);
+    setRecognition((current) => (current?.jobId === id ? null : current));
+  };
+
+  const openRecognitionResult = (status: FurnitureRecognitionStatus) => {
+    if (!status.jobId || !status.result || status.target == null) return;
+    if (appliedRecognitionRef.current === status.jobId) return;
+    if (confirmShownRef.current && draftRef.current && recognitionDraftJobRef.current == null) return;
+    appliedRecognitionRef.current = status.jobId;
+    if (status.imageUrls.length > 0) recognitionUrlsRef.current = status.imageUrls;
+    const choice: ProductScopeChoice | undefined = status.productScope === 'arrangement' && status.productCount
+      ? { scope: 'arrangement', count: status.productCount }
+      : status.productScope === 'single'
+        ? { scope: 'single', count: 1 }
+        : undefined;
+    if (choice) setScopeChoice(choice);
+    try {
+      const built = materializeGuess(status.result as ImageAnalysis, status.target, choice);
+      if ('detection' in built) {
+        recognitionDraftJobRef.current = null;
+        setScopeRequest({ target: status.target, detection: built.detection, jobId: status.jobId });
+        return;
+      }
+      setSuggestion(null);
+      setReuse(null);
+      setDraft(built);
+      setConfirmShown(true);
+      recognitionDraftJobRef.current = status.jobId;
+    } catch (err) {
+      recognitionDraftJobRef.current = null;
+      toast.error('辨認結果無法打開', { description: errorText(err) });
+      void acknowledgeFurnitureRecognition(status.jobId).catch(() => undefined);
+    }
+  };
+  const openRecognitionRef = useRef(openRecognitionResult);
+  openRecognitionRef.current = openRecognitionResult;
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    const tick = async () => {
+      try {
+        const status = await fetchFurnitureRecognition(productId);
+        if (cancelled) return;
+        setRecognition(status.status === 'none' ? null : status);
+        if (status.imageUrls.length > 0) recognitionUrlsRef.current = status.imageUrls;
+        if ((status.status === 'queued' || status.status === 'running') && status.jobId) {
+          if (kickedRecognitionRef.current !== status.jobId) {
+            kickedRecognitionRef.current = status.jobId;
+            kickFurnitureRecognition(status.jobId);
+          }
+          timer = window.setTimeout(() => void tick(), 4000);
+          return;
+        }
+        if (status.status === 'succeeded') openRecognitionRef.current(status);
+      } catch {
+        if (!cancelled) timer = window.setTimeout(() => void tick(), 8000);
+      }
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [productId]);
+
+  /** Queue image recognition. The confirm dialog opens when the job finishes, even after leaving this page. */
+  const prepare = async (target: ModelTarget, choice = scopeChoice, reuseUrls = false) => {
+    const stored = reuseUrls ? recognitionUrlsRef.current : [];
+    if (stored.length < 2 && modelPhotos.length < 2) {
       setPhotoRequest({ target, message: `目前只有 ${modelPhotos.length} 張候選圖片，最少需要 2 張不同角度圖片。` });
       return;
     }
     const seq = ++requestSeq.current;
     setBusy(target);
     setConfirmShown(false);
-    clearProgress();
-    setProgressFlow('prepare');
-    showProgress(8, modelTargetAction(target, '生成'));
     try {
       if (target === 'skp') {
-        showProgress(8, '檢查 SKP 生成環境');
-        if (!await skpRequirements.check() || seq !== requestSeq.current) {
-          if (seq === requestSeq.current) clearProgress();
-          return;
-        }
+        if (!await skpRequirements.check() || seq !== requestSeq.current) return;
       }
-      const text = [product.title, product.model, product.category, product.level1_category, product.level2_category]
-        .filter(Boolean)
-        .join(' ');
-      let kind = inferFurnitureKindFrom([
-        product.level2_category,
-        product.title,
-        product.level1_category,
-        product.category,
-        product.model,
-      ]);
-      const catalog = { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm };
-      const arrangement = choice?.scope === 'arrangement';
-      showProgress(34, '辨認產品圖');
-      creepToward(70);
-      const controller = new AbortController();
-      progressAbortRef.current = controller;
-      let guess: ImageAnalysis | null;
-      try {
-        guess = await analyzeProductImages(modelPhotos, {
-          product_scope: choice?.scope,
-          product_count: choice?.count,
-          title: [product.model, product.title].filter(Boolean).join(' '),
-          width_mm: arrangement ? null : catalog.width,
-          depth_mm: arrangement ? null : catalog.depth,
-          height_mm: arrangement ? null : catalog.height,
-        }, controller.signal);
-      } finally {
-        stopCreep();
-        if (progressAbortRef.current === controller) progressAbortRef.current = null;
-      }
+      const urls = stored.length >= 2 ? stored : await collectRecognitionUrls(productId, modelPhotos);
       if (seq !== requestSeq.current) return;
-      if (guess?.requires_product_scope_confirmation && guess.detection) {
-        clearProgress();
-        setScopeRequest({ target, detection: guess.detection });
+      if (urls.length < 2) {
+        setPhotoRequest({ target, message: `只有 ${urls.length} 張可讀取的不同圖片，請補充至最少 2 張` });
         return;
       }
-      if (!guess) throw new Error('無法辨認圖片');
-      if (guess.kind) kind = guess.kind;
-      const parts = ensurePartIds(sanitizeCustomParts(guess.parts));
-      const structure = hasStructureEvidence(guess.structure) ? guess.structure : undefined;
-      let style: Partial<ModelStyle> = initialModelStyle(kind, text, guess.style);
-      showProgress(82, '整理結構');
-      const tiers = kind === 'shelf' ? inferShelfTiers(text) : undefined;
-      if (tiers !== undefined && style.shelves == null) style = { ...style, shelves: tiers - 2 };
-      if (!structure) throw new Error('缺少結構辨認資料，請重新辨認圖片');
-      const partsSize = customPartsSize(parts);
-      const input: Omit<EvidenceInput, 'previous' | 'keyDimensions'> = {
-        productScope: arrangement ? 'arrangement' : 'single',
-        catalog,
-        catalogScope: guess.source_dimensions_scope,
-        aiOverall: {
-          width: guess.width_mm ?? partsSize?.[0],
-          depth: guess.depth_mm ?? partsSize?.[1],
-          height: guess.height_mm ?? partsSize?.[2],
-        },
-        estimates: guess.dimension_estimates ?? [],
-        labels: labelledDimensionsFrom(guess.labelled_dimensions),
-      };
-      evidenceInputRef.current = input;
-      let evidence = buildEvidence(input);
-      const size = OVERALL_KEYS.map((key) => valueOf(findDimension(evidence, key)!, evidence.product_scope));
-      if (size.some((n) => n == null)) throw new Error('讀不到闊、深、高，請補充有尺寸的產品資料或圖片');
-      const [width, depth, height] = size as number[];
-      const selected = selectFurnitureGeometry({ kind: kind ?? 'custom', width_mm: width, depth_mm: depth, height_mm: height, style, parts });
-      kind = selected.kind;
-      if (kind === 'custom') evidence = refreshKeyDimensions(evidence, deriveKeyDimensions(fitCustomPartsWithConstraints(parts, width, depth, height).parts));
-      const notes = `${selected.templateMatched ? '部件形狀與模板吻合。' : '按圖片實際部件建模，未套用固定模板。'}${guess.structure_notes ?? ''}`;
-      setSuggestion(null);
-      setDraft({
-        structure,
+      recognitionUrlsRef.current = urls;
+      const arrangement = choice?.scope === 'arrangement';
+      const catalog = { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm };
+      const queued = await enqueueFurnitureRecognition({
+        productId,
         target,
-        kind,
-        width: String(width),
-        depth: String(depth),
-        height: String(height),
-        estimated: estimatedOverallAxes(evidence),
-        style,
-        styleSource: 'image',
-        notes,
-        parts,
-        dimensionEstimates: input.estimates,
-        evidence,
-        parentId: null,
+        imageUrls: urls,
+        title: [product.model, product.title].filter(Boolean).join(' '),
+        widthMm: arrangement ? null : catalog.width,
+        depthMm: arrangement ? null : catalog.depth,
+        heightMm: arrangement ? null : catalog.height,
+        productScope: choice?.scope ?? null,
+        productCount: choice?.scope === 'arrangement' ? choice.count : null,
       });
-      handoffToConfirm();
+      if (seq !== requestSeq.current) return;
+      if (queued.alreadyQueued) toast('這件產品正在辨認，完成後會打開確認');
+      kickFurnitureRecognition(queued.jobId);
+      kickedRecognitionRef.current = queued.jobId;
+      setRecognition({
+        jobId: queued.jobId,
+        status: 'queued',
+        target,
+        error: null,
+        result: null,
+        imageUrls: urls,
+        productScope: choice?.scope ?? null,
+        productCount: choice?.scope === 'arrangement' ? choice.count : null,
+      });
     } catch (err) {
       if (seq !== requestSeq.current) return;
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        clearProgress();
-        return;
-      }
-      clearProgress();
-      setConfirmShown(false);
       if ((err as { code?: string })?.code === 'reference_images_required') setPhotoRequest({ target, message: errorText(err) });
       else toast.error(`${modelTargetAction(target, '生成')}失敗`, { description: errorText(err) });
     } finally {
@@ -2110,6 +2182,7 @@ function ProductModelsSection({
         const ratio = n / part.size_mm[axis];
         const size_mm = part.size_mm.map((v, k) => (k === axis ? n : v)) as CustomPartSpec['size_mm'];
         if (part.shape === 'sweep') return { ...part, size_mm, geometry_scale: [0, 1, 2].map(k => (part.geometry_scale?.[k] ?? 1) * (k === axis ? ratio : 1)) as [number, number, number] };
+        if (part.shape === 'loft') return scaleLoft(part, axis, ratio);
         if (!part.points_mm || !part.axis) return { ...part, size_mm };
         // A profile's outline is its shape across the axis; stretch it with the size.
         const cross = PART_PLANE[part.axis];

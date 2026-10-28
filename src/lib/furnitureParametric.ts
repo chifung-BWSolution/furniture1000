@@ -144,14 +144,21 @@ export interface ParametricModel {
  */
 export interface CustomPartSpec {
   name: string;
-  shape: 'box' | 'cylinder' | 'profile' | 'sweep';
+  shape: 'box' | 'cylinder' | 'profile' | 'sweep' | 'loft';
   /** Bounding lengths along x, y, z. */
   size_mm: Vec3;
   center_mm: Vec3;
-  /** cylinder: the direction of its length (default z). profile: the extrusion direction. */
+  /** cylinder: the direction of its length (default z). profile／loft: the extrusion direction. */
   axis?: 'x' | 'y' | 'z';
   /** profile only: outline across the axis, relative to the centre (z → (x,y), y → (x,z), x → (y,z)). */
   points_mm?: [number, number][];
+  /**
+   * loft only: outlines across the axis at increasing offsets `at` from the centre, joined in order.
+   * Every section has the same number of points, starting at the same corner and running the same way.
+   */
+  sections_mm?: LoftSection[];
+  /** profile／loft: the points are control points of a smooth closed curve, not polygon corners. */
+  smooth?: boolean;
   /** Sweep centreline, relative to center_mm; two points = straight/slanted support. */
   path_mm?: Vec3[];
   section?: 'round' | 'rect';
@@ -172,8 +179,13 @@ export interface CustomPartSpec {
 
 export type PartAxis = 'x' | 'y' | 'z';
 
+export interface LoftSection {
+  at: number;
+  points_mm: [number, number][];
+}
+
 /** Bump when the same parameters would produce different geometry. */
-export const PARAMETRIC_ENGINE_VERSION = 'fds-parametric-2';
+export const PARAMETRIC_ENGINE_VERSION = 'fds-parametric-3';
 
 export const MAX_CUSTOM_PARTS = 40;
 
@@ -1078,7 +1090,7 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
     const center = Array.isArray(r.center_mm) ? r.center_mm.slice(0, 3) : [];
     if (size.length !== 3 || center.length !== 3 || !size.every(finite) || !center.every(finite)) throw invalid();
     if (!size.every((n) => n >= 3 && n <= 10000) || !center.every((n) => Math.abs(n) <= 10000)) throw invalid();
-    if (!['box', 'cylinder', 'profile', 'sweep'].includes(String(r.shape))) throw invalid();
+    if (!['box', 'cylinder', 'profile', 'sweep', 'loft'].includes(String(r.shape))) throw invalid();
     const shape = r.shape as CustomPartSpec['shape'];
     const axisValue = r.axis === 'x' || r.axis === 'y' || r.axis === 'z' ? r.axis : undefined;
     const spec: CustomPartSpec = {
@@ -1132,9 +1144,31 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
       if (axisValue && simpleOutline(points)) {
         spec.axis = axisValue;
         spec.points_mm = points;
+        if (r.smooth === true) spec.smooth = true;
       } else {
         throw new Error(`部件「${spec.name}」輪廓無效，請重新辨認部件`);
       }
+    }
+    if (shape === 'loft') {
+      const badLoft = () => new Error(`部件「${spec.name}」截面無效，請重新辨認部件`);
+      const raws = Array.isArray(r.sections_mm) ? r.sections_mm : [];
+      if (!axisValue || raws.length < 2 || raws.length > 12) throw badLoft();
+      const sections = raws.map((s) => {
+        const row = (s && typeof s === 'object' ? s : {}) as Record<string, unknown>;
+        if (!finite(row.at) || Math.abs(row.at) > 10000 || !Array.isArray(row.points_mm) || row.points_mm.some((p) =>
+          !Array.isArray(p) || p.length !== 2 || !p.every((n) => finite(n) && Math.abs(n) <= 10000))) throw badLoft();
+        const points = (row.points_mm as [number, number][]).map(([u, v]) => [u, v] as [number, number]);
+        if (!simpleOutline(points)) throw badLoft();
+        return { at: row.at, points_mm: points };
+      });
+      const count = sections[0].points_mm.length;
+      const winding = Math.sign(polygonArea(sections[0].points_mm));
+      if (sections.some((s, i) => s.points_mm.length !== count || Math.sign(polygonArea(s.points_mm)) !== winding
+        || (i > 0 && s.at - sections[i - 1].at < 1))) throw badLoft();
+      spec.axis = axisValue;
+      spec.sections_mm = sections;
+      if (r.smooth === true) spec.smooth = true;
+      spec.size_mm = loftPart(spec, 'checked', [1, 1, 1], [0, 0, 0]).size_mm;
     }
     out.push(spec);
   }
@@ -1162,14 +1196,78 @@ function specPart(spec: CustomPartSpec, index: number, scale: Vec3, shift: Vec3)
   const center = spec.center_mm.map((n, i) => (n - shift[i]) * scale[i]) as Vec3;
   const id = `part-${index + 1}`;
   if (spec.shape === 'sweep') return sweepPart(spec, id, scale, shift);
+  if (spec.shape === 'loft') return loftPart(spec, id, scale, shift);
   if (spec.shape === 'box') return part(id, spec.name, size, center);
   const along = spec.axis ?? 'z';
   const [u, v] = PLANE[along];
+  const scaled = (spec.points_mm ?? []).map(([a, b]) => [a * scale[u], b * scale[v]] as [number, number]);
   const points =
     spec.shape === 'cylinder'
       ? ellipse(size[u] / 2, size[v] / 2, 20)
-      : (spec.points_mm ?? []).map(([a, b]) => [a * scale[u], b * scale[v]] as [number, number]);
+      : spec.smooth ? smoothOutline(scaled) : scaled;
   return part(id, spec.name, size, center, { axis: along, points_mm: points });
+}
+
+const SMOOTH_POINTS = 64;
+
+/**
+ * Closed centripetal Catmull-Rom through every control point. Centripetal spacing does not
+ * loop or overshoot where control points crowd together, so a tight corner stays a corner.
+ */
+export function smoothOutline(points: [number, number][]): [number, number][] {
+  const n = points.length;
+  const steps = Math.max(1, Math.floor(SMOOTH_POINTS / n));
+  if (steps === 1) return points;
+  const out: [number, number][] = [];
+  const lerp = (p: [number, number], q: [number, number], ta: number, tb: number, t: number): [number, number] =>
+    tb - ta < 1e-9 ? p : [p[0] + (q[0] - p[0]) * (t - ta) / (tb - ta), p[1] + (q[1] - p[1]) * (t - ta) / (tb - ta)];
+  const knot = (p: [number, number], q: [number, number]) => Math.sqrt(Math.hypot(q[0] - p[0], q[1] - p[1]));
+  for (let i = 0; i < n; i += 1) {
+    const p0 = points[(i - 1 + n) % n], p1 = points[i], p2 = points[(i + 1) % n], p3 = points[(i + 2) % n];
+    const t1 = knot(p0, p1), t2 = t1 + knot(p1, p2), t3 = t2 + knot(p2, p3);
+    for (let s = 0; s < steps; s += 1) {
+      const t = t1 + ((t2 - t1) * s) / steps;
+      const a1 = lerp(p0, p1, 0, t1, t), a2 = lerp(p1, p2, t1, t2, t), a3 = lerp(p2, p3, t2, t3, t);
+      out.push(lerp(lerp(a1, a2, 0, t2, t), lerp(a2, a3, t1, t3, t), t1, t2, t));
+    }
+  }
+  return out;
+}
+
+/** Sections joined in order; side quads that are not flat are split so every exporter gets planar faces. */
+function loftPart(spec: CustomPartSpec, id: string, scale: Vec3, shift: Vec3): ModelPart {
+  const along = AXIS_INDEX[spec.axis!];
+  const [u, v] = PLANE[spec.axis!];
+  let rings = spec.sections_mm!.map((section) => {
+    const flat = section.points_mm.map(([a, b]) => [a * scale[u], b * scale[v]] as [number, number]);
+    return (spec.smooth ? smoothOutline(flat) : flat).map(([a, b]) => {
+      const p = spec.center_mm.map((n, k) => (n - shift[k]) * scale[k]) as Vec3;
+      p[u] += a;
+      p[v] += b;
+      p[along] += section.at * scale[along];
+      return p;
+    });
+  });
+  if (newellNormal(rings[0])[along] < 0) rings = rings.map((ring) => [...ring].reverse());
+  const faces: Vec3[][] = [[...rings[0]].reverse(), rings[rings.length - 1]];
+  const sub = (a: Vec3, b: Vec3) => a.map((n, k) => n - b[k]) as Vec3;
+  for (let i = 0; i < rings.length - 1; i += 1) {
+    const [lo, hi] = [rings[i], rings[i + 1]];
+    for (let j = 0; j < lo.length; j += 1) {
+      const k = (j + 1) % lo.length;
+      const [a, b, c, d] = [lo[j], lo[k], hi[k], hi[j]];
+      const e1 = sub(b, a), e2 = sub(c, a);
+      const nrm: Vec3 = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      const len = Math.hypot(...nrm);
+      const off = len > 0 ? Math.abs(nrm.reduce((s, n, m) => s + n * (d[m] - a[m]), 0)) / len : Infinity;
+      if (off < 0.01) faces.push([a, b, c, d]);
+      else faces.push([a, b, c], [a, c, d]);
+    }
+  }
+  const pts = faces.flat();
+  const lo = [0, 1, 2].map((k) => Math.min(...pts.map((p) => p[k])));
+  const hi = [0, 1, 2].map((k) => Math.max(...pts.map((p) => p[k])));
+  return { id, name: spec.name, size_mm: hi.map((n, k) => n - lo[k]) as Vec3, position_mm: hi.map((n, k) => (n + lo[k]) / 2) as Vec3, faces_mm: faces };
 }
 
 /** Parallel-transported frames avoid twisting when a tube bends across several axes. */
@@ -1250,6 +1348,21 @@ export function specBounds(spec: CustomPartSpec): { min: Vec3; max: Vec3 } {
   };
 }
 
+/** Scales a loft about its centre along one model axis; the smooth curve scales with its control points. */
+export function scaleLoft(spec: CustomPartSpec, k: number, ratio: number): CustomPartSpec {
+  const along = AXIS_INDEX[spec.axis!];
+  const j = along === k ? -1 : PLANE[spec.axis!].indexOf(k);
+  const out: CustomPartSpec = {
+    ...spec,
+    sections_mm: spec.sections_mm!.map((s) => ({
+      at: j === -1 ? s.at * ratio : s.at,
+      points_mm: s.points_mm.map((pt) => pt.map((n, i) => (i === j ? n * ratio : n)) as [number, number]),
+    })),
+  };
+  out.size_mm = loftPart(out, 'scaled', [1, 1, 1], [0, 0, 0]).size_mm;
+  return out;
+}
+
 export function moveAlong(spec: CustomPartSpec, k: number, delta: number): CustomPartSpec {
   const center_mm = [...spec.center_mm] as Vec3;
   center_mm[k] = round(center_mm[k] + delta);
@@ -1277,6 +1390,11 @@ export function stretchAlong(spec: CustomPartSpec, k: number, lo: number, hi: nu
     const out = withRatio(r1);
     const b = specBounds(out);
     out.size_mm = b.max.map((n, j) => round(n - b.min[j])) as Vec3;
+    return moveAlong(out, k, lo - b.min[k]);
+  }
+  if (spec.shape === 'loft') {
+    const out = scaleLoft(spec, k, oldSize > 0 ? size / oldSize : 1);
+    const b = specBounds(out);
     return moveAlong(out, k, lo - b.min[k]);
   }
   const out: CustomPartSpec = { ...spec, size_mm: [...spec.size_mm] as Vec3, center_mm: [...spec.center_mm] as Vec3 };

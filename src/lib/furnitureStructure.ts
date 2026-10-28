@@ -154,8 +154,8 @@ export function validateFurnitureStructure(model: ParametricModel, evidence: Str
   boxes.forEach((b, i) => { if (b.min.z <= 3 && b.min.z >= -3) reached.add(i); });
   const edges: [number, number][] = [];
   specs.forEach((spec, i) => {
-    if (spec.form === 'bent' && spec.shape !== 'profile' && !(spec.shape === 'sweep' && spec.path_mm!.length > 2)) errors.push(`「${spec.name}」彎曲形狀未表達`);
-    if ((spec.form === 'slanted' || spec.form === 'tapered') && spec.shape !== 'profile' && spec.shape !== 'sweep') errors.push(`「${spec.name}」斜向或錐形結構未表達`);
+    if (spec.form === 'bent' && spec.shape !== 'profile' && !(spec.shape === 'sweep' && spec.path_mm!.length > 2) && !(spec.shape === 'loft' && spec.sections_mm!.length > 2)) errors.push(`「${spec.name}」彎曲形狀未表達`);
+    if ((spec.form === 'slanted' || spec.form === 'tapered') && !['profile', 'sweep', 'loft'].includes(spec.shape)) errors.push(`「${spec.name}」斜向或錐形結構未表達`);
     for (const j of spec.connects_to ?? []) {
       // 辨認結果常差幾毫米，接觸檢查會把能生成的模型整份擋下。只把真正碰到的接合拿來判斷有沒有懸空。
       if (j >= 0 && j < geometry.length && j !== i && touches(geometry[i], geometry[j])) edges.push([i, j]);

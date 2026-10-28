@@ -324,6 +324,9 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
  （`parent_id`、`params_hash` 去重）；`quality_status` 由伺服器按 `parametric.evidence` 推算，前端不能直接設成已驗收，
  驗收只經 `fds_review_furniture_model`（admin／uploader）。只有「已確認」的實測尺寸才固定幾何；AI 估算只能出草稿。
  改幾何引擎輸出要升 `PARAMETRIC_ENGINE_VERSION`：驗收會用目前引擎重建並比較幾何，舊版本會不一致，要靠版本號說明原因。
+ 照圖還原靠 AI 部件（`custom`），**不要**為新風格加模板參數：截面會變的零件（桌邊斜收、折板腳、錐腳）用 `loft`
+ （`sections_mm` 各截面點數相同、順序對應），曲線輪廓用 `smooth: true`（控制點 → centripetal Catmull-Rom）。
+ 模板只在 AI 部件與模板逐點一致時才採用（`selectFurnitureGeometry`）。
 - Canva（F-AI-009）：edge slug `supabase-functions-generate-canva-presentation`。
   建立簡報＝Canva AI `POST /v1/generations`（preview），先查 `GET /v1/users/me/capabilities` 的 `design_generation`。
   不用品牌模板、不用 Autofill、不需要 `CANVA_BRAND_TEMPLATE_ID`。

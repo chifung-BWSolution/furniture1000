@@ -88,7 +88,7 @@ function countLabel(kind: FurnitureKind | null, field: StyleField): string {
   if (kind === 'desk' && field === 'drawers') return '活動櫃抽屜';
   return COUNT_LABELS[field] ?? field;
 }
-const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓', sweep: '路徑件' };
+const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓', sweep: '路徑件', loft: '放樣件' };
 
 export type StructureDraft = {
   structure?: StructureEvidence;

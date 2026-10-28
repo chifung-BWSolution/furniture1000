@@ -83,6 +83,43 @@ for (const section of ['rect','round']) for (const path of [[[0,0,-200],[80,40,2
   assert.equal(recovered.length,expected.length);
   recovered.forEach((point,i)=>point.forEach((n,k)=>assert.ok(Math.abs(n-expected[i][k])<0.001,'SKP writer input must preserve the preview mesh')));
 }
+{
+  // Boat top: 10 control points, smooth; 40 mm body, edge bevelled underneath.
+  const boat = (inset) => [[-1200+inset,0],[-1150+inset,-420+inset],[-600,-560+inset],[0,-600+inset],[600,-560+inset],[1150-inset,-420+inset],[1200-inset,0],[1150-inset,420-inset],[0,600-inset],[-1150+inset,420-inset]];
+  const top = { name:'桌面', shape:'loft', role:'top', form:'panel', axis:'z', smooth:true, size_mm:[2400,1200,40], center_mm:[0,0,730], connects_to:[1,2],
+    sections_mm:[{at:-20,points_mm:boat(60)},{at:-5,points_mm:boat(0)},{at:20,points_mm:boat(0)}] };
+  // Folded plate: straight to the fold, then leaning inward and narrowing under the top.
+  const leg = (side) => ({ name:'折板腳', shape:'loft', role:'leg', form:'bent', axis:'z', size_mm:[300,700,710], center_mm:[side*700,0,355], connects_to:[0],
+    sections_mm:[
+      {at:-355,points_mm:[[side*130,-350],[side*150,-350],[side*150,350],[side*130,350]]},
+      {at:60,points_mm:[[side*130,-350],[side*150,-350],[side*150,350],[side*130,350]]},
+      {at:355,points_mm:[[side*-150,-150],[side*-130,-150],[side*-130,150],[side*-150,150]]},
+    ] });
+  const parts = p.sanitizeCustomParts([top, leg(-1), leg(1)]);
+  const model = p.buildParametric({ kind:'custom', width_mm:2400, depth_mm:1200, height_mm:750, parts:p.fitCustomParts(parts,2400,1200,750) });
+  for (const mesh of model.components) {
+    const edges=new Map();
+    for (const face of mesh.faces_mm) for(let i=0;i<face.length;i++) { const key=[face[i],face[(i+1)%face.length]].map(v=>v.map(n=>n.toFixed(5)).join(',')).sort().join('|'); edges.set(key,(edges.get(key)??0)+1); }
+    assert.ok([...edges.values()].every(n=>n===2),`Loft ${mesh.name} must be watertight`);
+  }
+  const ring = model.components[0].faces_mm[1];
+  assert.ok(ring.length >= 48, 'Smooth outline is sampled into a curve, not the 10 control points');
+  const longEdgeY = ring.filter(v=>Math.abs(v[0])<50).map(v=>Math.abs(v[1]));
+  assert.ok(longEdgeY.some(y=>y>595 && y<=601), 'The curve passes through the mid control point');
+  const bottomZ = Math.min(...model.components[0].faces_mm.flat().map(v=>v[2]));
+  const rimXs = model.components[0].faces_mm.flat().filter(v=>Math.abs(v[2]-bottomZ)<0.01).map(v=>Math.abs(v[0]));
+  assert.ok(Math.max(...rimXs) < 1200 - 50, 'The underside is inset by the bevel');
+  const size = model.components.reduce((acc,m)=>{ for(const v of m.faces_mm.flat()) for(let k=0;k<3;k++){acc[0][k]=Math.min(acc[0][k],v[k]);acc[1][k]=Math.max(acc[1][k],v[k]);} return acc; },[[Infinity,Infinity,Infinity],[-Infinity,-Infinity,-Infinity]]);
+  [2400,1200,750].forEach((n,k)=>assert.ok(Math.abs(size[1][k]-size[0][k]-n)<=1,`Loft parts fit the confirmed size on axis ${k}`));
+  const loftEvidence = { leg_count:2, part_counts:{leg:2,top:1,seat:0,back:0,arm:0,frame:0,body:0,shelf:0,other:0}, symmetric:true, uncertainties:[] };
+  const loftErrors = s.validateFurnitureStructure(model, loftEvidence);
+  assert.ok(!loftErrors.some(n=>n.includes('未表達')), `A three-section loft expresses a bent plate: ${loftErrors}`);
+  assert.equal(JSON.stringify(p.buildParametric({ kind:'custom', width_mm:2400, depth_mm:1200, height_mm:750, parts:model.custom_parts }).components), JSON.stringify(model.components), 'Same loft parts rebuild the same mesh');
+  const serialized=writerContext.writerInput({parametric:model});
+  assert.equal(serialized.split('\n').filter(l=>l.startsWith('face')).length, model.components.reduce((n,m)=>n+m.faces_mm.length,0), 'SKP writer receives every loft face');
+  assert.throws(()=>p.sanitizeCustomParts([{...top, sections_mm:[top.sections_mm[0], {at:0, points_mm:boat(0).slice(1)}]}]), 'Sections with different point counts are rejected');
+  assert.throws(()=>p.sanitizeCustomParts([{...top, sections_mm:[top.sections_mm[1], top.sections_mm[0]]}]), 'Sections out of order are rejected');
+}
 assert.throws(()=>p.sanitizeCustomParts([{name:'壞路徑',shape:'sweep',size_mm:[30,30,400],center_mm:[0,0,200],path_mm:[[0,0,0],[0,0,0]],section:'round',section_mm:[30,30]}]));
 
 const frame = load('../src/lib/frameGlb.ts', { three: THREE });
