@@ -2493,7 +2493,11 @@ function ProductModelsSection({
       />
       <Modal
         open={photoRequest != null && busy == null && !partsBusy}
-        onOpenChange={open => { if (!open) setPhotoRequest(null); }}
+        onOpenChange={open => {
+          if (open) return;
+          if (photoRequest?.target === 'parts' && draftRef.current) setConfirmShown(true);
+          setPhotoRequest(null);
+        }}
         size="md"
         title="請補充建模參考圖"
         description={extraPhotos.length > 0 ? '已加入補充圖片，繼續後會再次檢查可讀取且不重複的圖片數量。' : photoRequest?.message}
@@ -2505,8 +2509,12 @@ function ProductModelsSection({
             setPhotoRequest(null);
             if (target === 'parts') { setConfirmShown(true); void loadParts(); }
             else void prepare(target);
-          }}>繼續生成</ModalButton>
-          <ModalButton variant="secondary" onClick={() => setPhotoRequest(null)}>取消</ModalButton>
+          }}>{photoRequest?.target === 'parts' ? '重新辨認' : '繼續生成'}</ModalButton>
+          <ModalButton variant="secondary" onClick={() => {
+            // Coming from the structure form: go back to it, the draft is still there.
+            if (photoRequest?.target === 'parts' && draftRef.current) setConfirmShown(true);
+            setPhotoRequest(null);
+          }}>取消</ModalButton>
         </>}
       >
         <div className="space-y-3 text-sm">
@@ -2680,6 +2688,10 @@ function ProductModelsSection({
               suggestionPanel={suggestion ? <PartSuggestionPanel changes={suggestion.changes} onApply={applySuggestion} onDismiss={() => setSuggestion(null)} /> : undefined}
               onSaveDraft={() => void saveDraftOnly()}
               onResolveStructure={resolveStructure}
+              onAddPhotos={() => {
+                setConfirmShown(false);
+                setPhotoRequest({ target: 'parts', message: '加入能看清楚未確定位置的圖片（例如側面、底部、腳座細節），再重新辨認部件；已確認的尺寸與決定會保留。' });
+              }}
             />
           )}
         </ModalContent>

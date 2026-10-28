@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Box,
   FileText,
+  ImagePlus,
   Info,
   Loader2,
   Lock,
@@ -480,7 +481,7 @@ function StructureUncertainties({ structure, onResolve }: {
         AI 未能確定的結構
       </p>
       <p className="mt-0.5 text-xs leading-5 text-amber-700">
-        可補圖後重新辨認；沒有圖時，對照照片修正部件後選「已人工核對」，或「按估算接受」（只會生成估算草稿）。
+        可按下方「補圖重新辨認」；沒有圖時，對照照片修正部件後選「已人工核對」，或「按估算接受」（只會生成估算草稿）。
       </p>
       <ul className="mt-2 space-y-2">
         {structure.uncertainties.map((text) => {
@@ -553,6 +554,7 @@ export function StructureConfirmForm({
   suggestionPanel,
   onSaveDraft,
   onResolveStructure,
+  onAddPhotos,
 }: {
   draft: StructureDraft;
   shownStyle: ModelStyle | null;
@@ -578,6 +580,8 @@ export function StructureConfirmForm({
   onSaveDraft?: () => void;
   /** Settle an AI structure uncertainty without a new photo; `null` reopens it. */
   onResolveStructure?: (text: string, decision: UncertaintyResolution['decision'] | null, note?: string) => void;
+  /** Add photos and run part recognition again; the result comes back as a suggestion. */
+  onAddPhotos?: () => void;
 }) {
   const kind = draft.kind;
   // Uncertainties have their own panel with actions; the red box keeps only the other checks.
@@ -980,6 +984,15 @@ export function StructureConfirmForm({
                     <li key={message}>{message}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+            {onAddPhotos && (validationErrors.length > 0 || (draft.structure?.uncertainties.length ?? 0) > 0) && (
+              <div className="mt-2 flex shrink-0 flex-wrap items-center gap-2 text-xs text-slate-500">
+                <Button size="sm" variant="outline" className="h-8" disabled={generating || partsBusy} onClick={onAddPhotos}>
+                  {partsBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="mr-1 h-3.5 w-3.5" />}
+                  補圖重新辨認
+                </Button>
+                <span>新結果會逐項列出差異，由你決定採用。</span>
               </div>
             )}
             <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500">
