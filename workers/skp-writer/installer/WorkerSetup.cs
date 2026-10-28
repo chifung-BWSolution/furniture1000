@@ -71,6 +71,7 @@ internal static class WorkerSetup {
     };
     internal static readonly WorkerTarget Branch = new WorkerTarget {
         Name = "測試環境", Environment = "branch",
+        // 授權頁開本機 FDS。資料仍寫入 FDS2.0 分支。
         Url = "https://omxizeukbcqzsnjsuwod.supabase.co",
         AnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teGl6ZXVrYmNxenNuanN1d29kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5NDE4OTYsImV4cCI6MjEwNzUxNzg5Nn0.1K66NNIH7t4ex8rUo539E2J9I-ba78jfgIeDm1vBavo"
     };
@@ -603,7 +604,10 @@ internal sealed class SetupForm : Form {
         var state = new PairingState {
             InstallationId = installationId, DeviceSecret = secret, Environment = target.Environment,
             Url = target.Url, AnonKey = target.AnonKey,
-            Code = WorkerSetup.Text(created, "code"), AuthorizeUrl = WorkerSetup.Text(created, "authorize_url"),
+            Code = WorkerSetup.Text(created, "code"),
+            AuthorizeUrl = target.Environment == "branch"
+                ? "http://127.0.0.1:8080/fds/settings/skp-workers?code=" + Uri.EscapeDataString(WorkerSetup.Text(created, "code"))
+                : WorkerSetup.Text(created, "authorize_url"),
             ExpiresAt = WorkerSetup.Text(created, "expires_at"),
         };
         WorkerSetup.SavePairing(state);

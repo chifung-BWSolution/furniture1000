@@ -158,9 +158,10 @@ Deno.serve(async (req) => {
       p_ip: clientIp(req),
     });
     if (typeof result.error === "string") return json(result, statusFor(result.error));
+    // 測試環境是本機 FDS（Vite port 8080），不是 develop preview。
     const origin = project.environment === "production"
       ? "https://www.bwteam-furniture.com"
-      : "https://bwfbwfbranding-work-furniture-git-develop-bwsystem.vercel.app";
+      : "http://127.0.0.1:8080";
     console.log("skp-worker-agent pair", project.environment);
     return json({ ...result, authorize_url: `${origin}/fds/settings/skp-workers?code=${result.code}` });
   }
