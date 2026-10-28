@@ -259,16 +259,15 @@ export function PresentationProductPicker({
   };
 
   return (
-    <div ref={pickerRef} className="space-y-4">
-      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_12px_32px_-24px_rgba(15,23,42,0.45)] dark:border-border dark:bg-card">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 gap-3">
+    <div className="grid h-full min-h-0 items-stretch gap-2 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white dark:border-border dark:bg-card">
+        <div className="flex shrink-0 items-center justify-between gap-2 p-3 pb-0">
+          <div className="flex min-w-0 items-center gap-3">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#efedff] text-[#5b4dff] dark:bg-indigo-950/60 dark:text-indigo-200">
               <Box className="h-5 w-5" strokeWidth={1.75} aria-hidden />
             </span>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">已選擇產品</p>
-              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">從產品資料庫選擇家具，並指定所屬分區。</p>
               <p className="sr-only" aria-live="polite">
                 已選 {selected.length} / {maxItems}{atLimit ? '，已達上限' : ''}
               </p>
@@ -278,21 +277,18 @@ export function PresentationProductPicker({
           <Button
             type="button"
             variant="outline"
-            className="h-10 shrink-0 rounded-xl bg-white px-3 dark:bg-background"
+            className="h-9 w-9 shrink-0 rounded-xl bg-white px-0 dark:bg-background"
             disabled={selected.length === 0}
+            aria-label={`清除全部（${selected.length}）`}
             onClick={() => onChange((current) => (current.length === 0 ? current : []))}
           >
             <Trash2 className="h-4 w-4" aria-hidden />
-            清除全部 ({selected.length})
           </Button>
         </div>
-        {selected.length > 0 && zones.length === 0 ? (
-          <p className="mt-3 text-xs text-muted-foreground">請先在上一步建立分區。</p>
-        ) : null}
         {selected.length === 0 ? (
-          <p className="mt-4 rounded-xl border border-dashed border-slate-200 px-4 py-6 text-sm text-muted-foreground dark:border-border">尚未選擇。點下方產品卡片即可加入。</p>
+          <p className="m-3 rounded-xl border border-dashed border-slate-200 px-3 py-3 text-sm text-muted-foreground dark:border-border">尚未選擇。點產品卡片即可加入。</p>
         ) : (
-          <ul className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 pt-0">
             {selected.map((product) => {
               const { primary, secondary } = splitTitle(product.title);
               const label = primary || product.title;
@@ -300,7 +296,7 @@ export function PresentationProductPicker({
               return (
                 <li
                   key={product.id}
-                  className="flex min-w-0 items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-[0_10px_28px_-20px_rgba(15,23,42,0.4)] dark:border-border dark:bg-background"
+                  className="flex min-w-0 items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-none dark:border-border dark:bg-background"
                 >
                   <Thumb
                     url={coverUrl(product)}
@@ -349,6 +345,17 @@ export function PresentationProductPicker({
           </ul>
         )}
       </div>
+
+      <div ref={pickerRef} className="min-h-0 min-w-0 space-y-3 overflow-y-auto rounded-2xl border border-border/80 bg-card p-3 shadow-sm">
+        <div className="flex gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#efedff] text-[#5b4dff] dark:bg-indigo-950/60 dark:text-indigo-200">
+            <Package className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">選擇產品</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">從產品資料庫選擇家具，並指定所屬分區。</p>
+          </div>
+        </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative min-w-0 flex-1">
@@ -478,6 +485,7 @@ export function PresentationProductPicker({
           </Button>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }

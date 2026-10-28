@@ -62,7 +62,21 @@ const SESSION_ERROR_MAX = 1500;
 
 function clipCanvaError(text: string, fallback: string): string {
   const body = text.replace(/\s+/g, " ").trim() || fallback;
+  if (body.includes("revoked_access_token") || body.includes("Access token is revoked")) {
+    return "Canva 授權已失效，請重新連接。";
+  }
   return body.length > SESSION_ERROR_MAX ? body.slice(0, SESSION_ERROR_MAX) : body;
+}
+
+function canvaTokenRevoked(text: string): boolean {
+  return text.includes("revoked_access_token") || text.includes("Access token is revoked");
+}
+
+async function forgetRevokedCanvaConnection(
+  service: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<void> {
+  await service.from("canva_connections").delete().eq("staff_id", userId);
 }
 
 function logCanvaFailure(label: string, status: number | undefined, body: string): void {
@@ -591,7 +605,12 @@ Deno.serve(async (req: Request) => {
         const next = await refreshToken(service, userId, credentials, tokenRow.refresh_token);
         if (next) response = await canvaAuthedFetch(next.access_token, path);
       }
-      const metadata = response.ok ? await response.json() : null;
+      if (!response.ok) {
+        const detail = await response.text();
+        if (canvaTokenRevoked(detail)) await forgetRevokedCanvaConnection(service, userId);
+        return json({ ...session, thumbnail_url: null });
+      }
+      const metadata = await response.json();
       // Signed URLs are ephemeral: return a fresh URL without persisting it or
       // changing the session's updated_at / recent-design ordering.
       return json({ ...session, thumbnail_url: metadata?.design?.thumbnail?.url ?? null });
@@ -607,7 +626,12 @@ Deno.serve(async (req: Request) => {
       if (next) response = await canvaAuthedFetch(next.access_token, path);
     }
     if (!response.ok) {
-      const detail = clipCanvaError(await response.text(), `canva_status_${response.status}`);
+      const raw = await response.text();
+      if (canvaTokenRevoked(raw)) {
+        await forgetRevokedCanvaConnection(service, userId);
+        return json({ error: "canva_revoked", message: "Canva 授權已失效，請重新連接。" }, 401);
+      }
+      const detail = clipCanvaError(raw, `canva_status_${response.status}`);
       return json({ error: "canva_status_unavailable", message: detail }, 502);
     }
     const jobBody = await response.json();
@@ -667,7 +691,12 @@ Deno.serve(async (req: Request) => {
       if (next) response = await canvaAuthedFetch(next.access_token, path);
     }
     if (!response.ok) {
-      const detail = clipCanvaError(await response.text(), `canva_pages_${response.status}`);
+      const raw = await response.text();
+      if (canvaTokenRevoked(raw)) {
+        await forgetRevokedCanvaConnection(service, userId);
+        return json({ error: "canva_revoked", message: "Canva 授權已失效，請重新連接。" }, 401);
+      }
+      const detail = clipCanvaError(raw, `canva_pages_${response.status}`);
       return json({ error: "canva_pages_unavailable", message: detail }, 502);
     }
     const listed = await response.json();
@@ -1137,7 +1166,10 @@ async function refreshToken(
   const token = await tokenRequest(credentials, "refresh_token", {
     refresh_token: refreshTokenValue,
   });
-  if (!token.access_token) return null;
+  if (!token.access_token) {
+    if (canvaTokenRevoked(JSON.stringify(token))) await forgetRevokedCanvaConnection(service, userId);
+    return null;
+  }
   const expiresAt = token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : null;
   const tokenPatch: Record<string, unknown> = {
     access_token: token.access_token,

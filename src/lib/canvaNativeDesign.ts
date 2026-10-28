@@ -1,6 +1,7 @@
 // FDS 2.1 — Canva AI 簡報（POST /v1/generations，非品牌模板 Autofill）
 import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 import type { SearchProduct } from '@/lib/productSearch';
 import type { PresentationProductDraft, PresentationZoneDraft } from '@/lib/presentationOutlineModel';
 
@@ -85,7 +86,12 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   if (!data) throw new Error('canva_edge_no_response');
   const row = data as T & { error?: string; message?: string; description?: string };
   if (row && typeof row === 'object' && 'error' in row && row.error && !('id' in row && 'status' in row)) {
-    throw new Error(String(row.message || row.error));
+    const message = String(row.message || row.error);
+    if (message.includes('revoked_access_token') || message.includes('Access token is revoked') || row.error === 'canva_revoked') {
+      toast.error('Canva 授權已失效', { description: '請重新連接 Canva。', id: 'canva-revoked' });
+      throw new Error('Canva 授權已失效，請重新連接。');
+    }
+    throw new Error(message);
   }
   return data as T;
 }

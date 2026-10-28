@@ -1,7 +1,9 @@
-import { useRef, useState, type ReactNode } from 'react';
-import { LoaderCircle, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowUpDown, ChevronUp, LoaderCircle, Pencil, Sparkles, ZoomIn } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { ImageLightbox } from '@/components/ui/image-lightbox';
+import { Modal } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,6 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { generateQuoteReferenceImage, quotePhotoErrorText, QUOTE_PHOTO_GENERATE_MODELS, type QuotePhotoGenerateModel } from '@/lib/quotePhotoLibrary';
 import type { SearchProduct } from '@/lib/productSearch';
 import { generatePresentationCopy } from '@/lib/presentationCopy';
+import { floorPlanZoneColor } from './FloorPlanZoneCanvas';
+import { cn } from '@/lib/utils';
 import {
   draftFor,
   imageLooksCutout,
@@ -16,12 +20,95 @@ import {
   type PresentationZoneDraft,
 } from '@/lib/presentationOutlineModel';
 
+const COMPANY_INTRO_MAX = 500;
+const ROOM_NOTE_MAX = 300;
+const inflightCopy = new Set<string>();
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-1">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+function ProductCopyModal({
+  product,
+  drafts,
+  zones,
+  productZone,
+  sampleModel,
+  disabled,
+  sampling,
+  onClose,
+  onDraft,
+  onZone,
+  onSampleModel,
+  onSelectImage,
+}: {
+  product: SearchProduct | null;
+  drafts: Record<string, PresentationProductDraft>;
+  zones: PresentationZoneDraft[];
+  productZone: Record<string, string>;
+  sampleModel: QuotePhotoGenerateModel;
+  disabled: boolean;
+  sampling: boolean;
+  onClose: () => void;
+  onDraft: (productId: string, patch: Partial<PresentationProductDraft>) => void;
+  onZone: (productId: string, zoneId: string) => void;
+  onSampleModel: (model: QuotePhotoGenerateModel) => void;
+  onSelectImage: (productId: string, url: string) => void;
+}) {
+  const draft = product ? draftFor(product, drafts) : null;
+  const images = product
+    ? Array.from(new Set([product.image_url, ...(product.image_urls ?? [])].filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url)))))
+    : [];
+  return (
+    <Modal
+      open={product !== null}
+      onOpenChange={(open) => { if (!open) onClose(); }}
+      size="lg"
+      title="編輯內容"
+      description={draft?.displayName || product?.title || '未命名產品'}
+      icon={<Pencil className="h-4 w-4" />}
+    >
+      {product && draft ? (
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="展示名稱"><Input value={draft.displayName} disabled={disabled} onChange={(event) => onDraft(product.id, { displayName: event.target.value })} /></Field>
+            <Field label="型號"><Input value={draft.model} disabled={disabled} onChange={(event) => onDraft(product.id, { model: event.target.value })} /></Field>
+          </div>
+          {images.length > 1 ? (
+            <Field label="產品圖片">
+              <Select value={draft.imageUrl} onValueChange={(url) => onSelectImage(product.id, url)} disabled={disabled || sampling}>
+                <SelectTrigger><SelectValue placeholder="選擇產品圖片" /></SelectTrigger>
+                <SelectContent>{images.map((url, index) => <SelectItem key={url} value={url}>圖片 {index + 1}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+          ) : null}
+          <Field label="描述"><Textarea className="min-h-20" value={draft.description} disabled={disabled} onChange={(event) => onDraft(product.id, { description: event.target.value })} /></Field>
+          <Field label="賣點"><Textarea className="min-h-16" value={draft.sellingPoints} disabled={disabled} onChange={(event) => onDraft(product.id, { sellingPoints: event.target.value })} /></Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="市場價"><Input value={draft.marketPrice} disabled={disabled} onChange={(event) => onDraft(product.id, { marketPrice: event.target.value })} /></Field>
+            <Field label="項目優惠價"><Input value={draft.projectPrice} disabled={disabled} onChange={(event) => onDraft(product.id, { projectPrice: event.target.value })} /></Field>
+          </div>
+          <Field label="所屬分區">
+            <Select value={productZone[product.id] || ''} onValueChange={(value) => onZone(product.id, value)} disabled={disabled}>
+              <SelectTrigger><SelectValue placeholder="選擇分區" /></SelectTrigger>
+              <SelectContent>{zones.map((entry) => <SelectItem key={entry.id} value={entry.id}>{entry.name || '未命名分區'}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          <Field label="示例圖模型">
+            <Select value={sampleModel} onValueChange={(value) => onSampleModel(value as QuotePhotoGenerateModel)} disabled={disabled || sampling}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{QUOTE_PHOTO_GENERATE_MODELS.map((model) => <SelectItem key={model.id} value={model.id}>{model.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          {draft.sampleImageUrl ? <p className="text-xs text-muted-foreground">示例圖僅供參考，不會寫回產品原圖。</p> : null}
+        </div>
+      ) : null}
+    </Modal>
   );
 }
 
@@ -43,6 +130,8 @@ export function PresentationOutlineStep({
   onQualifications,
   onServices,
   onZoneName,
+  onZonePatch,
+  onReorder,
   onDraft,
   onZone,
   cases,
@@ -65,16 +154,72 @@ export function PresentationOutlineStep({
   onQualifications: (value: string) => void;
   onServices: (value: string) => void;
   onZoneName: (id: string, name: string) => void;
+  onZonePatch: (id: string, patch: Partial<PresentationZoneDraft>) => void;
+  onReorder: (zones: PresentationZoneDraft[]) => void;
   onDraft: (productId: string, patch: Partial<PresentationProductDraft>) => void;
   onZone: (productId: string, zoneId: string) => void;
   cases: { id: string; title: string; body: string }[];
   onCase: (id: string, value: { title: string; body: string }) => void;
 }) {
   const [samplingId, setSamplingId] = useState<string | null>(null);
-  const [copyingId, setCopyingId] = useState<string | null>(null);
-  const disabled = parentDisabled || copyingId !== null;
+  const [copyState, setCopyState] = useState<Record<string, 'running' | 'ready' | 'failed'>>({});
+  const [activeId, setActiveId] = useState(zones[0]?.id ?? '');
+  const [collapsed, setCollapsed] = useState(false);
+  const [ordering, setOrdering] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
+  const disabled = parentDisabled;
+  const startedCopy = useRef(new Set<string>());
+  const onDraftRef = useRef(onDraft);
+  const draftsRef = useRef(drafts);
+  onDraftRef.current = onDraft;
+  draftsRef.current = drafts;
   const [sampleModel, setSampleModel] = useState<QuotePhotoGenerateModel>('gemini');
   const imageSelections = useRef<Record<string, string>>({});
+
+  async function runCopy(product: SearchProduct, silent = false) {
+    if (inflightCopy.has(product.id)) return;
+    inflightCopy.add(product.id);
+    setCopyState((current) => ({ ...current, [product.id]: 'running' }));
+    try {
+      onDraftRef.current(product.id, await generatePresentationCopy(product));
+      setCopyState((current) => ({ ...current, [product.id]: 'ready' }));
+    } catch (error) {
+      setCopyState((current) => ({ ...current, [product.id]: 'failed' }));
+      if (!silent) toast.error(error instanceof Error ? error.message : 'AI 初稿生成失敗', { id: `copy-${product.id}` });
+    } finally {
+      inflightCopy.delete(product.id);
+    }
+  }
+
+  useEffect(() => {
+    const queue: SearchProduct[] = [];
+    for (const product of products) {
+      const draft = draftFor(product, draftsRef.current);
+      if (draft.description.trim() || draft.sellingPoints.trim()) {
+        startedCopy.current.add(product.id);
+        setCopyState((current) => current[product.id] === 'ready' ? current : { ...current, [product.id]: 'ready' });
+        continue;
+      }
+      if (startedCopy.current.has(product.id)) continue;
+      startedCopy.current.add(product.id);
+      queue.push(product);
+    }
+    let index = 0;
+    let running = 0;
+    const pump = () => {
+      while (running < 2 && index < queue.length) {
+        const product = queue[index++];
+        running += 1;
+        void runCopy(product, true).finally(() => {
+          running -= 1;
+          pump();
+        });
+      }
+    };
+    pump();
+  }, [products]);
 
   async function selectImage(productId: string, url: string) {
     imageSelections.current[productId] = url;
@@ -107,121 +252,200 @@ export function PresentationOutlineStep({
     }
   }
 
+  const active = zones.find((zone) => zone.id === activeId) ?? zones[0];
+  const activeProducts = active ? products.filter((product) => productZone[product.id] === active.id) : [];
+
+  const dropZone = (targetId: string) => {
+    if (!ordering || !dragId || dragId === targetId) return;
+    const next = [...zones];
+    const from = next.findIndex((zone) => zone.id === dragId);
+    const to = next.findIndex((zone) => zone.id === targetId);
+    if (from < 0 || to < 0) return;
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onReorder(next);
+    setDragId(null);
+  };
+
   return (
     <div className="space-y-4">
-      <section className="space-y-3 rounded-xl border p-4">
-        <p className="text-sm font-semibold">封面</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="項目名稱">
-            <Input value={title} disabled={disabled} onChange={(event) => onTitle(event.target.value)} />
-          </Field>
-          <Field label="客戶">
-            <Input value={client} disabled={disabled} onChange={(event) => onClient(event.target.value)} />
-          </Field>
-        </div>
-      </section>
-
-      <section className="space-y-3 rounded-xl border p-4">
-        <p className="text-sm font-semibold">公司介紹</p>
-        <Textarea className="min-h-24" value={companyIntro} disabled={disabled} onChange={(event) => onCompanyIntro(event.target.value)} />
-      </section>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="rounded-2xl border border-slate-200/90 bg-white p-4 dark:border-border dark:bg-card">
+          <p className="text-sm font-semibold text-foreground">封面資訊</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Field label="項目名稱">
+              <Input className="h-10 rounded-lg bg-background" value={title} disabled={disabled} onChange={(event) => onTitle(event.target.value)} />
+            </Field>
+            <Field label="客戶">
+              <Input className="h-10 rounded-lg bg-background" value={client} placeholder="請輸入客戶名稱" disabled={disabled} onChange={(event) => onClient(event.target.value)} />
+            </Field>
+          </div>
+        </section>
+        <section className="rounded-2xl border border-slate-200/90 bg-white p-4 dark:border-border dark:bg-card">
+          <p className="text-sm font-semibold text-foreground">公司介紹</p>
+          <div className="relative mt-3">
+            <Textarea
+              className="min-h-28 rounded-lg bg-background pb-7"
+              maxLength={COMPANY_INTRO_MAX}
+              placeholder="請輸入公司介紹，這段內容將會出現在簡報的公司簡介頁面。"
+              value={companyIntro}
+              disabled={disabled}
+              onChange={(event) => onCompanyIntro(event.target.value.slice(0, COMPANY_INTRO_MAX))}
+            />
+            <span className="pointer-events-none absolute bottom-2 right-3 text-xs tabular-nums text-muted-foreground">{companyIntro.length}/{COMPANY_INTRO_MAX}</span>
+          </div>
+          {qualifications.trim() || services.trim() ? (
+            <div className="mt-3 space-y-3">
+              {qualifications.trim() ? (
+                <Field label="公司資質">
+                  <Textarea className="min-h-20 rounded-lg bg-background" value={qualifications} disabled={disabled} onChange={(event) => onQualifications(event.target.value)} />
+                </Field>
+              ) : null}
+              {services.trim() ? (
+                <Field label="服務介紹">
+                  <Textarea className="min-h-20 rounded-lg bg-background" value={services} disabled={disabled} onChange={(event) => onServices(event.target.value)} />
+                </Field>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      </div>
 
       {includeFloor ? (
-        <section className="space-y-2 rounded-xl border p-4">
-          <p className="text-sm font-semibold">項目平面圖</p>
-          <p className="text-xs text-muted-foreground">{zones.map((zone) => zone.name).filter(Boolean).join('、') || '已包含整體平面圖。'}</p>
+        <section className="rounded-2xl border border-slate-200/90 bg-white p-4 dark:border-border dark:bg-card">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">項目平面圖（{zones.length} 個區域）</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">顯示區域將按順序生成簡報頁面，您可以在下方逐一檢視與修改。</p>
+            </div>
+            <Button type="button" variant="outline" className="h-8 bg-white text-xs dark:bg-background" aria-pressed={ordering} disabled={disabled || zones.length < 2} onClick={() => setOrdering((value) => !value)}>
+              <ArrowUpDown className="h-3.5 w-3.5" aria-hidden />
+              {ordering ? '完成排序' : '調整順序'}
+            </Button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {zones.map((zone) => (
+              <button
+                key={zone.id}
+                type="button"
+                draggable={ordering && !disabled}
+                onDragStart={() => setDragId(zone.id)}
+                onDragEnd={() => setDragId(null)}
+                onDragOver={(event) => { if (ordering) event.preventDefault(); }}
+                onDrop={(event) => { event.preventDefault(); dropZone(zone.id); }}
+                onClick={() => { setActiveId(zone.id); setCollapsed(false); }}
+                className={cn(
+                  'inline-flex h-8 items-center rounded-full px-3 text-xs font-medium',
+                  active?.id === zone.id ? 'bg-indigo-600 text-white' : 'border border-slate-200 bg-white text-foreground dark:border-border dark:bg-card',
+                  ordering && 'cursor-grab',
+                )}
+              >
+                {zone.name || '未命名分區'}
+              </button>
+            ))}
+          </div>
         </section>
       ) : null}
 
-      {zones.map((zone) => (
-        <section key={zone.id} className="space-y-3 rounded-xl border p-4">
-          <Field label="分區">
-            <Input value={zone.name} disabled={disabled} onChange={(event) => onZoneName(zone.id, event.target.value)} />
-          </Field>
-          {zone.imageUrl ? <LoadingImage src={zone.imageUrl} alt={`${zone.name}參考圖`} className="h-40 w-full" imgClassName="object-contain" /> : null}
-          {products.filter((product) => productZone[product.id] === zone.id).map((product) => {
-            const draft = draftFor(product, drafts);
-            const shown = draft.sampleImageUrl || draft.imageUrl;
-            const images = Array.from(new Set([product.image_url, ...(product.image_urls ?? [])].filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url)))));
-            return (
-              <div key={product.id} className="space-y-3 rounded-lg bg-muted/30 p-3">
-                <div className="flex gap-3">
-                  {shown ? <LoadingImage src={shown} alt="" className="h-20 w-20 shrink-0 rounded-md" /> : null}
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <Field label="展示名稱">
-                      <Input value={draft.displayName} disabled={disabled} onChange={(event) => onDraft(product.id, { displayName: event.target.value })} />
+      {active ? (
+        <section className="rounded-2xl border border-slate-200/90 bg-white dark:border-border dark:bg-card">
+          <button type="button" className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setCollapsed((value) => !value)}>
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs text-white" style={{ background: floorPlanZoneColor(Math.max(0, zones.findIndex((zone) => zone.id === active.id))) }}>{Math.max(1, zones.findIndex((zone) => zone.id === active.id) + 1)}</span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{active.name || '未命名分區'}</span>
+            <span className="text-xs text-muted-foreground">已選 {activeProducts.length} 件產品</span>
+            <ChevronUp className={cn('h-4 w-4 text-muted-foreground transition-transform', collapsed && 'rotate-180')} aria-hidden />
+          </button>
+          {!collapsed ? (
+            <div className="space-y-4 border-t px-4 py-4">
+              <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">對應平面圖區域</p>
+                  {active.imageUrl ? (
+                    <div className="relative mt-2">
+                      <LoadingImage src={active.imageUrl} alt={`${active.name}平面圖`} className="h-40 w-full rounded-lg border bg-muted/20" imgClassName="object-contain" />
+                      <Button type="button" variant="secondary" className="absolute bottom-2 left-1/2 h-8 -translate-x-1/2 bg-white/95 text-xs" onClick={() => setPreview({ url: active.imageUrl!, title: active.name || '平面圖' })}>
+                        <ZoomIn className="h-3.5 w-3.5" aria-hidden />
+                        放大查看
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="mt-2 flex h-40 items-center justify-center rounded-lg border border-dashed text-xs text-muted-foreground">尚未有這個分區的截圖</p>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold">房間設定</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="分區名稱">
+                      <Input className="h-10 rounded-lg bg-background" value={active.name} disabled={disabled} onChange={(event) => onZoneName(active.id, event.target.value)} />
                     </Field>
-                    <Field label="型號">
-                      <Input value={draft.model} disabled={disabled} onChange={(event) => onDraft(product.id, { model: event.target.value })} />
+                    <Field label="章節標題（顯示於首頁）">
+                      <Input className="h-10 rounded-lg bg-background" value={active.chapterTitle ?? active.name} disabled={disabled} onChange={(event) => onZonePatch(active.id, { chapterTitle: event.target.value })} />
                     </Field>
                   </div>
-                </div>
-                {images.length > 1 ? (
-                  <Field label="產品圖片">
-                    <Select value={draft.imageUrl} onValueChange={(url) => void selectImage(product.id, url)} disabled={disabled || samplingId !== null}>
-                      <SelectTrigger><SelectValue placeholder="選擇產品圖片" /></SelectTrigger>
-                      <SelectContent>{images.map((url, index) => <SelectItem key={url} value={url}>圖片 {index + 1}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </Field>
-                ) : null}
-                <Field label="描述">
-                  <Textarea className="min-h-20" value={draft.description} disabled={disabled} onChange={(event) => onDraft(product.id, { description: event.target.value })} />
-                </Field>
-                <Field label="賣點">
-                  <Textarea className="min-h-16" value={draft.sellingPoints} disabled={disabled} onChange={(event) => onDraft(product.id, { sellingPoints: event.target.value })} />
-                </Field>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="市場價">
-                    <Input value={draft.marketPrice} disabled={disabled} onChange={(event) => onDraft(product.id, { marketPrice: event.target.value })} />
-                  </Field>
-                  <Field label="項目優惠價">
-                    <Input value={draft.projectPrice} disabled={disabled} onChange={(event) => onDraft(product.id, { projectPrice: event.target.value })} />
+                  <Field label="房間描述（選填）">
+                    <div className="relative">
+                      <Textarea
+                        className="min-h-24 rounded-lg bg-background pb-7"
+                        maxLength={ROOM_NOTE_MAX}
+                        placeholder="請輸入此空間的設計重點、風格或功能說明。"
+                        value={active.roomNote ?? ''}
+                        disabled={disabled}
+                        onChange={(event) => onZonePatch(active.id, { roomNote: event.target.value.slice(0, ROOM_NOTE_MAX) })}
+                      />
+                      <span className="pointer-events-none absolute bottom-2 right-3 text-xs tabular-nums text-muted-foreground">{(active.roomNote ?? '').length}/{ROOM_NOTE_MAX}</span>
+                    </div>
                   </Field>
                 </div>
-                <Field label="所屬分區">
-                  <Select value={productZone[product.id] || ''} onValueChange={(value) => onZone(product.id, value)} disabled={disabled}>
-                    <SelectTrigger><SelectValue placeholder="選擇分區" /></SelectTrigger>
-                    <SelectContent>
-                      {zones.map((entry) => <SelectItem key={entry.id} value={entry.id}>{entry.name || '未命名分區'}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="示例圖模型">
-                  <Select value={sampleModel} onValueChange={(value) => setSampleModel(value as QuotePhotoGenerateModel)} disabled={disabled || samplingId !== null}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{QUOTE_PHOTO_GENERATE_MODELS.map((model) => <SelectItem key={model.id} value={model.id}>{model.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                </Field>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" className="bg-background" disabled={disabled || copyingId !== null} onClick={async () => {
-                    setCopyingId(product.id);
-                    try { onDraft(product.id, await generatePresentationCopy(product)); }
-                    catch (error) { toast.error(error instanceof Error ? error.message : 'AI 初稿生成失敗'); }
-                    finally { setCopyingId(null); }
-                  }}>
-                    {copyingId === product.id ? 'AI 正在產生初稿…' : 'AI 產生初稿'}
-                  </Button>
-                  <Button type="button" variant="outline" className="bg-background" disabled={disabled || samplingId !== null} onClick={() => void generateSample(product)}>
-                    {samplingId === product.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {draft.noBackground ? '生成示例圖' : '這張圖沒有背景，生成示例圖'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="bg-background"
-                    aria-pressed={draft.noBackground}
-                    disabled={disabled}
-                    onClick={() => onDraft(product.id, { noBackground: !draft.noBackground })}
-                  >
-                    {draft.noBackground ? '已標記沒有背景' : '標記為沒有背景'}
-                  </Button>
-                </div>
-                {draft.sampleImageUrl ? <p className="text-xs text-muted-foreground">示例圖僅供參考，不會寫回產品原圖。</p> : null}
               </div>
-            );
-          })}
+              <div>
+                <p className="text-sm font-semibold">已選產品（{activeProducts.length}）</p>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  {activeProducts.map((product) => {
+                    const draft = draftFor(product, drafts);
+                    const shown = draft.sampleImageUrl || draft.imageUrl;
+                    const copy = copyState[product.id];
+                    const copyReady = copy === 'ready' || Boolean(draft.description.trim() || draft.sellingPoints.trim());
+                    const copyLabel = copy === 'running' ? '文案生成中' : copy === 'failed' && !copyReady ? '文案未生成' : copyReady ? '文案已生成' : '文案待生成';
+                    return (
+                      <div key={product.id} className="relative rounded-xl border border-slate-200 p-3 pt-8 dark:border-border">
+                        <span className={cn(
+                          'absolute right-3 top-2.5 inline-flex items-center gap-1 text-[11px] font-medium',
+                          copy === 'running' ? 'text-indigo-600' : copy === 'failed' && !copyReady ? 'text-red-600' : copyReady ? 'text-emerald-600' : 'text-muted-foreground',
+                        )}>
+                          {copy === 'running' ? <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden /> : null}
+                          {copyLabel}
+                        </span>
+                        <div className="flex gap-3">
+                          {shown ? <LoadingImage src={shown} alt="" className="h-16 w-24 shrink-0 rounded-md bg-muted/20" imgClassName="object-contain" /> : <div className="h-16 w-24 shrink-0 rounded-md bg-muted/30" />}
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold">{draft.displayName || product.title || '未命名產品'}</p>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">型號　{draft.model || '—'}</p>
+                            <p className="truncate text-xs text-muted-foreground">所屬分區　{active.name || '未命名分區'}</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button type="button" variant="outline" className="h-8 bg-background px-2 text-xs" disabled={disabled} onClick={() => setEditingId(product.id)}>
+                            <Pencil className="h-3.5 w-3.5" aria-hidden />
+                            編輯內容
+                          </Button>
+                          <Button type="button" variant="outline" className="h-8 bg-background px-2 text-xs" disabled={disabled || copy === 'running'} onClick={() => void runCopy(product)}>
+                            {copy === 'running' ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                            AI 產生文稿
+                          </Button>
+                          <Button type="button" variant="outline" className="h-8 bg-background px-2 text-xs" disabled={disabled || samplingId !== null} onClick={() => void generateSample(product)}>
+                            {samplingId === product.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+                            修正圖片
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </section>
-      ))}
+      ) : null}
 
       {products.some((product) => !zones.some((zone) => zone.id === productZone[product.id])) ? (
         <section className="space-y-3 rounded-xl border p-4">
@@ -246,20 +470,28 @@ export function PresentationOutlineStep({
           <Field label="案例內容"><Textarea value={item.body} disabled={disabled} onChange={(event) => onCase(item.id, { title: item.title, body: event.target.value })} /></Field>
         </section>
       ))}
-      {qualifications.trim() || services.trim() ? (
-        <section className="space-y-3 rounded-xl border p-4">
-          {qualifications.trim() ? (
-            <Field label="公司資質">
-              <Textarea className="min-h-20" value={qualifications} disabled={disabled} onChange={(event) => onQualifications(event.target.value)} />
-            </Field>
-          ) : null}
-          {services.trim() ? (
-            <Field label="服務介紹">
-              <Textarea className="min-h-20" value={services} disabled={disabled} onChange={(event) => onServices(event.target.value)} />
-            </Field>
-          ) : null}
-        </section>
-      ) : null}
+      <ProductCopyModal
+        product={products.find((item) => item.id === editingId) ?? null}
+        drafts={drafts}
+        zones={zones}
+        productZone={productZone}
+        sampleModel={sampleModel}
+        disabled={disabled}
+        sampling={samplingId !== null}
+        onClose={() => setEditingId(null)}
+        onDraft={onDraft}
+        onZone={onZone}
+        onSampleModel={setSampleModel}
+        onSelectImage={(productId, url) => void selectImage(productId, url)}
+      />
+      <ImageLightbox
+        open={preview !== null}
+        onClose={() => setPreview(null)}
+        images={preview ? [preview.url] : []}
+        title={preview?.title}
+        simple
+        thumbWidth={320}
+      />
     </div>
   );
 }

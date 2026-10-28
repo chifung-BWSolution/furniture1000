@@ -1,10 +1,17 @@
 import type { SearchProduct } from '@/lib/productSearch';
 import type { PresentationCompanyProfile } from '@/lib/presentationFiveSection';
+import type { QuoteZoneRect } from '@/lib/quoteFloorPlan';
 
 export interface PresentationZoneDraft {
   id: string;
   name: string;
   imageUrl?: string;
+  rect?: QuoteZoneRect | null;
+  spaceType?: string;
+  quantity?: number;
+  /** Slide title shown for this room. Falls back to the zone name. */
+  chapterTitle?: string;
+  roomNote?: string;
 }
 
 export interface PresentationProductDraft {
@@ -110,7 +117,12 @@ export function presentationOutlineMarkdown(input: PresentationOutlineInput): st
   const unzoned = input.products.filter((product) => !input.zones.some((zone) => zone.id === input.productZone[product.id]));
   for (const zone of input.zones) {
     const name = zone.name.trim() || '未命名分區';
-    blocks.push([heading(name), line('分區', name)].filter(Boolean).join('\n'));
+    const slideTitle = zone.chapterTitle?.trim() || name;
+    blocks.push([
+      heading(slideTitle),
+      line('分區', name),
+      line('房間描述', zone.roomNote ?? ''),
+    ].filter(Boolean).join('\n'));
     for (const product of input.products) {
       if (input.productZone[product.id] !== zone.id) continue;
       const draft = draftFor(product, input.drafts);
