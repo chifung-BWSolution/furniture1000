@@ -55,3 +55,11 @@ entrypoint = "./functions/generate-furniture-model/index.ts"
 [functions.supabase-functions-generate-canva-presentation]
 verify_jwt = false
 entrypoint = "./functions/generate-canva-presentation/index.ts"
+
+# Gemini 文案代理。前端呼叫帶前綴的 slug；import ../_shared/geminiModel.ts、usageLog.ts。
+[functions.gemini-proxy]
+verify_jwt = false
+
+[functions.supabase-functions-gemini-proxy]
+verify_jwt = false
+entrypoint = "./functions/gemini-proxy/index.ts"
