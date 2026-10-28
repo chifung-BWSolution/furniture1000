@@ -1929,7 +1929,7 @@ function ProductModelsSection({
             kickedRecognitionRef.current = status.jobId;
             kickFurnitureRecognition(status.jobId);
           }
-          timer = window.setTimeout(() => void tick(), 4000);
+          timer = window.setTimeout(() => void tick(), status.status === 'running' ? 8000 : 4000);
           return;
         }
         if (status.status === 'succeeded') openRecognitionRef.current(status);
