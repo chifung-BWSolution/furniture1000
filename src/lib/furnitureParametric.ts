@@ -164,6 +164,8 @@ export interface CustomPartSpec {
   section?: 'round' | 'rect';
   section_mm?: [number, number];
   end_section_mm?: [number, number];
+  /** box only: radius of every edge and corner (upholstery, cushions). Clamped to the part's thinnest side. */
+  radius_mm?: number;
   /** Axis scaling preserves oriented sections when the overall size is edited. */
   geometry_scale?: Vec3;
   role?: 'leg' | 'top' | 'seat' | 'back' | 'arm' | 'frame' | 'body' | 'shelf' | 'other';
@@ -185,7 +187,7 @@ export interface LoftSection {
 }
 
 /** Bump when the same parameters would produce different geometry. */
-export const PARAMETRIC_ENGINE_VERSION = 'fds-parametric-3';
+export const PARAMETRIC_ENGINE_VERSION = 'fds-parametric-4';
 
 export const MAX_CUSTOM_PARTS = 40;
 
@@ -1132,6 +1134,10 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
       }
       spec.size_mm = sweepPart(spec, 'checked', [1,1,1], [0,0,0]).size_mm;
     }
+    if (shape === 'box' && r.radius_mm !== undefined && r.radius_mm !== null) {
+      if (!finite(r.radius_mm) || r.radius_mm < 0 || r.radius_mm > 1000) throw invalid();
+      if (r.radius_mm >= 1) spec.radius_mm = round(r.radius_mm);
+    }
     if (shape === 'cylinder') spec.axis = axisValue ?? 'z';
     if (shape === 'profile') {
       if (!Array.isArray(r.points_mm) || r.points_mm.some((p) =>
@@ -1197,7 +1203,10 @@ function specPart(spec: CustomPartSpec, index: number, scale: Vec3, shift: Vec3)
   const id = `part-${index + 1}`;
   if (spec.shape === 'sweep') return sweepPart(spec, id, scale, shift);
   if (spec.shape === 'loft') return loftPart(spec, id, scale, shift);
-  if (spec.shape === 'box') return part(id, spec.name, size, center);
+  if (spec.shape === 'box') {
+    const radius = roundedBoxRadius(size, spec.radius_mm);
+    return radius > 0 ? roundedBoxPart(id, spec.name, size, center, radius) : part(id, spec.name, size, center);
+  }
   const along = spec.axis ?? 'z';
   const [u, v] = PLANE[along];
   const scaled = (spec.points_mm ?? []).map(([a, b]) => [a * scale[u], b * scale[v]] as [number, number]);
@@ -1206,6 +1215,76 @@ function specPart(spec: CustomPartSpec, index: number, scale: Vec3, shift: Vec3)
       ? ellipse(size[u] / 2, size[v] / 2, 20)
       : spec.smooth ? smoothOutline(scaled) : scaled;
   return part(id, spec.name, size, center, { axis: along, points_mm: points });
+}
+
+/** Below this the fillet facets are slivers too small to export; the edge stays sharp. */
+const MIN_ROUND_RADIUS = 10;
+
+/** Leaves a flat face of at least 2 mm on every side, so caps and side faces keep real area. */
+function roundedBoxRadius(size: Vec3, radius: number | undefined): number {
+  if (!radius) return 0;
+  const r = Math.min(radius, Math.min(...size) / 2 - 1);
+  return r >= MIN_ROUND_RADIUS ? r : 0;
+}
+
+const ROUND_CORNER_STEPS = 4;
+const ROUND_EDGE_STEPS = 3;
+
+/**
+ * Box with every edge filleted: horizontal rounded-rectangle rings stacked through the bottom
+ * and top fillets. Collapsed points at the flat caps are dropped, and side quads that are not
+ * flat are split, so every exporter receives planar faces.
+ */
+function roundedBoxPart(id: string, name: string, size: Vec3, center: Vec3, r: number): ModelPart {
+  const [hx, hy, hz] = size.map((n) => n / 2);
+  const corners: [number, number, number][] = [[1, -1, -Math.PI / 2], [1, 1, 0], [-1, 1, Math.PI / 2], [-1, -1, Math.PI]];
+  const ring = (rho: number, z: number): Vec3[] =>
+    corners.flatMap(([sx, sy, base]) =>
+      Array.from({ length: ROUND_CORNER_STEPS + 1 }, (_, j) => {
+        const a = base + (j / ROUND_CORNER_STEPS) * (Math.PI / 2);
+        return [
+          center[0] + sx * (hx - r) + rho * Math.cos(a),
+          center[1] + sy * (hy - r) + rho * Math.sin(a),
+          center[2] + z,
+        ] as Vec3;
+      }),
+    );
+  const rings: Vec3[][] = [];
+  for (let k = 0; k <= ROUND_EDGE_STEPS; k += 1) {
+    const t = (k / ROUND_EDGE_STEPS) * (Math.PI / 2);
+    rings.push(ring(r * Math.sin(t), -hz + r - r * Math.cos(t)));
+  }
+  for (let k = ROUND_EDGE_STEPS; k >= 0; k -= 1) {
+    const t = (k / ROUND_EDGE_STEPS) * (Math.PI / 2);
+    rings.push(ring(r * Math.sin(t), hz - r + r * Math.cos(t)));
+  }
+  const distinct = (face: Vec3[]): Vec3[] =>
+    face.filter((p, i) => {
+      const q = face[(i + 1) % face.length];
+      return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) > 1e-6;
+    });
+  const sub = (a: Vec3, b: Vec3) => a.map((n, k) => n - b[k]) as Vec3;
+  const faces: Vec3[][] = [distinct([...rings[0]].reverse()), distinct(rings[rings.length - 1])];
+  for (let i = 0; i < rings.length - 1; i += 1) {
+    const [lo, hi] = [rings[i], rings[i + 1]];
+    for (let j = 0; j < lo.length; j += 1) {
+      const k = (j + 1) % lo.length;
+      const quad = distinct([lo[j], lo[k], hi[k], hi[j]]);
+      if (quad.length < 3) continue;
+      if (quad.length === 3) {
+        faces.push(quad);
+        continue;
+      }
+      const [a, b, c, d] = quad;
+      const e1 = sub(b, a), e2 = sub(c, a);
+      const nrm: Vec3 = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      const len = Math.hypot(...nrm);
+      const off = len > 0 ? Math.abs(nrm.reduce((s, n, m) => s + n * (d[m] - a[m]), 0)) / len : Infinity;
+      if (off < 0.01) faces.push(quad);
+      else faces.push([a, b, c], [a, c, d]);
+    }
+  }
+  return { id, name, size_mm: size.map(round) as Vec3, position_mm: center.map(round) as Vec3, faces_mm: faces };
 }
 
 const SMOOTH_POINTS = 64;

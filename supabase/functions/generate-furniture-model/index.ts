@@ -102,6 +102,7 @@ const PARTS_PROMPT = [
   "y = depth (positive toward the front, the side a person uses), z = up from the floor.",
   "Every part must fit inside the overall size given, and parts that touch in the photo must touch in the model.",
   "Each part: shape 'box' with size_mm = [x, y, z] lengths and center_mm = its centre;",
+  "radius_mm (box only) rounds every edge and corner of that box: set it for upholstered and padded parts (seat and back cushions, padded arms, sofa bodies and bases wrapped in fabric or leather) and any block whose edges are visibly soft, using the radius seen in the photo (typically 20 to 80 mm for cushions, 10 to 30 mm for wrapped frames). Omit it for crisp boards, panels, worktops and metal parts.",
   "'cylinder' for tubes, posts and round parts, axis = the direction of its length, size_mm = its bounding box;",
   "'profile' for slanted, bent, or shaped pieces: a prism, axis = the extrusion direction,",
   "points_mm = the outline across the axis relative to center_mm. Each point is {a, b}: axis z uses a=x b=y; axis y uses a=x b=z; axis x uses a=y b=z.",
@@ -112,6 +113,7 @@ const PARTS_PROMPT = [
   "smooth=true (profile or loft) makes the points control points of a smooth closed curve: use it for curved outlines such as boat-shaped or oval tabletops, arcs and rounded ends, giving 8 to 24 control points with extra points close together at tight corners. Leave smooth false for straight-edged, sharp-cornered outlines.",
   "Identify structure BEFORE selecting any template: every part needs role (leg/top/seat/back/arm/frame/body/shelf/other), form (straight/slanted/bent/tapered/panel), and connects_to (zero-based indices of all directly touching parts). Include every major structural part. For four separate feet leg_count must be 4, never infer a runner from the name. structure contains leg_count, symmetric (left-right symmetry of supports), and uncertainties (specific hidden/ambiguous major details; empty only when supported by matching views). Do not fabricate a connection or symmetry. A single visible unit must be analysed, not a catalogue arrangement.",
   "structure.part_counts is the independently observed count for every role (leg, top, seat, back, arm, frame, body, shelf, other), including zero for absent roles. The part list must account for every observed major component; never lower the observed counts just to simplify the model.",
+  "form and shape must agree: a part with form 'slanted' or 'tapered' must be a 'sweep' (or 'loft'/'profile'), never a box or cylinder; form 'bent' needs a sweep with intermediate points, a loft with 3+ sections, or a profile. Splayed legs (common under sofas, armchairs and lounge chairs) are sweeps whose path runs from the joint under the frame to a foot further out, with end_section_mm smaller at the foot when they taper. Put each leg where it actually meets the frame in the photo, usually close to the corners, and match its visible thickness and colour-separated length rather than a generic 60 mm post.",
   "Preserve the actual number, straightness, orientation, and placement of supports. Four separate straight legs must remain four separate straight solids; do not invent curved profiles or join them into runners. Use profiles only when the matching views visibly support that outline. Keep repeated supports consistent in cross-section and height unless the photos show a difference. Do not invent hidden structural details; describe uncertainty in notes.",
   `Use at most ${MAX_PARTS} parts; leave out screws, hinges and small hardware.`,
   "Name each part in Traditional Chinese (Hong Kong), for example 側板, 層板, 腳, 橫管.",
@@ -161,6 +163,7 @@ const PART_SCHEMA = {
           section: { type: "string", enum: ["round", "rect"] },
           section_mm: { type: "array", items: { type: "number" } },
           end_section_mm: { type: "array", items: { type: "number" } },
+          radius_mm: { type: "number" },
           size_mm: { type: "array", items: { type: "number" } },
           center_mm: { type: "array", items: { type: "number" } },
           axis: { type: "string", enum: ["x", "y", "z"] },
@@ -442,6 +445,14 @@ async function extractParts(apiKey: string, images: InlineImage[], size: Size, t
       const p = part as Record<string, unknown>;
       return !['leg','top','seat','back','arm','frame','body','shelf','other'].includes(String(p.role)) || !['straight','slanted','bent','tapered','panel'].includes(String(p.form)) || !Array.isArray(p.connects_to);
     })) throw new AnalysisError("部件用途、形狀或接合關係不完整，請重新辨認部件");
+    // 說是斜腳／錐形卻畫成方塊，模型就會出現照片沒有的直身方腳。
+    const unexpressed = parts.find((part) => {
+      const p = part as Record<string, unknown>;
+      return ["slanted", "tapered", "bent"].includes(String(p.form)) && !["sweep", "loft", "profile"].includes(String(p.shape));
+    }) as Record<string, unknown> | undefined;
+    if (unexpressed) {
+      throw new AnalysisError(`「${String(unexpressed.name ?? "部件")}」是斜向或錐形，卻畫成${unexpressed.shape === "cylinder" ? "圓柱" : "方塊"}，請重新辨認部件`);
+    }
     return parts;
   };
   let parsed = await askModel<PartReply>(apiKey, system, prompt, images, schema);
