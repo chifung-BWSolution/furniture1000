@@ -9,7 +9,7 @@
 4. 安裝程式領取裝置憑證，以 Windows DPAPI CurrentUser 保存，然後啟動 Worker。
 5. 「檢查狀態」會分開顯示授權、連線、寫檔依賴。再到網站重新檢測，並實際生成一件 SKP 驗證。
 
-測試環境在「進階設定」。一般安裝不要求、也不接受 Supabase service role key。
+測試環境在「進階設定」，授權頁是本機 `http://127.0.0.1:8080`。一般安裝不要求、也不接受 Supabase service role key。
 安裝位置：`%LOCALAPPDATA%\FDS\SkpWorker`。桌面捷徑可重新開啟管理畫面；預設建立目前使用者的登入啟動捷徑。
 使用者必須保持登入，SketchUp 需要互動式桌面。關閉管理視窗不會停止 Worker，請使用「停止 Worker」。
 授權被撤銷或憑證失效時，Worker 停止自動重試，需要重新授權。
