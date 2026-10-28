@@ -671,6 +671,7 @@ export function StructureConfirmForm({
               <li key={line}>{line}</li>
             ))}
           </ul>
+          <p className="mt-2 text-xs leading-5">請在左側「尺寸證據」核對並確認尺寸；接受結構估算後，仍需確認闊、深、高才可生成。</p>
         </div>
       )}
 
@@ -992,8 +993,8 @@ export function StructureConfirmForm({
             )}
           </div>
 
-          <aside className="flex min-h-[280px] flex-col rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_12px_32px_-20px_rgba(15,23,42,0.45)] lg:h-full lg:min-h-0">
-            <div className="mb-3 flex items-start gap-2.5">
+          <aside className="flex min-h-[280px] flex-col overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_12px_32px_-20px_rgba(15,23,42,0.45)] lg:h-full lg:min-h-0">
+            <div className="mb-3 flex shrink-0 items-start gap-2.5">
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#efedff] text-[#5b4dff]">
                 <Box className="h-4 w-4" strokeWidth={1.75} />
               </div>
@@ -1012,7 +1013,9 @@ export function StructureConfirmForm({
                 </button>
               )}
             </div>
-            <StudioPreview model={preview} highlight={showParts ? selectedPart : null} />
+            <div className="flex h-64 shrink-0 flex-col">
+              <StudioPreview model={preview} highlight={showParts ? selectedPart : null} />
+            </div>
             {draft.structure && onResolveStructure && (
               <StructureUncertainties structure={draft.structure} onResolve={onResolveStructure} />
             )}
