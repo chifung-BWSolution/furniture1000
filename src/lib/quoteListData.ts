@@ -126,13 +126,26 @@ export async function fetchQuoteListPage(
   pageSize: number,
   withCount: boolean,
   largeAmount = false,
+  search = '',
+  pitchingIds: string[] = [],
 ): Promise<QuoteListPage> {
-  const key = `page:${from}:${pageSize}:${withCount ? 1 : 0}:${largeAmount ? 1 : 0}`;
+  const term = search.trim();
+  const pitchingKey = [...pitchingIds].filter(Boolean).sort().join(',');
+  const key = `page:${from}:${pageSize}:${withCount ? 1 : 0}:${largeAmount ? 1 : 0}:${term}:${pitchingKey}`;
   return shared(pageCache, key, async () => {
     // Page chains before fetching their headers or siblings. Paging bwf_quote
     // directly lets old versions repeat the same chain on several pages.
+    // Search runs inside the RPC so a match on another page is not dropped.
     const { data: ids, error: idsError, count } = await supabase
-      .rpc('latest_quote_version_ids', { p_large_amount: largeAmount }, withCount ? { count: 'exact' } : undefined)
+      .rpc(
+        'latest_quote_version_ids',
+        {
+          p_large_amount: largeAmount,
+          ...(term ? { p_search: term } : {}),
+          ...(pitchingKey ? { p_pitching_ids: pitchingKey.split(',') } : {}),
+        },
+        withCount ? { count: 'exact' } : undefined,
+      )
       .range(from, from + pageSize - 1);
     if (idsError) throw idsError;
     if (!ids?.length) return { rows: [], count: count ?? null };

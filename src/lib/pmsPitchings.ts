@@ -298,6 +298,28 @@ export async function fetchPmsPitchings(options?: {
   }
 }
 
+/** Pitchings whose code, name, or customer matches a quote-list search. */
+const QUOTE_SEARCH_PITCHING_PAGE = 150;
+const QUOTE_SEARCH_PITCHING_MAX = 450;
+
+export async function fetchPitchingIdsForQuoteSearch(search: string): Promise<string[]> {
+  const term = search.trim();
+  if (!term) return [];
+  const ids: string[] = [];
+  for (let offset = 0; offset < QUOTE_SEARCH_PITCHING_MAX; offset += QUOTE_SEARCH_PITCHING_PAGE) {
+    const items = await fetchPmsPitchings({
+      search: term,
+      limit: QUOTE_SEARCH_PITCHING_PAGE,
+      offset,
+    });
+    for (const item of items) {
+      if (item.id) ids.push(item.id);
+    }
+    if (items.length < QUOTE_SEARCH_PITCHING_PAGE) break;
+  }
+  return [...new Set(ids)];
+}
+
 /** Attach live PMS pitching by bwf_pitching_id, else by quote_id === pitching_code. */
 export function attachPitchingsToQuoteRows<
   T extends { bwf_pitching_id?: string | null; quote_id: string },

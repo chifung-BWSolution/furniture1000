@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import {
   attachPitchingsToQuoteRows,
+  fetchPitchingIdsForQuoteSearch,
   fetchPitchingsForQuoteRows,
   invalidatePmsPitchingsCache,
   pitchingDisplayTitle,
@@ -162,6 +163,7 @@ export function QuotationListView({
   const [quotes, setQuotes] = useState<QuoteListRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [pitchingStatusFilter, setPitchingStatusFilter] = useState('__all__');
   const [staffFilter, setStaffFilter] = useState('__all__');
   const [deleteTarget, setDeleteTarget] = useState<QuoteListRow | null>(null);
@@ -191,13 +193,29 @@ export function QuotationListView({
     return lastPageSize === PAGE_SIZE;
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
   const fetchQuotePage = useCallback(
     async (from: number) => {
       // The exact total rides along with the first page (Content-Range), so the
       // list costs one request instead of a page request plus a separate count.
-      return fetchQuoteListPage(from, PAGE_SIZE, from === 0, isLargeAmount);
+      // Pitching name / customer matches live in PMS; quote fields are filtered in SQL.
+      const pitchingIds = debouncedSearch
+        ? await fetchPitchingIdsForQuoteSearch(debouncedSearch)
+        : [];
+      return fetchQuoteListPage(
+        from,
+        PAGE_SIZE,
+        from === 0,
+        isLargeAmount,
+        debouncedSearch,
+        pitchingIds,
+      );
     },
-    [isLargeAmount],
+    [debouncedSearch, isLargeAmount],
   );
 
   const attachSiblings = useCallback(attachQuoteListSiblings, []);
@@ -397,40 +415,11 @@ export function QuotationListView({
       );
     }
 
-    if (!searchQuery.trim()) return rows;
-    const query = searchQuery.toLowerCase();
-    return rows.filter((q) => {
-      const code = quoteCode(q).toLowerCase();
-      const name = quoteDisplayName(q).toLowerCase();
-      const clientName = (
-        q.pitching?.customer_name ||
-        q.project_data?.formData?.clientName ||
-        q.project_data?.clientInfo?.name ||
-        ''
-      ).toLowerCase();
-      const contactName = String(
-        q.project_data?.formData?.clientContactName ||
-          q.project_data?.clientInfo?.contactName ||
-          '',
-      ).toLowerCase();
-      const pm = staffLabel(q).toLowerCase();
-      return (
-        code.includes(query) ||
-        name.includes(query) ||
-        clientName.includes(query) ||
-        contactName.includes(query) ||
-        pm.includes(query) ||
-        q.submitter.toLowerCase().includes(query) ||
-        q.status.toLowerCase().includes(query) ||
-        q.quote_id.toLowerCase().includes(query) ||
-        q.version.toLowerCase().includes(query)
-      );
-    });
+    return rows;
   }, [
     isLargeAmount,
     pitchingStatusFilter,
     quoteGroups,
-    searchQuery,
     staffFilter,
   ]);
 
@@ -661,8 +650,11 @@ export function QuotationListView({
                   個版本紀錄
                   {isEnriching ? ' · 正在補上提案標題…' : ''}
                   {isLoadingMore ? ' · 正在載入報價頁面…' : ''}
-                  {hasMore && !isLoadingMore && !isEnriching
-                    ? ' · 搜尋／篩選僅套用目前頁面'
+                  {hasMore &&
+                  !isLoadingMore &&
+                  !isEnriching &&
+                  (pitchingStatusFilter !== '__all__' || staffFilter !== '__all__')
+                    ? ' · 狀態／PM 篩選僅套用目前頁面'
                     : ''}
                 </span>
                 <div className="flex items-center gap-2">
