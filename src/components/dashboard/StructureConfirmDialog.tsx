@@ -590,6 +590,7 @@ export function StructureConfirmForm({
     : validationErrors;
   const [selectedPart, setSelectedPart] = useState<number | null>(null);
   const [jointsOpen, setJointsOpen] = useState<number | null>(null);
+  const [errorsOpen, setErrorsOpen] = useState(false);
   useEffect(() => {
     if (selectedPart != null && selectedPart >= draft.parts.length) setSelectedPart(null);
   }, [draft.parts.length, selectedPart]);
@@ -674,7 +675,42 @@ export function StructureConfirmForm({
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4 lg:overflow-hidden">
-        <div className="grid gap-3 lg:h-full lg:grid-cols-[minmax(0,1.08fr)_minmax(300px,0.92fr)] lg:overflow-hidden">
+        <div className="relative grid gap-3 lg:h-full lg:grid-cols-[minmax(0,1.08fr)_minmax(300px,0.92fr)] lg:overflow-hidden">
+          {errorsOpen && shownErrors.length > 0 && (
+            <div className="pointer-events-none absolute inset-0 z-10 grid gap-3 lg:grid-cols-[minmax(0,1.08fr)_minmax(300px,0.92fr)]">
+              <div className="pointer-events-auto flex max-h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-red-200 bg-white shadow-xl">
+                <div className="flex items-start gap-2 border-b border-red-100 px-4 py-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold text-red-700">結構或約束檢查未通過</p>
+                    <p className="mt-0.5 text-xs leading-5 text-slate-500">共 {shownErrors.length} 項。修正部件後才可生成。</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+                    aria-label="關閉結構檢查"
+                    onClick={() => setErrorsOpen(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <ul className="min-h-0 flex-1 list-disc space-y-1 overflow-y-auto px-8 py-3 text-[13px] leading-relaxed text-red-600">
+                  {shownErrors.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+                {onAddPhotos && (
+                  <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-3">
+                    <Button size="sm" variant="outline" className="h-8" disabled={generating || partsBusy} onClick={onAddPhotos}>
+                      {partsBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="mr-1 h-3.5 w-3.5" />}
+                      補圖重新辨認
+                    </Button>
+                    <span className="text-xs text-slate-500">新結果會逐項列出差異，由你決定採用。</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <div className="rounded-2xl bg-[#f5f6fa] p-4 lg:overflow-y-auto lg:[scrollbar-color:#c9ceda_transparent] lg:[scrollbar-width:thin]">
             <section>
               <SectionHeading index={kindNo} icon={Box} title="產品分類" />
@@ -961,32 +997,26 @@ export function StructureConfirmForm({
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#efedff] text-[#5b4dff]">
                 <Box className="h-4 w-4" strokeWidth={1.75} />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <h3 className="text-[13px] font-semibold text-slate-900">即時結構預覽</h3>
                 <p className="mt-0.5 text-xs leading-5 text-slate-500">根據左側設定即時生成 3D 結構預覽，供確認參考。</p>
               </div>
+              {shownErrors.length > 0 && (
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[12px] font-medium text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+                  onClick={() => setErrorsOpen(true)}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {shownErrors.length} 項未通過
+                </button>
+              )}
             </div>
             <StudioPreview model={preview} highlight={showParts ? selectedPart : null} />
             {draft.structure && onResolveStructure && (
               <StructureUncertainties structure={draft.structure} onResolve={onResolveStructure} />
             )}
-            {shownErrors.length > 0 && (
-              <div
-                className="mt-2.5 shrink-0 rounded-xl border border-red-400 bg-red-50 px-3.5 py-2.5"
-                role="alert"
-              >
-                <p className="flex items-center gap-1.5 text-[13px] font-semibold text-red-700">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />
-                  結構或約束檢查未通過，請修正部件：
-                </p>
-                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] leading-relaxed text-red-600">
-                  {shownErrors.map((message) => (
-                    <li key={message}>{message}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {onAddPhotos && (validationErrors.length > 0 || (draft.structure?.uncertainties.length ?? 0) > 0) && (
+            {onAddPhotos && shownErrors.length === 0 && (draft.structure?.uncertainties.length ?? 0) > 0 && (
               <div className="mt-2 flex shrink-0 flex-wrap items-center gap-2 text-xs text-slate-500">
                 <Button size="sm" variant="outline" className="h-8" disabled={generating || partsBusy} onClick={onAddPhotos}>
                   {partsBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="mr-1 h-3.5 w-3.5" />}
