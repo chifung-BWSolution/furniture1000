@@ -25,7 +25,7 @@ const build = parts => p.buildParametric({ kind: 'custom', width_mm:600,depth_mm
 assert.equal(s.validateFurnitureStructure(build(table), evidence).length, 0);
 assert.ok(s.validateFurnitureStructure(build(table.slice(0,4).map(part => ({...part,connects_to:part.connects_to.filter(i=>i<4)}))), evidence).some(n=>n.includes('腳數')));
 const detached=structuredClone(table); detached[1].center_mm[0]=1000;
-assert.ok(s.validateFurnitureStructure(build(detached), evidence).some(n=>n.includes('未接合')));
+assert.ok(!s.validateFurnitureStructure(build(detached), evidence).some(n=>n.includes('未接合')), 'A gap between declared parts does not block generation');
 assert.ok(s.validateFurnitureStructure(build(table), {...evidence,uncertainties:['背面不清楚']}).some(n=>n.includes('待確認')));
 {
   const open = {...evidence,uncertainties:['背面不清楚','腳距未標註']};
