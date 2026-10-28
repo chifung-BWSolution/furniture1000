@@ -4,7 +4,7 @@ import {
   Sofa, BadgeDollarSign, Sparkles, Wallet, Images, Star, Trash2,
   BookOpenText, ListChecks, Gauge,
   Building2, BarChart2, Map, LogIn, Mail, FolderTree, History,
-  UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film,
+  UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film, Monitor,
   Briefcase, Phone, Landmark, Heart, Combine, Presentation,
   type LucideIcon,
 } from 'lucide-react';
@@ -145,6 +145,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-admin-usage', label: 'AI用量統計', icon: Gauge, adminOnly: true },
       { view: 'fds2-admin-dev-cost', label: '開發成本', icon: CircleDollarSign, adminOnly: true },
       { view: 'fds2-admin-email', label: '電郵通知', icon: Mail, adminOnly: true },
+      { view: 'fds2-admin-skp-workers', label: 'SKP Worker', icon: Monitor, adminOnly: true },
     ],
   },
   {

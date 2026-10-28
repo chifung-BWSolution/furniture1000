@@ -336,13 +336,16 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   `process-jobs` 的 function host 以該庫現有 cron 為準（`20261022000100_fds21_worker_cron_stale_wake.sql`），不要在新 cron 裡寫死正式 ref。
   分支的一鍵登入帳號 `fds-develop-preview@…` 在分支 `platform_user_profiles` 設為 admin。
 - SKP（設計師 SU）：不用 OpenSKP。SketchUp C SDK 只跑 Windows／macOS，所以 SKP 由 Windows 機器上的
-  `workers/skp-writer`（`skp_writer.exe` ＋ `worker.mjs`）領 `processing_jobs` 的 `generate_skp` 寫出，Edge 不處理。
-  C SDK 目前不公開下載（要申請）；沒有 `skp_writer.exe` 時 worker 改用本機已授權的 SketchUp
+  `workers/skp-writer` 寫出。安裝程式用瀏覽器裝置配對取得可撤銷憑證，不再向使用者索取 service role。
+  Worker 只呼叫 edge `supabase-functions-skp-worker-agent`（同時部署無前綴 slug），由它代為 claim／heartbeat／簽名上傳；
+  只允許 `generate_skp` 與 `preview_skp`。管理員在 `/fds/settings/skp-workers` 批准或撤銷。
+  沒有 `skp_writer.exe` 時 worker 改用本機已授權的 SketchUp
   （`SketchUp.exe -RubyStartup skp_build.rb <seed.skp>`，Ruby API 建組件、存檔、自動關閉）。
-  第一次會出歡迎視窗，要有人選一次模板，之後開 `%LOCALAPPDATA%\fds-skp-writer\seed.skp` 就不用人手。
+  第一次會出歡迎視窗，要有人選一次模板，之後開 `%LOCALAPPDATA%\FDS\SkpWorker\seed.skp` 就不用人手。
   我們的 +y 是正面，SketchUp 前視圖看 -y，兩個寫檔程式都把整件轉 180°。
- 模型檔在私有 bucket `product-models`（`uploaded/` 給 admin／uploader，`generated/` 只給 service role），
- 登記在 `product_models`，只經 `fds_product_model*`／`fds_request_skp`／`fds_skp_status` RPC。
+  模型檔在私有 bucket `product-models`（`uploaded/` 給 admin／uploader，`generated/` 只給 service role），
+  登記在 `product_models`，只經 `fds_product_model*`／`fds_request_skp`／`fds_skp_status` RPC。
+  舊的 service role Worker 在改裝前仍可心跳；撤銷的裝置即使 90 秒內有心跳也不算可用。
 - 正式價錢在 `supplier_prices`、來源在 `product_source_refs`（產品／報價／來源分離，產品身份＝型號＋供應商）；
  只有審核通過的項目才可寫入（BR-02）。匯入只經 `fds_import_extracted_products`：同廠家同型號沿用既有產品且不改它，
  只追加報價；不寫 `products.cost_price`（報價可能是外幣）。

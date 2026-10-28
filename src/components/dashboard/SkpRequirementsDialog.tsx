@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertCircle, CheckCircle2, CircleX, ExternalLink, Info, Loader2, Monitor, RotateCcw, Search, Settings } from 'lucide-react';
+import { AlertCircle, CheckCircle2, CircleX, Download, ExternalLink, Info, Loader2, Monitor, RotateCcw, Search, Settings } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import { fetchSkpRequirements, type SkpRequirements } from '@/lib/productModels';
 
@@ -67,11 +67,14 @@ export function useSkpRequirements() {
         ) : result?.ready ? (
           <p className="text-sm">生成環境已就緒，請關閉此視窗後再次點擊生成 SU。</p>
         ) : result && <>
-          <div className="flex items-center gap-3 rounded-xl bg-rose-50 px-5 py-4 text-rose-600">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl bg-rose-50 px-5 py-4 text-rose-600">
             <AlertCircle className="h-7 w-7 shrink-0 fill-rose-500 text-white" />
-          <p className="text-sm font-semibold sm:text-base">
+          <p className="min-w-0 flex-1 text-sm font-semibold sm:text-base">
             {result.connected === false ? '未收到 SKP Worker 的有效連線，暫時不能生成。' : result.connected === true ? 'Worker 已連線，但寫檔環境尚未齊備。' : '未有可用的 SKP Worker，暫時不能生成。'}
           </p>
+          <a href="/assets/downloads/FDS-SKP-Worker-Setup.exe" download className="inline-flex items-center gap-2 text-sm font-semibold underline underline-offset-4 hover:text-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600">
+            <Download className="h-4 w-4" />下載 SKP Worker
+          </a>
           </div>
           {!checks && <p className="text-sm leading-relaxed text-slate-500 sm:text-base">目前未能確認各程式是否已安裝。請在 Windows Worker 電腦啟動或更新 SKP Worker 後重新檢測。</p>}
           <div className="space-y-4 text-sm leading-relaxed text-slate-500">

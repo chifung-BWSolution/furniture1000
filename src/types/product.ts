@@ -208,6 +208,7 @@ export type ViewType =
   | 'fds2-admin-usage'
   | 'fds2-admin-dev-cost'
   | 'fds2-admin-email'
+  | 'fds2-admin-skp-workers'
   | 'fds2-customer-quotes'
   | 'fds2-customer-search'
   | 'fds2-customer-custom'

@@ -9,14 +9,27 @@ const requests = [];
 const server = createServer(async (req, res) => {
   let raw = '';
   for await (const chunk of req) raw += chunk;
-  requests.push({ path: req.url, body: raw ? JSON.parse(raw) : null });
+  const body = raw ? JSON.parse(raw) : null;
+  requests.push({ path: req.url, authorization: req.headers.authorization, body });
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end('[]');
+  res.end(JSON.stringify({ ok: true, job: null }));
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 try {
-  const env = { ...process.env, SUPABASE_URL: `http://127.0.0.1:${server.address().port}`, SUPABASE_SERVICE_ROLE_KEY: 'fixture-only', SKETCHUP_EXE: join(payload, 'node.exe'), SKP_WRITER_EXE: join(payload, 'not-installed.exe') };
+  const env = {
+    ...process.env,
+    SUPABASE_URL: `http://127.0.0.1:${server.address().port}`,
+    FDS_SKP_ANON_KEY: 'fixture-anon',
+    FDS_SKP_DEVICE_ID: '00000000-0000-4000-8000-000000000001',
+    FDS_SKP_ACCESS_TOKEN: 'fixture-access-token',
+    FDS_SKP_ACCESS_EXPIRES: '2099-01-01T00:00:00.000Z',
+    FDS_SKP_REFRESH_TOKEN: 'fixture-refresh-token',
+    SKETCHUP_EXE: join(payload, 'node.exe'),
+    SKP_WRITER_EXE: join(payload, 'not-installed.exe'),
+  };
+  delete env.SUPABASE_SERVICE_ROLE_KEY;
   delete env.NODE_OPTIONS;
+  delete env.FDS_SKP_CONFIG;
   const child = spawn(join(payload, 'node.exe'), [join(payload, 'worker.mjs'), '--once'], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   child.stdout.on('data', (chunk) => { output += chunk; });
@@ -25,12 +38,18 @@ try {
   try {
     const exit = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
     assert.equal(exit, 0, output);
-    const heartbeat = requests.find((request) => request.path.startsWith('/rest/v1/fds_skp_workers'));
-    assert.ok(heartbeat, 'bundled SDK must send heartbeat');
-    assert.equal(heartbeat.body.ready, true);
-    assert.equal(heartbeat.body.checks.sketchup, true);
-    assert.equal(heartbeat.body.checks.writer, false);
-    assert.ok(requests.some((request) => request.path === '/rest/v1/rpc/fds_processing_jobs_claim'), 'bundled SDK must claim existing SKP queue');
-    console.log('PASS: bundled Node and Supabase SDK execute heartbeat and queue claim against a local fixture; no real jobs or credentials used.');
+    const ready = requests.find((request) => request.body?.action === 'ready');
+    assert.ok(ready, 'worker must report readiness through the device proxy');
+    assert.equal(ready.path, '/functions/v1/supabase-functions-skp-worker-agent');
+    assert.equal(ready.authorization, 'Bearer fixture-access-token');
+    assert.equal(ready.body.ready, true);
+    assert.equal(ready.body.checks.sketchup, true);
+    assert.equal(ready.body.checks.writer, false);
+    assert.equal(JSON.stringify(ready.body).includes('fixture-refresh-token'), false);
+    assert.ok(requests.some((request) => request.body?.action === 'claim'), 'worker must claim through the device proxy');
+    assert.equal(requests.some((request) => String(request.path).includes('/rest/v1/')), false);
+    assert.equal(output.includes('fixture-refresh-token'), false);
+    assert.equal(output.includes('service_role'), false);
+    console.log('PASS: bundled Node reports readiness and claims through the device proxy; no service role or refresh token is sent on those calls.');
   } finally { clearTimeout(timer); if (child.exitCode === null) child.kill(); }
 } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }

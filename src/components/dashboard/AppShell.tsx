@@ -239,6 +239,9 @@ const QuotePhotoLibraryView = lazy(() =>
 const EmailNotificationsView = lazy(() =>
   import("./EmailNotificationsView").then((mod) => ({ default: mod.EmailNotificationsView }))
 );
+const SkpWorkersView = lazy(() =>
+  import("./SkpWorkersView").then((mod) => ({ default: mod.SkpWorkersView }))
+);
 const CaseOrdersView = lazy(() =>
   import("./CaseOrdersView").then((mod) => ({ default: mod.CaseOrdersView }))
 );
@@ -905,13 +908,12 @@ function AppShellContent() {
         const keepCanvaOauth =
           sectionPath === '/fds/pm/presentation' &&
           (params.has('code') || params.has('error'));
+        const keepSkpPairing = sectionPath === '/fds/settings/skp-workers' && params.has('code');
         const packageQuote = params.get('quote');
         const keepPackageQuote = (sectionPath === '/fds/pm/package' || sectionPath === '/fds/pm/budget') && (packageQuote || params.has('mode'));
-        target = keepCanvaOauth
+        target = keepCanvaOauth || keepSkpPairing || keepPackageQuote
           ? `${sectionPath}?${params.toString()}`
-          : keepPackageQuote
-            ? `${sectionPath}?${params.toString()}`
-            : sectionPath;
+          : sectionPath;
       } else if (
         location.pathname.startsWith('/quote') ||
         isDesignProjectPath(location.pathname) ||
@@ -1092,6 +1094,7 @@ function AppShellContent() {
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;
     if (store.currentView === 'fds2-quote-photos') return <QuotePhotoLibraryView />;
     if (store.currentView === 'fds2-admin-email') return <EmailNotificationsView />;
+    if (store.currentView === 'fds2-admin-skp-workers') return <SkpWorkersView />;
     if (store.currentView === 'fds2-cases-orders') return <CaseOrdersView />;
     if (store.currentView === 'fds2-cases-photos') return <CasePhotosView />;
     if (store.currentView === 'fds2-cases-clients') return <CaseClientsView />;

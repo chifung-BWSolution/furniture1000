@@ -106,6 +106,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-admin-usage', path: `${FDS_BASE}/settings/usage` },
   { view: 'fds2-admin-dev-cost', path: `${FDS_BASE}/settings/development-cost` },
   { view: 'fds2-admin-email', path: `${FDS_BASE}/settings/email` },
+  { view: 'fds2-admin-skp-workers', path: `${FDS_BASE}/settings/skp-workers` },
   { view: 'fds2-customer-quotes', path: `${FDS_BASE}/customer/quote-schemes` },
   { view: 'fds2-customer-search', path: `${FDS_BASE}/customer/product-search` },
   { view: 'fds2-customer-custom', path: `${FDS_BASE}/customer/custom` },
@@ -254,6 +255,11 @@ export function appViewFromPath(pathname: string): ViewType | null {
   // SU／3D 模型頁已從設計師選傢俬拿掉，舊連結回到產品類型。
   if (path === `${FDS_BASE}/designer/su` || path === `${FDS_BASE}/designer/3d`) {
     return 'fds2-designer-types';
+  }
+
+  // SKP 安裝程式開啟的授權頁。/authorize 是同一頁，避免被設定區預設頁吃掉。
+  if (path === `${FDS_BASE}/settings/skp-workers/authorize`) {
+    return 'fds2-admin-skp-workers';
   }
 
   // Moved Shopify 上載產品紀錄 from 設定 → 分析報表
