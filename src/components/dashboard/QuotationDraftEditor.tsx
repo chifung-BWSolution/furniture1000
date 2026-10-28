@@ -2750,6 +2750,14 @@ export function QuotationDraftEditor({
     void canManageQuotePhotos().then((ok) => {
       if (!cancelled) setCanManagePhotos(ok);
     });
+    void listQuotePhotoAssets().then((result) => {
+      if (cancelled || result.error || result.missingTable) return;
+      setPhotoLibrary((current) => {
+        const known = new Set(current.map((asset) => asset.id));
+        const extra = result.assets.filter((asset) => !known.has(asset.id));
+        return extra.length === 0 ? current : [...current, ...extra];
+      });
+    });
     return () => {
       cancelled = true;
     };
@@ -3945,7 +3953,14 @@ export function QuotationDraftEditor({
     const id = zoneId || UNZONED_QUOTE_IMAGE_KEY;
     const groups = zonePhotoLayouts[id] ?? [];
     setZoneLayoutEditor({ zoneId: id, groupId: groups[0]?.id ?? null });
-    void listQuotePhotoAssets().then((result) => setPhotoLibrary(result.assets));
+    void listQuotePhotoAssets().then((result) => {
+      if (result.error || result.missingTable) return;
+      setPhotoLibrary((current) => {
+        const known = new Set(current.map((asset) => asset.id));
+        const extra = result.assets.filter((asset) => !known.has(asset.id));
+        return extra.length === 0 ? current : [...current, ...extra];
+      });
+    });
   };
 
   const removeZoneLayout = (zoneId: string, groupId: string) => {

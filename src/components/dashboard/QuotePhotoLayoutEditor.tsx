@@ -32,6 +32,7 @@ import {
 import {
   QUOTE_PHOTO_ACCEPT,
   QUOTE_PHOTO_LIBRARY_LIMIT,
+  listQuotePhotoAssets,
   quotePhotoErrorText,
   quotePhotoObjectUrl,
   quotePhotoShortTitle,
@@ -524,6 +525,14 @@ function CropDialog({
   );
 }
 
+/** 父層的圖片庫可能比這個視窗晚到；只補還沒有的，不蓋掉剛上載或剛生成的。 */
+function mergeQuotePhotoLibrary(current: QuotePhotoAsset[], incoming: QuotePhotoAsset[]): QuotePhotoAsset[] {
+  if (incoming.length === 0) return current;
+  const known = new Set(current.map((asset) => asset.id));
+  const extra = incoming.filter((asset) => !known.has(asset.id));
+  return extra.length === 0 ? current : [...current, ...extra];
+}
+
 export function QuotePhotoLayoutEditor({
   layouts,
   groupId,
@@ -560,6 +569,8 @@ export function QuotePhotoLayoutEditor({
   );
   const [chosen, setChosen] = useState(Boolean(existing));
   const [library, setLibrary] = useState<QuotePhotoAsset[]>(assets);
+  const [libraryReady, setLibraryReady] = useState(false);
+  const [libraryNote, setLibraryNote] = useState<string | null>(null);
   const [tray, setTray] = useState<string[]>(() => {
     // 產品圖排最前：新開排版時直接可以拖進槽位。
     const ids = productPhotos.map((photo) => photo.id);
@@ -580,6 +591,31 @@ export function QuotePhotoLayoutEditor({
   const [sizes, setSizes] = useState<Record<string, NaturalSize>>({});
   const [generateOpen, setGenerateOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // 從報價內容「上傳圖片」進來時，父層是開窗後才去讀圖片庫，初始 assets 常常是空的。
+  // 這裡自己再讀一次，並接住父層稍後送到的清單，避免「有時進去找不到圖」。
+  useEffect(() => {
+    setLibrary((current) => mergeQuotePhotoLibrary(current, assets));
+  }, [assets]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listQuotePhotoAssets().then((result) => {
+      if (cancelled) return;
+      if (result.missingTable) {
+        setLibraryNote(quotePhotoErrorText(new Error('quote_photo_library_unavailable')));
+      } else if (result.error) {
+        setLibraryNote('圖片庫暫時讀不到，請稍後再試。');
+      } else {
+        setLibrary((current) => mergeQuotePhotoLibrary(current, result.assets));
+        setLibraryNote(null);
+      }
+      setLibraryReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const sources = useMemo(() => {
     const map = new Map<
@@ -1400,8 +1436,15 @@ export function QuotePhotoLayoutEditor({
             </>
           }
         >
-                {libraryChoices.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">圖片庫沒有其他圖片。可先上載，再加入素材區。</p>
+                {!libraryReady && libraryChoices.length === 0 ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
+                    正在讀取圖片庫…
+                  </p>
+                ) : libraryChoices.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {libraryNote ?? '圖片庫沒有其他圖片。可先上載，再加入素材區。'}
+                  </p>
                 ) : (
                   <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
                     {libraryChoices.map((asset) => {
