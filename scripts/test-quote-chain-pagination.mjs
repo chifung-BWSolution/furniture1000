@@ -65,4 +65,8 @@ assert.equal(calls.length, previousCalls, 'repeat reads reuse cache');
 api.invalidateQuoteListCache();
 await api.fetchQuoteListPage(0, 1, true);
 assert.equal(calls.length, previousCalls + 1);
+api.invalidateQuoteListCache();
+await api.fetchQuoteListPage(0, 1, false, false, 'NGO26-073', ['ef864edc-4c1d-4049-ba57-3a7d8df3c127']);
+assert.equal(calls.at(-1).args.p_search, 'NGO26-073');
+assert.equal(calls.at(-1).args.p_pitching_ids.join(','), 'ef864edc-4c1d-4049-ba57-3a7d8df3c127');
 console.log('PASS: chain paging, sibling expansion, chain counts, latest-amount filter and cache invalidation');

@@ -2322,7 +2322,11 @@ export type Database = {
       get_rts_image_migration_count: { Args: never; Returns: number }
       is_pdf_svg_placeholder: { Args: { p_url: string }; Returns: boolean }
       latest_quote_version_ids: {
-        Args: { p_large_amount?: boolean }
+        Args: {
+          p_large_amount?: boolean
+          p_pitching_ids?: string[]
+          p_search?: string
+        }
         Returns: {
           id: string
         }[]
