@@ -68,7 +68,17 @@ import {
 } from '@/lib/furnitureModelVersions';
 import { useSkpRequirements } from '@/components/dashboard/SkpRequirementsDialog';
 import { FurnitureProductScopeDialog, type ProductCountDetection, type ProductScopeChoice } from '@/components/dashboard/FurnitureProductScopeDialog';
-import { hasStructureEvidence, selectFurnitureGeometry, validateFurnitureStructure, type StructureEvidence } from '@/lib/furnitureStructure';
+import {
+  carryResolutions,
+  estimatedUncertainties,
+  hasStructureEvidence,
+  reopenUncertainty,
+  resolveUncertainty,
+  selectFurnitureGeometry,
+  validateFurnitureStructure,
+  type StructureEvidence,
+  type UncertaintyResolution,
+} from '@/lib/furnitureStructure';
 import {
   buildParametric,
   customPartsSize,
@@ -2012,7 +2022,7 @@ function ProductModelsSection({
       setDraft((draftNow) => draftNow && syncEvidence(addReading({
         ...draftNow,
         parts,
-        ...(structure ? { structure } : {}),
+        ...(structure ? { structure: carryResolutions(draftNow.structure, structure) } : {}),
         notes: result?.structure_notes ?? draftNow.notes,
         ...(partsSize ? Object.fromEntries(missing.map((axis) => [axis, String(partsSize[AXIS_INDEX[axis]])])) : {}),
         estimated: [...new Set([...draftNow.estimated, ...missing])],
@@ -2036,7 +2046,7 @@ function ProductModelsSection({
       if (!current) return current;
       const parts = applyPartChanges(current.parts, pending.parts, adopted);
       let structure = current.structure;
-      if (all && pending.structure) structure = pending.structure;
+      if (all && pending.structure) structure = carryResolutions(current.structure, pending.structure);
       else if (structure) {
         // A person picked which parts exist; the confirmed counts follow that choice.
         const part_counts = Object.fromEntries(Object.keys(structure.part_counts).map((role) => [role, parts.filter((p) => (p.role ?? 'other') === role).length]));
@@ -2129,7 +2139,22 @@ function ProductModelsSection({
     } catch (error) { return [errorText(error)]; }
   }, [draft, draftFit, previewModel]);
   const evidenceBlockers = useMemo(() => (draft?.evidence ? generationBlockers(draft.evidence) : []), [draft?.evidence]);
-  const estimateDraft = Boolean(draft?.evidence?.dimensions.some((d) => d.critical && d.status === 'estimated'));
+  const structureEstimates = useMemo(
+    () => estimatedUncertainties(draft?.structure).map((text) => `結構按估算接受：${text}`),
+    [draft?.structure],
+  );
+  const estimateDraft = structureEstimates.length > 0 || Boolean(draft?.evidence?.dimensions.some((d) => d.critical && d.status === 'estimated'));
+
+  /** No new photo needed: keep the AI reading as an estimate, or record that a person checked it. */
+  const resolveStructure = (text: string, decision: UncertaintyResolution['decision'] | null, note?: string) => {
+    setDraft((current) => {
+      if (!current?.structure) return current;
+      const structure = decision
+        ? resolveUncertainty(current.structure, text, decision, note, userLabel)
+        : reopenUncertainty(current.structure, text);
+      return { ...current, structure };
+    });
+  };
 
   /** The model as saved: confirmed geometry plus where every key value came from. */
   const modelForSave = (blockers: string[]): ParametricModel | null => {
@@ -2228,7 +2253,8 @@ function ProductModelsSection({
         }
       }
       // Preview, GLB/FBX and SKP all come from this one saved geometry (FR-07).
-      const model = modelForSave([]);
+      // Structure kept as an estimate is a blocker for acceptance, so the server saves it as a draft.
+      const model = modelForSave(structureEstimates);
       if (!model) throw new Error('請填寫有效尺寸及完整部件後再生成');
       const errors = validateFurnitureStructure(model, draft.structure, fittedParts(draft));
       if (errors.length) throw new Error(errors.join('；'));
@@ -2653,6 +2679,7 @@ function ProductModelsSection({
               evidencePanel={draft.evidence ? <ModelEvidencePanel evidence={draft.evidence} by={userLabel} onChange={changeEvidence} /> : undefined}
               suggestionPanel={suggestion ? <PartSuggestionPanel changes={suggestion.changes} onApply={applySuggestion} onDismiss={() => setSuggestion(null)} /> : undefined}
               onSaveDraft={() => void saveDraftOnly()}
+              onResolveStructure={resolveStructure}
             />
           )}
         </ModalContent>

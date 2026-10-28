@@ -28,6 +28,7 @@ import { DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { ModelEvidence } from '@/lib/modelEvidence';
+import { STRUCTURE_PENDING_PREFIX, type StructureEvidence, type UncertaintyResolution } from '@/lib/furnitureStructure';
 import { duplicatePart, referencesTo, removePartAt, setJoint } from '@/lib/partSuggestions';
 import {
   FURNITURE_GROUPS,
@@ -89,7 +90,7 @@ function countLabel(kind: FurnitureKind | null, field: StyleField): string {
 const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓', sweep: '路徑件' };
 
 export type StructureDraft = {
-  structure?: import('@/lib/furnitureStructure').StructureEvidence;
+  structure?: StructureEvidence;
   /** FR-03 dimension sources and statuses; absent for drafts made before it existed. */
   evidence?: ModelEvidence;
   /** The version this draft was opened from (以此版本修改); saving creates a child version. */
@@ -458,6 +459,80 @@ function ChoiceChip({ selected, children, onClick }: { selected: boolean; childr
   );
 }
 
+const RESOLUTION_LABEL: Record<UncertaintyResolution['decision'], string> = {
+  estimate: '按估算接受',
+  checked: '已人工核對',
+};
+
+/** AI 未能確定的結構：不用補圖也可處理，按估算接受（只出草稿）或寫下人工核對結果。 */
+function StructureUncertainties({ structure, onResolve }: {
+  structure: StructureEvidence;
+  onResolve: (text: string, decision: UncertaintyResolution['decision'] | null, note?: string) => void;
+}) {
+  const [checking, setChecking] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const resolved = new Map((structure.resolved ?? []).map((r) => [r.text, r]));
+  if (structure.uncertainties.length === 0) return null;
+  return (
+    <div className="mt-2.5 shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5">
+      <p className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-800">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        AI 未能確定的結構
+      </p>
+      <p className="mt-0.5 text-xs leading-5 text-amber-700">
+        可補圖後重新辨認；沒有圖時，對照照片修正部件後選「已人工核對」，或「按估算接受」（只會生成估算草稿）。
+      </p>
+      <ul className="mt-2 space-y-2">
+        {structure.uncertainties.map((text) => {
+          const done = resolved.get(text);
+          return (
+            <li key={text} className="rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-[13px] leading-5 text-slate-700">
+              <p>{text}</p>
+              {done ? (
+                <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <span className={done.decision === 'checked' ? 'font-medium text-emerald-700' : 'font-medium text-amber-700'}>{RESOLUTION_LABEL[done.decision]}</span>
+                  {done.note && <span>「{done.note}」</span>}
+                  {done.by && <span>{done.by}</span>}
+                  <button type="button" className="text-[#5b4dff] hover:underline" onClick={() => onResolve(text, null)}>重設</button>
+                </p>
+              ) : checking === text ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <Input
+                    autoFocus
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="核對了甚麼，例如：照片側面可見底座內縮約 50mm，已調整部件"
+                    aria-label="人工核對說明"
+                    className="h-8 min-w-[220px] flex-1 text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    disabled={!note.trim()}
+                    onClick={() => {
+                      onResolve(text, 'checked', note);
+                      setChecking(null);
+                      setNote('');
+                    }}
+                  >
+                    確認
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-8" onClick={() => { setChecking(null); setNote(''); }}>取消</Button>
+                </div>
+              ) : (
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setChecking(text); setNote(''); }}>已人工核對</Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onResolve(text, 'estimate')}>按估算接受</Button>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export function StructureConfirmForm({
   draft,
   shownStyle,
@@ -477,6 +552,7 @@ export function StructureConfirmForm({
   evidencePanel,
   suggestionPanel,
   onSaveDraft,
+  onResolveStructure,
 }: {
   draft: StructureDraft;
   shownStyle: ModelStyle | null;
@@ -500,8 +576,14 @@ export function StructureConfirmForm({
   suggestionPanel?: ReactNode;
   /** Keep an unfinished version (待補資料) without generating files. */
   onSaveDraft?: () => void;
+  /** Settle an AI structure uncertainty without a new photo; `null` reopens it. */
+  onResolveStructure?: (text: string, decision: UncertaintyResolution['decision'] | null, note?: string) => void;
 }) {
   const kind = draft.kind;
+  // Uncertainties have their own panel with actions; the red box keeps only the other checks.
+  const shownErrors = draft.structure && onResolveStructure
+    ? validationErrors.filter((message) => !message.startsWith(STRUCTURE_PENDING_PREFIX))
+    : validationErrors;
   const [selectedPart, setSelectedPart] = useState<number | null>(null);
   const [jointsOpen, setJointsOpen] = useState<number | null>(null);
   useEffect(() => {
@@ -881,17 +963,20 @@ export function StructureConfirmForm({
               </div>
             </div>
             <StudioPreview model={preview} highlight={showParts ? selectedPart : null} />
-            {validationErrors.length > 0 && (
+            {draft.structure && onResolveStructure && (
+              <StructureUncertainties structure={draft.structure} onResolve={onResolveStructure} />
+            )}
+            {shownErrors.length > 0 && (
               <div
                 className="mt-2.5 shrink-0 rounded-xl border border-red-400 bg-red-50 px-3.5 py-2.5"
                 role="alert"
               >
                 <p className="flex items-center gap-1.5 text-[13px] font-semibold text-red-700">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />
-                  結構或約束檢查未通過，請補圖或修正部件：
+                  結構或約束檢查未通過，請修正部件：
                 </p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] leading-relaxed text-red-600">
-                  {validationErrors.map((message) => (
+                  {shownErrors.map((message) => (
                     <li key={message}>{message}</li>
                   ))}
                 </ul>

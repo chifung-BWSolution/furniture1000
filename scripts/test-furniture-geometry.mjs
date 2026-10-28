@@ -27,6 +27,19 @@ assert.ok(s.validateFurnitureStructure(build(table.slice(0,4).map(part => ({...p
 const detached=structuredClone(table); detached[1].center_mm[0]=1000;
 assert.ok(s.validateFurnitureStructure(build(detached), evidence).some(n=>n.includes('未接合')));
 assert.ok(s.validateFurnitureStructure(build(table), {...evidence,uncertainties:['背面不清楚']}).some(n=>n.includes('待確認')));
+{
+  const open = {...evidence,uncertainties:['背面不清楚','腳距未標註']};
+  const checked = s.resolveUncertainty(open, '背面不清楚', 'checked', '側面照可見', 'pm@x');
+  assert.ok(s.validateFurnitureStructure(build(table), checked).some(n=>n.includes('腳距未標註')));
+  assert.ok(!s.validateFurnitureStructure(build(table), checked).some(n=>n.includes('背面不清楚')));
+  const both = s.resolveUncertainty(checked, '腳距未標註', 'estimate', undefined, 'pm@x');
+  assert.ok(!s.validateFurnitureStructure(build(table), both).some(n=>n.includes('待確認')));
+  assert.deepEqual([...s.estimatedUncertainties(both)], ['腳距未標註']);
+  assert.ok(s.validateFurnitureStructure(build(table), s.reopenUncertainty(both, '腳距未標註')).some(n=>n.includes('腳距未標註')));
+  const reread = s.carryResolutions(both, {...evidence,uncertainties:['腳距未標註','新問題']});
+  assert.equal(JSON.stringify(reread.resolved.map(r=>r.text)), '["腳距未標註"]');
+  assert.ok(s.validateFurnitureStructure(build(table), reread).some(n=>n.includes('新問題')));
+}
 const asymmetric=structuredClone(table); asymmetric[1].center_mm[0]+=50;
 assert.ok(s.validateFurnitureStructure(build(asymmetric), evidence).some(n=>n.includes('不對稱')));
 const noConnections=table.map(part=>({...part,connects_to:[]}));

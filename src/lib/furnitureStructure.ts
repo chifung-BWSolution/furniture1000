@@ -7,6 +7,58 @@ export interface StructureEvidence {
   part_counts: Record<string, number>;
   symmetric: boolean;
   uncertainties: string[];
+  /** How a person handled each AI uncertainty; matched by its text. */
+  resolved?: UncertaintyResolution[];
+}
+
+/**
+ * `estimate`: keep the AI reading as an estimate; the model can only be an estimate draft.
+ * `checked`: a person compared the photos (or corrected the parts) and wrote what they checked.
+ */
+export interface UncertaintyResolution {
+  text: string;
+  decision: 'estimate' | 'checked';
+  note?: string;
+  by?: string;
+  at: string;
+}
+
+export const STRUCTURE_PENDING_PREFIX = '結構待確認：';
+
+export function unresolvedUncertainties(evidence: StructureEvidence | undefined): string[] {
+  if (!evidence) return [];
+  const done = new Set((evidence.resolved ?? []).map((r) => r.text));
+  return evidence.uncertainties.filter((text) => !done.has(text));
+}
+
+/** Uncertainties kept as estimates; they stop the version from passing formal acceptance. */
+export function estimatedUncertainties(evidence: StructureEvidence | undefined): string[] {
+  if (!evidence) return [];
+  return (evidence.resolved ?? [])
+    .filter((r) => r.decision === 'estimate' && evidence.uncertainties.includes(r.text))
+    .map((r) => r.text);
+}
+
+export function resolveUncertainty(
+  evidence: StructureEvidence,
+  text: string,
+  decision: UncertaintyResolution['decision'],
+  note: string | undefined,
+  by: string | undefined,
+): StructureEvidence {
+  const rest = (evidence.resolved ?? []).filter((r) => r.text !== text);
+  const trimmed = note?.trim();
+  return { ...evidence, resolved: [...rest, { text, decision, ...(trimmed ? { note: trimmed } : {}), ...(by ? { by } : {}), at: new Date().toISOString() }] };
+}
+
+export function reopenUncertainty(evidence: StructureEvidence, text: string): StructureEvidence {
+  return { ...evidence, resolved: (evidence.resolved ?? []).filter((r) => r.text !== text) };
+}
+
+/** A new AI reading keeps people's decisions for uncertainties it repeats word for word. */
+export function carryResolutions(previous: StructureEvidence | undefined, next: StructureEvidence): StructureEvidence {
+  const kept = (previous?.resolved ?? []).filter((r) => next.uncertainties.includes(r.text));
+  return kept.length ? { ...next, resolved: kept } : next;
 }
 
 function bounds(part: ModelPart): Box3 {
@@ -79,7 +131,7 @@ export function hasStructureEvidence(value: unknown): value is StructureEvidence
 export function validateFurnitureStructure(model: ParametricModel, evidence: StructureEvidence | undefined, referenceParts?: CustomPartSpec[]): string[] {
   const errors: string[] = [];
   if (!hasStructureEvidence(evidence)) return ['缺少完整的結構辨認資料，請重新辨認部件'];
-  if (evidence.uncertainties.length) errors.push(...evidence.uncertainties.map(n => `結構待確認：${String(n)}，請補圖後重新辨認`));
+  errors.push(...unresolvedUncertainties(evidence).map(n => `${STRUCTURE_PENDING_PREFIX}${n}`));
   const specs = model.custom_parts ?? referenceParts ?? model.structure_parts ?? [];
   if (specs.length !== model.components.length || specs.some(p => !p.role || !p.form || !Array.isArray(p.connects_to))) return [...errors, '部件用途、形狀或接合關係不完整，請重新辨認部件'];
   if (evidence.product_count && evidence.product_count > 1 &&
