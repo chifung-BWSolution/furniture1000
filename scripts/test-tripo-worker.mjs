@@ -42,32 +42,27 @@ const glb = new Uint8Array(12);
 const view = new DataView(glb.buffer);
 view.setUint32(0, 0x46546c67, true); view.setUint32(4, 2, true); view.setUint32(8, 12, true);
 
+const fresh = setup([]);
+await assert.rejects(fresh.runTripoJob(fresh.admin, fresh.job), /Tripo 已停用：任務尚未提交/);
+assert.equal(fresh.requests.length, 0, 'A job without a provider task must never be submitted');
+const uncertain = setup([]);
+uncertain.job.payload.state = { submission_started: true, submitted_at: new Date().toISOString() };
+await assert.rejects(uncertain.runTripoJob(uncertain.admin, uncertain.job), /提交結果不明/);
+assert.equal(uncertain.requests.length, 0, 'An uncertain submission is left for manual review');
+
 const ok = setup([
-  reply({ task_id: 'task_abc' }),
   reply({ status: 'running', progress: 42 }),
   reply({ status: 'success', credits_consumed: 30, output: { model_url: 'https://cdn.tripo3d.ai/model.glb' } }),
   new Response(glb),
 ]);
-assert.equal(await ok.runTripoJob(ok.admin, ok.job), 'tripo_pending');
-assert.equal(ok.requests[0].body.face_limit, 30000);
-assert.equal(ok.requests[0].body.pbr, true);
+ok.job.payload.state = { submission_started: true, task_id: 'task_abc', submitted_at: new Date().toISOString() };
 assert.equal(await ok.runTripoJob(ok.admin, ok.job), 'tripo_pending');
 assert.equal(ok.calls.at(-1).args.p_progress, 0.42);
 assert.equal(await ok.runTripoJob(ok.admin, ok.job), 'succeeded');
 assert.equal(ok.uploads.length, 1);
 assert.equal(ok.calls.at(-1).name, 'fds_tripo_model_complete');
 assert.equal(ok.calls.at(-1).args.p_credits, 30);
-assert.equal(ok.requests.filter(r => r.body).length, 1, 'Polling must not create another paid task');
-
-for (const response of [Response.json({ code: 2001, message: 'insufficient balance' }), new Error('connection lost')]) {
-  const uncertain = setup([response]);
-  await assert.rejects(uncertain.runTripoJob(uncertain.admin, uncertain.job), uncertain.TripoStop);
-  await assert.rejects(uncertain.runTripoJob(uncertain.admin, uncertain.job), /避免重複扣點/);
-  assert.equal(uncertain.requests.length, 1, 'An uncertain/failed submission must never automatically resubmit');
-}
-const noCredits = setup([Response.json({ code: 2010, message: 'Insufficient credits' }, { status: 403 })]);
-await assert.rejects(noCredits.runTripoJob(noCredits.admin, noCredits.job), /API 點數不足/);
-assert.equal(noCredits.requests.length, 1);
+assert.equal(ok.requests.filter(r => r.body).length, 0, 'Polling must not create another paid task');
 const failed = setup([reply({ status: 'failed' })]);
 failed.job.payload.state = { task_id: 'task_failed', submitted_at: new Date().toISOString() };
 await assert.rejects(failed.runTripoJob(failed.admin, failed.job), failed.TripoStop);
@@ -83,4 +78,4 @@ const invalid = setup([reply({ status: 'success', output: { model_url: 'https://
 invalid.job.payload.state = { task_id: 'task_invalid', submitted_at: new Date().toISOString() };
 await assert.rejects(invalid.runTripoJob(invalid.admin, invalid.job), invalid.TripoStop);
 assert.equal(invalid.uploads.length, 0);
-console.log('PASS: async lifecycle, HTTP-200 business failure, lost submit response, no duplicate billing, provider failure, cancellation, invalid GLB');
+console.log('PASS: no new Tripo submission, uncertain submit left for review, existing task polls and downloads, provider failure, cancellation, invalid GLB');

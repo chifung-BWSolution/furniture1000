@@ -319,6 +319,11 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   **出現頁數要用「文件／圖片／頁碼」唯一關聯計數**：`supplier_document_images.seen_pages`
   存出現過的頁碼（唯一集合），`page_occurrences = cardinality(seen_pages)`，
   寫入只經 `fds_supplier_document_image_record`（重跑同一 unit 不會再加一次，重試冪等）。
+- 傢俬建模＝尺寸驅動（`docs/prd/尺寸驅動傢俬建模-PRD.md`、`-實作說明.md`）。**Tripo 已停用**：
+ RPC 與 `processing_jobs` 觸發器都拒絕新 `generate_tripo`，不要再加回入口。每次保存是 `furniture_models` 的新版本
+ （`parent_id`、`params_hash` 去重）；`quality_status` 由伺服器按 `parametric.evidence` 推算，前端不能直接設成已驗收，
+ 驗收只經 `fds_review_furniture_model`（admin／uploader）。只有「已確認」的實測尺寸才固定幾何；AI 估算只能出草稿。
+ 改幾何引擎輸出要升 `PARAMETRIC_ENGINE_VERSION`：驗收會用目前引擎重建並比較幾何，舊版本會不一致，要靠版本號說明原因。
 - Canva（F-AI-009）：edge slug `supabase-functions-generate-canva-presentation`。
   建立簡報＝Canva AI `POST /v1/generations`（preview），先查 `GET /v1/users/me/capabilities` 的 `design_generation`。
   不用品牌模板、不用 Autofill、不需要 `CANVA_BRAND_TEMPLATE_ID`。

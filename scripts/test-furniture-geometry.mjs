@@ -46,9 +46,12 @@ for (const section of ['rect','round']) for (const path of [[[0,0,-200],[80,40,2
   const edges=new Map();
   for (const face of mesh.faces_mm) for(let i=0;i<face.length;i++) { const key=[face[i],face[(i+1)%face.length]].map(v=>v.map(n=>n.toFixed(5)).join(',')).sort().join('|'); edges.set(key,(edges.get(key)??0)+1); }
   assert.ok([...edges.values()].every(n=>n===2),'Swept solid must be watertight');
-  const fitted=p.fitCustomParts(checked,600,400,750);
-  const size=p.customPartsSize(fitted);
-  assert.ok(size.every((n,i)=>Math.abs(n-[600,400,750][i])<=1),'Nonuniform sizing preserves the whole oriented mesh');
+  const fit=p.fitCustomPartsWithConstraints(checked,600,400,750);
+  const size=p.customPartsSize(fit.parts);
+  const flat=path.every(v=>v[1]===0);
+  if (flat) assert.ok(fit.conflicts.some(n=>n.includes('路徑腳')&&n.includes('深')),'A flat tube cannot gain depth without changing its section; the contradiction is named');
+  else assert.ok(fit.conflicts.length===0&&size.every((n,i)=>Math.abs(n-[600,400,750][i])<=1),'Stretching an oriented sweep reaches the confirmed size');
+  assert.ok(fit.parts[0].geometry_scale===undefined,'Constraint fit never scales the tube section');
   const buffer=await glb.buildFurnitureGlb(model).arrayBuffer();
   assert.equal(new DataView(buffer).getUint32(0,true),0x46546c67);
   const jsonLength=new DataView(buffer).getUint32(12,true);

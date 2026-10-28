@@ -800,6 +800,56 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Upload selected photos to the connected user's library. Generation still
+    // receives text only; asset IDs are retained for manual placement.
+    const draft = brief.presentationDraft as { productDrafts?: Record<string, { displayName?: string; imageUrl?: string; sampleImageUrl?: string }> } | undefined;
+    const assets: Record<string, unknown>[] = [];
+    const previousAssets = Array.isArray(session.populate_report?.product_assets)
+      ? session.populate_report.product_assets as { product_id?: string; url?: string; asset_id?: string; name?: string }[] : [];
+    const imageInputs = new Map(Object.entries(draft?.productDrafts ?? {}).filter(([id]) => ((claimed.product_ids ?? []) as string[]).includes(id)));
+    if (typeof brief.coverImageUrl === 'string') imageInputs.set('cover', { displayName: '封面', imageUrl: brief.coverImageUrl });
+    if (typeof brief.floorImageUrl === 'string') imageInputs.set('floor', { displayName: '整體平面圖', imageUrl: brief.floorImageUrl });
+    const zones = (brief.presentationDraft as { zones?: { id: string; name: string; imageUrl?: string }[] } | undefined)?.zones;
+    for (const zone of zones ?? []) if (zone.imageUrl) imageInputs.set(`zone-${zone.id}`, { displayName: zone.name, imageUrl: zone.imageUrl });
+    for (const [productId, photo] of imageInputs) {
+      const url = photo?.sampleImageUrl || photo?.imageUrl;
+      const name = `FDS ${sessionId.slice(0, 8)} ${photo?.displayName || productId}`.slice(0, 255);
+      if (!url || !/^https:\/\//i.test(url)) {
+        assets.push({ product_id: productId, name, error: 'missing_https_image' });
+        continue;
+      }
+      const previous = previousAssets.find((asset) => asset.product_id === productId && asset.url === url && asset.asset_id);
+      if (previous) {
+        assets.push(previous);
+        continue;
+      }
+      try {
+        if (missingScopes(scopeStr, ['asset:write']).length) throw new Error('missing_asset_write_scope_reconnect_canva');
+        const options = {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, name }),
+        };
+        let upload = await canvaAuthedFetch(tokenRow.access_token, '/url-asset-uploads', options);
+        if (upload.status === 401) {
+          const next = await on401();
+          if (next) upload = await canvaAuthedFetch(next, '/url-asset-uploads', options);
+        }
+        if (!upload.ok) throw new Error(`asset_upload_${upload.status}`);
+        const created = await upload.json();
+        if (!created?.job?.id) throw new Error('asset_upload_no_job');
+        const job = await pollCanvaJob<{ status?: string; asset?: { id?: string } }>(
+          tokenRow.access_token, `/url-asset-uploads/${encodeURIComponent(created.job.id)}`,
+          (value) => value?.status === 'success' || value?.status === 'failed', on401,
+        );
+        if (!job?.asset?.id) throw new Error('asset_upload_failed');
+        assets.push({ product_id: productId, name, asset_id: job.asset.id, url });
+      } catch (error) {
+        assets.push({ product_id: productId, name, url, error: String(error) });
+      }
+      report.product_assets = assets;
+      await service.from('canva_design_sessions').update({ populate_report: report, updated_at: new Date().toISOString() }).eq('id', sessionId);
+    }
+    report.product_assets = assets;
     const payload = {
       brief: request.brief,
       design_type: request.design_type,

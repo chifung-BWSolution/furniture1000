@@ -109,9 +109,30 @@ const PARTS_PROMPT = [
   "notes: one short sentence in Traditional Chinese (Hong Kong) on what the product is and how it is built.",
 ].join(" ");
 
+const LABELLED_PROMPT = "labelled_dimensions: only sizes PRINTED in the supplied images (dimension lines, spec tables, captions), never your own estimates. For each: dimension (width/depth/height/top_thickness/leg_span_x/leg_span_y/seat_height/shelf_height/other), value and unit exactly as printed (mm/cm/m/in), raw_text copied verbatim, image_index = 1-based index of the image it appears in, location = where in that image in a few words, applies_to = single when it sizes one item, arrangement when it sizes a group, else unknown. Return an empty list when nothing is printed.";
+
+const LABELLED_DIMENSIONS_SCHEMA = {
+  type: "array",
+  maxItems: 24,
+  items: {
+    type: "object",
+    properties: {
+      dimension: { type: "string", enum: ["width", "depth", "height", "top_thickness", "leg_span_x", "leg_span_y", "seat_height", "shelf_height", "other"] },
+      value: { type: "number" },
+      unit: { type: "string", enum: ["mm", "cm", "m", "in"] },
+      raw_text: { type: "string" },
+      image_index: { type: "integer" },
+      location: { type: "string" },
+      applies_to: { type: "string", enum: ["single", "arrangement", "unknown"] },
+    },
+    required: ["dimension", "value", "unit", "raw_text", "image_index", "applies_to"],
+  },
+};
+
 const PART_SCHEMA = {
   type: "object",
   properties: {
+    labelled_dimensions: LABELLED_DIMENSIONS_SCHEMA,
     parts: {
       type: "array",
       maxItems: MAX_PARTS,
@@ -181,6 +202,7 @@ const CLASSIFY_SCHEMA = {
         },
       },
     },
+    labelled_dimensions: LABELLED_DIMENSIONS_SCHEMA,
   },
   required: ["kind"],
 };
@@ -280,6 +302,27 @@ function dimensionEstimatesFrom(rows: unknown) {
   });
 }
 
+/** Printed labels only from real product images; the AI sheet (if any) is never evidence. */
+function labelledDimensionsFrom(rows: unknown, photoCount: number) {
+  if (!Array.isArray(rows)) return [];
+  return rows.slice(0, 24).flatMap((row) => {
+    const r = (row && typeof row === "object" ? row : {}) as Record<string, unknown>;
+    const value = positive(r.value);
+    const index = Number(r.image_index);
+    if (value == null || !["mm", "cm", "m", "in"].includes(String(r.unit)) || typeof r.raw_text !== "string" || !r.raw_text.trim()) return [];
+    if (!Number.isInteger(index) || index < 1 || index > photoCount) return [];
+    return [{
+      dimension: typeof r.dimension === "string" ? r.dimension.slice(0, 20) : "other",
+      value,
+      unit: r.unit,
+      raw_text: r.raw_text.slice(0, 80),
+      image_index: index,
+      location: typeof r.location === "string" ? r.location.slice(0, 80) : null,
+      applies_to: ["single", "arrangement", "unknown"].includes(String(r.applies_to)) ? r.applies_to : "unknown",
+    }];
+  });
+}
+
 const DIMENSION_ESTIMATE_SCHEMA = {
   type: "array",
   items: {
@@ -296,7 +339,7 @@ const DIMENSION_ESTIMATE_SCHEMA = {
 type Size = { width_mm: number | null; depth_mm: number | null; height_mm: number | null };
 
 /** Shape only: the browser runs the full geometry checks (sanitizeCustomParts). */
-async function extractParts(apiKey: string, images: InlineImage[], size: Size, title: string, scope = 'Default: model one product only.', withEstimates = false) {
+async function extractParts(apiKey: string, images: InlineImage[], size: Size, title: string, scope = 'Default: model one product only.', withEstimates = false, photoCount = images.length) {
   const known = [size.width_mm, size.depth_mm, size.height_mm].every((n) => n != null)
     ? `Overall size: width ${size.width_mm} mm, depth ${size.depth_mm} mm, height ${size.height_mm} mm.`
     : "Overall size unknown; estimate it from the photos.";
@@ -305,9 +348,9 @@ async function extractParts(apiKey: string, images: InlineImage[], size: Size, t
     ? { ...PART_SCHEMA, properties: { ...PART_SCHEMA.properties, dimension_estimates: DIMENSION_ESTIMATE_SCHEMA } }
     : PART_SCHEMA;
   const system = withEstimates
-    ? `${PARTS_PROMPT} When views or dimension diagrams show labelled sizes, list each distinct reading of the whole arrangement in dimension_estimates (view = front/side/top/diagram in English). ${scope}`
-    : `${PARTS_PROMPT} ${scope}`;
-  const parsed = await askGrok<{ parts?: unknown[]; notes?: string; structure?: { leg_count?: number; part_counts?: Record<string,number>; symmetric?: boolean; uncertainties?: string[] }; dimension_estimates?: DimensionEstimate[] }>(apiKey, system, prompt, images, schema);
+    ? `${PARTS_PROMPT} ${LABELLED_PROMPT} When views or dimension diagrams show labelled sizes, list each distinct reading of the whole arrangement in dimension_estimates (view = front/side/top/diagram in English). ${scope}`
+    : `${PARTS_PROMPT} ${LABELLED_PROMPT} ${scope}`;
+  const parsed = await askGrok<{ parts?: unknown[]; notes?: string; structure?: { leg_count?: number; part_counts?: Record<string,number>; symmetric?: boolean; uncertainties?: string[] }; dimension_estimates?: DimensionEstimate[]; labelled_dimensions?: unknown }>(apiKey, system, prompt, images, schema);
   const parts = Array.isArray(parsed.parts) ? parsed.parts : [];
   if (parts.length === 0 || parts.length > MAX_PARTS) throw new GrokError("部件清單不完整或超出上限，請重新辨認部件");
   if (parts.some((part, index) => {
@@ -322,6 +365,7 @@ async function extractParts(apiKey: string, images: InlineImage[], size: Size, t
     notes: typeof parsed.notes === "string" ? parsed.notes : null,
     structure: parsed.structure,
     dimension_estimates: dimensionEstimatesFrom(parsed.dimension_estimates),
+    labelled_dimensions: labelledDimensionsFrom(parsed.labelled_dimensions, photoCount),
   };
 }
 
@@ -399,16 +443,17 @@ Deno.serve(async (req: Request) => {
     const scope = body.product_scope === 'arrangement'
       ? `The user explicitly confirmed a GROUP of ${body.product_count} separate identical products. This overrides default single-item isolation rules, including desks. Model the entire arrangement as seen, preserving each individual product and its spacing. Each part MUST include product_index, a zero-based integer from 0 to ${body.product_count! - 1}; every product must have its own parts. Overall dimensions refer to the group. Do not merge separate feet or omit repeated units.`
       : `The user requests exactly ONE matching product, even when several identical products appear together. Never model the whole arrangement. Catalogue dimensions may describe the whole arrangement; infer single-item size unless mode is parts, whose supplied dimensions are user-confirmed.`;
+    const photoCount = images.length;
     if (inferred) images.push(inferred);
     const drawingScope = inferred ? `${scope} The LAST image is an AI-INFERRED orthographic sheet, NOT an independent photograph or measured drawing. It shows multiple views of ONE unit, not multiple products. Use it only as auxiliary layout guidance. ORIGINAL product photographs take priority for geometry, part counts, bends, voids, and connections. Do not copy any AI-invented supports or panels. Uncertainties in the original photos remain uncertainties even if the AI sheet fills them in. For a confirmed group, the sheet is only a single-unit reference; retain the confirmed group count.` : scope;
-    const extraction = await extractParts(apiKey, images, { width_mm: positive(body.width_mm), depth_mm: positive(body.depth_mm), height_mm: positive(body.height_mm) }, title, drawingScope, body.product_scope === 'arrangement');
+    const extraction = await extractParts(apiKey, images, { width_mm: positive(body.width_mm), depth_mm: positive(body.depth_mm), height_mm: positive(body.height_mm) }, title, drawingScope, body.product_scope === 'arrangement', photoCount);
     if (body.product_scope === 'arrangement') {
       const indexes = extraction.parts.map(part => (part as {product_index?:number}).product_index);
       if (indexes.some(n => !Number.isInteger(n) || n! < 0 || n! >= body.product_count!) || new Set(indexes).size !== body.product_count) throw new GrokError('拆出的產品數量與確認的整組數量不符，請重新辨認');
-      return json({ supported:true, kind:'custom', parts:extraction.parts, structure:{...extraction.structure, product_count:body.product_count}, structure_notes:extraction.notes, dimension_estimates:extraction.dimension_estimates, image_count:images.length, product_scope:'arrangement', product_count:body.product_count });
+      return json({ supported:true, kind:'custom', parts:extraction.parts, structure:{...extraction.structure, product_count:body.product_count}, structure_notes:extraction.notes, dimension_estimates:extraction.dimension_estimates, labelled_dimensions:extraction.labelled_dimensions, image_count:images.length, product_scope:'arrangement', product_count:body.product_count });
     }
     if (body.mode === "parts") {
-      return json({ supported: true, kind: "custom", parts: extraction.parts, structure: extraction.structure, structure_notes: extraction.notes, image_count: images.length });
+      return json({ supported: true, kind: "custom", parts: extraction.parts, structure: extraction.structure, structure_notes: extraction.notes, labelled_dimensions: extraction.labelled_dimensions, image_count: images.length });
     }
 
     const parsed = await askGrok<{
@@ -433,9 +478,11 @@ Deno.serve(async (req: Request) => {
       structure_notes?: string;
       reason?: string;
       dimension_estimates?: { view?: string; width_mm?: number; depth_mm?: number; height_mm?: number }[];
-    }>(apiKey, CLASSIFY_PROMPT, [drawingScope, title ? `Product name: ${title.slice(0, 200)}.` : "", `Reference catalogue dimensions (may describe the whole arrangement): width=${positive(body.width_mm) ?? "unknown"}, depth=${positive(body.depth_mm) ?? "unknown"}, height=${positive(body.height_mm) ?? "unknown"} mm.`, "Return the furniture kind, SINGLE-item size, source_dimensions_scope, and the structure fields that apply."].join(" "), images, CLASSIFY_SCHEMA);
+      labelled_dimensions?: unknown;
+    }>(apiKey, `${CLASSIFY_PROMPT} ${LABELLED_PROMPT}`, [drawingScope, title ? `Product name: ${title.slice(0, 200)}.` : "", `Reference catalogue dimensions (may describe the whole arrangement): width=${positive(body.width_mm) ?? "unknown"}, depth=${positive(body.depth_mm) ?? "unknown"}, height=${positive(body.height_mm) ?? "unknown"} mm.`, "Return the furniture kind, SINGLE-item size, source_dimensions_scope, and the structure fields that apply."].join(" "), images, CLASSIFY_SCHEMA);
 
     const dimension_estimates = dimensionEstimatesFrom(parsed.dimension_estimates);
+    const labelled_dimensions = [...labelledDimensionsFrom(parsed.labelled_dimensions, photoCount), ...extraction.labelled_dimensions].slice(0, 24);
 
     if (parsed.kind === "unsupported" || !parsed.kind) {
       return json({ supported: false, reason: parsed.reason || "圖片看不到家具" });
@@ -463,6 +510,7 @@ Deno.serve(async (req: Request) => {
         structure: extraction.structure,
         structure_notes: notes ?? parsed.structure_notes ?? null,
         dimension_estimates,
+        labelled_dimensions,
         image_count: images.length,
       });
     }
@@ -500,6 +548,7 @@ Deno.serve(async (req: Request) => {
       structure: extraction.structure,
       structure_notes: extraction.notes ?? parsed.structure_notes ?? null,
       dimension_estimates,
+      labelled_dimensions,
       image_count: images.length,
     });
   } catch (err) {

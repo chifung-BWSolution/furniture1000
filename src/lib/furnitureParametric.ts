@@ -133,6 +133,9 @@ export interface ParametricModel {
   /** custom only: the part list as checked, before it was fitted to the overall size. */
   custom_parts?: CustomPartSpec[];
   components: ModelPart[];
+  engine_version?: string;
+  /** Dimension sources and confirmations (see modelEvidence.ts); the server derives quality from it. */
+  evidence?: import('./modelEvidence').ModelEvidence;
 }
 
 /**
@@ -161,7 +164,16 @@ export interface CustomPartSpec {
   form?: 'straight' | 'slanted' | 'bent' | 'tapered' | 'panel';
   /** Indices in the part list, zero based. */
   connects_to?: number[];
+  /** Stable across edits, so selection, versions and AI suggestions refer to the same part. */
+  part_id?: string;
+  /** Axes whose size never changes when the overall size or a key dimension changes. */
+  locked_axes?: PartAxis[];
 }
+
+export type PartAxis = 'x' | 'y' | 'z';
+
+/** Bump when the same parameters would produce different geometry. */
+export const PARAMETRIC_ENGINE_VERSION = 'fds-parametric-2';
 
 export const MAX_CUSTOM_PARTS = 40;
 
@@ -1085,6 +1097,11 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
       if (!Array.isArray(r.connects_to) || !r.connects_to.every(n => Number.isInteger(n) && n >= 0 && n < input.length && n !== out.length)) throw invalid();
       spec.connects_to = [...new Set(r.connects_to as number[])];
     }
+    if (typeof r.part_id === 'string' && /^[\w-]{1,40}$/.test(r.part_id)) spec.part_id = r.part_id;
+    if (Array.isArray(r.locked_axes)) {
+      const locked = (['x', 'y', 'z'] as const).filter((a) => (r.locked_axes as unknown[]).includes(a));
+      if (locked.length) spec.locked_axes = locked;
+    }
     if (shape === 'sweep') {
       if (!Array.isArray(r.path_mm) || r.path_mm.length < 2 || r.path_mm.length > 32 ||
         !r.path_mm.every(p => Array.isArray(p) && p.length === 3 && p.every(n => finite(n) && Math.abs(n) <= 10000))) throw invalid();
@@ -1221,30 +1238,148 @@ export function customPartsSize(specs: CustomPartSpec[]): Vec3 | null {
   return b ? (b.max.map((n, i) => Math.round(n - b.min[i])) as Vec3) : null;
 }
 
+const AXIS_LABEL = ['闊', '深', '高'] as const;
+/** Part edges closer than this share of the overall extent follow that boundary. */
+const EDGE_ANCHOR = 0.35;
+
+export function specBounds(spec: CustomPartSpec): { min: Vec3; max: Vec3 } {
+  const pts = specPart(spec, 0, [1, 1, 1], [0, 0, 0]).faces_mm.flat();
+  return {
+    min: [0, 1, 2].map((k) => Math.min(...pts.map((p) => p[k]))) as Vec3,
+    max: [0, 1, 2].map((k) => Math.max(...pts.map((p) => p[k]))) as Vec3,
+  };
+}
+
+export function moveAlong(spec: CustomPartSpec, k: number, delta: number): CustomPartSpec {
+  const center_mm = [...spec.center_mm] as Vec3;
+  center_mm[k] = round(center_mm[k] + delta);
+  return { ...spec, center_mm };
+}
+
+/** Resize one part along one axis so its bounds become [lo, hi], keeping its section elsewhere. */
+export function stretchAlong(spec: CustomPartSpec, k: number, lo: number, hi: number): CustomPartSpec | null {
+  const size = hi - lo;
+  const before = specBounds(spec);
+  const oldSize = before.max[k] - before.min[k];
+  if (spec.shape === 'sweep') {
+    const path = spec.path_mm!;
+    const span = Math.max(...path.map((p) => p[k])) - Math.min(...path.map((p) => p[k]));
+    // A tube whose centreline does not run along this axis cannot stretch without changing its section.
+    if (span < 1) return null;
+    const withRatio = (r: number): CustomPartSpec => ({ ...spec, path_mm: path.map((p) => p.map((n, j) => (j === k ? n * r : n)) as Vec3) });
+    const extent = (r: number) => { const b = specBounds(withRatio(r)); return b.max[k] - b.min[k]; };
+    let r0 = 1, f0 = oldSize - size;
+    let r1 = Math.max(0.001, (size - (oldSize - span)) / span), f1 = extent(r1) - size;
+    for (let i = 0; i < 8 && Math.abs(f1) > 0.01 && Math.abs(f1 - f0) > 1e-9; i++) {
+      const r2 = Math.max(0.001, r1 - (f1 * (r1 - r0)) / (f1 - f0));
+      r0 = r1; f0 = f1; r1 = r2; f1 = extent(r1) - size;
+    }
+    const out = withRatio(r1);
+    const b = specBounds(out);
+    out.size_mm = b.max.map((n, j) => round(n - b.min[j])) as Vec3;
+    return moveAlong(out, k, lo - b.min[k]);
+  }
+  const out: CustomPartSpec = { ...spec, size_mm: [...spec.size_mm] as Vec3, center_mm: [...spec.center_mm] as Vec3 };
+  out.size_mm[k] = round(size);
+  if (spec.shape === 'profile' && spec.points_mm && spec.axis && AXIS_INDEX[spec.axis] !== k) {
+    const j = PLANE[spec.axis].indexOf(k);
+    const ratio = oldSize > 0 ? size / oldSize : 1;
+    out.points_mm = spec.points_mm.map((pt) => pt.map((n, i) => (i === j ? round(n * ratio) : n)) as [number, number]);
+  }
+  const after = specBounds(out);
+  out.center_mm[k] = round(out.center_mm[k] + lo - after.min[k]);
+  return out;
+}
+
+export interface ConstraintFit {
+  parts: CustomPartSpec[];
+  /** Concrete contradictions: which part, which axis, which numbers. Empty when the fit holds. */
+  conflicts: string[];
+}
+
 /**
- * Stretch the parts so their bounding box equals width × depth × height, centred on the floor
- * plan and standing on the floor. Used when the AI answers or the user changes the overall size;
- * deleting or resizing one part afterwards must not stretch the rest.
+ * Fit the parts to width × depth × height by constraints rather than by scaling every vertex:
+ * each part edge follows the overall boundary it sits on (or the centre), so a wider desk gets
+ * a wider top while legs keep their section and their distance from the edge. Axes listed in
+ * `locked_axes` never change size. Deterministic: the same parts and size give the same result.
  */
-export function fitCustomParts(specs: CustomPartSpec[], w: number, d: number, h: number): CustomPartSpec[] {
+export function fitCustomPartsWithConstraints(specs: CustomPartSpec[], w: number, d: number, h: number): ConstraintFit {
   const b = soundBounds(specs);
-  if (!b) return specs;
+  if (!b) return { parts: specs, conflicts: [] };
   const target: Vec3 = [w, d, h];
-  const scale = target.map((t, i) => (t > 0 && b.max[i] - b.min[i] > 1 ? t / (b.max[i] - b.min[i]) : 1)) as Vec3;
-  const shift: Vec3 = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, b.min[2]];
-  return specs.map((spec) => {
-    const out: CustomPartSpec = {
-      ...spec,
-      size_mm: spec.size_mm.map((n, i) => Math.max(3, Math.round(n * scale[i]))) as Vec3,
-      center_mm: spec.center_mm.map((n, i) => Math.round((n - shift[i]) * scale[i])) as Vec3,
-    };
-    if (spec.shape === 'sweep') out.geometry_scale = scale.map((n, i) => n * (spec.geometry_scale?.[i] ?? 1)) as Vec3;
-    if (spec.points_mm && spec.axis) {
-      const [u, v] = PLANE[spec.axis];
-      out.points_mm = spec.points_mm.map(([a, b2]) => [Math.round(a * scale[u]), Math.round(b2 * scale[v])]);
+  const conflicts: string[] = [];
+  type Plan = { lo: number; hi: number; stretch: boolean } | null;
+  // Plan first from where each part sat originally, then apply; anchors never drift.
+  const plans: Plan[][] = specs.map((spec) => {
+    const own = specBounds(spec);
+    return [0, 1, 2].map((k): Plan => {
+      const extent = b.max[k] - b.min[k];
+      if (!(target[k] > 0) || extent < 1) return null;
+      const newMin = k === 2 ? 0 : -target[k] / 2;
+      const newMax = newMin + target[k];
+      const mid = (b.min[k] + b.max[k]) / 2, newMid = (newMin + newMax) / 2;
+      const place = (e: number) => {
+        const t = (e - b.min[k]) / extent;
+        if (t <= EDGE_ANCHOR) return newMin + (e - b.min[k]);
+        if (t >= 1 - EDGE_ANCHOR) return newMax - (b.max[k] - e);
+        return newMid + (e - mid);
+      };
+      const lo = place(own.min[k]), hi = place(own.max[k]);
+      const oldSize = own.max[k] - own.min[k];
+      const locked = spec.locked_axes?.includes((['x', 'y', 'z'] as const)[k]);
+      if (locked && oldSize > target[k] + 1) conflicts.push(`「${spec.name}」已鎖定${AXIS_LABEL[k]} ${round(oldSize)} mm，大於整體${AXIS_LABEL[k]} ${round(target[k])} mm`);
+      if (locked || Math.abs(hi - lo - oldSize) < 0.05) return { lo, hi, stretch: false };
+      if (hi - lo < 3) {
+        conflicts.push(`「${spec.name}」的${AXIS_LABEL[k]}會被壓縮至 ${round(Math.max(0, hi - lo))} mm，請修正整體尺寸或鎖定其他零件`);
+        return { lo, hi, stretch: false };
+      }
+      return { lo, hi, stretch: true };
+    });
+  });
+  const apply = (spec: CustomPartSpec, plan: Plan[], report: boolean): CustomPartSpec => {
+    let out = spec;
+    plan.forEach((step, k) => {
+      if (!step) return;
+      let stretched: CustomPartSpec | null = null;
+      if (step.stretch) {
+        try { stretched = stretchAlong(out, k, step.lo, step.hi); } catch { stretched = null; }
+        if (!stretched && report) conflicts.push(`「${spec.name}」不能沿${AXIS_LABEL[k]}方向拉伸而不改變截面，請改由零件尺寸調整`);
+      }
+      if (stretched) { out = stretched; return; }
+      const cur = specBounds(out);
+      out = moveAlong(out, k, (step.lo + step.hi) / 2 - (cur.min[k] + cur.max[k]) / 2);
+    });
+    return out;
+  };
+  const parts = specs.map((spec, i) => {
+    let out = apply(spec, plans[i], true);
+    // A slanted tube stretched along one axis also changes its extent on the others.
+    for (let pass = 0; out.shape === 'sweep' && pass < 6; pass++) {
+      const cur = specBounds(out);
+      const off = plans[i].some((step, k) => step && (step.stretch
+        ? Math.abs(cur.min[k] - step.lo) > 0.05 || Math.abs(cur.max[k] - step.hi) > 0.05
+        : Math.abs((cur.min[k] + cur.max[k]) / 2 - (step.lo + step.hi) / 2) > 0.05));
+      if (!off) break;
+      out = apply(out, plans[i], false);
     }
     return out;
   });
+  const fitted = soundBounds(parts);
+  if (fitted) {
+    for (let k = 0; k < 3; k++) {
+      const size = fitted.max[k] - fitted.min[k];
+      if (target[k] > 0 && Math.abs(size - target[k]) > 1) conflicts.push(`按約束重建後整體${AXIS_LABEL[k]}為 ${round(size)} mm，與確認的 ${round(target[k])} mm 不符`);
+    }
+  }
+  return { parts, conflicts: [...new Set(conflicts)] };
+}
+
+/**
+ * Overall-size fit used when the AI answers or the user changes width, depth or height.
+ * Deleting or resizing one part afterwards must not stretch the rest.
+ */
+export function fitCustomParts(specs: CustomPartSpec[], w: number, d: number, h: number): CustomPartSpec[] {
+  return fitCustomPartsWithConstraints(specs, w, d, h).parts;
 }
 
 /** Parts keep their own sizes; only centred on the floor plan and stood on the floor. */
@@ -1388,6 +1523,7 @@ export function buildParametric(input: {
     ...(STYLE_FIELDS[input.kind].length > 0 ? { style } : {}),
     ...(input.kind === 'custom' ? { custom_parts: parts } : {}),
     components: components(input.kind, width.mm, depth.mm, height.mm, style, parts),
+    engine_version: PARAMETRIC_ENGINE_VERSION,
   };
 }
 

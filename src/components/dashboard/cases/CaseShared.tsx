@@ -143,6 +143,7 @@ export function CaseListFilters({
   furnitureTypes,
   brands,
   showBrand = true,
+  showFurniture = true,
 }: {
   state: CaseListFilterState;
   onChange: (patch: Partial<CaseListFilterState>) => void;
@@ -150,6 +151,7 @@ export function CaseListFilters({
   furnitureTypes: string[];
   brands: string[];
   showBrand?: boolean;
+  showFurniture?: boolean;
 }) {
   return (
     <>
@@ -159,12 +161,14 @@ export function CaseListFilters({
         onChange={(industry) => onChange({ industry })}
         options={industries}
       />
-      <CaseFilter
-        label="傢俬類型"
-        value={state.furniture}
-        onChange={(furniture) => onChange({ furniture })}
-        options={furnitureTypes}
-      />
+      {showFurniture && (
+        <CaseFilter
+          label="傢俬類型"
+          value={state.furniture}
+          onChange={(furniture) => onChange({ furniture })}
+          options={furnitureTypes}
+        />
+      )}
       <Input
         type="number"
         inputMode="decimal"
@@ -217,6 +221,8 @@ export function CaseSearch({
   onChange,
   placeholder,
   onReload,
+  searchClassName = "w-80",
+  filtersClassName = "flex-1",
   children,
 }: {
   label: string;
@@ -224,11 +230,13 @@ export function CaseSearch({
   onChange: (value: string) => void;
   placeholder: string;
   onReload: () => void;
+  searchClassName?: string;
+  filtersClassName?: string;
   children?: ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-2">
-      <div className="relative w-80 max-w-full shrink-0">
+    <div className="flex flex-wrap items-start gap-2">
+      <div className={`relative max-w-full min-w-0 ${searchClassName}`}>
         <Search
           aria-hidden="true"
           className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -242,7 +250,7 @@ export function CaseSearch({
         />
       </div>
       {children ? (
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <div className={`flex min-w-0 max-w-full flex-wrap items-center gap-2 ${filtersClassName}`}>
           {children}
         </div>
       ) : (

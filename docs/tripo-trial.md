@@ -1,5 +1,8 @@
 # Tripo 試生成（FDS2.0）
 
+> **已停用（2026-10-28）**：見 `docs/prd/尺寸驅動傢俬建模-PRD.md` FR-01。入口已移除，`fds_request_tripo_model`
+> 及 `processing_jobs` 觸發器拒絕新提交；已有供應商 task_id 的任務仍會查詢及下載，歷史模型保留。以下為歷史紀錄。
+
 入口：產品詳情的「Tripo 試生成」，只給 admin／uploader。原有 SU／參數 3D 不變。
 
 1. 可直接選用產品現有的原圖（最多 8 張縮圖），或上載已整理好的單件傢俬 JPG／PNG／WebP；送出前都會轉成 JPEG 並顯示實際送出的圖片。

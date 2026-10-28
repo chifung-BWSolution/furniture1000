@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -47,8 +47,6 @@ export function CaseBrandsPage() {
   const [page, setPage] = useState(1);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState("");
   const [exportItems, setExportItems] = useState<CaseExportItem[] | null>(null);
   const [preview, setPreview] = useState<{
     title: string;
@@ -78,7 +76,6 @@ export function CaseBrandsPage() {
     setPage(1);
     scrollContainerRef.current?.scrollTo({ top: 0 });
     setSelected(new Set());
-    setDownloadError("");
     setPreview(null);
   }, [data.items, search, system, projectType, serviceType, logo, listFilters]);
   const selectable = filtered.filter((b) => imageUrl(b.branding_icon));
@@ -87,43 +84,6 @@ export function CaseBrandsPage() {
     (page - 1) * BRAND_PAGE_SIZE,
     page * BRAND_PAGE_SIZE,
   );
-  async function download() {
-    setDownloading(true);
-    setDownloadError("");
-    try {
-      const { default: JSZip } = await import("jszip");
-      const zip = new JSZip();
-      for (const b of selectedRows) {
-        const response = await fetch(imageUrl(b.branding_icon)!, {
-          signal: AbortSignal.timeout(20000),
-        });
-        if (!response.ok) throw new Error(brandName(b));
-        const blob = await response.blob();
-        if (!blob.type.startsWith("image/")) throw new Error(brandName(b));
-        const ext =
-          blob.type
-            .split("/")[1]
-            .replace("jpeg", "jpg")
-            .replace("svg+xml", "svg")
-            .replace(/[^a-z0-9]/g, "") || "png";
-        zip.file(
-          `${brandName(b).replace(/[<>:"/\\|?*]/g, "_")}-${b.id.slice(0, 8)}.${ext}`,
-          blob,
-        );
-      }
-      const blob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "知名客戶-Logo.zip";
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch {
-      setDownloadError("部分 Logo 無法下載，請重試或點擊 Logo 開啟原圖。");
-    } finally {
-      setDownloading(false);
-    }
-  }
   return (
     <CaseShell
       {...data}
@@ -150,6 +110,8 @@ export function CaseBrandsPage() {
               onChange={setSearch}
               placeholder="品牌名稱或公司名稱"
               onReload={data.reload}
+              searchClassName="w-full sm:w-96 sm:flex-1"
+              filtersClassName="sm:flex-none"
             >
               <CaseFilter
                 label="系統"
@@ -166,6 +128,22 @@ export function CaseBrandsPage() {
                   label: o.display,
                 }))}
               />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={!selectedRows.length}
+                onClick={() =>
+                  setExportItems(
+                    selectedRows.map((b) => buildExportItem("brand", b.id, b)),
+                  )
+                }
+              >
+                <Send className="mr-2 h-4 w-4" />
+                加入導出／發布（{selectedRows.length}）
+              </Button>
+            </CaseSearch>
+            <div className="flex flex-wrap items-center gap-2">
               <CaseFilter
                 label="服務類型"
                 value={serviceType}
@@ -202,73 +180,7 @@ export function CaseBrandsPage() {
                 brands={[]}
                 showBrand={false}
               />
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-9 text-sm"
-                onClick={() => {
-                  setSearch("");
-                  setSystem("");
-                  setProjectType("");
-                  setServiceType("");
-                  setLogo("");
-                  setListFilters(EMPTY_CASE_LIST_FILTERS);
-                }}
-              >
-                清除篩選
-              </Button>
-            </CaseSearch>
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  id="case-brand-select-all"
-                  checked={
-                    selectable.length > 0 &&
-                    selectedRows.length === selectable.length
-                  }
-                  disabled={!selectable.length || downloading}
-                  onCheckedChange={(checked) =>
-                    setSelected(
-                      checked === true
-                        ? new Set(selectable.map((b) => b.id))
-                        : new Set(),
-                    )
-                  }
-                />
-                <label htmlFor="case-brand-select-all" className="cursor-pointer">
-                  選取全部篩選結果的 Logo（{selectable.length}）
-                </label>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={download}
-                disabled={!selectedRows.length || downloading}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                {downloading
-                  ? "下載中…"
-                  : `下載已選 Logo（${selectedRows.length}）`}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!selectedRows.length || downloading}
-                onClick={() =>
-                  setExportItems(
-                    selectedRows.map((b) => buildExportItem("brand", b.id, b)),
-                  )
-                }
-              >
-                <Send className="mr-2 h-4 w-4" />
-                加入導出／發布（{selectedRows.length}）
-              </Button>
             </div>
-            {downloadError && (
-              <p role="alert" className="text-sm text-destructive">
-                {downloadError}
-              </p>
-            )}
             <p role="status" className="text-xs text-muted-foreground">
               共 {filtered.length} 個品牌
             </p>
@@ -294,7 +206,7 @@ export function CaseBrandsPage() {
                       id={`case-brand-pick-${b.id}`}
                       aria-label={`選取 ${name} Logo`}
                       checked={selected.has(b.id)}
-                      disabled={!url || downloading}
+                      disabled={!url}
                       onCheckedChange={(checked) =>
                         setSelected((old) => {
                           const next = new Set(old);

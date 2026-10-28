@@ -1333,25 +1333,13 @@ function QuoteProductItemCard({
               </SelectContent>
             </Select>
           </QuoteFieldBlock>
-          <QuoteFieldBlock
-            label={labels.category}
-            trailing={
-              <QuoteItemFlagToggles
-                item={item}
-                updateItem={updateItem}
-                labels={labels}
-                className="min-[900px]:hidden"
-              />
-            }
-          >
-            <textarea
-              value={item.category || ""}
-              placeholder="—"
-              rows={2}
-              onChange={(e) => updateItem(item.id, "category", e.target.value)}
-              className={`${QUOTE_INPUT_CLASS} min-h-[34px] resize-y leading-relaxed`}
+          <div className="min-[900px]:hidden">
+            <QuoteItemFlagToggles
+              item={item}
+              updateItem={updateItem}
+              labels={labels}
             />
-          </QuoteFieldBlock>
+          </div>
           <div className="min-w-0">
             <div className="mb-1 flex min-h-[22px] flex-wrap items-center gap-1.5 font-body text-xs font-medium text-muted-foreground">
               <span className="shrink-0 leading-normal">{labels.dimensionsMm}</span>

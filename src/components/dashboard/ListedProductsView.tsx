@@ -57,6 +57,7 @@ import { toast } from 'sonner';
 import { withUpdateAuditFields } from '@/lib/pmsAudit';
 import { getChineseColorLabel, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { ProductDetailModal } from './ProductDetailModal';
+import { applyListedProductSearch } from '@/lib/listedProductSearch';
 
 type SortField = 'created_at' | 'title' | 'product_sku';
 type SortOrder = 'asc' | 'desc';
@@ -598,9 +599,7 @@ export function ListedProductsView({
         .from('products')
         .select('id', { count: 'exact', head: true });
 
-      if (debouncedSearch.trim()) {
-        countQuery = countQuery.ilike('title', `%${debouncedSearch.trim()}%`);
-      }
+      countQuery = applyListedProductSearch(countQuery, debouncedSearch);
 
       // Apply shopify filter to count query
       if (shopifyFilter === 'shopify') {
@@ -666,9 +665,7 @@ export function ListedProductsView({
             .order(sortField, { ascending: sortOrder === 'asc', nullsFirst: false })
       ).range(from, to);
 
-      if (debouncedSearch.trim()) {
-        dataQuery = dataQuery.ilike('title', `%${debouncedSearch.trim()}%`);
-      }
+      dataQuery = applyListedProductSearch(dataQuery, debouncedSearch);
 
       // Apply shopify filter to data query
       if (shopifyFilter === 'shopify') {
@@ -1448,7 +1445,7 @@ export function ListedProductsView({
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="搜尋產品..."
+                placeholder="搜尋產品名稱或編碼..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="h-8 w-[220px] pl-8 pr-8 text-xs font-body bg-background"

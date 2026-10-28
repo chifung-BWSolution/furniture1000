@@ -97,8 +97,19 @@ Deno.serve(async (req: Request) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents,
-        ...(Object.keys(geminiThinkingConfig(modelName)).length
-          ? { generationConfig: geminiThinkingConfig(modelName) }
+        ...(body.feature === 'presentation_copy' || Object.keys(geminiThinkingConfig(modelName)).length
+          ? { generationConfig: {
+            ...geminiThinkingConfig(modelName),
+            ...(body.feature === 'presentation_copy' ? {
+              temperature: 0.2,
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: 'OBJECT',
+                properties: { description: { type: 'STRING' }, sellingPoints: { type: 'STRING' } },
+                required: ['description', 'sellingPoints'],
+              },
+            } : {}),
+          } }
           : {}),
       }),
       // Under the ~150s Edge gateway limit.

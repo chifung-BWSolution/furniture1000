@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { applyListedProductSearch } from '../src/lib/listedProductSearch.ts';
+const calls = [];
+const query = { or: (filter) => { calls.push(filter); return query; } };
+assert.equal(applyListedProductSearch(query, '26RX-A21'), query);
+for (const field of ['title', 'sku', 'product_sku', 'model']) assert.match(calls[0], new RegExp(`${field}\\.ilike\\.`));
+assert.match(calls[0], /%26RX-A21%/);
+assert.equal(applyListedProductSearch(query, '  '), query);
+assert.equal(calls.length, 1);
+applyListedProductSearch(query, 'a,b"c');
+assert.match(calls[1], /"%a,b\\"c%"/);
+console.log('listed product search passed');

@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+
+const source = fs.readFileSync(new URL('../src/lib/presentationOutlineModel.ts', import.meta.url), 'utf8');
+const context = { exports: {} };
+vm.createContext(context);
+vm.runInContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, context);
+const { emptyProductDraft, presentationOutlineMarkdown, presentationGenerateBlock } = context.exports;
+const product = { id: 'p', title: '桌', image_url: 'https://example.com/main.jpg', image_urls: ['https://example.com/other.jpg'] };
+const draft = emptyProductDraft(product);
+assert.equal(draft.imageUrl, product.image_url);
+const input = { title: '項目', client: '客戶', includeFloor: false, zones: [{ id: 'z', name: '辦公室' }], products: [product], productZone: { p: 'z' }, drafts: { p: draft }, company: { background: '舊公司介紹' }, companyIntro: '', qualifications: '', services: '', cases: [] };
+assert.equal(presentationGenerateBlock(input), null);
+assert.ok(!presentationOutlineMarkdown(input).includes('舊公司介紹'));
+assert.match(presentationGenerateBlock({ ...input, client: '' }), /客戶/);
+assert.match(presentationGenerateBlock({ ...input, zones: Array.from({ length: 101 }, (_, i) => ({ id: String(i), name: '區' })) }), /100/);
+assert.match(presentationGenerateBlock({ ...input, drafts: { p: { ...draft, noBackground: true } } }), /示例圖/);
+console.log('presentation outline tests ok');
