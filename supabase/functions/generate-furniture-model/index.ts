@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { geminiThinkingConfig, resolveGeminiModel } from "../_shared/geminiModel.ts";
 import { logAiUsage } from "../_shared/usageLog.ts";
 
 /**
@@ -18,7 +19,6 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const MODEL = "grok-4.7";
 const MAX_BYTES = 1_500_000;
 const MAX_IMAGES = 6;
 const MIN_IMAGES = 2;
@@ -226,73 +226,91 @@ function json(body: unknown, status = 200) {
   });
 }
 
-class GrokError extends Error {}
+class AnalysisError extends Error {}
 
 // The gateway closes the request at about 150s and the browser only sees HTTP 504.
 const REQUEST_BUDGET_MS = 125_000;
 let requestDeadline = 0;
 
-function grokBudget(capMs: number) {
+function analysisBudget(capMs: number) {
   const left = requestDeadline - Date.now() - 4_000;
-  if (left < 8_000) throw new GrokError("圖片分析時間不足，請再試一次");
+  if (left < 8_000) throw new AnalysisError("圖片分析時間不足，請再試一次");
   return Math.min(capMs, left);
 }
 
-async function askGrok<T>(
+async function askModel<T>(
   apiKey: string,
   system: string,
   prompt: string,
   images: InlineImage[],
   schema: unknown,
-  options?: { timeoutMs?: number; detail?: "low" | "high" },
+  options?: { timeoutMs?: number },
 ): Promise<T> {
-  const timeoutMs = grokBudget(options?.timeoutMs ?? 70_000);
-  const detail = options?.detail ?? "high";
+  const timeoutMs = analysisBudget(options?.timeoutMs ?? 70_000);
+  const model = resolveGeminiModel();
   let res: Response;
   try {
-    res = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        reasoning_effort: "low",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: [
-            ...images.map((image) => ({ type: "image_url", image_url: {
-              url: `data:${image.mime_type};base64,${image.data}`, detail,
-            } })),
-            { type: "text", text: prompt },
-          ] },
-        ],
-        response_format: { type: "json_schema", json_schema: { name: "furniture_analysis", schema } },
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{
+            role: "user",
+            parts: [
+              ...images.map((image) => ({ inline_data: { mime_type: image.mime_type, data: image.data } })),
+              { text: prompt },
+            ],
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            maxOutputTokens: 16384,
+            ...geminiThinkingConfig(model),
+          },
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      },
+    );
   } catch {
-    throw new GrokError("Grok 圖片分析連線失敗或逾時，請重試");
+    throw new AnalysisError("圖片分析連線失敗或逾時，請重試");
   }
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
-    console.error("Furniture analysis Grok request failed", res.status);
-    throw new GrokError(`Grok 圖片分析失敗（HTTP ${res.status}）`);
+    const detail = typeof payload?.error?.message === "string" ? payload.error.message : "";
+    console.error("Furniture analysis Gemini request failed", res.status, detail);
+    throw new AnalysisError(`圖片分析失敗（HTTP ${res.status}）`);
   }
-  // 用量記錄（best-effort）：xAI chat 回 usage { prompt_tokens, completion_tokens, total_tokens }
-  const usage = payload?.usage as { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown } | undefined;
+  const usage = payload?.usageMetadata as {
+    promptTokenCount?: unknown;
+    candidatesTokenCount?: unknown;
+    totalTokenCount?: unknown;
+  } | undefined;
   await logAiUsage({
     source: "generate-furniture-model",
-    promptTokens: usage?.prompt_tokens,
-    outputTokens: usage?.completion_tokens,
-    totalTokens: usage?.total_tokens,
-    meta: { model: MODEL },
+    promptTokens: usage?.promptTokenCount,
+    outputTokens: usage?.candidatesTokenCount,
+    totalTokens: usage?.totalTokenCount,
+    model,
+    meta: { model },
   });
-  const message = payload?.choices?.[0]?.message;
-  if (message?.refusal) throw new GrokError("Grok 無法分析這組產品圖，請換一張產品圖");
-  const text = message?.content ?? "";
+  const candidate = payload?.candidates?.[0];
+  if (candidate?.finishReason === "SAFETY" || candidate?.finishReason === "RECITATION") {
+    throw new AnalysisError("無法分析這組產品圖，請換一張產品圖");
+  }
+  const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+  const text = parts
+    .filter((part: { thought?: boolean; text?: unknown }) => part?.thought !== true && typeof part?.text === "string")
+    .map((part: { text: string }) => part.text)
+    .join("");
+  if (!text || candidate?.finishReason === "MAX_TOKENS") throw new AnalysisError("模型沒有回傳可讀的結構");
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new GrokError("模型沒有回傳可讀的結構");
+    throw new AnalysisError("模型沒有回傳可讀的結構");
   }
 }
 
@@ -361,16 +379,16 @@ async function extractParts(apiKey: string, images: InlineImage[], size: Size, t
   const system = withEstimates
     ? `${PARTS_PROMPT} ${LABELLED_PROMPT} When views or dimension diagrams show labelled sizes, list each distinct reading of the whole arrangement in dimension_estimates (view = front/side/top/diagram in English). ${scope}`
     : `${PARTS_PROMPT} ${LABELLED_PROMPT} ${scope}`;
-  const parsed = await askGrok<{ parts?: unknown[]; notes?: string; structure?: { leg_count?: number; part_counts?: Record<string,number>; symmetric?: boolean; uncertainties?: string[] }; dimension_estimates?: DimensionEstimate[]; labelled_dimensions?: unknown }>(apiKey, system, prompt, images, schema);
+  const parsed = await askModel<{ parts?: unknown[]; notes?: string; structure?: { leg_count?: number; part_counts?: Record<string,number>; symmetric?: boolean; uncertainties?: string[] }; dimension_estimates?: DimensionEstimate[]; labelled_dimensions?: unknown }>(apiKey, system, prompt, images, schema);
   const parts = Array.isArray(parsed.parts) ? parsed.parts : [];
-  if (parts.length === 0 || parts.length > MAX_PARTS) throw new GrokError("部件清單不完整或超出上限，請重新辨認部件");
+  if (parts.length === 0 || parts.length > MAX_PARTS) throw new AnalysisError("部件清單不完整或超出上限，請重新辨認部件");
   if (parts.some((part, index) => {
     if (!part || typeof part !== 'object') return true;
     const p = part as Record<string, unknown>;
     return !['leg','top','seat','back','arm','frame','body','shelf','other'].includes(String(p.role)) || !['straight','slanted','bent','tapered','panel'].includes(String(p.form)) || !Array.isArray(p.connects_to) || !p.connects_to.every(n => Number.isInteger(n) && n >= 0 && n < parts.length && n !== index);
-  })) throw new GrokError("部件用途、形狀或接合關係不完整，請重新辨認部件");
-  if (!parsed.structure || !Number.isInteger(parsed.structure.leg_count) || parsed.structure.leg_count! < 0 || parsed.structure.leg_count! > 20 || typeof parsed.structure.symmetric !== 'boolean' || !Array.isArray(parsed.structure.uncertainties) || !parsed.structure.uncertainties.every(n => typeof n === 'string')) throw new GrokError("缺少完整結構辨認資料，請重新辨認部件");
-  if (!parsed.structure.part_counts || ['leg','top','seat','back','arm','frame','body','shelf','other'].some(role => !Number.isInteger(parsed.structure!.part_counts![role]) || parsed.structure!.part_counts![role] < 0 || parsed.structure!.part_counts![role] > MAX_PARTS)) throw new GrokError("缺少主要部件數量，請重新辨認部件");
+  })) throw new AnalysisError("部件用途、形狀或接合關係不完整，請重新辨認部件");
+  if (!parsed.structure || !Number.isInteger(parsed.structure.leg_count) || parsed.structure.leg_count! < 0 || parsed.structure.leg_count! > 20 || typeof parsed.structure.symmetric !== 'boolean' || !Array.isArray(parsed.structure.uncertainties) || !parsed.structure.uncertainties.every(n => typeof n === 'string')) throw new AnalysisError("缺少完整結構辨認資料，請重新辨認部件");
+  if (!parsed.structure.part_counts || ['leg','top','seat','back','arm','frame','body','shelf','other'].some(role => !Number.isInteger(parsed.structure!.part_counts![role]) || parsed.structure!.part_counts![role] < 0 || parsed.structure!.part_counts![role] > MAX_PARTS)) throw new AnalysisError("缺少主要部件數量，請重新辨認部件");
   return {
     parts,
     notes: typeof parsed.notes === "string" ? parsed.notes : null,
@@ -386,7 +404,7 @@ Deno.serve(async (req: Request) => {
 
   const url = Deno.env.get("SUPABASE_URL") ?? "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  const apiKey = Deno.env.get("XAI_API_KEY") ?? "";
+  const apiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
   const authHeader = req.headers.get("Authorization") ?? "";
   if (!url || !anonKey || !authHeader) return json({ error: "Unauthorized" }, 401);
 
@@ -400,7 +418,7 @@ Deno.serve(async (req: Request) => {
     p_roles: ["admin", "uploader", "pm", "designer"],
   });
   if (allowed !== true) return json({ error: "permission_denied" }, 403);
-  if (!apiKey) return json({ error: "XAI_API_KEY 未設定" }, 500);
+  if (!apiKey) return json({ error: "GEMINI_API_KEY 未設定" }, 500);
 
   let body: ImageInput & {
     images?: ImageInput[];
@@ -450,12 +468,12 @@ Deno.serve(async (req: Request) => {
     if (!body.product_scope) {
       let detection: {product_count:number;possible_arrangement:boolean;uncertain:boolean;reason:string;per_image_counts:number[]};
       try {
-        detection = await askGrok(apiKey, COUNT_PROMPT, `Target product: ${title.slice(0,200)}`, images, COUNT_SCHEMA, { timeoutMs: 20_000, detail: "low" });
+        detection = await askModel(apiKey, COUNT_PROMPT, `Target product: ${title.slice(0,200)}`, images, COUNT_SCHEMA, { timeoutMs: 25_000 });
       } catch (err) {
-        if (!(err instanceof GrokError)) throw err;
+        if (!(err instanceof AnalysisError)) throw err;
         detection = { product_count: 1, possible_arrangement: false, uncertain: false, reason: "", per_image_counts: images.map(() => 1) };
       }
-      if (!Number.isInteger(detection.product_count) || detection.product_count < 1 || detection.product_count > 20 || typeof detection.possible_arrangement !== 'boolean' || typeof detection.uncertain !== 'boolean' || typeof detection.reason !== 'string' || !Array.isArray(detection.per_image_counts) || detection.per_image_counts.length !== images.length || !detection.per_image_counts.every(n => Number.isInteger(n) && n >= 1 && n <= 20)) throw new GrokError('無法確認圖片中的產品數量，請重新辨認');
+      if (!Number.isInteger(detection.product_count) || detection.product_count < 1 || detection.product_count > 20 || typeof detection.possible_arrangement !== 'boolean' || typeof detection.uncertain !== 'boolean' || typeof detection.reason !== 'string' || !Array.isArray(detection.per_image_counts) || detection.per_image_counts.length !== images.length || !detection.per_image_counts.every(n => Number.isInteger(n) && n >= 1 && n <= 20)) throw new AnalysisError('無法確認圖片中的產品數量，請重新辨認');
       if (detection.product_count > 1 || detection.possible_arrangement || detection.uncertain || detection.per_image_counts.some(n => n > 1)) return json({ supported: true, requires_product_scope_confirmation: true, detection });
     }
     const scope = body.product_scope === 'arrangement'
@@ -467,14 +485,14 @@ Deno.serve(async (req: Request) => {
     const extraction = await extractParts(apiKey, images, { width_mm: positive(body.width_mm), depth_mm: positive(body.depth_mm), height_mm: positive(body.height_mm) }, title, drawingScope, body.product_scope === 'arrangement', photoCount);
     if (body.product_scope === 'arrangement') {
       const indexes = extraction.parts.map(part => (part as {product_index?:number}).product_index);
-      if (indexes.some(n => !Number.isInteger(n) || n! < 0 || n! >= body.product_count!) || new Set(indexes).size !== body.product_count) throw new GrokError('拆出的產品數量與確認的整組數量不符，請重新辨認');
+      if (indexes.some(n => !Number.isInteger(n) || n! < 0 || n! >= body.product_count!) || new Set(indexes).size !== body.product_count) throw new AnalysisError('拆出的產品數量與確認的整組數量不符，請重新辨認');
       return json({ supported:true, kind:'custom', parts:extraction.parts, structure:{...extraction.structure, product_count:body.product_count}, structure_notes:extraction.notes, dimension_estimates:extraction.dimension_estimates, labelled_dimensions:extraction.labelled_dimensions, image_count:images.length, product_scope:'arrangement', product_count:body.product_count });
     }
     if (body.mode === "parts" || requestDeadline - Date.now() < 25_000) {
       return json({ supported: true, kind: "custom", parts: extraction.parts, structure: extraction.structure, structure_notes: extraction.notes, dimension_estimates: extraction.dimension_estimates, labelled_dimensions: extraction.labelled_dimensions, image_count: images.length, source_dimensions_scope: "unknown" });
     }
 
-    const parsed = await askGrok<{
+    const parsed = await askModel<{
       kind?: string;
       width_mm?: number;
       depth_mm?: number;
@@ -570,7 +588,7 @@ Deno.serve(async (req: Request) => {
       image_count: images.length,
     });
   } catch (err) {
-    if (err instanceof GrokError) return json({ error: err.message }, 502);
+    if (err instanceof AnalysisError) return json({ error: err.message }, 502);
     throw err;
   }
 });
