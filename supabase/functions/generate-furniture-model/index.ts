@@ -228,38 +228,49 @@ function json(body: unknown, status = 200) {
 
 class GrokError extends Error {}
 
-const GROK_TIMEOUT_MS = 180_000;
-const GROK_ATTEMPTS = 2;
+// The gateway closes the request at about 150s and the browser only sees HTTP 504.
+const REQUEST_BUDGET_MS = 125_000;
+let requestDeadline = 0;
 
-async function askGrok<T>(apiKey: string, system: string, prompt: string, images: InlineImage[], schema: unknown): Promise<T> {
+function grokBudget(capMs: number) {
+  const left = requestDeadline - Date.now() - 4_000;
+  if (left < 8_000) throw new GrokError("圖片分析時間不足，請再試一次");
+  return Math.min(capMs, left);
+}
+
+async function askGrok<T>(
+  apiKey: string,
+  system: string,
+  prompt: string,
+  images: InlineImage[],
+  schema: unknown,
+  options?: { timeoutMs?: number; detail?: "low" | "high" },
+): Promise<T> {
+  const timeoutMs = grokBudget(options?.timeoutMs ?? 70_000);
+  const detail = options?.detail ?? "high";
   let res: Response;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      res = await fetch("https://api.x.ai/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          reasoning_effort: "low",
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: [
-              ...images.map((image) => ({ type: "image_url", image_url: {
-                url: `data:${image.mime_type};base64,${image.data}`, detail: "high",
-              } })),
-              { type: "text", text: prompt },
-            ] },
-          ],
-          response_format: { type: "json_schema", json_schema: { name: "furniture_analysis", schema } },
-        }),
-        signal: AbortSignal.timeout(GROK_TIMEOUT_MS),
-      });
-      break;
-    } catch {
-      if (attempt >= GROK_ATTEMPTS) throw new GrokError("Grok 圖片分析連線失敗或逾時，請重試");
-      // Transient network drop or the per-attempt timeout: retry once after a short backoff.
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
-    }
+  try {
+    res = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: MODEL,
+        reasoning_effort: "low",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: [
+            ...images.map((image) => ({ type: "image_url", image_url: {
+              url: `data:${image.mime_type};base64,${image.data}`, detail,
+            } })),
+            { type: "text", text: prompt },
+          ] },
+        ],
+        response_format: { type: "json_schema", json_schema: { name: "furniture_analysis", schema } },
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch {
+    throw new GrokError("Grok 圖片分析連線失敗或逾時，請重試");
   }
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -431,12 +442,19 @@ Deno.serve(async (req: Request) => {
   const inferred = body.inferred_reference ? inlineImage(body.inferred_reference) : null;
   if (typeof inferred === 'string') return json({ error: inferred }, 400);
   const title = typeof body.title === "string" ? body.title : "";
+  requestDeadline = Date.now() + REQUEST_BUDGET_MS;
 
   try {
     if (body.product_scope !== undefined && body.product_scope !== 'single' && body.product_scope !== 'arrangement') return json({ error: 'invalid_product_scope' }, 400);
     if (body.product_scope === 'arrangement' && (!Number.isInteger(body.product_count) || body.product_count! < 2 || body.product_count! > 20)) return json({ error: '請確認整組包含 2 至 20 件同款產品' }, 400);
     if (!body.product_scope) {
-      const detection = await askGrok<{product_count:number;possible_arrangement:boolean;uncertain:boolean;reason:string;per_image_counts:number[]}>(apiKey, COUNT_PROMPT, `Target product: ${title.slice(0,200)}`, images, COUNT_SCHEMA);
+      let detection: {product_count:number;possible_arrangement:boolean;uncertain:boolean;reason:string;per_image_counts:number[]};
+      try {
+        detection = await askGrok(apiKey, COUNT_PROMPT, `Target product: ${title.slice(0,200)}`, images, COUNT_SCHEMA, { timeoutMs: 20_000, detail: "low" });
+      } catch (err) {
+        if (!(err instanceof GrokError)) throw err;
+        detection = { product_count: 1, possible_arrangement: false, uncertain: false, reason: "", per_image_counts: images.map(() => 1) };
+      }
       if (!Number.isInteger(detection.product_count) || detection.product_count < 1 || detection.product_count > 20 || typeof detection.possible_arrangement !== 'boolean' || typeof detection.uncertain !== 'boolean' || typeof detection.reason !== 'string' || !Array.isArray(detection.per_image_counts) || detection.per_image_counts.length !== images.length || !detection.per_image_counts.every(n => Number.isInteger(n) && n >= 1 && n <= 20)) throw new GrokError('無法確認圖片中的產品數量，請重新辨認');
       if (detection.product_count > 1 || detection.possible_arrangement || detection.uncertain || detection.per_image_counts.some(n => n > 1)) return json({ supported: true, requires_product_scope_confirmation: true, detection });
     }
@@ -452,8 +470,8 @@ Deno.serve(async (req: Request) => {
       if (indexes.some(n => !Number.isInteger(n) || n! < 0 || n! >= body.product_count!) || new Set(indexes).size !== body.product_count) throw new GrokError('拆出的產品數量與確認的整組數量不符，請重新辨認');
       return json({ supported:true, kind:'custom', parts:extraction.parts, structure:{...extraction.structure, product_count:body.product_count}, structure_notes:extraction.notes, dimension_estimates:extraction.dimension_estimates, labelled_dimensions:extraction.labelled_dimensions, image_count:images.length, product_scope:'arrangement', product_count:body.product_count });
     }
-    if (body.mode === "parts") {
-      return json({ supported: true, kind: "custom", parts: extraction.parts, structure: extraction.structure, structure_notes: extraction.notes, labelled_dimensions: extraction.labelled_dimensions, image_count: images.length });
+    if (body.mode === "parts" || requestDeadline - Date.now() < 25_000) {
+      return json({ supported: true, kind: "custom", parts: extraction.parts, structure: extraction.structure, structure_notes: extraction.notes, dimension_estimates: extraction.dimension_estimates, labelled_dimensions: extraction.labelled_dimensions, image_count: images.length, source_dimensions_scope: "unknown" });
     }
 
     const parsed = await askGrok<{
