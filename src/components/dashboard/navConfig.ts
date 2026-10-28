@@ -16,6 +16,8 @@ export interface SecondaryItem {
   icon: LucideIcon;
   /** Only visible to 系統管理員 (role = admin). */
   adminOnly?: boolean;
+  /** When set, the item is visible only to these platform_user_profiles.role values. */
+  visibleTo?: readonly string[];
   /**
    * Kept out of the scrolling list and pinned above the theme toggle.
    * Still belongs to this section, so it only shows while the section is active.
@@ -28,6 +30,26 @@ export interface PrimaryItem {
   label: string;
   icon: LucideIcon;
   children: SecondaryItem[];
+}
+
+/** Roles that can open SKP Worker and approve or revoke a computer. */
+export const SKP_WORKER_ROLES = ['admin', 'pm', 'designer'] as const;
+
+export function canManageSkpWorkers(role: string | null | undefined): boolean {
+  const value = (role ?? '').toLowerCase();
+  return (SKP_WORKER_ROLES as readonly string[]).includes(value);
+}
+
+export function navChildVisible(
+  child: SecondaryItem,
+  isAdmin: boolean,
+  profileRole?: string | null,
+): boolean {
+  if (child.visibleTo && child.visibleTo.length > 0) {
+    const role = (profileRole ?? '').toLowerCase();
+    return child.visibleTo.some((item) => item.toLowerCase() === role);
+  }
+  return !child.adminOnly || isAdmin;
 }
 
 export const NAV_CONFIG: PrimaryItem[] = [
@@ -145,7 +167,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-admin-usage', label: 'AI用量統計', icon: Gauge, adminOnly: true },
       { view: 'fds2-admin-dev-cost', label: '開發成本', icon: CircleDollarSign, adminOnly: true },
       { view: 'fds2-admin-email', label: '電郵通知', icon: Mail, adminOnly: true },
-      { view: 'fds2-admin-skp-workers', label: 'SKP Worker', icon: Monitor, adminOnly: true },
+      { view: 'fds2-admin-skp-workers', label: 'SKP Worker', icon: Monitor, visibleTo: SKP_WORKER_ROLES },
     ],
   },
   {
@@ -319,9 +341,10 @@ export function filterNavChildren(
     quoteShareOnly?: boolean;
     /** PM 的傢俬報價只隱藏報價單格式設定。 */
     pm?: boolean;
+    profileRole?: string | null;
   },
 ): SecondaryItem[] {
-  let list = isAdmin ? children : children.filter((c) => !c.adminOnly);
+  let list = children.filter((child) => navChildVisible(child, isAdmin, opts?.profileRole));
   if (opts?.quoteShareOnly) {
     list = list.filter((c) => c.view === 'customer-quote-schemes');
   } else if (opts?.quoteShareGuest) {
@@ -341,6 +364,7 @@ export function getFirstVisibleView(
     quoteShareGuest?: boolean;
     quoteShareOnly?: boolean;
     pm?: boolean;
+    profileRole?: string | null;
   },
 ): ViewType | undefined {
   const first = filterNavChildren(getSection(sectionId).children, isAdmin, opts)[0]?.view;

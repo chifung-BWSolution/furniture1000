@@ -12,7 +12,7 @@ import {
   TooltipProvider,
 } from '@/components/ui/tooltip';
 import { countTrashedQuotes, subscribeTrashedQuotes } from '@/lib/quoteTrash';
-import { getSection, filterNavChildren, navItemIsActive, type SecondaryItem } from './navConfig';
+import { getSection, filterNavChildren, navChildVisible, navItemIsActive, type SecondaryItem } from './navConfig';
 
 interface SidebarNavProps {
   activeSection: PrimarySection;
@@ -30,6 +30,7 @@ interface SidebarNavProps {
   quoteShareGuest?: boolean;
   /** PM cannot access 報價單格式設定 inside 傢俬報價. */
   pm?: boolean;
+  profileRole?: string | null;
 }
 
 function useTrashCount(enabled: boolean): number {
@@ -69,6 +70,7 @@ export function SidebarNav({
   isAdmin = false,
   quoteShareGuest = false,
   pm = false,
+  profileRole = null,
 }: SidebarNavProps) {
   const isCollapsed = isCollapsedProp;
   const setIsCollapsed = (val: boolean) => onCollapseChange?.(val);
@@ -77,10 +79,11 @@ export function SidebarNav({
   const scrollChildren = filterNavChildren(section.children, isAdmin, {
     quoteShareGuest,
     pm,
+    profileRole,
   });
   const pinnedChildren = section.children.filter((child) => {
     if (!child.pinned) return false;
-    if (!isAdmin && child.adminOnly) return false;
+    if (!navChildVisible(child, isAdmin, profileRole)) return false;
     if (
       quoteShareGuest &&
       (child.view === 'customer-org-account' || child.view === 'fds2-customer-org')

@@ -8,7 +8,7 @@ export interface SkpPairing {
   createdAt: string;
   expiresAt: string;
   tasks: string[];
-  isAdmin: boolean;
+  canAuthorize: boolean;
 }
 
 export interface SkpDeviceRow {
@@ -40,7 +40,7 @@ function asError(value: unknown, fallback: string) {
 export function skpDeviceError(code: string) {
   switch (code) {
     case 'permission_denied':
-      return '請由管理員授權';
+      return '請由管理員、PM 或設計師授權';
     case 'not_found':
       return '找不到這組配對碼，或已經失效。';
     case 'expired':
@@ -50,7 +50,7 @@ export function skpDeviceError(code: string) {
     case 'rate_limited':
       return '操作太頻繁，請稍後再試。';
     case 'different_admin_required':
-      return '需要另一位管理員重新批准。';
+      return '需要另一位同事重新批准。';
     case 'not_suspended':
       return '這台電腦不是暫停狀態。';
     default:
@@ -71,7 +71,7 @@ function pairingFrom(row: RpcRow): SkpPairing {
     createdAt: String(row.created_at ?? ''),
     expiresAt: String(row.expires_at ?? ''),
     tasks: Array.isArray(row.tasks) ? row.tasks.map(String) : [],
-    isAdmin: row.is_admin === true,
+    canAuthorize: row.can_authorize === true || row.is_admin === true,
   };
 }
 

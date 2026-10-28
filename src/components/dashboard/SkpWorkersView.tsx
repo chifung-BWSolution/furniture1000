@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { confirm } from '@/components/ui/confirm-dialog';
 import { usePlatformRole } from '@/hooks/use-platform-role';
+import { canManageSkpWorkers } from './navConfig';
 import {
   decideSkpPairing,
   listSkpDevices,
@@ -43,7 +44,7 @@ export function SkpWorkersView() {
   const [params] = useSearchParams();
   const code = params.get('code')?.trim() ?? '';
   const { profileRole, loading: roleLoading } = usePlatformRole();
-  const isAdmin = profileRole === 'admin';
+  const canAuthorize = canManageSkpWorkers(profileRole);
   const [pairing, setPairing] = useState<SkpPairing | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
@@ -71,7 +72,7 @@ export function SkpWorkersView() {
   }, [code]);
 
   const loadDevices = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!canAuthorize) return;
     setDevicesLoading(true);
     try {
       setDevices(await listSkpDevices());
@@ -81,7 +82,7 @@ export function SkpWorkersView() {
     } finally {
       setDevicesLoading(false);
     }
-  }, [isAdmin]);
+  }, [canAuthorize]);
 
   useEffect(() => { void loadPairing(); }, [loadPairing]);
   useEffect(() => { void loadDevices(); }, [loadDevices]);
@@ -165,8 +166,8 @@ export function SkpWorkersView() {
                 </dl>
                 {roleLoading ? (
                   <p className="text-sm text-muted-foreground">正在確認權限…</p>
-                ) : !isAdmin || !pairing.isAdmin ? (
-                  <p className="text-sm font-medium">請由管理員授權</p>
+                ) : !canAuthorize || !pairing.canAuthorize ? (
+                  <p className="text-sm font-medium">請由管理員、PM 或設計師授權</p>
                 ) : pairing.status === 'pending' ? (
                   <div className="flex flex-wrap gap-2">
                     <Button disabled={deciding} onClick={() => void decide(true)}>授權這台電腦</Button>
@@ -180,7 +181,7 @@ export function SkpWorkersView() {
           </section>
         )}
 
-        {isAdmin && (
+        {canAuthorize && (
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-base font-semibold">已加入的電腦</h2>
@@ -228,8 +229,8 @@ export function SkpWorkersView() {
           </section>
         )}
 
-        {!code && !isAdmin && !roleLoading && (
-          <p className="text-sm font-medium">請由管理員授權</p>
+        {!code && !canAuthorize && !roleLoading && (
+          <p className="text-sm font-medium">請由管理員、PM 或設計師授權</p>
         )}
       </div>
     </div>

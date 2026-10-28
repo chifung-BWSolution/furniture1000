@@ -1539,6 +1539,7 @@ function AppShellContent() {
     const target = getFirstVisibleView(section, isAdmin, {
       quoteShareGuest: quoteShareGuestActive,
       pm: profileRole === 'pm',
+      profileRole,
     });
     if (target) handleViewChange(target);
   };
@@ -1577,6 +1578,7 @@ function AppShellContent() {
             isAdmin={isAdmin}
             quoteShareGuest={quoteShareGuestActive}
             pm={profileRole === 'pm'}
+            profileRole={profileRole}
           />
         ) : null}
 
@@ -1617,6 +1619,7 @@ function AppShellContent() {
                   isAdmin={isAdmin}
                   quoteShareGuest={quoteShareGuestActive}
                   pm={profileRole === 'pm'}
+                  profileRole={profileRole}
                 />
               </motion.div>
             </motion.div>

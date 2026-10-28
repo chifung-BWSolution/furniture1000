@@ -343,7 +343,7 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
 - SKP（設計師 SU）：不用 OpenSKP。SketchUp C SDK 只跑 Windows／macOS，所以 SKP 由 Windows 機器上的
   `workers/skp-writer` 寫出。安裝程式用瀏覽器裝置配對取得可撤銷憑證，不再向使用者索取 service role。
   Worker 只呼叫 edge `supabase-functions-skp-worker-agent`（同時部署無前綴 slug），由它代為 claim／heartbeat／簽名上傳；
-  只允許 `generate_skp` 與 `preview_skp`。管理員在 `/fds/settings/skp-workers` 批准或撤銷。
+  只允許 `generate_skp` 與 `preview_skp`。管理員、PM 與設計師在 `/fds/settings/skp-workers` 批准或撤銷。
   沒有 `skp_writer.exe` 時 worker 改用本機已授權的 SketchUp
   （`SketchUp.exe -RubyStartup skp_build.rb <seed.skp>`，Ruby API 建組件、存檔、自動關閉）。
   第一次會出歡迎視窗，要有人選一次模板，之後開 `%LOCALAPPDATA%\FDS\SkpWorker\seed.skp` 就不用人手。
