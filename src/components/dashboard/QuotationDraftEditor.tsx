@@ -961,14 +961,15 @@ const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
 
 /**
- * ≥900px: desktop 9-col card (100% layout).
+ * ≥900px: desktop 8-col card (100% layout).
  * 650–899px: tablet stack (2-col media / pricing).
  * 300–649px: mobile stack (single-col pricing).
+ * 可選／於PDF隱藏與列操作在卡片頂部，不佔格子。
  */
 const QUOTE_CARD_GRID = cn(
   "grid w-full min-w-0 auto-rows-min items-start gap-x-3 gap-y-3",
   "grid-cols-[1.75rem_minmax(0,1fr)]",
-  "min-[900px]:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_6em_7em_minmax(1rem,1fr)_7em_auto]",
+  "min-[900px]:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_6em_7em_minmax(1rem,1fr)_7em]",
 );
 
 /** Wide desktop only — extra offset needs ≥1400px card width */
@@ -1244,6 +1245,29 @@ function QuoteProductItemCard({
       onDragOver={(e) => onDragOver(e, index)}
       onDrop={onDrop}
     >
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <QuoteItemFlagToggles
+          item={item}
+          updateItem={updateItem}
+          labels={labels}
+        />
+        <div className="ml-auto">
+          <QuoteRowActionButtons
+            itemId={item.id}
+            cutItemId={cutItemId}
+            onCut={cutItem}
+            onDuplicate={duplicateItem}
+            onRemove={removeItem}
+            onOpenProduct={() => onOpenProductLink(item)}
+            productLinked={Boolean(item.productId?.trim())}
+            labels={labels}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+          />
+        </div>
+      </div>
       <div className={QUOTE_CARD_GRID}>
         <div className="col-start-1 row-start-1 flex justify-center pt-4 min-[900px]:row-span-2">
           <QuoteRowDragHandle
@@ -1333,13 +1357,6 @@ function QuoteProductItemCard({
               </SelectContent>
             </Select>
           </QuoteFieldBlock>
-          <div className="min-[900px]:hidden">
-            <QuoteItemFlagToggles
-              item={item}
-              updateItem={updateItem}
-              labels={labels}
-            />
-          </div>
           <div className="min-w-0">
             <div className="mb-1 flex min-h-[22px] flex-wrap items-center gap-1.5 font-body text-xs font-medium text-muted-foreground">
               <span className="shrink-0 leading-normal">{labels.dimensionsMm}</span>
@@ -1588,25 +1605,16 @@ function QuoteProductItemCard({
               QUOTE_CARD_PRICING_XL_SHIFT,
             )}
           >
-            <div className="flex min-w-0 shrink-0 items-end gap-3">
-              <QuoteFieldBlock label={labels.unit} className={QUOTE_PRICE_FIELD_CLASS}>
-                <input
-                  type="text"
-                  value={quoteUnitLabel(item.unit, unitLocale)}
-                  placeholder="—"
-                  maxLength={4}
-                  onChange={(e) => updateItem(item.id, "unit", e.target.value)}
-                  className={QUOTE_INPUT_CLASS}
-                />
-              </QuoteFieldBlock>
-              <div className="hidden min-w-0 flex-1 items-end pb-0.5 min-[900px]:flex">
-                <QuoteItemFlagToggles
-                  item={item}
-                  updateItem={updateItem}
-                  labels={labels}
-                />
-              </div>
-            </div>
+            <QuoteFieldBlock label={labels.unit} className={cn(QUOTE_PRICE_FIELD_CLASS, "shrink-0")}>
+              <input
+                type="text"
+                value={quoteUnitLabel(item.unit, unitLocale)}
+                placeholder="—"
+                maxLength={4}
+                onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                className={QUOTE_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
             <div className="flex min-h-0 flex-1 items-center">
               <QuoteFieldBlock
                 label={labels.sku}
@@ -1655,24 +1663,6 @@ function QuoteProductItemCard({
                 </span>
               </div>
             </QuoteFieldBlock>
-          </div>
-
-          <div className="shrink-0 min-[650px]:col-span-2 min-[900px]:col-span-1 min-[900px]:col-start-9 min-[900px]:row-start-2">
-            <div className="mb-1 hidden h-4 min-[900px]:block" aria-hidden="true" />
-            <QuoteRowActionButtons
-              itemId={item.id}
-              cutItemId={cutItemId}
-              onCut={cutItem}
-              onDuplicate={duplicateItem}
-              onRemove={removeItem}
-              onOpenProduct={() => onOpenProductLink(item)}
-              productLinked={Boolean(item.productId?.trim())}
-              labels={labels}
-              onMoveUp={onMoveUp}
-              onMoveDown={onMoveDown}
-              canMoveUp={canMoveUp}
-              canMoveDown={canMoveDown}
-            />
           </div>
         </div>
       </div>
