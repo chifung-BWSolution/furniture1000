@@ -43,10 +43,18 @@ interface SavedModel {
 
 const SKP_POLL_MS = 5000;
 
+const SKP_READY_NOTICE = 'SKP 已生成，可以下載';
+
+function notifySkpReady(skp: SkpStatus, seen: { current: string | null }) {
+  if (skp.status !== 'ready' || seen.current === skp.storage_path) return;
+  seen.current = skp.storage_path;
+  toast.success(SKP_READY_NOTICE);
+}
+
 function skpStatusText(skp: SkpStatus): string {
   switch (skp.status) {
     case 'ready':
-      return 'SKP 已生成';
+      return SKP_READY_NOTICE;
     case 'queued':
       return skp.attempts > 0 ? `排隊重試中（第 ${skp.attempts} 次失敗：${skp.error ?? '未知錯誤'}）` : 'SKP 排隊中，等 Windows SKP Worker 處理';
     case 'running':
@@ -137,6 +145,7 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
   /** Row id of the current model once saved; a new generate clears it. */
   const [savedId, setSavedId] = useState<string | null>(null);
   const [skp, setSkp] = useState<SkpStatus | null>(null);
+  const skpReadyNoticeRef = useRef<string | null>(null);
   const [skpBusy, setSkpBusy] = useState(false);
   const [listKey, setListKey] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -160,6 +169,7 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
       fetchSkpStatus(savedId)
         .then((next) => {
           setSkp(next);
+          if (next.status === 'ready') notifySkpReady(next, skpReadyNoticeRef);
           if (next.status !== 'queued' && next.status !== 'running') setListKey((n) => n + 1);
         })
         .catch(() => undefined);
@@ -356,7 +366,10 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
       if (!await skpRequirements.check()) return;
       const id = await save();
       if (!id) return;
-      setSkp(await requestSkp(id));
+      skpReadyNoticeRef.current = null;
+      const status = await requestSkp(id);
+      setSkp(status);
+      notifySkpReady(status, skpReadyNoticeRef);
       setListKey((n) => n + 1);
     } catch (err) {
       toast.error('無法排 SKP 任務', { description: err instanceof Error ? err.message : String(err) });
@@ -510,7 +523,7 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
                 {savedId ? '已儲存' : '儲存參數'}
               </Button>
             </div>
-            {focus === 'su' && skp && skp.status !== 'none' && (
+            {focus === 'su' && skp && skp.status !== 'none' && skp.status !== 'ready' && (
               <p className={skp.status === 'failed' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
                 {skpStatusText(skp)}
               </p>

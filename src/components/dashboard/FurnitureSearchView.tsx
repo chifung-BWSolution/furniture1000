@@ -1243,10 +1243,18 @@ function SupplierCompareSection({
 
 const SKP_POLL_MS = 5000;
 
+const SKP_READY_NOTICE = 'SKP 已生成，可以下載';
+
+function notifySkpReady(skp: SkpStatus, seen: { current: string | null }) {
+  if (skp.status !== 'ready' || seen.current === skp.storage_path) return;
+  seen.current = skp.storage_path;
+  toast.success(SKP_READY_NOTICE);
+}
+
 function skpStatusText(skp: SkpStatus): string {
   switch (skp.status) {
     case 'ready':
-      return 'SKP 已生成，可以下載';
+      return SKP_READY_NOTICE;
     case 'queued':
       return skp.attempts > 0 ? `排隊重試中（第 ${skp.attempts} 次失敗：${skp.error ?? '未知錯誤'}）` : 'SKP 排隊中，等 Windows SKP Worker 處理';
     case 'running':
@@ -1436,6 +1444,7 @@ const PROGRESS_FLOW: Record<ProgressFlow, { steps: string[]; hints: string[]; in
       '寫出 GLB': 2,
       '寫出 FBX': 2,
       'SKP 已可下載': 2,
+      'SKP 已生成，可以下載': 2,
       '已排入 SKP 生成': 2,
       'FBX 已可下載': 2,
       'FBX 生成失敗': 2,
@@ -1556,6 +1565,7 @@ function ProductModelsSection({
   const [previewFile, setPreviewFile] = useState<ProductModelFile | null>(null);
   const [skp, setSkp] = useState<SkpStatus | null>(null);
   const [skpModelId, setSkpModelId] = useState<string | null>(null);
+  const skpReadyNoticeRef = useRef<string | null>(null);
   const savedRef = useRef<{ key: string; id: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -1676,6 +1686,7 @@ function ProductModelsSection({
         .then((next) => {
           setSkp(next);
           if (next.status === 'ready') {
+            notifySkpReady(next, skpReadyNoticeRef);
             setReload((n) => n + 1);
             onChanged();
           }
@@ -2264,6 +2275,7 @@ function ProductModelsSection({
       setDraft(null);
       if (target === 'skp') {
         showProgress(68, '排入 SKP 生成');
+        skpReadyNoticeRef.current = null;
         const status = await requestSkp(id);
         if (seq !== requestSeq.current) return;
         setSkpModelId(id);
@@ -2272,8 +2284,9 @@ function ProductModelsSection({
           setReload((n) => n + 1);
           onChanged();
         }
-        const doneLabel = status.status === 'ready' ? 'SKP 已可下載' : '已排入 SKP 生成';
-        toast.success(doneLabel);
+        if (status.status === 'ready') notifySkpReady(status, skpReadyNoticeRef);
+        else toast.success('已排入 SKP 生成');
+        const doneLabel = status.status === 'ready' ? SKP_READY_NOTICE : '已排入 SKP 生成';
         closeProgressSoon(doneLabel);
       } else {
         const base = (product.model || product.sku || model.label).replace(/[^\w.\-\u3400-\u9fff]+/g, '_').slice(0, 80);
@@ -2696,7 +2709,7 @@ function ProductModelsSection({
           )}
         </ModalContent>
       </ModalRoot>
-      {skp && skp.status !== 'none' && (
+      {skp && skp.status !== 'none' && skp.status !== 'ready' && (
         <p className={skp.status === 'failed' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
           {skpStatusText(skp)}
         </p>
