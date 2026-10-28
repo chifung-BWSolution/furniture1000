@@ -4873,21 +4873,7 @@ export function QuotationDraftEditor({
       unit: item.unit,
     }));
     const pdfSubtotal = quoteBillableSubtotal(pdfSourceItems);
-    const formatStamp = (value: string | null | undefined) => {
-      if (!value) return undefined;
-      const parsed = new Date(value);
-      if (Number.isNaN(parsed.getTime())) return value;
-      return parsed.toLocaleDateString(quoteLocale === 'en' ? 'en-GB' : 'zh-HK');
-    };
     const pdfFormat = {
-      showRevisionDate: formatSettings.showRevisionDate,
-      showLatestModifiedDate: formatSettings.showLatestModifiedDate,
-      revisionDate: formatSettings.showRevisionDate
-        ? formatStamp(existingQuote?.createdAt)
-        : undefined,
-      latestModifiedDate: formatSettings.showLatestModifiedDate
-        ? formatStamp(existingQuote?.modifiedDate)
-        : undefined,
       zoneSubtotalPlacement: formatSettings.zoneSubtotalPlacement,
       qrCaption: formatSettings.qrCaption,
       qrDataUrl: qrDataUrl ?? undefined,

@@ -8,7 +8,6 @@ import {
   type QuoteFormatSettings,
   type ZoneSubtotalPlacement,
 } from '@/lib/quoteFormatSettings';
-import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const PLACEMENT_OPTIONS: { value: ZoneSubtotalPlacement; label: string }[] = [
@@ -63,7 +62,7 @@ export function QuoteFormatView() {
             報價單格式設定
           </h1>
           <p className="fds-page-description">
-            全公司共用一組格式。QR 文案、修訂日期和分區小計會用在報價單 PDF 與客戶連結。
+            全公司共用一組格式。QR 文案和分區小計會用在報價單 PDF 與客戶連結。
           </p>
         </section>
 
@@ -90,34 +89,6 @@ export function QuoteFormatView() {
               />
             </label>
 
-            <div className="space-y-2">
-              <p className="text-sm font-medium">日期</p>
-              <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  id="quote-format-show-revision-date"
-                  checked={settings.showRevisionDate}
-                  onCheckedChange={(checked) =>
-                    setSettings((prev) => ({ ...prev, showRevisionDate: checked === true }))
-                  }
-                />
-                <label htmlFor="quote-format-show-revision-date" className="cursor-pointer">
-                  顯示修訂日期（此版本建立日）
-                </label>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  id="quote-format-show-latest-modified"
-                  checked={settings.showLatestModifiedDate}
-                  onCheckedChange={(checked) =>
-                    setSettings((prev) => ({ ...prev, showLatestModifiedDate: checked === true }))
-                  }
-                />
-                <label htmlFor="quote-format-show-latest-modified" className="cursor-pointer">
-                  顯示最新修改日期
-                </label>
-              </div>
-            </div>
-
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">分區小計</legend>
               <RadioGroup
@@ -142,8 +113,6 @@ export function QuoteFormatView() {
               <div className="mt-3 flex items-end justify-between gap-4">
                 <div className="space-y-1 text-sm">
                   <p>日期：2026/10/21</p>
-                  {settings.showRevisionDate && <p>修訂日期：2026/10/18</p>}
-                  {settings.showLatestModifiedDate && <p>最新修改日期：2026/10/21</p>}
                   {settings.zoneSubtotalPlacement !== 'hidden' && (
                     <p className="pt-2 text-muted-foreground">
                       A 區小計 HK$15,000

@@ -6,15 +6,11 @@ export type ZoneSubtotalPlacement = 'section_and_summary' | 'summary_only' | 'hi
 
 export type QuoteFormatSettings = {
   qrCaption: string;
-  showRevisionDate: boolean;
-  showLatestModifiedDate: boolean;
   zoneSubtotalPlacement: ZoneSubtotalPlacement;
 };
 
 export const DEFAULT_QUOTE_FORMAT: QuoteFormatSettings = {
   qrCaption: '線上選擇／修改產品',
-  showRevisionDate: true,
-  showLatestModifiedDate: true,
   zoneSubtotalPlacement: 'section_and_summary',
 };
 
@@ -26,8 +22,6 @@ const PLACEMENTS = new Set<ZoneSubtotalPlacement>([
 
 type SettingsRow = {
   qr_caption: string;
-  show_revision_date: boolean;
-  show_latest_modified_date: boolean;
   zone_subtotal_placement: string;
 };
 
@@ -69,8 +63,6 @@ function fromRow(row: SettingsRow): QuoteFormatSettings {
     : DEFAULT_QUOTE_FORMAT.zoneSubtotalPlacement;
   return {
     qrCaption: row.qr_caption.trim() || DEFAULT_QUOTE_FORMAT.qrCaption,
-    showRevisionDate: Boolean(row.show_revision_date),
-    showLatestModifiedDate: Boolean(row.show_latest_modified_date),
     zoneSubtotalPlacement: placement,
   };
 }
@@ -82,7 +74,7 @@ export async function loadQuoteFormatSettings(): Promise<{
 }> {
   const { data, error } = await formatTable()
     .select(
-      'qr_caption, show_revision_date, show_latest_modified_date, zone_subtotal_placement',
+      'qr_caption, zone_subtotal_placement',
     )
     .eq('id', true)
     .maybeSingle();
@@ -102,8 +94,6 @@ export async function saveQuoteFormatSettings(
   const { error } = await formatTable()
     .update({
       qr_caption: settings.qrCaption.trim() || DEFAULT_QUOTE_FORMAT.qrCaption,
-      show_revision_date: settings.showRevisionDate,
-      show_latest_modified_date: settings.showLatestModifiedDate,
       zone_subtotal_placement: settings.zoneSubtotalPlacement,
     })
     .eq('id', true);

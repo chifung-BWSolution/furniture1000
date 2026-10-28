@@ -335,12 +335,6 @@ function buildHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: JSX.El
     [labels.customerEmail, data.clientInfo?.email],
     [labels.quotationNo, ctx.quoteNumber],
     [labels.date, ctx.today],
-    ...(data.format?.showRevisionDate
-      ? ([[labels.revisionDate, data.format.revisionDate]] as Array<[string, string | undefined]>)
-      : []),
-    ...(data.format?.showLatestModifiedDate
-      ? ([[labels.latestModifiedDate, data.format.latestModifiedDate]] as Array<[string, string | undefined]>)
-      : []),
     [labels.projectInCharge, data.quoteMeta?.pmName],
   ]);
 

@@ -32,10 +32,6 @@ export interface QuotationPDFData {
   };
   /** Company quote-format settings applied to this PDF. */
   format?: {
-    showRevisionDate?: boolean;
-    showLatestModifiedDate?: boolean;
-    revisionDate?: string;
-    latestModifiedDate?: string;
     zoneSubtotalPlacement?: 'section_and_summary' | 'summary_only' | 'hidden';
     qrCaption?: string;
     qrDataUrl?: string;
