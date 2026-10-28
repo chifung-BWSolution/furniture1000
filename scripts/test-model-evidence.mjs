@@ -141,6 +141,40 @@ same(cut[0].connects_to, [1, 2, 3]);
 same(s.setJoint(mine, 1, 2, true)[2].connects_to, [0, 1]);
 assert.equal(s.duplicatePart(mine, 1).length, 6);
 
+// Same bounds do not mean the same shape: a corrected outline must be adoptable.
+const square = { ...desk[0], connects_to: [], shape: 'profile', axis: 'z', points_mm: [[-700,-350],[700,-350],[700,350],[-700,350]] };
+const diamond = { ...square, points_mm: [[0,-350],[700,0],[0,350],[-700,0]] };
+same(s.diffParts([square], [diamond]).map(c => c.id), ['chg-0']);
+same(s.applyPartChanges([square], [diamond], new Set(['chg-0']))[0].points_mm, diamond.points_mm);
+for (const patch of [
+  { smooth: true }, { axis: 'y' },
+  { path_mm: [[0,0,0],[10,0,100]] },
+  { sections_mm: [{ at: 0, points_mm: [[0,0],[20,0],[0,20]] }] },
+  { section_mm: [20,25] }, { end_section_mm: [10,15] },
+  { geometry_scale: [1,1,1.01] },
+]) assert.equal(s.diffParts([square], [{ ...square, ...patch }]).length, 1);
+same(s.diffParts([square], [{ ...square, points_mm: square.points_mm.map(pt => pt.map(n => n + 0.001)) }]), [], 'Ignore coordinate noise');
+
+// A key dimension cannot silently override a locked part axis.
+const fixedTop = desk.map((part, i) => i === 0 ? { ...part, locked_axes: ['z'] } : part);
+const blockedThickness = k.applyKeyDimensions(fixedTop, { top_thickness: 40 });
+assert.ok(blockedThickness.conflicts.some(n => n.includes('已鎖定')));
+assert.equal(p.specBounds(blockedThickness.parts[0]).max[2] - p.specBounds(blockedThickness.parts[0]).min[2], 25);
+
+// Matching height alone is not contact: an adjacent object must not stretch.
+const adjacent = { ...desk[1], part_id: 'adjacent', center_mm: [2000,0,362.5], connects_to: [] };
+const independent = k.applyKeyDimensions([...desk, adjacent], { top_thickness: 40 });
+same(independent.parts.at(-1), adjacent);
+const otherProduct = { ...desk[1], product_index: 1 };
+same(k.applyKeyDimensions([...desk, otherProduct], { top_thickness: 40 }).parts.at(-1), otherProduct);
+
+// Editing shelf 1 above shelf 2 must not cause the second edit to hit shelf 1 again.
+const shelves = [200,400].map((z, i) => ({ name: `層板${i + 1}`, shape: 'box', role: 'shelf', size_mm: [600,400,20], center_mm: [0,0,z - 10] }));
+const reordered = k.applyKeyDimensions(shelves, { shelf_1: 450, shelf_2: 500 });
+same(reordered.conflicts, []);
+same(reordered.parts.map(part => p.specBounds(part).max[2]), [450,500]);
+same(k.applyKeyDimensions(shelves, { shelf_2: 500, shelf_1: 450 }).parts, reordered.parts, 'Independent edits do not depend on object key order');
+
 // labelled_dimensions 防禦式讀取。
 same(e.labelledDimensionsFrom([{ dimension: 'width', value: 1200, unit: 'mm', raw_text: 'W1200' }, { dimension: 'width', value: -1, unit: 'mm', raw_text: 'x' }, { value: 3 }]).length, 1);
 console.log('PASS: evidence statuses, missing/estimate/conflict rules, AC-03/04/06/08, whole-set scope, key dimensions drive geometry');

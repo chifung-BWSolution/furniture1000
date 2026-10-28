@@ -253,15 +253,22 @@ Deno.serve(async (req) => {
     const path = String(body.storage_path ?? "");
     const hash = String(body.content_hash ?? "");
     const size = Number(body.size_bytes ?? 0);
-    const matches = await objectMatches(supabaseUrl, serviceKey, path, size, hash);
-    if (!matches) return json({ error: "upload_rejected" }, 403);
-    return finish("fds_skp_device_complete", {
+    const args = {
       p_access_token: access,
       p_lease_id: body.lease_id,
       p_content_hash: hash,
       p_size_bytes: size,
       p_storage_path: path,
-    });
+    };
+    const authorization = await rpc(admin, "fds_skp_device_complete", { ...args, p_verify_only: true });
+    if (typeof authorization.error === "string") return json(authorization, statusFor(authorization.error));
+    if (authorization.ok !== true) return json({ error: "lease_rejected" }, 403);
+    if (authorization.idempotent === true) return json(authorization);
+    if (authorization.verified !== true) return json({ error: "lease_rejected" }, 403);
+    const matches = await objectMatches(supabaseUrl, serviceKey, path, size, hash);
+    if (!matches) return json({ error: "upload_rejected" }, 403);
+    // Recheck inside the transaction in case the device/lease changed during download.
+    return finish("fds_skp_device_complete", args);
   }
 
   return json({ error: "invalid_request" }, 400);

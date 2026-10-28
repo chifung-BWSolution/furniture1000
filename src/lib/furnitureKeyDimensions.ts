@@ -79,15 +79,29 @@ export function applyKeyDimensions(input: CustomPartSpec[], values: Record<strin
   let parts = input.map((part) => part);
   const conflicts: string[] = [];
   const current = () => Object.fromEntries(deriveKeyDimensions(parts).map((d) => [d.key, d]));
+  // Keep shelf identity stable even when a height edit changes their vertical order.
+  const originalDimensions = current();
   const stretchOrReport = (i: number, k: number, lo: number, hi: number, why: string) => {
+    const bounds = specBounds(parts[i]);
+    if (parts[i].locked_axes?.includes((['x', 'y', 'z'] as const)[k]) && Math.abs(hi - lo - (bounds.max[k] - bounds.min[k])) > 0.05) {
+      conflicts.push(`${why}：與「${parts[i].name}」已鎖定的${['闊', '深', '高'][k]}衝突`);
+      return;
+    }
     if (hi - lo < 3) {
       conflicts.push(`${why}：「${parts[i].name}」會被壓縮至 ${round(Math.max(0, hi - lo))} mm`);
       return;
     }
     let next: CustomPartSpec | null = null;
     try { next = stretchAlong(parts[i], k, lo, hi); } catch { next = null; }
-    if (next) parts[i] = next;
-    else conflicts.push(`${why}：「${parts[i].name}」不能在不改截面的情況下拉伸`);
+    if (next) {
+      const after = specBounds(next);
+      const changedLock = parts[i].locked_axes?.some(axis => {
+        const j = ['x', 'y', 'z'].indexOf(axis);
+        return Math.abs(after.max[j] - after.min[j] - (bounds.max[j] - bounds.min[j])) > 0.05;
+      });
+      if (changedLock) conflicts.push(`${why}：會改變「${parts[i].name}」已鎖定的截面尺寸`);
+      else parts[i] = next;
+    } else conflicts.push(`${why}：「${parts[i].name}」不能在不改截面的情況下拉伸`);
   };
 
   const thickness = values.top_thickness;
@@ -103,7 +117,9 @@ export function applyKeyDimensions(input: CustomPartSpec[], values: Record<strin
       parts.forEach((part, j) => {
         if (j === i) return;
         const pb = specBounds(part);
-        if (Math.abs(pb.max[2] - b.min[2]) <= TOUCH_MM) stretchOrReport(j, 2, pb.min[2], newBottom, why);
+        const sameProduct = part.product_index === parts[i].product_index;
+        const beneath = [0, 1].every(k => Math.min(pb.max[k], b.max[k]) - Math.max(pb.min[k], b.min[k]) > 0);
+        if (sameProduct && beneath && Math.abs(pb.max[2] - b.min[2]) <= TOUCH_MM) stretchOrReport(j, 2, pb.min[2], newBottom, why);
       });
     }
   }
@@ -126,7 +142,7 @@ export function applyKeyDimensions(input: CustomPartSpec[], values: Record<strin
 
   for (const [key, want] of Object.entries(values)) {
     if (!/^shelf_\d+$/.test(key)) continue;
-    const dim = current()[key];
+    const dim = originalDimensions[key];
     if (!dim || Math.abs(want - dim.value_mm) <= 0.05) continue;
     const i = dim.parts[0];
     parts[i] = moveAlong(parts[i], 2, want - dim.value_mm);
@@ -167,6 +183,19 @@ export function applyKeyDimensions(input: CustomPartSpec[], values: Record<strin
         return b.min[k] < cb.min[k] - TOUCH_MM || b.max[k] > cb.max[k] + TOUCH_MM;
       });
       if (outside) conflicts.push(`${dim.label} ${want} mm 令腳超出「${parts[cover].name}」${['闊', '深'][k]} ${round(cb.max[k] - cb.min[k])} mm`);
+    }
+  }
+  // Later constraints can affect earlier ones (e.g. a bent support's two spans).
+  // Measure the final geometry instead of assuming each requested value held.
+  const finalDimensions = current();
+  for (const [key, wanted] of Object.entries(values)) {
+    const original = originalDimensions[key];
+    if (!original) continue;
+    const actual = /^shelf_\d+$/.test(key)
+      ? specBounds(parts[original.parts[0]]).max[2]
+      : finalDimensions[key]?.value_mm;
+    if (actual == null || !Number.isFinite(wanted) || Math.abs(actual - wanted) > 1) {
+      conflicts.push(`${original.label}重建後為 ${actual == null ? '無法量度' : round(actual)} mm，與確認的 ${wanted} mm 不符`);
     }
   }
   return { parts, conflicts: [...new Set(conflicts)] };

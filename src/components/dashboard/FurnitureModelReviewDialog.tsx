@@ -18,7 +18,7 @@ const errorText = (err: unknown) => (err instanceof Error ? err.message : String
 function programChecks(model: ParametricModel): string[] {
   const errors: string[] = [];
   try {
-    errors.push(...validateFurnitureStructure(model, model.structure_evidence, model.custom_parts ?? []));
+    errors.push(...validateFurnitureStructure(model, model.structure_evidence));
   } catch (err) {
     errors.push(errorText(err));
   }

@@ -372,10 +372,11 @@ internal static class WorkerSetup {
         using (var mutex = new Mutex(true, MutexName, out created)) {
             if (!created) return;
             using (var stop = new EventWaitHandle(false, EventResetMode.ManualReset, StopName)) {
-                var config = LoadConfig();
                 Log("Worker 管理程式已啟動。授權、連線與寫檔依賴會分開記錄。");
                 var failures = 0;
                 do {
+                    // The child rotates and persists credentials while it is running.
+                    var config = LoadConfig();
                     var info = new ProcessStartInfo(Path.Combine(Home, "node.exe"), "\"" + Path.Combine(Home, "worker.mjs") + "\"");
                     info.WorkingDirectory = Home;
                     info.UseShellExecute = false;

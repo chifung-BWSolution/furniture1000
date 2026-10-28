@@ -48,6 +48,7 @@ const creds = {
   pendingRotation: process.env.FDS_SKP_PENDING_ROTATION || '',
 };
 let activeLease = '';
+let authorizationError = null;
 
 function skpFailureRetryable(message) {
   const text = String(message).toLowerCase();
@@ -222,11 +223,11 @@ async function refreshAccess(force = false) {
 }
 
 async function callAgent(action, payload) {
+  if (authorizationError) throw authorizationError;
   try {
     await refreshAccess();
     return await agent(action, payload);
   } catch (error) {
-    authStop(error);
     if (error?.code === 'unauthorized') {
       await refreshAccess(true);
       return agent(action, payload);
@@ -282,6 +283,7 @@ async function pulseLease(progress) {
 function watchChild(child, timeoutMs) {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let stopping = false;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
@@ -289,24 +291,27 @@ function watchChild(child, timeoutMs) {
       clearInterval(pulse);
       fn(value);
     };
+    const stopChild = (error) => {
+      if (settled || stopping) return;
+      stopping = true;
+      // Wait for taskkill before the caller's finally removes SketchUp's files.
+      execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, () => finish(reject, error));
+    };
     const pulse = setInterval(() => {
       pulseLease().then((stop) => {
         if (!stop) return;
-        execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], () => undefined);
-        finish(reject, Object.assign(new Error('device_revoked'), { code: 'revoked' }));
+        stopChild(Object.assign(new Error('device_revoked'), { code: 'revoked' }));
       }).catch((error) => {
         if (AUTH_STOP.has(error?.code)) {
-          execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], () => undefined);
-          finish(reject, error);
+          stopChild(error);
         }
       });
     }, 15_000);
     const timer = setTimeout(() => {
-      execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], () => undefined);
-      finish(reject, new Error('SketchUp 寫檔逾時'));
+      stopChild(new Error('SketchUp 寫檔逾時'));
     }, timeoutMs);
     child.on('error', (error) => finish(reject, error));
-    child.on('exit', () => finish(resolve));
+    child.on('exit', () => { if (!stopping) finish(resolve); });
   });
 }
 
@@ -398,8 +403,8 @@ async function processPreviewJob(job) {
     const path = await uploadBytes(job.lease_id, bytes, 'model/gltf-binary');
     console.log(`preview job ${job.id}: ${path} (${bytes.length} bytes)`);
   } finally {
-    activeLease = '';
-    await rm(dir, { recursive: true, force: true });
+    try { await rm(dir, { recursive: true, force: true }); }
+    finally { activeLease = ''; }
   }
 }
 
@@ -419,8 +424,8 @@ async function processGenerateJob(job) {
     const path = await uploadBytes(job.lease_id, bytes, 'application/octet-stream');
     console.log(`job ${job.id}: ${path} (${bytes.length} bytes)`);
   } finally {
-    activeLease = '';
-    await rm(dir, { recursive: true, force: true });
+    try { await rm(dir, { recursive: true, force: true }); }
+    finally { activeLease = ''; }
   }
 }
 
@@ -464,7 +469,12 @@ try {
   process.exit(1);
 }
 
-const readinessTimer = setInterval(() => reportReadiness().catch((err) => authStop(err)), 30_000);
+const readinessTimer = setInterval(() => reportReadiness().catch((err) => {
+  if (!AUTH_STOP.has(err?.code)) return;
+  authorizationError = err;
+  // Active jobs must unwind through watchChild and their cleanup first.
+  if (!activeLease) authStop(err);
+}), 30_000);
 readinessTimer.unref();
 
 for (;;) {

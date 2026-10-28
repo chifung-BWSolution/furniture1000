@@ -60,6 +60,18 @@ export type PartChange = {
 const fmt = (v: number[]) => v.map((n) => Math.round(n)).join('×');
 const far = (a: number[], b: number[]) => a.some((n, i) => Math.abs(n - b[i]) > 1);
 
+// Compare the actual geometry, not just its bounding box. Use a sub-millimetre
+// tolerance for coordinates; dimensionless scale factors need a tighter one.
+function geometryEqual(a: unknown, b: unknown, tolerance = 0.05): boolean {
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= tolerance;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => geometryEqual(v, b[i], tolerance));
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const left = a as Record<string, unknown>, right = b as Record<string, unknown>;
+    return Object.keys(left).length === Object.keys(right).length && Object.keys(left).every(key => geometryEqual(left[key], right[key], tolerance));
+  }
+  return a === b;
+}
+
 /** Pair each new part with an existing one: same id first, then same role nearest by position. */
 function matchParts(current: CustomPartSpec[], next: CustomPartSpec[]): Map<number, number> {
   const pairs = new Map<number, number>();
@@ -99,6 +111,15 @@ export function diffParts(current: CustomPartSpec[], next: CustomPartSpec[]): Pa
     if (far(c.size_mm, part.size_mm)) notes.push(`尺寸 ${fmt(c.size_mm)} → ${fmt(part.size_mm)}`);
     if (far(c.center_mm, part.center_mm)) notes.push(`位置 ${fmt(c.center_mm)} → ${fmt(part.center_mm)}`);
     if ((c.form ?? '') !== (part.form ?? '')) notes.push(`形態 ${c.form ?? '—'} → ${part.form ?? '—'}`);
+    if ((c.axis ?? 'z') !== (part.axis ?? 'z')) notes.push('方向改變');
+    if (!geometryEqual(c.points_mm, part.points_mm)) notes.push('輪廓改變');
+    if (!geometryEqual(c.path_mm, part.path_mm)) notes.push('彎曲路徑改變');
+    if (!geometryEqual(c.sections_mm, part.sections_mm)) notes.push('漸變截面改變');
+    if (Boolean(c.smooth) !== Boolean(part.smooth)) notes.push('曲線平滑設定改變');
+    if (c.section !== part.section || !geometryEqual(c.section_mm, part.section_mm) || !geometryEqual(c.end_section_mm, part.end_section_mm)) notes.push('管材截面改變');
+    if (!geometryEqual(c.geometry_scale ?? [1, 1, 1], part.geometry_scale ?? [1, 1, 1], 0.000001)) notes.push('幾何比例改變');
+    if (c.role !== part.role) notes.push('部件用途改變');
+    if (c.product_index !== part.product_index) notes.push('所屬產品改變');
     const joints = (ids: number[] | undefined, map: (n: number) => number | undefined) => (ids ?? []).map(map).filter((n) => n != null).sort().join(',');
     if (joints(c.connects_to, (n) => n) !== joints(part.connects_to, (n) => pairs.get(n))) notes.push('接合改變');
     if (notes.length) changes.push({ id: `chg-${i}`, kind: 'changed', currentIndex: i, nextIndex: j, summary: `「${c.name}」${notes.join('；')}` });
