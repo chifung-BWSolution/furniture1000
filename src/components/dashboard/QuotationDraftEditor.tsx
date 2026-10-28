@@ -368,7 +368,7 @@ function QuoteRowDragHandle({
     <div className="flex items-center gap-0.5">
       {(serialLabel != null && serialLabel !== '') || serialNumber != null ? (
         <span
-          className="font-display text-sm font-semibold tabular-nums leading-none text-foreground/75"
+          className="font-body text-sm font-semibold tabular-nums leading-none text-foreground/75"
           aria-hidden
         >
           {serialLabel ?? serialNumber}
@@ -1944,7 +1944,7 @@ function QuoteSectionTitleCard({
               value={item.name || ""}
               placeholder={labels.sectionTitlePlaceholder}
               onChange={(e) => updateItem(item.id, "name", e.target.value)}
-              className={cn(QUOTE_INPUT_CLASS, "font-display text-sm font-semibold")}
+              className={cn(QUOTE_INPUT_CLASS, "text-sm font-semibold")}
               aria-label={labels.sectionTitleLabel}
             />
           </div>
@@ -2051,10 +2051,10 @@ function QuoteZoneDivider({
 }) {
   return (
     <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-1.5">
-      <span className="font-display text-xs font-bold text-primary/70">
+      <span className="font-body text-xs font-bold text-primary/70">
         {sectionTitlePrefix(ordinal)}
       </span>
-      <span className="min-w-0 truncate font-display text-xs font-bold text-primary/80">
+      <span className="min-w-0 truncate font-body text-xs font-bold text-primary/80">
         {name || "(未命名分區)"}
       </span>
       <span className="ml-auto shrink-0 font-body text-[11px] text-muted-foreground">
