@@ -1719,6 +1719,10 @@ export function PresentationView() {
                   key={pickerNonce}
                   selected={selected}
                   maxItems={MAX_ITEMS}
+                  zones={zones}
+                  productZone={productZone}
+                  zoneDisabled={disabled || zones.length === 0}
+                  onZoneChange={(productId, zoneId) => setProductZone((current) => ({ ...current, [productId]: zoneId }))}
                   onChange={(products) => {
                     const list = typeof products === 'function' ? products(selected) : products;
                     setSelected(list);
@@ -1739,27 +1743,6 @@ export function PresentationView() {
                     });
                   }}
                 />
-                {selected.length > 0 ? (
-                  <div className="space-y-2 rounded-xl border p-4">
-                    <p className="text-sm font-semibold">所屬分區</p>
-                    {zones.length === 0 ? <p className="text-xs text-muted-foreground">請先在上一步建立分區。</p> : null}
-                    {selected.map((product) => (
-                      <div key={product.id} className="grid items-center gap-2 sm:grid-cols-[1fr_12rem]">
-                        <p className="truncate text-sm">{draftFor(product, productDrafts).displayName || product.title}</p>
-                        <Select
-                          value={productZone[product.id] || ''}
-                          disabled={disabled || zones.length === 0}
-                          onValueChange={(value) => setProductZone((current) => ({ ...current, [product.id]: value }))}
-                        >
-                          <SelectTrigger><SelectValue placeholder="選擇分區" /></SelectTrigger>
-                          <SelectContent>
-                            {zones.map((zone) => <SelectItem key={zone.id} value={zone.id}>{zone.name || '未命名分區'}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
               </div>
             )}
             {wizardStep === 3 && (
