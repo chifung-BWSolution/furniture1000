@@ -1590,6 +1590,7 @@ function ProductModelsSection({
   const [scopeRequest, setScopeRequest] = useState<{ target: ModelTarget | 'parts'; detection: ProductCountDetection; jobId?: string } | null>(null);
   /** Background recognition for this product. Survives leaving the page. */
   const [recognition, setRecognition] = useState<FurnitureRecognitionStatus | null>(null);
+  const [foregroundRecognition, setForegroundRecognition] = useState(false);
   const recognitionUrlsRef = useRef<string[]>([]);
   const appliedRecognitionRef = useRef<string | null>(null);
   const recognitionDraftJobRef = useRef<string | null>(null);
@@ -1611,6 +1612,8 @@ function ProductModelsSection({
     setSelectedModelPhotos(null); setPhotoChoiceTarget(null);
     setExtraPhotos([]); setDraft(null); setPhotoRequest(null); setSuggestion(null); setVersions(null); setReviewId(null);
     setRecognition(null);
+    setForegroundRecognition(false);
+    clearProgress();
     recognitionUrlsRef.current = [];
     appliedRecognitionRef.current = null;
     recognitionDraftJobRef.current = null;
@@ -1929,6 +1932,17 @@ function ProductModelsSection({
   openRecognitionRef.current = openRecognitionResult;
 
   useEffect(() => {
+    if (!foregroundRecognition) return;
+    if (recognition?.status === 'queued') showProgress(24, '辨認產品圖');
+    else if (recognition?.status === 'running') showProgress(52, '辨認產品圖');
+    else if (recognition && ['succeeded', 'failed', 'cancelled'].includes(recognition.status)) {
+      setForegroundRecognition(false);
+      clearProgress();
+    }
+  }, [foregroundRecognition, recognition?.status]);
+
+
+  useEffect(() => {
     let cancelled = false;
     let timer = 0;
     const tick = async () => {
@@ -1977,9 +1991,15 @@ function ProductModelsSection({
       if (target === 'skp') {
         if (!await skpRequirements.check() || seq !== requestSeq.current) return;
       }
+      setRecognition(null);
+      setForegroundRecognition(true);
+      setProgressFlow('prepare');
+      showProgress(8, target === 'skp' ? '準備生成 SKP' : '準備生成 FBX');
       const urls = stored.length >= 2 ? stored : await collectRecognitionUrls(productId, photos);
       if (seq !== requestSeq.current) return;
       if (urls.length < 2) {
+        setForegroundRecognition(false);
+        clearProgress();
         setPhotoRequest({ target, message: `只有 ${urls.length} 張可讀取的不同圖片，請補充至最少 2 張` });
         return;
       }
@@ -2013,6 +2033,8 @@ function ProductModelsSection({
       });
     } catch (err) {
       if (seq !== requestSeq.current) return;
+      setForegroundRecognition(false);
+      clearProgress();
       if ((err as { code?: string })?.code === 'reference_images_required') setPhotoRequest({ target, message: errorText(err) });
       else toast.error(`${modelTargetAction(target, '生成')}失敗`, { description: errorText(err) });
     } finally {
@@ -2509,6 +2531,18 @@ function ProductModelsSection({
   ) : null;
 
   const recognitionActive = recognition?.status === 'queued' || recognition?.status === 'running';
+  const cancelRecognition = async () => {
+    const id = recognition?.jobId;
+    if (!id) return;
+    try {
+      await cancelFurnitureRecognition(id);
+      setRecognition((current) => (current?.jobId === id ? null : current));
+      setForegroundRecognition(false);
+      clearProgress();
+    } catch (err) {
+      toast.error('取消辨認失敗', { description: errorText(err) });
+    }
+  };
   const recognitionNote = recognitionActive ? (
     <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2797,7 +2831,18 @@ function ProductModelsSection({
         headerClassName="px-6 pt-6 pb-5 sm:px-8 sm:pt-8 sm:pb-6"
         bodyClassName="px-6 pb-7 sm:px-8 sm:pb-8"
         style={workbench ? WORKBENCH_TONE : undefined}
-        footer={<ModalButton variant="secondary" onClick={cancelProgress}>取消</ModalButton>}
+        footer={<>
+          {foregroundRecognition && recognitionActive && (
+            <ModalButton onClick={() => {
+              setForegroundRecognition(false);
+              clearProgress();
+            }}>放到背景執行</ModalButton>
+          )}
+          <ModalButton variant="secondary" disabled={foregroundRecognition && !recognitionActive} onClick={() => {
+            if (foregroundRecognition) void cancelRecognition();
+            else cancelProgress();
+          }}>取消</ModalButton>
+        </>}
       >
         {shownProgress ? (
           <div className="space-y-6">
