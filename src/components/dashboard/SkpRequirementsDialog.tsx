@@ -14,17 +14,19 @@ export function useSkpRequirements() {
   const [error, setError] = useState<string | null>(null);
 
   const check = async (retry = false): Promise<boolean> => {
-    setOpen(true);
+    // 生成按鈕已經有進度窗。環境就緒時不要再疊一個檢測窗；只有未就緒或這窗裡的「重新檢測」才打開。
+    if (retry) setOpen(true);
     setChecking(true);
     setError(null);
-    setResult(null);
+    if (!retry) setResult(null);
     try {
       const next = await fetchSkpRequirements();
       setResult(next);
-      if (next.ready && !retry) setOpen(false);
+      setOpen(!next.ready || retry);
       return next.ready;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      setOpen(true);
       return false;
     } finally {
       setChecking(false);
