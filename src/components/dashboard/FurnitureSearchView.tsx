@@ -32,20 +32,47 @@ import type { SourcePageRequest } from '@/lib/sourcePage';
 import { fetchEmbeddingStatus, searchByImage, startImageIndex, type EmbeddingStatus } from '@/lib/imageSearch';
 import { supabase } from '@/lib/supabase';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
-import { generateQuoteReferenceImage } from '@/lib/quotePhotoLibrary';
 import { buildFurnitureGlb } from '@/lib/furnitureGlb';
 import { buildFurnitureFbx } from '@/lib/furnitureFbx';
 import { ProductWorkbench } from '@/components/dashboard/ProductWorkbench';
 import { ProductModelPreviewModal } from '@/components/dashboard/ProductModelPreviewModal';
 import { StructureConfirmForm, type StructureDraft } from '@/components/dashboard/StructureConfirmDialog';
-import { buildDimensionConflicts, type DimensionEstimate } from '@/lib/dimensionConflicts';
+import { ModelEvidencePanel } from '@/components/dashboard/ModelEvidencePanel';
+import { PartSuggestionPanel } from '@/components/dashboard/PartSuggestionPanel';
+import { FurnitureModelReviewDialog } from '@/components/dashboard/FurnitureModelReviewDialog';
+import type { DimensionEstimate } from '@/lib/dimensionConflicts';
+import { applyKeyDimensions, deriveKeyDimensions } from '@/lib/furnitureKeyDimensions';
+import {
+  OVERALL_KEYS,
+  buildEvidence,
+  enterManual,
+  estimatedOverallAxes,
+  findDimension,
+  generationBlockers,
+  labelledDimensionsFrom,
+  pinnedKeyValues,
+  refreshKeyDimensions,
+  valueOf,
+  setModelOverall,
+  withStatuses,
+  type EvidenceInput,
+  type ModelEvidence,
+} from '@/lib/modelEvidence';
+import { applyPartChanges, diffParts, ensurePartIds, type PartChange } from '@/lib/partSuggestions';
+import {
+  QUALITY_LABEL,
+  fetchFurnitureModelDetail,
+  fetchFurnitureModelVersions,
+  saveFurnitureModel,
+  type FurnitureModelVersion,
+} from '@/lib/furnitureModelVersions';
 import { useSkpRequirements } from '@/components/dashboard/SkpRequirementsDialog';
 import { FurnitureProductScopeDialog, type ProductCountDetection, type ProductScopeChoice } from '@/components/dashboard/FurnitureProductScopeDialog';
 import { hasStructureEvidence, selectFurnitureGeometry, validateFurnitureStructure, type StructureEvidence } from '@/lib/furnitureStructure';
 import {
   buildParametric,
   customPartsSize,
-  fitCustomParts,
+  fitCustomPartsWithConstraints,
   inferFurnitureKindFrom,
   initialModelStyle,
   inferShelfTiers,
@@ -1261,6 +1288,8 @@ type ImageAnalysis = {
   image_count?: number;
   source_dimensions_scope?: 'single' | 'arrangement' | 'unknown';
   dimension_estimates?: DimensionEstimate[];
+  /** Sizes printed on the photos, read by the AI with raw text and image position. */
+  labelled_dimensions?: unknown;
 };
 
 type AnalysisRequest = {
@@ -1332,11 +1361,6 @@ async function analyzeProductImages(urls: (string | File)[], request: AnalysisRe
 type ModelDraft = StructureDraft;
 
 const AXIS_INDEX: Record<SizeAxis, 0 | 1 | 2> = { width: 0, depth: 1, height: 2 };
-const AXIS_MM: Record<SizeAxis, 'width_mm' | 'depth_mm' | 'height_mm'> = {
-  width: 'width_mm',
-  depth: 'depth_mm',
-  height: 'height_mm',
-};
 /** Which size axes a profile outline spans, per extrusion axis (same as the engine's PLANE). */
 const PART_PLANE: Record<'x' | 'y' | 'z', [number, number]> = { z: [0, 1], y: [0, 2], x: [1, 2] };
 
@@ -1377,16 +1401,15 @@ type ProgressFlow = 'prepare' | 'generate';
 /** Stepper inside the progress dialog: the real stages of each run, keyed by progress label. */
 const PROGRESS_FLOW: Record<ProgressFlow, { steps: string[]; hints: string[]; index: Record<string, number> }> = {
   prepare: {
-    steps: ['讀取產品資料', '生成三視圖', '辨認產品結構', '整理結構'],
-    hints: ['正在讀取產品資料，請稍候…', '正在根據產品圖與描述生成三視圖，請稍候…', '正在對照原圖與三視圖分析結構，請稍候…', '正在整理結構，請稍候…'],
+    steps: ['讀取產品資料', '辨認產品結構', '整理尺寸證據'],
+    hints: ['正在讀取產品資料，請稍候…', '正在讀取產品圖的部件、結構及尺寸標註，請稍候…', '正在整理尺寸來源，請稍候…'],
     index: {
       '準備生成 SKP': 0,
       '準備生成 FBX': 0,
       '檢查 SKP 生成環境': 0,
-      '辨認產品圖': 2,
-      '生成 AI 三視圖': 1,
-      '整理結構': 3,
-      '結構已辨認': 3,
+      '辨認產品圖': 1,
+      '整理結構': 2,
+      '結構已辨認': 2,
     },
   },
   generate: {
@@ -1498,30 +1521,25 @@ function ProductModelsSection({
     [product.dimension_h_mm, product.dimension_l_mm, product.dimension_w_mm],
   );
 
-  const dimensionConflictsFor = useCallback(
-    (
-      estimates: DimensionEstimate[] | undefined,
-      consolidated: { width_mm: number | null; depth_mm: number | null; height_mm: number | null },
-      resolvedAxes: SizeAxis[] = [],
-    ) =>
-      buildDimensionConflicts(estimates, {
-        catalog: catalogDimensions,
-        consolidated,
-        ignoreAxes: resolvedAxes.map((axis) => AXIS_MM[axis]),
-      }),
-    [catalogDimensions],
-  );
   const [files, setFiles] = useState<ProductModelFile[] | null>(null);
   const [busy, setBusy] = useState<null | ModelTarget | 'upload'>(null);
   const [reload, setReload] = useState(0);
   const [filesError, setFilesError] = useState(false);
   const [draft, setDraft] = useState<ModelDraft | null>(null);
-  const drawingCache = useRef<{ key: string; url: string; image: { image_base64: string; mime_type: string } } | null>(null);
-  const drawingAsset = useRef<{ key: string; url: string } | null>(null);
-  const drawingPending = useRef<Promise<{ key: string; url: string; image: { image_base64: string; mime_type: string } }> | null>(null);
   const [reuse, setReuse] = useState<{ target: ModelTarget; files: ProductModelFile[] } | null>(null);
-  /** 進度 Modal 內的沿用詢問：之前生成過三視圖時，先在同一個 Modal 問沿用還是重畫。 */
-  const [drawingAsk, setDrawingAsk] = useState<{ url: string; resolve: (regenerate: boolean) => void } | null>(null);
+  const [versions, setVersions] = useState<FurnitureModelVersion[] | null>(null);
+  const [reviewId, setReviewId] = useState<string | null>(null);
+  /** AI re-recognition waiting for the person to adopt each difference (AC-06). */
+  const [suggestion, setSuggestion] = useState<{ parts: CustomPartSpec[]; changes: PartChange[]; structure?: StructureEvidence; notes: string | null; labels: unknown } | null>(null);
+  /** Inputs the evidence was built from, so a new AI reading can add to them. */
+  const evidenceInputRef = useRef<Omit<EvidenceInput, 'previous' | 'keyDimensions'> | null>(null);
+  /** Who confirms values in this session (shown in the evidence and stored with it). */
+  const [userLabel, setUserLabel] = useState('');
+  useEffect(() => {
+    void supabase.auth.getUser().then(({ data }) => setUserLabel(data.user?.email ?? data.user?.id ?? ''));
+  }, []);
+  /** Answers for a previous product or an older request must not land on the current draft. */
+  const requestSeq = useRef(0);
   const [previewFile, setPreviewFile] = useState<ProductModelFile | null>(null);
   const [skp, setSkp] = useState<SkpStatus | null>(null);
   const [skpModelId, setSkpModelId] = useState<string | null>(null);
@@ -1536,7 +1554,10 @@ function ProductModelsSection({
   const [scopeRequest, setScopeRequest] = useState<{ target: ModelTarget | 'parts'; detection: ProductCountDetection } | null>(null);
   const [photoRequest, setPhotoRequest] = useState<{ target: ModelTarget | 'parts'; message: string } | null>(null);
   const modelPhotos: (string | File)[] = [...extraPhotos, ...new Set((product.images ?? []).filter(src => /^https?:\/\//i.test(src)))];
-  useEffect(() => { setExtraPhotos([]); setDraft(null); setPhotoRequest(null); setDrawingAsk(null); }, [productId]);
+  useEffect(() => {
+    requestSeq.current++;
+    setExtraPhotos([]); setDraft(null); setPhotoRequest(null); setSuggestion(null); setVersions(null); setReviewId(null);
+  }, [productId]);
   useEffect(() => { setScopeChoice(undefined); setScopeRequest(null); }, [productId, extraPhotos, product.images]);
   const [genProgress, setGenProgress] = useState<{ percent: number; label: string } | null>(null);
   const skpRequirements = useSkpRequirements();
@@ -1654,30 +1675,22 @@ function ProductModelsSection({
     }
   };
 
-  const ensureSaved = async (model: ParametricModel): Promise<string> => {
-    const key = JSON.stringify({
-      productId,
-      kind: model.kind,
-      width: model.width_mm,
-      depth: model.depth_mm,
-      height: model.height_mm,
-      style: model.style ?? null,
-      parts: model.custom_parts ?? null,
-      structure: model.structure_evidence ?? null,
-      structureParts: model.structure_parts ?? null,
-      estimated: model.estimated_axes,
-    });
+  /** Every change is a new version; identical parameters return the existing one (server-side hash). */
+  const ensureSaved = async (model: ParametricModel, parentId?: string | null): Promise<string> => {
+    const key = JSON.stringify([productId, parentId ?? null, model]);
     if (savedRef.current?.key === key) return savedRef.current.id;
-    const { data, error } = await supabase.rpc('fds_save_furniture_model', {
-      p_kind: model.kind,
-      p_parametric: model,
-      p_estimated: model.estimated_axes.length > 0,
-      p_product_id: productId,
-    });
-    if (error || typeof data !== 'string') throw new Error(error?.message ?? '沒有回傳編號');
-    savedRef.current = { key, id: data };
-    return data;
+    const id = await saveFurnitureModel(productId, model, parentId);
+    savedRef.current = { key, id };
+    return id;
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchFurnitureModelVersions(productId)
+      .then((rows) => { if (!cancelled) setVersions(rows); })
+      .catch(() => { if (!cancelled) setVersions([]); });
+    return () => { cancelled = true; };
+  }, [productId, reload]);
 
   /**
    * 已有檔案（用來判斷要不要問「沿用／重新生成」）。
@@ -1688,77 +1701,6 @@ function ProductModelsSection({
       target === 'skp' ? file.format === 'skp' : file.format === 'fbx' || file.format === 'glb',
     );
 
-  /** Identity of the current reference set: the same inputs reuse the paid drawing. */
-  const drawingKey = useMemo(
-    () => JSON.stringify([productId, product.description, product.images, extraPhotos.map(file => [file.name, file.size, file.lastModified])]),
-    [productId, product.description, product.images, extraPhotos],
-  );
-
-  /** The last successful drawing for the current reference set, from either cache layer. */
-  const cachedOrthographic = (): { key: string; url: string } | null => {
-    if (drawingCache.current?.key === drawingKey) return drawingCache.current;
-    if (drawingAsset.current?.key === drawingKey) return drawingAsset.current;
-    try {
-      const cached = JSON.parse(sessionStorage.getItem(`fds-orthographic-v1:${productId}`) ?? 'null');
-      if (cached?.key === drawingKey && typeof cached.url === 'string' && cached.url.startsWith(`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/quote-photos/`)) return cached;
-    } catch { /* Storage may be unavailable. */ }
-    return null;
-  };
-
-  const buildDrawing = async (force = false) => {
-    if (!force && drawingCache.current?.key === drawingKey) return drawingCache.current;
-    // Keep a successful paid drawing across modal closes and development refreshes.
-    const cacheName = `fds-orthographic-v1:${productId}`;
-    if (force) {
-      // 重新生成：放棄上一張付費三視圖，按目前的參考圖重畫。
-      drawingAsset.current = null;
-      try { sessionStorage.removeItem(cacheName); } catch { /* Ignore. */ }
-    } else {
-      try {
-        const cached = JSON.parse(sessionStorage.getItem(cacheName) ?? 'null');
-        if (cached?.key === drawingKey && typeof cached.url === 'string' && cached.url.startsWith(`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/quote-photos/`)) drawingAsset.current = cached;
-      } catch { /* Storage may be unavailable; the in-memory cache still works. */ }
-    }
-    const encoded: string[] = [];
-    for (const photo of modelPhotos) {
-      try {
-        const response = typeof photo === 'string' ? await fetch(photo) : null;
-        if (response && !response.ok) continue;
-        const blob = photo instanceof File ? photo : await response!.blob();
-        const image = await fileToJpeg(new File([blob], 'reference.jpg', { type: blob.type }));
-        if (!encoded.includes(image)) encoded.push(image);
-        if (encoded.length === 3) break;
-      } catch { /* Try the next product photo. */ }
-    }
-    if (encoded.length < 2) throw Object.assign(new Error('三視圖需要最少 2 張可讀取的不同產品圖'), { code: 'reference_images_required' });
-    const session = await supabase.auth.getSession();
-    if (!session.data.session) throw new Error('請先登入');
-    const referenceUrls: string[] = [];
-    for (const image of encoded) {
-      const bytes = Uint8Array.from(atob(image), ch => ch.charCodeAt(0));
-      const path = `orthographic-inputs/${session.data.session.user.id}/${crypto.randomUUID()}.jpg`;
-      const uploaded = await supabase.storage.from('product-images').upload(path, bytes, { contentType: 'image/jpeg' });
-      if (uploaded.error) throw new Error(uploaded.error.message);
-      referenceUrls.push(supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl);
-    }
-    const asset = !force && drawingAsset.current?.key === drawingKey ? drawingAsset.current : await generateQuoteReferenceImage({ purpose: 'orthographic', productId, model: 'gemini', aspectRatio: '4:3', referenceUrls });
-    drawingAsset.current = { key: drawingKey, url: asset.url };
-    try { sessionStorage.setItem(cacheName, JSON.stringify(drawingAsset.current)); } catch { /* Optional cache. */ }
-    const response = await fetch(asset.url);
-    if (!response.ok) throw new Error('三視圖已生成，但暫時無法讀取；請稍後再試');
-    const blob = await response.blob();
-    const drawing = { key: drawingKey, url: asset.url, image: { image_base64: await fileToJpeg(new File([blob], 'inferred.jpg', { type: blob.type })), mime_type: 'image/jpeg' } };
-    drawingCache.current = drawing;
-    return drawing;
-  };
-
-  const ensureDrawing = async (force = false) => {
-    if (drawingPending.current && !force) return drawingPending.current;
-    drawingPending.current = buildDrawing(force);
-    try { return await drawingPending.current; }
-    finally { drawingPending.current = null; }
-  };
-
   /** T-806: look for uploaded or earlier generated files before any AI call. */
   const start = (target: ModelTarget, force = false) => {
     if (filesError) {
@@ -1766,7 +1708,7 @@ function ProductModelsSection({
       return;
     }
     const existing = existingFor(target);
-    if (!force && existing.length > 0) {
+    if (!force && (existing.length > 0 || (versions?.length ?? 0) > 0)) {
       setDraft(null);
       setReuse({ target, files: existing });
       return;
@@ -1824,12 +1766,13 @@ function ProductModelsSection({
     start('fbx');
   };
 
-  /** T-801: read kind, size, and table structure, then hand a draft to the user to confirm. */
+  /** T-801 / FR-03: read kind, parts and printed sizes, then hand the draft and its evidence to the user. */
   const prepare = async (target: ModelTarget, choice = scopeChoice) => {
     if (modelPhotos.length < 2) {
       setPhotoRequest({ target, message: `目前只有 ${modelPhotos.length} 張候選圖片，最少需要 2 張不同角度圖片。` });
       return;
     }
+    const seq = ++requestSeq.current;
     setBusy(target);
     setConfirmShown(false);
     clearProgress();
@@ -1853,135 +1796,80 @@ function ProductModelsSection({
         product.category,
         product.model,
       ]);
-      let width = choice?.scope === 'arrangement' ? null : measuredMm(product.dimension_l_mm);
-      let depth = choice?.scope === 'arrangement' ? null : measuredMm(product.dimension_w_mm);
-      let height = choice?.scope === 'arrangement' ? null : measuredMm(product.dimension_h_mm);
-      const estimated: SizeAxis[] = [];
-      const nameStyle = initialModelStyle(kind, text);
-      let style: Partial<ModelStyle> = nameStyle;
-      let styleSource: ModelDraft['styleSource'] = 'name';
-      let notes: string | null = null;
-      let parts: CustomPartSpec[] = [];
-      let structure: StructureEvidence | undefined;
-      let dimensionEstimates: DimensionEstimate[] = [];
-      const photos = modelPhotos;
-      showProgress(26, '生成 AI 三視圖'); // step 2 of 4: keep the % inside this step's 25–50 band
-      let regenerate = false;
-      const cached = cachedOrthographic();
-      if (cached?.url) {
-        // 之前生成過三視圖：凍結進度，在同一個進度 Modal 內先問沿用還是重畫。
-        stopCreep();
-        regenerate = await new Promise<boolean>((resolve) => {
-          setDrawingAsk({ url: cached.url, resolve });
+      const catalog = { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm };
+      const arrangement = choice?.scope === 'arrangement';
+      showProgress(34, '辨認產品圖');
+      creepToward(70);
+      let guess: ImageAnalysis | null;
+      try {
+        guess = await analyzeProductImages(modelPhotos, {
+          product_scope: choice?.scope,
+          product_count: choice?.count,
+          title: [product.model, product.title].filter(Boolean).join(' '),
+          width_mm: arrangement ? null : catalog.width,
+          depth_mm: arrangement ? null : catalog.depth,
+          height_mm: arrangement ? null : catalog.height,
         });
-        setDrawingAsk(null);
+      } finally {
+        stopCreep();
       }
-      creepToward(45);
-      const drawing = await ensureDrawing(regenerate);
-      if (photos.length > 0) {
-        showProgress(52, '辨認產品圖'); // step 3 of 4: % must match the stepper (50–75 band)
-        creepToward(70);
-        try {
-          const guess = await analyzeProductImages(photos, {
-            inferred_reference: drawing.image,
-            product_scope: choice?.scope,
-            product_count: choice?.count,
-            title: [product.model, product.title].filter(Boolean).join(' '),
-            width_mm: width,
-            depth_mm: depth,
-            height_mm: height,
-          });
-          if (guess) {
-            if (guess.requires_product_scope_confirmation && guess.detection) {
-              clearProgress();
-              setScopeRequest({ target, detection: guess.detection });
-              return;
-            }
-            dimensionEstimates = guess.dimension_estimates ?? [];
-            if (guess.kind) kind = guess.kind;
-            if (guess.source_dimensions_scope === 'arrangement') {
-              if (guess.width_mm && guess.width_mm > 0) {
-                width = Math.round(guess.width_mm);
-                estimated.push('width');
-              }
-              if (guess.depth_mm && guess.depth_mm > 0) {
-                depth = Math.round(guess.depth_mm);
-                estimated.push('depth');
-              }
-              if (guess.height_mm && guess.height_mm > 0) {
-                height = Math.round(guess.height_mm);
-                estimated.push('height');
-              }
-            }
-            parts = sanitizeCustomParts(guess.parts);
-            structure = hasStructureEvidence(guess.structure) ? guess.structure : undefined;
-            notes = guess.structure_notes ?? null;
-            style = initialModelStyle(kind, text, guess.style);
-            styleSource = 'image';
-            if (width == null && guess.width_mm) {
-              width = Math.round(guess.width_mm);
-              estimated.push('width');
-            }
-            if (depth == null && guess.depth_mm) {
-              depth = Math.round(guess.depth_mm);
-              estimated.push('depth');
-            }
-            if (height == null && guess.height_mm) {
-              height = Math.round(guess.height_mm);
-              estimated.push('height');
-            }
-          }
-        } catch (err) {
-          throw err;
-        } finally {
-          stopCreep();
-        }
+      if (seq !== requestSeq.current) return;
+      if (guess?.requires_product_scope_confirmation && guess.detection) {
+        clearProgress();
+        setScopeRequest({ target, detection: guess.detection });
+        return;
       }
-      showProgress(88, '整理結構');
+      if (!guess) throw new Error('無法辨認圖片');
+      if (guess.kind) kind = guess.kind;
+      const parts = ensurePartIds(sanitizeCustomParts(guess.parts));
+      const structure = hasStructureEvidence(guess.structure) ? guess.structure : undefined;
+      let style: Partial<ModelStyle> = initialModelStyle(kind, text, guess.style);
+      showProgress(82, '整理結構');
       const tiers = kind === 'shelf' ? inferShelfTiers(text) : undefined;
       if (tiers !== undefined && style.shelves == null) style = { ...style, shelves: tiers - 2 };
-      const partsSize = customPartsSize(parts);
-      if (partsSize) {
-        if (width == null) {
-          width = partsSize[0];
-          estimated.push('width');
-        }
-        if (depth == null) {
-          depth = partsSize[1];
-          estimated.push('depth');
-        }
-        if (height == null) {
-          height = partsSize[2];
-          estimated.push('height');
-        }
-      }
       if (!structure) throw new Error('缺少結構辨認資料，請重新辨認圖片');
-      const selected = selectFurnitureGeometry({ kind: kind ?? 'custom', width_mm: width!, depth_mm: depth!, height_mm: height!, style, parts });
-      kind = selected.kind;
-      notes = `${selected.templateMatched ? '部件形狀與模板吻合。' : '按圖片實際部件建模，未套用固定模板。'}${notes ?? ''}`;
-      const consolidated = {
-        width_mm: width,
-        depth_mm: depth,
-        height_mm: height,
+      const partsSize = customPartsSize(parts);
+      const input: Omit<EvidenceInput, 'previous' | 'keyDimensions'> = {
+        productScope: arrangement ? 'arrangement' : 'single',
+        catalog,
+        catalogScope: guess.source_dimensions_scope,
+        aiOverall: {
+          width: guess.width_mm ?? partsSize?.[0],
+          depth: guess.depth_mm ?? partsSize?.[1],
+          height: guess.height_mm ?? partsSize?.[2],
+        },
+        estimates: guess.dimension_estimates ?? [],
+        labels: labelledDimensionsFrom(guess.labelled_dimensions),
       };
+      evidenceInputRef.current = input;
+      let evidence = buildEvidence(input);
+      const size = OVERALL_KEYS.map((key) => valueOf(findDimension(evidence, key)!, evidence.product_scope));
+      if (size.some((n) => n == null)) throw new Error('讀不到闊、深、高，請補充有尺寸的產品資料或圖片');
+      const [width, depth, height] = size as number[];
+      const selected = selectFurnitureGeometry({ kind: kind ?? 'custom', width_mm: width, depth_mm: depth, height_mm: height, style, parts });
+      kind = selected.kind;
+      if (kind === 'custom') evidence = refreshKeyDimensions(evidence, deriveKeyDimensions(fitCustomPartsWithConstraints(parts, width, depth, height).parts));
+      const notes = `${selected.templateMatched ? '部件形狀與模板吻合。' : '按圖片實際部件建模，未套用固定模板。'}${guess.structure_notes ?? ''}`;
+      setSuggestion(null);
       setDraft({
-        orthographicUrl: drawing.url,
         structure,
         target,
         kind,
-        width: width != null ? String(width) : '',
-        depth: depth != null ? String(depth) : '',
-        height: height != null ? String(height) : '',
-        estimated,
+        width: String(width),
+        depth: String(depth),
+        height: String(height),
+        estimated: estimatedOverallAxes(evidence),
         style,
-        styleSource,
+        styleSource: 'image',
         notes,
         parts,
-        dimensionEstimates,
-        dimensionConflicts: dimensionConflictsFor(dimensionEstimates, consolidated),
+        dimensionEstimates: input.estimates,
+        evidence,
+        parentId: null,
       });
       handoffToConfirm();
     } catch (err) {
+      if (seq !== requestSeq.current) return;
       clearProgress();
       setConfirmShown(false);
       if ((err as { code?: string })?.code === 'reference_images_required') setPhotoRequest({ target, message: errorText(err) });
@@ -1991,77 +1879,116 @@ function ProductModelsSection({
     }
   };
 
+  /** Overall fit by constraints, then the key dimensions a person confirmed. No AI involved. */
+  const fitDraft = (current: ModelDraft): { parts: CustomPartSpec[]; conflicts: string[] } => {
+    const [w, d, h] = [Number(current.width), Number(current.depth), Number(current.height)];
+    if (!(w > 0 && d > 0 && h > 0)) return { parts: current.parts, conflicts: [] };
+    const overall = fitCustomPartsWithConstraints(current.parts, w, d, h);
+    const keyed = applyKeyDimensions(overall.parts, pinnedKeyValues(current.evidence));
+    return { parts: keyed.parts, conflicts: [...overall.conflicts, ...keyed.conflicts] };
+  };
+
+  /** Keep the structure readings and estimated axes in step with the current parts. */
+  const syncEvidence = (next: ModelDraft): ModelDraft => {
+    if (!next.evidence) return next;
+    const evidence = refreshKeyDimensions(next.evidence, next.kind === 'custom' ? deriveKeyDimensions(fitDraft(next).parts) : []);
+    return { ...next, evidence, estimated: estimatedOverallAxes(evidence) };
+  };
+
   const updateDraft = (patch: Partial<ModelDraft>, editedAxis?: SizeAxis) => {
     setDraft((current) => {
       if (!current) return current;
-      const estimated = editedAxis ? current.estimated.filter((axis) => axis !== editedAxis) : current.estimated;
-      const resolved = new Set(current.resolvedSizeAxes ?? []);
-      (['width', 'depth', 'height'] as SizeAxis[]).forEach((axis) => {
-        if (editedAxis === axis || (patch[axis] != null && patch[axis] !== current[axis])) resolved.add(axis);
-      });
-      const resolvedSizeAxes = [...resolved];
       const { structure: patchedStructure, ...rest } = patch;
-      const next = {
+      const next: ModelDraft = {
         ...current,
         ...rest,
         ...(hasStructureEvidence(patchedStructure) ? { structure: patchedStructure } : {}),
         ...(patch.style ? { style: { ...current.style, ...patch.style } } : {}),
-        estimated,
-        resolvedSizeAxes,
       };
-      const width = Number(next.width);
-      const depth = Number(next.depth);
-      const height = Number(next.height);
-      next.dimensionConflicts = dimensionConflictsFor(next.dimensionEstimates, {
-        width_mm: Number.isFinite(width) && width > 0 ? width : null,
-        depth_mm: Number.isFinite(depth) && depth > 0 ? depth : null,
-        height_mm: Number.isFinite(height) && height > 0 ? height : null,
-      }, resolvedSizeAxes);
-      return next;
+      if (editedAxis) {
+        const n = Number(next[editedAxis]);
+        if (next.evidence && n > 0 && n <= 10000) next.evidence = enterManual(next.evidence, editedAxis, n, userLabel);
+        else if (!next.evidence) next.estimated = current.estimated.filter((axis) => axis !== editedAxis);
+      }
+      return syncEvidence(next);
     });
   };
 
+  /** The evidence panel chose or entered a value: overall sizes follow the chosen value. */
+  const changeEvidence = (evidence: ModelEvidence) => {
+    setDraft((current) => {
+      if (!current) return current;
+      const next: ModelDraft = { ...current, evidence };
+      for (const key of OVERALL_KEYS) {
+        const record = findDimension(evidence, key);
+        const value = record ? valueOf(record, evidence.product_scope) : null;
+        if (value != null) next[key] = String(value);
+      }
+      return syncEvidence(next);
+    });
+  };
+
+  /** Printed labels from a new AI reading are added as candidates; people's choices stay (AC-06). */
+  const addReading = (current: ModelDraft, labels: unknown): ModelDraft => {
+    if (!current.evidence) return current;
+    const extra = labelledDimensionsFrom(labels);
+    if (extra.length === 0) return current;
+    const base = evidenceInputRef.current ?? { productScope: current.evidence.product_scope, catalog: { width: catalogDimensions.width_mm, depth: catalogDimensions.depth_mm, height: catalogDimensions.height_mm } };
+    const input = { ...base, labels: [...(base.labels ?? []), ...extra] };
+    evidenceInputRef.current = input;
+    return { ...current, evidence: buildEvidence({ ...input, previous: current.evidence }) };
+  };
+
   const [partsBusy, setPartsBusy] = useState(false);
-  /** No template fits: ask the AI to break the photo into simple solids at the confirmed size. */
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  /** No template fits, or a new reading: ask the AI for parts. A reading over existing parts is only a suggestion. */
   const loadParts = async (choice = scopeChoice) => {
-    if (!draft) return;
+    const start = draftRef.current;
+    if (!start) return;
     const photos = modelPhotos;
     if (photos.length < 2) {
       setConfirmShown(false);
       setPhotoRequest({ target: 'parts', message: '最少需要 2 張不同角度圖片，請補充參考圖。' });
       return;
     }
+    const seq = requestSeq.current;
     const size = (value: string) => (Number(value) > 0 ? Number(value) : null);
     setPartsBusy(true);
     try {
-      const drawing = await ensureDrawing();
       const result = await analyzeProductImages(photos, {
-        inferred_reference: drawing.image,
         product_scope: choice?.scope,
         product_count: choice?.count,
         mode: 'parts',
         title: [product.model, product.title].filter(Boolean).join(' '),
-        width_mm: size(draft.width),
-        depth_mm: size(draft.depth),
-        height_mm: size(draft.height),
+        width_mm: size(start.width),
+        depth_mm: size(start.depth),
+        height_mm: size(start.height),
       });
+      const current = draftRef.current;
+      if (seq !== requestSeq.current || !current) return;
       if (result?.requires_product_scope_confirmation && result.detection) {
         setConfirmShown(false);
         setScopeRequest({ target: 'parts', detection: result.detection });
         return;
       }
-      const parts = sanitizeCustomParts(result?.parts);
+      const parts = ensurePartIds(sanitizeCustomParts(result?.parts));
       if (parts.length === 0) throw new Error('AI 沒有給出可用的部件');
-      const missing = (['width', 'depth', 'height'] as SizeAxis[]).filter((axis) => !(Number(draft[axis]) > 0));
+      const structure = hasStructureEvidence(result?.structure) ? result.structure : undefined;
+      if (current.parts.length > 0) {
+        setSuggestion({ parts, changes: diffParts(current.parts, parts), structure, notes: result?.structure_notes ?? null, labels: result?.labelled_dimensions });
+        return;
+      }
+      const missing = (['width', 'depth', 'height'] as SizeAxis[]).filter((axis) => !(Number(current[axis]) > 0));
       const partsSize = customPartsSize(parts);
-      updateDraft({
-        orthographicUrl: drawing.url,
+      setDraft((draftNow) => draftNow && syncEvidence(addReading({
+        ...draftNow,
         parts,
-        ...(hasStructureEvidence(result?.structure) ? { structure: result.structure } : {}),
-        notes: result?.structure_notes ?? draft.notes,
+        ...(structure ? { structure } : {}),
+        notes: result?.structure_notes ?? draftNow.notes,
         ...(partsSize ? Object.fromEntries(missing.map((axis) => [axis, String(partsSize[AXIS_INDEX[axis]])])) : {}),
-        estimated: [...new Set([...draft.estimated, ...missing])],
-      });
+        estimated: [...new Set([...draftNow.estimated, ...missing])],
+      }, result?.labelled_dimensions)));
     } catch (err) {
       if ((err as { code?: string })?.code === 'reference_images_required') {
         setConfirmShown(false);
@@ -2072,19 +1999,56 @@ function ProductModelsSection({
     }
   };
 
-  /** The parts at the overall size in the form, which is what the preview and generation use. */
-  const fittedParts = (current: ModelDraft): CustomPartSpec[] => {
-    const [w, d, h] = [Number(current.width), Number(current.depth), Number(current.height)];
-    return w > 0 && d > 0 && h > 0 ? fitCustomParts(current.parts, w, d, h) : current.parts;
+  /** Adopt the chosen differences; with every item adopted the new structure reading comes too. */
+  const applySuggestion = (adopted: Set<string>, all: boolean) => {
+    const pending = suggestion;
+    if (!pending) return;
+    setSuggestion(null);
+    setDraft((current) => {
+      if (!current) return current;
+      const parts = applyPartChanges(current.parts, pending.parts, adopted);
+      let structure = current.structure;
+      if (all && pending.structure) structure = pending.structure;
+      else if (structure) {
+        // A person picked which parts exist; the confirmed counts follow that choice.
+        const part_counts = Object.fromEntries(Object.keys(structure.part_counts).map((role) => [role, parts.filter((p) => (p.role ?? 'other') === role).length]));
+        structure = { ...structure, part_counts, leg_count: part_counts.leg ?? structure.leg_count };
+      }
+      return syncEvidence(addReading({ ...current, parts, structure, notes: all ? pending.notes ?? current.notes : current.notes }, pending.labels));
+    });
   };
 
-  /** After deleting or resizing one part the overall size follows the parts instead of stretching them. */
+  /** The parts at the overall size in the form, which is what the preview and generation use. */
+  const fittedParts = (current: ModelDraft): CustomPartSpec[] => fitDraft(current).parts;
+
+  /**
+   * After deleting or resizing one part the overall size follows the parts instead of stretching them,
+   * except on axes a person confirmed: those keep their value and any contradiction is reported.
+   */
   const commitParts = (parts: CustomPartSpec[]) => {
     const size = customPartsSize(parts);
-    updateDraft({
-      parts,
-      ...(size ? { width: String(size[0]), depth: String(size[1]), height: String(size[2]) } : {}),
+    setDraft((current) => {
+      if (!current) return current;
+      const next: ModelDraft = { ...current, parts };
+      if (size) {
+        for (const axis of ['width', 'depth', 'height'] as SizeAxis[]) {
+          const value = size[AXIS_INDEX[axis]];
+          if (!next.evidence) next[axis] = String(value);
+          else if (findDimension(next.evidence, axis)?.status !== 'confirmed') {
+            next.evidence = setModelOverall(next.evidence, axis, value, userLabel);
+            next[axis] = String(valueOf(findDimension(next.evidence, axis)!, next.evidence.product_scope) ?? value);
+          }
+        }
+      }
+      return syncEvidence(next);
     });
+  };
+
+  const editParts = (edit: (parts: CustomPartSpec[]) => CustomPartSpec[], resizes = false) => {
+    const current = draftRef.current;
+    if (!current) return;
+    if (resizes) commitParts(edit(fittedParts(current)));
+    else updateDraft({ parts: edit(current.parts) });
   };
 
   const resizePart = (index: number, axis: 0 | 1 | 2, value: string) => {
@@ -2108,36 +2072,92 @@ function ProductModelsSection({
     );
   };
 
-  const removePart = (index: number) => {
-    if (!draft) return;
-    commitParts(fittedParts(draft).filter((_, i) => i !== index).map(part => ({ ...part,
-      connects_to: part.connects_to?.filter(j => j !== index).map(j => j > index ? j - 1 : j),
-    })));
-  };
-
+  const draftFit = useMemo(() => (draft ? fitDraft(draft) : null), [draft]);
   const previewModel = useMemo(() => {
-    if (!draft?.kind) return null;
+    if (!draft?.kind || !draftFit) return null;
     const [w, d, h] = [Number(draft.width), Number(draft.depth), Number(draft.height)];
     if (!(w > 0 && d > 0 && h > 0)) return null;
     try {
-      return buildParametric({
+      const model = buildParametric({
         kind: draft.kind,
         width_mm: w,
         depth_mm: d,
         height_mm: h,
         estimated_axes: draft.estimated,
         style: draft.style,
-        parts: draft.kind === 'custom' ? fitCustomParts(draft.parts, w, d, h) : [],
+        parts: draft.kind === 'custom' ? draftFit.parts : [],
       });
+      model.structure_evidence = draft.structure;
+      model.structure_parts = draft.parts;
+      return model;
     } catch {
       return null;
     }
-  }, [draft]);
+  }, [draft, draftFit]);
   const structureErrors = useMemo(() => {
-    if (!draft || !previewModel) return ['請填寫有效尺寸及完整部件後再生成'];
-    try { return validateFurnitureStructure(previewModel, draft.structure, fittedParts(draft)); }
-    catch (error) { return [errorText(error)]; }
-  }, [draft, previewModel]);
+    if (!draft || !previewModel || !draftFit) return ['請填寫有效尺寸及完整部件後再生成'];
+    try {
+      return [...(draft.kind === 'custom' ? draftFit.conflicts : []), ...validateFurnitureStructure(previewModel, draft.structure, draftFit.parts)];
+    } catch (error) { return [errorText(error)]; }
+  }, [draft, draftFit, previewModel]);
+  const evidenceBlockers = useMemo(() => (draft?.evidence ? generationBlockers(draft.evidence) : []), [draft?.evidence]);
+  const estimateDraft = Boolean(draft?.evidence?.dimensions.some((d) => d.critical && d.status === 'estimated'));
+
+  /** The model as saved: confirmed geometry plus where every key value came from. */
+  const modelForSave = (blockers: string[]): ParametricModel | null => {
+    if (!previewModel || !draft) return null;
+    return {
+      ...previewModel,
+      ...(draft.evidence ? { evidence: { ...withStatuses(draft.evidence), blockers } } : {}),
+    };
+  };
+
+  /** 待補資料：keep the version without files so it can be continued later. */
+  const saveDraftOnly = async () => {
+    const current = draftRef.current;
+    const model = modelForSave([...evidenceBlockers, ...structureErrors]);
+    if (!current || !model) return;
+    try {
+      const id = await ensureSaved(model, current.parentId);
+      toast.success('已保存草稿', { description: `版本 ${id.slice(0, 8)}；可在「已有模型」中以此版本繼續修改。` });
+      setReload((n) => n + 1);
+    } catch (err) {
+      toast.error('保存草稿失敗', { description: errorText(err) });
+    }
+  };
+
+  /** 以此版本修改：load the saved parameters, no AI call; saving creates a child version. */
+  const editVersion = async (version: FurnitureModelVersion, target: ModelTarget) => {
+    const seq = ++requestSeq.current;
+    try {
+      const detail = await fetchFurnitureModelDetail(version.id);
+      if (seq !== requestSeq.current) return;
+      const m = detail.parametric;
+      const parts = ensurePartIds(sanitizeCustomParts(m.structure_parts ?? m.custom_parts ?? []));
+      const structure = hasStructureEvidence(m.structure_evidence) ? m.structure_evidence : undefined;
+      evidenceInputRef.current = null;
+      setReuse(null);
+      setSuggestion(null);
+      setDraft(syncEvidence({
+        structure,
+        target,
+        kind: m.kind,
+        width: String(m.width_mm),
+        depth: String(m.depth_mm),
+        height: String(m.height_mm),
+        estimated: m.estimated_axes ?? [],
+        style: m.style ?? {},
+        styleSource: 'image',
+        notes: `以版本 ${version.id.slice(0, 8)} 修改；儲存後成為新版本，需要重新驗收。`,
+        parts,
+        evidence: m.evidence ? withStatuses(m.evidence) : undefined,
+        parentId: version.id,
+      }));
+      setConfirmShown(true);
+    } catch (err) {
+      toast.error('讀取版本失敗', { description: errorText(err) });
+    }
+  };
 
   /** T-804: build only what the user confirmed. */
   const generate = async () => {
@@ -2154,8 +2174,8 @@ function ProductModelsSection({
       toast('請填寫闊、深、高（mm）');
       return;
     }
-    if ((draft.dimensionConflicts?.length ?? 0) > 0) {
-      toast.error('尺寸仍有矛盾，請先修正後再生成');
+    if (evidenceBlockers.length > 0) {
+      toast.error('關鍵尺寸未處理', { description: evidenceBlockers.join('；') });
       return;
     }
     if (kind === 'custom' && draft.parts.length === 0) {
@@ -2163,6 +2183,7 @@ function ProductModelsSection({
       return;
     }
     if (structureErrors.length) { toast.error('結構校驗未通過', { description: structureErrors.join('；') }); return; }
+    const seq = requestSeq.current;
     setBusy(target);
     setConfirmShown(false);
     setProgressFlow('generate');
@@ -2177,25 +2198,18 @@ function ProductModelsSection({
           return;
         }
       }
-      const model = buildParametric({
-        kind,
-        width_mm: width,
-        depth_mm: depth,
-        height_mm: height,
-        estimated_axes: draft.estimated,
-        style: draft.style,
-        parts: kind === 'custom' ? fittedParts(draft) : [],
-      });
+      // Preview, GLB/FBX and SKP all come from this one saved geometry (FR-07).
+      const model = modelForSave([]);
+      if (!model) throw new Error('請填寫有效尺寸及完整部件後再生成');
       const errors = validateFurnitureStructure(model, draft.structure, fittedParts(draft));
       if (errors.length) throw new Error(errors.join('；'));
-      model.structure_evidence = draft.structure;
-      model.structure_parts = draft.parts;
       showProgress(34, '儲存模型');
-      const id = await ensureSaved(model);
+      const id = await ensureSaved(model, draft.parentId);
       setDraft(null);
       if (target === 'skp') {
         showProgress(68, '排入 SKP 生成');
         const status = await requestSkp(id);
+        if (seq !== requestSeq.current) return;
         setSkpModelId(id);
         setSkp(status);
         if (status.status === 'ready') {
@@ -2266,9 +2280,7 @@ function ProductModelsSection({
         : progressFlowConfig.index[shownProgress.label] ?? 0
       : 0,
   };
-  const progressHint = drawingAsk
-    ? '這件產品之前已生成過三視圖，可沿用直接辨識結構，省時又省一次 AI 繪圖；重新生成會按目前參考圖重畫一張。'
-    : !shownProgress
+  const progressHint = !shownProgress
       ? ''
       : shownProgress.percent >= 100
         ? '已完成'
@@ -2457,8 +2469,8 @@ function ProductModelsSection({
         onOpenChange={(open) => { if (!open && busy == null) setReuse(null); }}
         size="md"
         icon={<Package className="h-6 w-6" />}
-        title="已有模型檔"
-        description="可直接下載或預覽（GLB）；沿用不會再呼叫 AI。選「仍要重新生成」會建立新版本並保留舊檔。"
+        title="已有模型"
+        description="可直接下載、預覽或以某版本修改；沿用不會再呼叫 AI。「仍要重新生成」會重新讀圖並建立新版本，舊版本保留。"
         style={workbench ? WORKBENCH_TONE : undefined}
         bodyClassName="space-y-3"
         footer={
@@ -2476,6 +2488,39 @@ function ProductModelsSection({
           </>
         }
       >
+        {(versions?.length ?? 0) > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground">參數版本（新到舊）</p>
+            <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
+              {versions!.map((version) => {
+                const size = [version.width_mm, version.depth_mm, version.height_mm].every((n) => typeof n === 'number')
+                  ? `${version.width_mm}×${version.depth_mm}×${version.height_mm} mm`
+                  : '尺寸未知';
+                const open = version.quality_status !== 'accepted' && version.quality_status !== 'rejected';
+                return (
+                  <li key={version.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <Badge variant={version.quality_status === 'accepted' ? 'default' : 'outline'} className="text-[10px]">{QUALITY_LABEL[version.quality_status]}</Badge>
+                    <span className="tabular-nums">{size}</span>
+                    <span className="text-xs text-muted-foreground">{new Date(version.created_at).toLocaleDateString('zh-HK')}</span>
+                    {version.files.length > 0 && <span className="text-xs text-muted-foreground">{version.files.map((f) => f.format.toUpperCase()).join('／')}</span>}
+                    {version.parent_id && <span className="text-xs text-muted-foreground">修改自 {version.parent_id.slice(0, 8)}</span>}
+                    <span className="ml-auto flex gap-3">
+                      <button type="button" className="text-xs text-primary hover:underline disabled:opacity-40" disabled={busy != null} onClick={() => { if (reuse) void editVersion(version, reuse.target); }}>
+                        以此版本修改
+                      </button>
+                      {canManage && open && (
+                        <button type="button" className="text-xs text-primary hover:underline" onClick={() => setReviewId(version.id)}>
+                          驗收
+                        </button>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+        {(reuse?.files.length ?? 0) > 0 && <p className="text-xs font-medium text-muted-foreground">模型檔</p>}
         <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
           {(reuse?.files ?? []).map((file) => (
             <li key={file.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -2501,57 +2546,36 @@ function ProductModelsSection({
           )          )}
         </ul>
       </Modal>
+      <FurnitureModelReviewDialog
+        modelId={reviewId}
+        photos={modelPhotos.filter((src): src is string => typeof src === 'string')}
+        onClose={() => setReviewId(null)}
+        onReviewed={() => {
+          setReviewId(null);
+          setReload((n) => n + 1);
+        }}
+        style={workbench ? WORKBENCH_TONE : undefined}
+      />
       <Modal
         open={genProgress != null}
         onOpenChange={() => { /* a running job cannot be dismissed */ }}
         size="2xl"
         hideClose
-        icon={drawingAsk ? (
-          <Box className="h-6 w-6" />
-        ) : shownProgress ? (
+        icon={shownProgress ? (
           <ProgressRing percent={shownProgress.percent}>
             <Box className="h-7 w-7" strokeWidth={1.6} />
           </ProgressRing>
         ) : null}
-        title={drawingAsk ? '已生成過三視圖' : shownProgress?.label}
+        title={shownProgress?.label}
         description={shownProgress ? <span className="text-[15px]">{progressHint}</span> : undefined}
-        headerAside={drawingAsk ? null : shownProgress ? (
+        headerAside={shownProgress ? (
           <span className="text-[28px] font-semibold leading-none tabular-nums text-primary">{shownProgress.percent}%</span>
         ) : null}
         headerClassName="px-6 pt-6 pb-5 sm:px-8 sm:pt-8 sm:pb-6"
         bodyClassName="px-6 pb-7 sm:px-8 sm:pb-8"
         style={workbench ? WORKBENCH_TONE : undefined}
       >
-        {drawingAsk ? (
-          <div className="space-y-5">
-            <figure className="relative overflow-hidden rounded-xl border border-border bg-muted/40">
-              <LoadingImage
-                src={drawingAsk.url}
-                hd
-                alt="上次生成的三視圖"
-                className="h-64 w-full object-contain animate-in fade-in zoom-in-95 duration-500"
-              />
-              <figcaption className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-primary/90 px-2.5 py-1 text-[11px] font-semibold text-primary-foreground shadow-sm duration-500 animate-in fade-in slide-in-from-left-2">
-                <Check className="h-3 w-3" strokeWidth={3} />
-                上次生成的三視圖
-              </figcaption>
-            </figure>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <ModalButton
-                variant="primary"
-                onClick={() => drawingAsk.resolve(false)}
-              >
-                沿用三視圖生成
-              </ModalButton>
-              <ModalButton
-                variant="secondary"
-                onClick={() => drawingAsk.resolve(true)}
-              >
-                重新生成三視圖
-              </ModalButton>
-            </div>
-          </div>
-        ) : shownProgress ? (
+        {shownProgress ? (
           <div className="space-y-6">
             <Progress value={shownProgress.percent} className="h-2" />
             <ProgressSteps steps={progressView.steps} current={progressView.current} />
@@ -2590,8 +2614,13 @@ function ProductModelsSection({
               }}
               onLoadParts={() => void loadParts()}
               onResizePart={resizePart}
-              onRemovePart={removePart}
-              fittedParts={draft.kind === 'custom' ? fittedParts(draft) : []}
+              onPartsChange={editParts}
+              fittedParts={draft.kind === 'custom' && draftFit ? draftFit.parts : []}
+              blockers={evidenceBlockers}
+              estimateDraft={estimateDraft}
+              evidencePanel={draft.evidence ? <ModelEvidencePanel evidence={draft.evidence} by={userLabel} onChange={changeEvidence} /> : undefined}
+              suggestionPanel={suggestion ? <PartSuggestionPanel changes={suggestion.changes} onApply={applySuggestion} onDismiss={() => setSuggestion(null)} /> : undefined}
+              onSaveDraft={() => void saveDraftOnly()}
             />
           )}
         </ModalContent>

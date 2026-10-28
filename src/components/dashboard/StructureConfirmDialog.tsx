@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
@@ -6,10 +6,13 @@ import {
   FileText,
   Info,
   Loader2,
+  Lock,
+  LockOpen,
   MousePointer2,
   Pencil,
   RectangleHorizontal,
   RotateCcw,
+  Ruler,
   SlidersHorizontal,
   Sparkles,
   Table2,
@@ -20,12 +23,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { confirm } from '@/components/ui/confirm-dialog';
 import { DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { LoadingImage } from '@/components/ui/loading-image';
-import { ImageLightbox } from '@/components/ui/image-lightbox';
-import type { DimensionEstimate } from '@/lib/dimensionConflicts';
+import type { ModelEvidence } from '@/lib/modelEvidence';
+import { duplicatePart, referencesTo, removePartAt, setJoint } from '@/lib/partSuggestions';
 import {
   FURNITURE_GROUPS,
   FURNITURE_KINDS,
@@ -38,6 +41,7 @@ import {
   type FurnitureKind,
   type ModelStyle,
   type ParametricModel,
+  type PartAxis,
   type SizeAxis,
   type StyleField,
 } from '@/lib/furnitureParametric';
@@ -85,8 +89,11 @@ function countLabel(kind: FurnitureKind | null, field: StyleField): string {
 const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓', sweep: '路徑件' };
 
 export type StructureDraft = {
-  orthographicUrl?: string;
   structure?: import('@/lib/furnitureStructure').StructureEvidence;
+  /** FR-03 dimension sources and statuses; absent for drafts made before it existed. */
+  evidence?: ModelEvidence;
+  /** The version this draft was opened from (以此版本修改); saving creates a child version. */
+  parentId?: string | null;
   /** 目標格式（見 FDS-06）：SKP 給設計師的 SU，FBX 給其他 3D 軟件。 */
   target: 'skp' | 'fbx';
   kind: FurnitureKind | null;
@@ -110,10 +117,19 @@ function toPreview([x, y, z]: [number, number, number]): [number, number, number
   return [x / 1000, z / 1000, -y / 1000];
 }
 
-function buildPreviewGeometry(model: ParametricModel): THREE.BufferGeometry | null {
+/** Same centring for the whole model and a highlighted part, so the overlay lines up. */
+function previewOffset(model: ParametricModel): THREE.Vector3 | null {
+  const whole = buildPreviewGeometry(model, null, null);
+  const box = whole?.boundingBox;
+  whole?.dispose();
+  return box ? new THREE.Vector3(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2) : null;
+}
+
+function buildPreviewGeometry(model: ParametricModel, only?: number | null, offset?: THREE.Vector3 | null): THREE.BufferGeometry | null {
   const positions: number[] = [];
   const normals: number[] = [];
-  for (const part of model.components) {
+  for (const [index, part] of model.components.entries()) {
+    if (only != null && index !== only) continue;
     const faces = part.faces_mm?.length ? part.faces_mm : partFaces(part);
     for (const face of faces) {
       if (face.length < 3) continue;
@@ -134,20 +150,36 @@ function buildPreviewGeometry(model: ParametricModel): THREE.BufferGeometry | nu
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.computeBoundingBox();
   const box = geometry.boundingBox;
-  if (box) {
+  if (offset) geometry.translate(offset.x, offset.y, offset.z);
+  else if (box && offset === undefined) {
     geometry.translate(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
   }
+  geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
 }
 
-function StudioPreview({ model }: { model: ParametricModel | null }) {
+export type PreviewView = 'perspective' | 'front' | 'side' | 'top';
+const PREVIEW_VIEWS: [PreviewView, string][] = [['perspective', '透視'], ['front', '正面'], ['side', '側面'], ['top', '頂面']];
+/** Camera directions in preview space; the product front (+Y in model space) is −Z here. */
+const VIEW_DIRECTION: Record<PreviewView, [number, number, number]> = {
+  perspective: [0.72, 0.48, -1],
+  front: [0, 0.06, -1],
+  side: [1, 0.06, 0],
+  top: [0, 1, -0.001],
+};
+
+/** Rotate, zoom, pan and reset, with fixed front/side/top views; `highlight` is a component index. */
+export function StudioPreview({ model, highlight = null }: { model: ParametricModel | null; highlight?: number | null }) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<{ reset: () => void; show: (next: ParametricModel | null) => void } | null>(null);
+  const apiRef = useRef<{ reset: () => void; show: (next: ParametricModel | null, mark: number | null) => void; view: (next: PreviewView) => void } | null>(null);
   const [failed, setFailed] = useState(false);
   const [empty, setEmpty] = useState(model == null);
+  const [view, setView] = useState<PreviewView>('perspective');
   const modelRef = useRef(model);
   modelRef.current = model;
+  const highlightRef = useRef(highlight);
+  highlightRef.current = highlight;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -205,6 +237,10 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
     const edgeMaterial = new THREE.LineBasicMaterial({ color: 0x8b93a1, transparent: true, opacity: 0.45 });
     const edges = new THREE.LineSegments(new THREE.BufferGeometry(), edgeMaterial);
     scene.add(edges);
+    const markMaterial = new THREE.MeshBasicMaterial({ color: 0x5b4dff, transparent: true, opacity: 0.5, depthTest: false, side: THREE.DoubleSide });
+    const mark = new THREE.Mesh(new THREE.BufferGeometry(), markMaterial);
+    mark.renderOrder = 2;
+    scene.add(mark);
 
     const ground = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.ShadowMaterial({ opacity: 0.28 }));
     ground.rotation.x = -Math.PI / 2;
@@ -215,6 +251,7 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
     let userMoved = false;
     let disposed = false;
     let frame = 0;
+    let direction = new THREE.Vector3(...VIEW_DIRECTION.perspective).normalize();
     const home = new THREE.Vector3(1.4, 0.9, -1.8);
     const target = new THREE.Vector3(0, 0.25, 0);
 
@@ -230,8 +267,6 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
       const radius = Math.max(size.x, size.y, size.z, 0.2) * 0.62;
       const fov = (camera.fov * Math.PI) / 180;
       const distance = (radius / Math.sin(fov / 2)) * 1.28;
-      // Product front is +Y in model space, hence -Z after the GLB coordinate mapping.
-      const direction = new THREE.Vector3(0.72, 0.48, -1).normalize();
       home.copy(center).addScaledVector(direction, distance);
       target.copy(center);
       camera.near = Math.max(distance / 200, 0.01);
@@ -256,10 +291,12 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
       ground.scale.setScalar(Math.max(size.x, size.z) * 1.8);
     };
 
-    const show = (next: ParametricModel | null) => {
+    const show = (next: ParametricModel | null, markIndex: number | null) => {
       const geometry = next ? buildPreviewGeometry(next) : null;
       mesh.geometry.dispose();
       edges.geometry.dispose();
+      mark.geometry.dispose();
+      mark.geometry = new THREE.BufferGeometry();
       if (!geometry) {
         mesh.geometry = new THREE.BufferGeometry();
         edges.geometry = new THREE.BufferGeometry();
@@ -268,6 +305,10 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
       }
       mesh.geometry = geometry;
       edges.geometry = new THREE.EdgesGeometry(geometry, 18);
+      if (next && markIndex != null) {
+        const marked = buildPreviewGeometry(next, markIndex, previewOffset(next));
+        if (marked) mark.geometry = marked;
+      }
       setEmpty(false);
       setFailed(false);
       if (!userMoved) fit();
@@ -278,8 +319,13 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
       if (mesh.geometry.boundingSphere) fit();
     };
 
-    apiRef.current = { reset, show };
-    show(modelRef.current);
+    const showView = (next: PreviewView) => {
+      direction = new THREE.Vector3(...VIEW_DIRECTION[next]).normalize();
+      reset();
+    };
+
+    apiRef.current = { reset, show, view: showView };
+    show(modelRef.current, highlightRef.current);
 
     const resize = () => {
       const width = host.clientWidth || 1;
@@ -324,6 +370,8 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
       controls.dispose();
       mesh.geometry.dispose();
       edges.geometry.dispose();
+      mark.geometry.dispose();
+      markMaterial.dispose();
       material.dispose();
       edgeMaterial.dispose();
       (ground.material as THREE.Material).dispose();
@@ -337,8 +385,8 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
   }, []);
 
   useEffect(() => {
-    apiRef.current?.show(model);
-  }, [model]);
+    apiRef.current?.show(model, highlight);
+  }, [model, highlight]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -348,6 +396,22 @@ function StudioPreview({ model }: { model: ParametricModel | null }) {
         aria-label="結構預覽，拖曳旋轉，右鍵或 Shift 拖曳平移"
         role="img"
       />
+      <div className="absolute left-2 top-2 flex gap-1" role="group" aria-label="視角">
+        {PREVIEW_VIEWS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={view === id}
+            className={cn(
+              'h-7 rounded-md border px-2 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b4dff]/40',
+              view === id ? 'border-[#5b4dff] bg-[#5b4dff] text-white' : 'border-slate-200/80 bg-white/90 text-slate-600 hover:text-slate-900',
+            )}
+            onClick={() => { setView(id); apiRef.current?.view(id); }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <button
         type="button"
         className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg border border-slate-200/80 bg-white/90 text-slate-500 shadow-sm hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b4dff]/40"
@@ -405,9 +469,14 @@ export function StructureConfirmForm({
   onCancel,
   onLoadParts,
   onResizePart,
-  onRemovePart,
+  onPartsChange,
   fittedParts,
   validationErrors = [],
+  blockers = [],
+  estimateDraft = false,
+  evidencePanel,
+  suggestionPanel,
+  onSaveDraft,
 }: {
   draft: StructureDraft;
   shownStyle: ModelStyle | null;
@@ -419,12 +488,25 @@ export function StructureConfirmForm({
   onCancel: () => void;
   onLoadParts: () => void;
   onResizePart: (index: number, axis: 0 | 1 | 2, value: string) => void;
-  onRemovePart: (index: number) => void;
+  /** Structure edits (lock, duplicate, delete, joints) on the confirmed part list. */
+  onPartsChange: (edit: (parts: CustomPartSpec[]) => CustomPartSpec[], resizes?: boolean) => void;
   fittedParts: CustomPartSpec[];
   validationErrors?: string[];
+  /** Missing, pending or conflicting key dimensions; generation waits for them. */
+  blockers?: string[];
+  /** Some key value is an accepted estimate: the output is an estimate draft. */
+  estimateDraft?: boolean;
+  evidencePanel?: ReactNode;
+  suggestionPanel?: ReactNode;
+  /** Keep an unfinished version (待補資料) without generating files. */
+  onSaveDraft?: () => void;
 }) {
   const kind = draft.kind;
-  const [drawingOpen, setDrawingOpen] = useState(false);
+  const [selectedPart, setSelectedPart] = useState<number | null>(null);
+  const [jointsOpen, setJointsOpen] = useState<number | null>(null);
+  useEffect(() => {
+    if (selectedPart != null && selectedPart >= draft.parts.length) setSelectedPart(null);
+  }, [draft.parts.length, selectedPart]);
   const fields = kind ? STYLE_FIELDS[kind] : [];
   const showTop = Boolean(shownStyle && fields.includes('top'));
   const showLegs = Boolean(shownStyle && fields.includes('legs'));
@@ -436,12 +518,32 @@ export function StructureConfirmForm({
   const showNotes = kind != null;
   const structureWord = showTop ? '桌面結構' : '結構';
   const outputName = draft.target === 'skp' ? 'SKP' : 'FBX';
-  const hasDimensionConflicts = (draft.dimensionConflicts?.length ?? 0) > 0;
+  const showEvidence = evidencePanel != null;
+  const removePart = async (index: number) => {
+    const affected = referencesTo(draft.parts, index);
+    const ok = await confirm({
+      title: `刪除「${draft.parts[index]?.name}」？`,
+      description: affected.length ? `以下部件與它的接合會一併移除：${affected.join('、')}` : '這個部件沒有被其他部件接合。',
+      confirmLabel: '刪除',
+      destructive: true,
+    });
+    if (ok) onPartsChange((parts) => removePartAt(parts, index), true);
+  };
+  const toggleLock = (index: number, axis: PartAxis) => {
+    onPartsChange((parts) => parts.map((part, i) => {
+      if (i !== index) return part;
+      const locked = new Set(part.locked_axes ?? []);
+      if (locked.has(axis)) locked.delete(axis);
+      else locked.add(axis);
+      return { ...part, locked_axes: (['x', 'y', 'z'] as const).filter((a) => locked.has(a)) };
+    }));
+  };
 
   let step = 0;
   const stepNo = () => String(++step).padStart(2, '0');
   const kindNo = stepNo();
   const sizeNo = stepNo();
+  const evidenceNo = showEvidence ? stepNo() : '';
   const topNo = showTop ? stepNo() : '';
   const legsNo = showLegs ? stepNo() : '';
   const chairNo = showChair ? stepNo() : '';
@@ -474,11 +576,11 @@ export function StructureConfirmForm({
         </button>
       </header>
 
-      {hasDimensionConflicts && (
+      {blockers.length > 0 && (
         <div className="mx-5 mb-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          <p className="font-medium">多視圖或產品資料尺寸不一致，請先核對並手動修正後再生成：</p>
+          <p className="font-medium">以下關鍵尺寸要先處理才可生成（可保存為待補資料）：</p>
           <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[13px] leading-relaxed">
-            {draft.dimensionConflicts!.map((line) => (
+            {blockers.map((line) => (
               <li key={line}>{line}</li>
             ))}
           </ul>
@@ -526,11 +628,18 @@ export function StructureConfirmForm({
                       onChange={(event) => onChange({ [axis]: event.target.value.replace(/[^\d.]/g, '') }, axis)}
                     />
                     <span className="text-slate-500">mm</span>
-                    {draft.estimated.includes(axis) && <span className="text-[11px] font-medium text-amber-700">估算</span>}
+                    {!showEvidence && draft.estimated.includes(axis) && <span className="text-[11px] font-medium text-amber-700">估算</span>}
                   </label>
                 ))}
               </div>
             </section>
+
+            {showEvidence && (
+              <section className="mt-4">
+                <SectionHeading index={evidenceNo} icon={Ruler} title="尺寸證據" />
+                {evidencePanel}
+              </section>
+            )}
 
             {showTop && shownStyle && (
               <section className="mt-4">
@@ -649,7 +758,7 @@ export function StructureConfirmForm({
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-xs leading-5 text-slate-500">
-                      沒有對應模板，按產品圖拆成 {draft.parts.length} 個部件。可刪掉或改尺寸再生成。
+                      沒有對應模板，按產品圖拆成 {draft.parts.length} 個部件。點選部件可在預覽高亮；鎖定的方向改整體尺寸時不變形。
                     </p>
                     <Button
                       type="button"
@@ -663,43 +772,90 @@ export function StructureConfirmForm({
                       {draft.parts.length > 0 ? '重新辨認部件' : 'AI 拆部件'}
                     </Button>
                   </div>
+                  {suggestionPanel}
                   {fittedParts.length > 0 && (
                     <ul className="space-y-1">
-                      {fittedParts.map((part, index) => (
-                        <li key={`${index}-${part.name}`} className="flex flex-wrap items-center gap-1.5 rounded-lg bg-white px-2 py-1.5">
-                          <span className="w-24 truncate text-[13px] text-slate-800" title={part.name}>
-                            {part.name}
-                          </span>
-                          <span className="w-8 text-xs text-slate-400">{SHAPE_LABELS[part.shape]}</span>
-                          {([0, 1, 2] as const).map((axis) => (
-                            <Input
-                              key={`${axis}-${part.size_mm[axis]}`}
-                              defaultValue={String(part.size_mm[axis])}
-                              inputMode="numeric"
-                              aria-label={`${part.name} ${['闊', '深', '高'][axis]}`}
-                              className="h-7 w-14 rounded-md border-slate-200 bg-white px-1 text-center text-xs tabular-nums shadow-none caret-[#5b4dff] focus-visible:ring-[#5b4dff]/40"
-                              onBlur={(event) => onResizePart(index, axis, event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') event.currentTarget.blur();
-                              }}
-                            />
-                          ))}
-                          <button
-                            type="button"
-                            className="ml-auto text-xs text-slate-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b4dff]/40"
-                            onClick={() => onRemovePart(index)}
-                          >
-                            刪除
-                          </button>
-                        </li>
-                      ))}
+                      {fittedParts.map((part, index) => {
+                        const own = draft.parts[index];
+                        const selected = selectedPart === index;
+                        return (
+                          <li key={own?.part_id ?? `${index}-${part.name}`} className={cn('rounded-lg bg-white px-2 py-1.5', selected && 'ring-2 ring-[#5b4dff]/50')}>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                aria-pressed={selected}
+                                className="w-24 truncate text-left text-[13px] text-slate-800 hover:text-[#5b4dff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b4dff]/40"
+                                title={`${part.name}（點選高亮）`}
+                                onClick={() => setSelectedPart(selected ? null : index)}
+                              >
+                                {part.name}
+                              </button>
+                              <span className="w-8 text-xs text-slate-400">{SHAPE_LABELS[part.shape]}</span>
+                              {([0, 1, 2] as const).map((axis) => {
+                                const name = (['x', 'y', 'z'] as const)[axis];
+                                const locked = own?.locked_axes?.includes(name) ?? false;
+                                return (
+                                  <span key={axis} className="flex items-center">
+                                    <Input
+                                      key={`${axis}-${part.size_mm[axis]}`}
+                                      defaultValue={String(part.size_mm[axis])}
+                                      inputMode="numeric"
+                                      aria-label={`${part.name} ${['闊', '深', '高'][axis]}`}
+                                      className="h-7 w-14 rounded-md border-slate-200 bg-white px-1 text-center text-xs tabular-nums shadow-none caret-[#5b4dff] focus-visible:ring-[#5b4dff]/40"
+                                      onBlur={(event) => onResizePart(index, axis, event.target.value)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') event.currentTarget.blur();
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      aria-pressed={locked}
+                                      title={locked ? `已鎖定${['闊', '深', '高'][axis]}，按一下解鎖` : `鎖定${['闊', '深', '高'][axis]}`}
+                                      aria-label={`${locked ? '解鎖' : '鎖定'} ${part.name} ${['闊', '深', '高'][axis]}`}
+                                      className={cn('grid h-7 w-5 place-items-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b4dff]/40', locked ? 'text-[#5b4dff]' : 'text-slate-300 hover:text-slate-500')}
+                                      onClick={() => toggleLock(index, name)}
+                                    >
+                                      {locked ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />}
+                                    </button>
+                                  </span>
+                                );
+                              })}
+                              <span className="ml-auto flex gap-2 text-xs">
+                                <button type="button" className="text-slate-500 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b4dff]/40" onClick={() => setJointsOpen(jointsOpen === index ? null : index)}>
+                                  接合 {own?.connects_to?.length ?? 0}
+                                </button>
+                                <button type="button" className="text-slate-500 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b4dff]/40" onClick={() => onPartsChange((parts) => duplicatePart(parts, index), true)}>
+                                  複製
+                                </button>
+                                <button type="button" className="text-slate-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5b4dff]/40" onClick={() => void removePart(index)}>
+                                  刪除
+                                </button>
+                              </span>
+                            </div>
+                            {jointsOpen === index && (
+                              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 pt-1.5">
+                                {draft.parts.map((other, j) => j === index ? null : (
+                                  <label key={other.part_id ?? j} className="flex items-center gap-1.5 text-xs text-slate-600">
+                                    <Checkbox
+                                      checked={own?.connects_to?.includes(j) ?? false}
+                                      className="h-3.5 w-3.5 border-slate-300 shadow-none data-[state=checked]:border-[#5b4dff] data-[state=checked]:bg-[#5b4dff]"
+                                      onCheckedChange={(value) => onPartsChange((parts) => setJoint(parts, index, j, value === true))}
+                                    />
+                                    {other.name}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>
               </section>
             )}
 
-            {draft.structure && <section className="mt-4 text-sm text-slate-600"><p>辨認結構：{draft.structure.leg_count} 隻腳 · {draft.structure.symmetric ? '左右對稱' : '非左右對稱'}</p><ul className="mt-2 space-y-1">{draft.parts.map((part, i) => <li key={i}>{part.name} · {({ straight: '直件', slanted: '斜件', bent: '彎件', tapered: '錐形件', panel: '板件' })[part.form ?? 'panel']} · 接合：{part.connects_to?.map(j => draft.parts[j]?.name).join('、') || '無'}</li>)}</ul></section>}
+            {draft.structure && <section className="mt-4 text-sm text-slate-600"><p>辨認結構：{draft.structure.leg_count} 隻腳 · {draft.structure.symmetric ? '左右對稱' : '非左右對稱'}</p><ul className="mt-2 space-y-1">{draft.parts.map((part, i) => <li key={part.part_id ?? i}>{part.name} · {({ straight: '直件', slanted: '斜件', bent: '彎件', tapered: '錐形件', panel: '板件' })[part.form ?? 'panel']} · 接合：{part.connects_to?.map(j => draft.parts[j]?.name).join('、') || '無'}</li>)}</ul></section>}
             {showNotes && (
               <section className="mt-4">
                 <SectionHeading index={notesNo} icon={FileText} title={draft.styleSource === 'image' ? '結構描述（AI 辨識）' : '結構描述'} />
@@ -710,16 +866,6 @@ export function StructureConfirmForm({
                   <Sparkles className="mt-1 h-3.5 w-3.5 shrink-0 text-[#5b4dff]" />
                   <span>{draft.notes ?? (draft.styleSource === 'image' ? '已依產品圖判斷結構，可在上方改選。' : '可在上方改選類型、尺寸與結構。')}</span>
                 </p>
-                {draft.orthographicUrl && (
-                  <div className="mt-4 border-t border-slate-200 pt-4">
-                    <h3 className="text-[13px] font-semibold text-slate-900">三視圖（AI 推測）</h3>
-                    <p className="my-2 text-xs leading-5 text-slate-500">根據產品圖與描述生成，已連同原圖用於部件分析；隱藏結構及尺寸仍需核對。點擊圖片放大。</p>
-                    <button type="button" className="block w-full overflow-hidden rounded-xl border border-slate-200 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="放大 AI 三視圖" onClick={() => setDrawingOpen(true)}>
-                      <LoadingImage src={draft.orthographicUrl} alt="AI 推測正面、右側及俯視圖" className="aspect-[4/3] w-full" imgClassName="object-contain" />
-                    </button>
-                    <ImageLightbox open={drawingOpen} onClose={() => setDrawingOpen(false)} images={[draft.orthographicUrl]} title="三視圖（AI 推測）" thumbWidth={320} />
-                  </div>
-                )}
               </section>
             )}
           </div>
@@ -734,7 +880,7 @@ export function StructureConfirmForm({
                 <p className="mt-0.5 text-xs leading-5 text-slate-500">根據左側設定即時生成 3D 結構預覽，供確認參考。</p>
               </div>
             </div>
-            <StudioPreview model={preview} />
+            <StudioPreview model={preview} highlight={showParts ? selectedPart : null} />
             {validationErrors.length > 0 && (
               <div
                 className="mt-2.5 shrink-0 rounded-xl border border-red-400 bg-red-50 px-3.5 py-2.5"
@@ -742,7 +888,7 @@ export function StructureConfirmForm({
               >
                 <p className="flex items-center gap-1.5 text-[13px] font-semibold text-red-700">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />
-                  結構校驗未通過，請補圖或修正部件：
+                  結構或約束檢查未通過，請補圖或修正部件：
                 </p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] leading-relaxed text-red-600">
                   {validationErrors.map((message) => (
@@ -763,12 +909,25 @@ export function StructureConfirmForm({
         <p className="flex min-w-0 items-start gap-2 text-xs leading-5 text-slate-500">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
           <span>
+            {estimateDraft ? '含已接受的估算值，只會生成「估算草稿」，不能通過正式驗收。' : ''}
             {draft.target === 'skp'
               ? '生成的 SKP 模型可在「下載模型」中取得，並支援後續 3D 編輯。'
               : '生成的 GLB 與 FBX 可在「下載模型」中取得。'}
           </span>
         </p>
         <div className="flex shrink-0 gap-2">
+          {onSaveDraft && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 shadow-none hover:bg-slate-50"
+              disabled={generating || partsBusy || preview == null}
+              title={preview == null ? '先填好尺寸及部件，才能保存草稿' : '保存目前的尺寸與部件，不生成檔案'}
+              onClick={onSaveDraft}
+            >
+              保存草稿
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -781,11 +940,11 @@ export function StructureConfirmForm({
           <Button
             type="button"
             className="h-10 rounded-lg bg-[#5b4dff] px-4 text-white shadow-none hover:bg-[#4a3cf0] focus-visible:ring-[#5b4dff]/40"
-            disabled={generating || partsBusy || validationErrors.length > 0 || hasDimensionConflicts || (kind === 'custom' && draft.parts.length === 0)}
+            disabled={generating || partsBusy || validationErrors.length > 0 || blockers.length > 0 || (kind === 'custom' && draft.parts.length === 0)}
             onClick={onGenerate}
           >
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            確認生成 {outputName}
+            {estimateDraft ? `生成估算草稿 ${outputName}` : `確認生成 ${outputName}`}
           </Button>
         </div>
       </footer>

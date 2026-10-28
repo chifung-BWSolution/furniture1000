@@ -6,11 +6,10 @@ export class TripoStop extends Error {}
 type State = { submission_started?: boolean; task_id?: string; submitted_at?: string };
 type TripoJob = { id: string; payload: { product_id: string; reference_path: string; user_id: string; state?: State } };
 
-async function tripo(path: string, apiKey: string, body?: unknown) {
+async function tripo(path: string, apiKey: string) {
   const response = await fetch(`${API}${path}`, {
-    method: body ? "POST" : "GET",
+    method: "GET",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(45_000),
   });
   const value = await response.json().catch(() => null);
@@ -50,41 +49,18 @@ async function readGlb(url: string): Promise<Uint8Array> {
   return bytes;
 }
 
+/**
+ * Tripo is retired: a job is only finished when the provider task already exists.
+ * Nothing here submits a new paid task.
+ */
 export async function runTripoJob(admin: SupabaseClient, job: TripoJob) {
-  const apiKey = Deno.env.get("TRIPO_API_KEY");
-  if (!apiKey) throw new TripoStop("TRIPO_API_KEY 未設定");
   const state = job.payload.state ?? {};
   if (!state.task_id) {
-    // Persist BEFORE spending credits. An interrupted/uncertain submission is never resubmitted automatically.
-    if (state.submission_started) throw new TripoStop("上次提交結果未能確認，為避免重複扣點已停止。請先在 Tripo 後台核對任務。");
-    const submittedAt = new Date().toISOString();
-    const { data: locked, error: lockError } = await admin.from("processing_jobs").update({
-      payload: { ...job.payload, state: { submission_started: true, submitted_at: submittedAt } },
-    }).eq("id", job.id).eq("status", "running").select("id");
-    if (lockError) throw lockError;
-    if (!locked?.length) return "cancelled";
-    const { data: image, error: imageError } = await admin.storage.from("product-models").createSignedUrl(job.payload.reference_path, 3600);
-    if (imageError || !image?.signedUrl) throw new TripoStop("參考圖不存在或無法讀取");
-    let result;
-    try {
-      result = await tripo("/generation/image-to-model", apiKey, {
-        input: image.signedUrl,
-        model: "v3.1-20260211",
-        texture: true, pbr: true, texture_quality: "standard",
-        face_limit: 30000, orientation: "align_image",
-        enable_image_autofix: false,
-      });
-      if (typeof result.task_id !== "string" || !result.task_id) throw new Error("missing task id");
-    } catch (error) {
-      throw new TripoStop(`${error instanceof Error ? error.message : "Tripo 提交失敗"}。不會自動再次提交，請先核對 Tripo 後台。`);
-    }
-    const { data: saved, error } = await admin.rpc("fds_processing_job_checkpoint", {
-      p_job_id: job.id, p_state: { submission_started: true, submitted_at: submittedAt, task_id: result.task_id }, p_progress: 0.05,
-    });
-    if (error) throw error;
-    if (!saved) return "cancelled";
-    return "tripo_pending";
+    if (state.submission_started) throw new TripoStop("Tripo 已停用：提交結果不明，待人工到 Tripo 後台核對；不會自動重試");
+    throw new TripoStop("Tripo 已停用：任務尚未提交供應商，已停止，不會轉往其他服務");
   }
+  const apiKey = Deno.env.get("TRIPO_API_KEY");
+  if (!apiKey) throw new TripoStop("TRIPO_API_KEY 未設定，無法查詢已提交的 Tripo 任務");
   if (!/^[A-Za-z0-9_-]+$/.test(state.task_id)) throw new TripoStop("Tripo 任務識別碼無效");
   if (!state.submitted_at || !Number.isFinite(Date.parse(state.submitted_at)) || Date.now() - Date.parse(state.submitted_at) > 60 * 60 * 1000) {
     throw new TripoStop("Tripo 任務超過一小時，請到 Tripo 後台核對；不會重新扣點提交");
