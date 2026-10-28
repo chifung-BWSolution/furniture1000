@@ -501,10 +501,10 @@ async function recognizeImages(
       detection = await askModel(apiKey, COUNT_PROMPT, `Target product: ${title.slice(0, 200)}`, images, COUNT_SCHEMA, { timeoutMs: 20_000 });
     } catch (err) {
       if (!(err instanceof AnalysisError)) throw err;
-      detection = { product_count: 1, possible_arrangement: false, uncertain: false, reason: "", per_image_counts: images.map(() => 1) };
+      detection = { product_count: 0, possible_arrangement: false, uncertain: true, reason: "AI 未能確認產品數量，請根據參考圖片選擇只生成一件或整組。", per_image_counts: [] };
     }
-    if (!Number.isInteger(detection.product_count) || detection.product_count < 1 || detection.product_count > 20 || typeof detection.possible_arrangement !== "boolean" || typeof detection.uncertain !== "boolean" || typeof detection.reason !== "string" || !Array.isArray(detection.per_image_counts) || detection.per_image_counts.length !== images.length || !detection.per_image_counts.every((n) => Number.isInteger(n) && n >= 1 && n <= 20)) {
-      throw new AnalysisError("無法確認圖片中的產品數量，請重新辨認");
+    if (!detection || !Number.isInteger(detection.product_count) || detection.product_count < 1 || detection.product_count > 20 || typeof detection.possible_arrangement !== "boolean" || typeof detection.uncertain !== "boolean" || typeof detection.reason !== "string" || !Array.isArray(detection.per_image_counts) || detection.per_image_counts.length !== images.length || !detection.per_image_counts.every((n) => Number.isInteger(n) && n >= 1 && n <= 20)) {
+      return { supported: true, requires_product_scope_confirmation: true, detection: { product_count: 0, possible_arrangement: false, uncertain: true, reason: "AI 未能確認產品數量，請根據參考圖片選擇只生成一件或整組。", per_image_counts: [] } };
     }
     if (detection.product_count > 1 || detection.possible_arrangement || detection.uncertain || detection.per_image_counts.some((n) => n > 1)) {
       return { supported: true, requires_product_scope_confirmation: true, detection };
