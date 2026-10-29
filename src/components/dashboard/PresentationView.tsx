@@ -1532,14 +1532,6 @@ export function PresentationView() {
     );
   }
 
-  const canvaCard = (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="font-semibold">Gamma 簡報生成</p>
-      <p className="mt-1 text-sm text-muted-foreground">{canva?.configured ? '已設定 API，可使用大綱與上傳圖片生成簡報。' : '請在 FDS2.0 設定 GAMMA_API_KEY。'}</p>
-      <Button type="button" variant="outline" className="mt-3" onClick={() => { void refreshStatus(); }}>重新整理</Button>
-    </div>
-  );
-
   const draftList = (rows: CanvaDesignSession[]) => (
     rows.length === 0 ? (
       <p className="py-6 text-center text-sm text-muted-foreground">尚無草稿</p>
@@ -2217,7 +2209,6 @@ export function PresentationView() {
         </div>
 
         <aside className="min-w-0 space-y-4 lg:sticky lg:top-4 lg:self-start">
-          {canvaCard}
           <AnimatePresence initial={false}>
           {wizardStep === 4 && (
             <motion.section
