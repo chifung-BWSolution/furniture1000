@@ -1,3 +1,4 @@
+import { handleGamma } from './gammaHandler.ts';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
@@ -279,6 +280,10 @@ Deno.serve(async (req: Request) => {
 
   // ── status：任何有 PMS SSO 登入的職員都可看（設定 UI 需要 client_id） ──
   if (action === "status") {
+    const ready = Boolean(Deno.env.get("GAMMA_API_KEY"));
+    return json({ configured: ready, connected: ready, account_name: "Gamma", scope: GENERATION_SCOPES.join(" ") });
+  }
+  if (action === "legacy_status") {
     const { data } = await service
       .from("canva_connections")
       .select("access_token,refresh_token,expires_at,scope,account_name,connected_at")
@@ -297,6 +302,13 @@ Deno.serve(async (req: Request) => {
   const { data: canImport } = await userClient.rpc("bwf_has_role", { p_roles: IMPORT_ROLES });
   if (!canImport) return json({ error: "permission_denied" }, 403);
 
+  if (action === "probe") return json({ ok: Boolean(Deno.env.get("GAMMA_API_KEY")), connected: Boolean(Deno.env.get("GAMMA_API_KEY")), missing_scopes: [], design_generation: Boolean(Deno.env.get("GAMMA_API_KEY")), message: "Gamma API" });
+  try {
+    const result = await handleGamma(service, userId, body);
+    if (result) return json(result);
+  } catch (error) {
+    return json({ error: "gamma_request_failed", message: error instanceof Error ? error.message : "Gamma 請求失敗" }, 502);
+  }
   // ── exchange：PKCE code → token ─────────────────────────────────────
   if (action === "exchange") {
     if (!credentials) return json({ error: "canva_not_configured" }, 500);
