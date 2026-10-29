@@ -119,6 +119,7 @@ export function PresentationOutlineStep({
   qualifications,
   services,
   includeFloor,
+  floorReferenceUrl,
   zones,
   products,
   productZone,
@@ -143,6 +144,7 @@ export function PresentationOutlineStep({
   qualifications: string;
   services: string;
   includeFloor: boolean;
+  floorReferenceUrl?: string;
   zones: PresentationZoneDraft[];
   products: SearchProduct[];
   productZone: Record<string, string>;
@@ -169,7 +171,9 @@ export function PresentationOutlineStep({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
-  const disabled = parentDisabled;
+  const [batchRunning, setBatchRunning] = useState(false);
+  const styleAnchor = useRef<string | null>(null);
+  const disabled = parentDisabled || batchRunning;
   const startedCopy = useRef(new Set<string>());
   const onDraftRef = useRef(onDraft);
   const draftsRef = useRef(drafts);
@@ -228,28 +232,40 @@ export function PresentationOutlineStep({
     if (imageSelections.current[productId] === url) onDraft(productId, { noBackground: cutout });
   }
 
-  async function generateSample(product: SearchProduct) {
-    const draft = draftFor(product, drafts);
+  async function generateSample(product: SearchProduct, silent = false): Promise<boolean> {
+    const draft = draftFor(product, draftsRef.current);
     const reference = draft.imageUrl.trim();
-    if (!reference) {
-      toast.error('這件產品沒有可參考的圖片');
-      return;
-    }
+    if (!reference) { if (!silent) toast.error('這件產品沒有可參考的圖片'); return false; }
+    const zone = zones.find((item) => item.id === productZone[product.id]);
+    const floor = zone?.imageUrl || floorReferenceUrl;
+    const anchor = styleAnchor.current;
     setSamplingId(product.id);
     try {
       const asset = await generateQuoteReferenceImage({
-        model: sampleModel,
-        aspectRatio: '4:3',
-        referenceUrls: [reference],
-        prompt: `Keep the exact product in the reference photo. Do not change its shape, material, color, or proportions. Place that same product in a simple office scene. The result is a presentation sample, not a new product design. ${draft.displayName} ${draft.model}`.trim(),
+        purpose: 'presentation_product', model: sampleModel, aspectRatio: '4:3',
+        referenceUrls: [reference, floor, anchor].filter((url): url is string => Boolean(url)),
+        prompt: `統一提案攝影風格：自然淺橡木地板、暖白牆面、柔和側窗日光、低飽和中性色、乾淨留白、真實室內攝影。固定相近視線高度與三分之四視角，產品完整入鏡，外觀材質顏色保持原樣。${floor ? '第二張是分區平面圖，只參考房間、門窗和家具擺位。' : ''}${anchor ? '最後一張是全份簡報風格基準，統一地板、色溫、光線和攝影質感，不複製其他產品。' : ''} 分區：${zone?.name ?? ''}。產品：${draft.displayName} ${draft.model}。僅供提案參考。`,
       });
-      onDraft(product.id, { sampleImageUrl: asset.url, noBackground: true });
-      toast.success('已生成示例圖', { description: '僅供參考，不會改寫產品原圖。' });
+      if (draftFor(product, draftsRef.current).imageUrl !== draft.imageUrl) return false;
+      onDraftRef.current(product.id, { sampleImageUrl: asset.url, noBackground: true });
+      if (!styleAnchor.current) styleAnchor.current = asset.url;
+      if (!silent) toast.success('已生成統一風格示例圖');
+      return true;
     } catch (error) {
-      toast.error('示例圖生成失敗', { description: quotePhotoErrorText(error) });
-    } finally {
-      setSamplingId(null);
-    }
+      if (!silent) toast.error('示例圖生成失敗', { description: quotePhotoErrorText(error) });
+      return false;
+    } finally { setSamplingId(null); }
+  }
+
+  async function correctAll() {
+    if (batchRunning || samplingId) return;
+    setBatchRunning(true);
+    styleAnchor.current = null;
+    let success = 0;
+    try {
+      for (const product of products) if (await generateSample(product, true)) success++;
+      toast.message('批量圖片修正完成', { description: `成功 ${success}／${products.length} 張；失敗項目保留原圖，可單獨重試。` });
+    } finally { setBatchRunning(false); }
   }
 
   const active = zones.find((zone) => zone.id === activeId) ?? zones[0];
@@ -399,6 +415,9 @@ export function PresentationOutlineStep({
               </div>
               <div>
                 <p className="text-sm font-semibold">已選產品（{activeProducts.length}）</p>
+                <Button type="button" variant="outline" disabled={disabled || samplingId !== null || !products.length} onClick={() => void correctAll()}>{batchRunning ? '正在統一圖片風格…' : '一鍵修正全部圖片'}</Button>
+                <p className="text-xs text-muted-foreground">統一木色與柔和日光，參考所屬分區平面圖，保留產品外觀。</p>
+
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   {activeProducts.map((product) => {
                     const draft = draftFor(product, drafts);

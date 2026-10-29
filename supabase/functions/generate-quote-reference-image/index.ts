@@ -85,7 +85,7 @@ type ModelId = "grok" | "gemini";
 
 type GenerateBody = {
   /** Opt-in inferred drawing; existing scene generation remains the default. */
-  purpose?: "orthographic" | "floor_plan";
+  purpose?: "orthographic" | "floor_plan" | "presentation_product";
   productId?: string;
   model?: string;
   prompt?: string;
@@ -406,7 +406,7 @@ Deno.serve(async (req: Request) => {
 
   if ((raw.purpose !== 'orthographic' && !prompt) || prompt.length > PROMPT_MAX) return fail("quote_photo_generate_invalid", 400, "prompt");
   if (!RATIOS.has(aspectRatio)) return fail("quote_photo_generate_invalid", 400, "ratio");
-  if (raw.purpose !== undefined && raw.purpose !== "orthographic" && raw.purpose !== "floor_plan") return fail("quote_photo_generate_invalid", 400, "purpose");
+  if (raw.purpose !== undefined && raw.purpose !== "orthographic" && raw.purpose !== "floor_plan" && raw.purpose !== "presentation_product") return fail("quote_photo_generate_invalid", 400, "purpose");
   if (referenceIds.length > MAX_REFERENCES || rawReferenceUrls.length > MAX_REFERENCES) {
     return fail("quote_photo_generate_reference_limit", 400);
   }
@@ -477,6 +477,8 @@ Deno.serve(async (req: Request) => {
   const composedPrompt =
     raw.purpose === "orthographic"
       ? `產品 ${productModel}。以下為 AI 根據產品圖及產品描述自動分析的繪圖依據，並非使用者確認的要求：${JSON.stringify(analysis)}。綜合全部2至3張同款產品參考圖。只繪製一件家具，移除場景、配件及其他家具。在白底同一張圖上，以相同比例繪製互相一致的正面、右側及俯視正投影，標示 FRONT、RIGHT、TOP，不使用透視。準確保留圖片可見的外形、支撐數量、折彎及通空處；材質及功能參考產品描述。未知或衝突細節不能變成確定結構，不得憑空新增板件、腳架、插座位置或裝飾。不虛構數字尺寸，宣傳內容不轉成幾何。圖上註明「AI 推測三視圖：隱藏結構及尺寸未核實」，不可宣稱為實測施工圖。`
+      : raw.purpose === "presentation_product"
+      ? `第一張圖是唯一產品，保留其外觀、材質、顏色及比例。其他圖片依 prompt 標示為平面圖或風格參考，不是其他產品，不可當作牆上掛畫。${prompt}`
       : raw.purpose === "floor_plan"
       ? `將第一張平面圖轉為正上方俯視的室內配置效果圖。嚴格保留外輪廓、牆體、門窗、走廊、房間相對比例和家具位置及數量。只改變表面材質和光影；不得重新設計佈局，不添加房間或家具，不推測尺寸。不要透視、不要文字或尺寸標註。${prompt}`
       : referenceUrls.length > 0

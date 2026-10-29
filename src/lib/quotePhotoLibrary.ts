@@ -286,7 +286,7 @@ const GENERATE_SLUGS = [
  * 生成結果 isGenerated = true，介面與 PDF 都會標示「僅供設計參考」。
  */
 export async function generateQuoteReferenceImage(input: {
-  purpose?: 'orthographic' | 'floor_plan';
+  purpose?: 'orthographic' | 'floor_plan' | 'presentation_product';
   productId?: string;
   model: QuotePhotoGenerateModel;
   prompt?: string;

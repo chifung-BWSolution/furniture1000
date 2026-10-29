@@ -2010,6 +2010,7 @@ export function PresentationView() {
                 <SectionIntro icon={<ListChecks className="h-5 w-5" />} title={WIZARD_STEPS[2].title} hint={WIZARD_STEPS[2].hint} />
                 <PresentationOutlineStep
                   title={brief.title}
+                  floorReferenceUrl={brief.floorImageUrl}
                   client={brief.client ?? ''}
                   companyIntro={companyIntro}
                   qualifications={qualifications}
