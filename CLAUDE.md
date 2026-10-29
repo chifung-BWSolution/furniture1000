@@ -182,12 +182,13 @@ PMS v1 可只做列表；需要時用此 URL 連回編輯。
 - 預算上下限 ← `bwf_pitchings.estimated_income`
 - `pitching_name` ← `bwf_pitchings.pitching_name`
 
-**分享連結（`/customer?quote_share=<token>`）只開放「報價方案」**：匿名訪客只能看那一張分享報價，
-側欄其他「客戶專區」頁（產品搜尋、成功案例…）＝要登入。實作在
-`AppShell` 的 `requireQuoteShareLogin`（清掉 `fds-client-quote-share-token`、導到該頁並帶
-router state `quoteShareLogin`），由 `RequireAuth` 以 URL 重新判斷訪客身分後顯示 `LoginView`
-（登入卡會說明原因並提供「返回報價方案」）。**不要**改成讓訪客直接瀏覽，也**不要**在
-`RequireAuth` 之外另做一套登入畫面；`quoteShareGuest` 的側欄項目要保留顯示（點下去才知道要登入）。
+**分享連結（`/customer?quote_share=<token>`）可瀏覽整個「客戶專區」**：匿名訪客除了
+「機構採購帳號」以外每頁都進得去（產品搜尋、成功案例…）。關鍵是**每次換頁都要保留
+`?quote_share=`**，否則 `hasActiveQuoteShareAccess()` 就判成未登入、直接被踢去登入畫面。
+側欄項目是 `fds2-*` legacy view，`AppShell.handleViewChange` 要用 `implementedPage()` 換成
+真正的 portal view（`portalView`）再 `pathFromCustomerView()` 導航；直接用 legacy view 會落到
+`/fds/customer/…` 的 staff 路徑而丟掉 token（2026-10-29 修）。`quoteShareGuest` 只隱藏
+「機構採購帳號」，其餘項目照常顯示、照常可進。
 
 ## 7. 環境變數 / Secrets：三個獨立儲存位置 + 跨 repo 命名規範
 

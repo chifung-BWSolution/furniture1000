@@ -62,10 +62,9 @@ export function buildCustomerPortalInviteUrl(
 
 /**
  * No-login customer portal share link.
- * Lands on「報價方案」for the shared quote — that page is the whole guest
- * experience. Switching to any other 客戶專區 page asks the visitor to sign in
- * (see AppShell `requireQuoteShareLogin`), so the quote cannot be used as a
- * free pass into the rest of the portal.
+ * Lands on「報價方案」for the shared quote; guests may browse the other portal
+ * pages too (except「機構採購帳號」), so every in-portal page switch must keep
+ * `?quote_share=…` — see AppShell `handleViewChange` (`portalView`).
  */
 export function buildCustomerPortalQuoteShareUrl(
   origin: string,
@@ -77,20 +76,6 @@ export function buildCustomerPortalQuoteShareUrl(
 
 export const CUSTOMER_QUOTE_SHARE_TOKEN_KEY = 'fds-client-quote-share-token';
 export const CUSTOMER_QUOTE_SHARE_TARGET_KEY = 'fds-client-quote-share-target';
-
-/**
- * Router state for「分享連結只開放報價方案，登入後才可以看其他頁」.
- * Set by AppShell when it sends a quote-share guest to sign in; read by
- * RequireAuth so the login card explains why the visitor landed there.
- */
-export type QuoteShareLoginState = {
-  quoteShareLogin?: boolean;
-  /**
-   * 分享報價頁（含 token）。登入畫面用它在下方提供「返回報價方案」，
-   * 避免只想看報價的訪客卡在登入頁。
-   */
-  quoteShareReturnTo?: string;
-};
 
 /**
  * Persist `?quote_share=` as early as possible (module load), before React
