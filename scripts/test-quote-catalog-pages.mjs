@@ -119,6 +119,16 @@ assert.equal(M.catalogPageLabel(splitPages[0]), '向氏 · 第 8 頁左半');
 assert.equal(M.catalogPageLabel(splitPages[1]), '向氏 · 第 8 頁右半');
 assert.equal(M.catalogPageLabel(splitPages[3]), '向氏 · 第 10 頁框選');
 
+// --- 清單短標籤：整頁／上下半／左右半／框選 ---------------------------
+assert.equal(M.catalogPageBadge({}), '整頁');
+assert.equal(M.catalogPageBadge({ split: 'left' }), '左半');
+assert.equal(M.catalogPageBadge({ split: 'right' }), '右半');
+assert.equal(M.catalogPageBadge({ crop: { x: 0, y: 0, width: 1, height: 0.5 } }), '上半頁');
+assert.equal(M.catalogPageBadge({ crop: { x: 0, y: 0.5, width: 1, height: 0.5 } }), '下半頁');
+assert.equal(M.catalogPageBadge({ crop: { x: 0, y: 0, width: 0.5, height: 1 } }), '左半');
+assert.equal(M.catalogPageBadge({ crop: { x: 0.5, y: 0, width: 0.5, height: 1 } }), '右半');
+assert.equal(M.catalogPageBadge({ crop: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 } }), '框選');
+
 const base = { factoryName: 'F', title: null, documentYear: null, series: null, crop: null, split: null };
 const legacy = [
   { ...base, id: 'a', documentId: 'doc-1', pageNo: 2 },

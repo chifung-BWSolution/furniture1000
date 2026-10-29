@@ -26,7 +26,7 @@
 | # | 功能 | 完成內容 | 驗收入口（UI） | 驗收入口（自動） |
 |---|---|---|---|---|
 | 1 | **FDS-08 參考計價** | 數量／價格驗證、金額以仙一致、來源追溯、快照隔離、分享 token、PDF | 導航「PM報價 → 報價預算 → **參考報價**」分頁：選項目 → 選 QMS 報價 → 讀傢俬明細 → 匹配 2026 價目 → 儲存／客戶連結／下載 PDF | `node scripts/test-package-pricing.mjs`、`node scripts/test-package-pricing-live.mjs` |
-| 2 | **FDS-07 圖冊附件** | 多圖冊、整頁／上下半頁／左半頁／右半頁／框選、排序；跨頁圖冊自動拆成左、右兩個直向頁；PDF 只用圖冊頁、不印來源標籤；edge 只回抽取頁 | 報價編輯器 → 圖冊附件對話框：多關鍵字搜尋 → 混選、重排、拖框；跨頁圖冊選一頁會得到「左半」「右半」兩列 | `node scripts/test-quote-catalog-pages.mjs`（純邏輯） |
+| 2 | **FDS-07 圖冊附件** | 多圖冊、整頁／上下半頁／左半頁／右半頁／框選、排序；跨頁圖冊自動拆成左、右兩個直向頁；三步式縮圖選擇器（頁面縮圖 360px JPEG＋IndexedDB 快取）；PDF 只用圖冊頁、不印來源標籤；edge 只回抽取頁 | 報價編輯器 → 圖冊附件對話框：搜尋／廠家 chip → 點頁面縮圖加入 → 重排、拖框；跨頁圖冊點一頁會得到「左半」「右半」兩列 | `node scripts/test-quote-catalog-pages.mjs`（純邏輯） |
 | 3 | **FDS-06 SKP／FBX** | 既有生成／下載流程、版本、私有儲存 | 產品搜索 → 開啟型號 → 「生成／下載 SKP」「生成／下載 FBX」 | `node scripts/test-skp-review-regressions.mjs`（PASS）；`test-skp-device-auth.mjs` 受分支殘留 queue 影響 |
 | 4 | **FDS-10 設計專案分區** | 既有分區、空白區保留 | 設計專案 → 分區面板：改名、排序、刪除、產品移區 | `node scripts/test-empty-zone-prune.mjs` |
 | 5 | **FDS-11 成功案例** | 三頁即時讀 PMS、篩選、權限、匯出；兩級行業已按確認關閉 | 導航「成功案例」三頁；多條件篩選 → 客戶版匯出 | `node scripts/case-showcase.test.mjs`、`node scripts/case-list-filters.test.mjs` |

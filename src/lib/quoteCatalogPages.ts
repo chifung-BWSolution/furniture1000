@@ -165,6 +165,26 @@ export function catalogPageKey(page: Pick<QuoteCatalogPage, 'id'>): string {
   return page.id;
 }
 
+function sameCrop(a: QuoteCatalogCrop, b: QuoteCatalogCrop): boolean {
+  return Math.abs(a.x - b.x) < 0.005
+    && Math.abs(a.y - b.y) < 0.005
+    && Math.abs(a.width - b.width) < 0.005
+    && Math.abs(a.height - b.height) < 0.005;
+}
+
+/** 清單上的短標籤：整頁／上半頁／下半頁／左半／右半／框選。 */
+export function catalogPageBadge(
+  page: { crop?: QuoteCatalogCrop | null; split?: QuoteCatalogSplit | null },
+): string {
+  const crop = parseCatalogCrop(page.crop);
+  if (!crop) return page.split === 'left' ? '左半' : page.split === 'right' ? '右半' : '整頁';
+  if (sameCrop(crop, CATALOG_SPLIT_LEFT)) return '左半';
+  if (sameCrop(crop, CATALOG_SPLIT_RIGHT)) return '右半';
+  if (sameCrop(crop, CATALOG_TOP_HALF)) return '上半頁';
+  if (sameCrop(crop, CATALOG_BOTTOM_HALF)) return '下半頁';
+  return '框選';
+}
+
 export function catalogPageLabel(page: Omit<QuoteCatalogPage, 'id'>): string {
   const crop = parseCatalogCrop(page.crop);
   const split = crop ? null : page.split === 'left' || page.split === 'right' ? page.split : null;

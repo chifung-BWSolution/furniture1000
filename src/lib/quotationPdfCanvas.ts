@@ -47,31 +47,60 @@ export interface QuotePdfPreviewPage {
 const PREVIEW_RENDER_SCALE = 2;
 const PREVIEW_JPEG_QUALITY = 0.92;
 
-export interface QuotePdfPageSize {
+export interface QuotePdfThumbnail {
+  /** JPEG data URL. */
+  dataUrl: string;
   width: number;
   height: number;
 }
 
 /**
- * 只讀每頁「看到的方向」的尺寸（已計入 /Rotate），不畫任何東西。
- * 圖冊附錄靠它判斷一張 PDF 頁是單頁還是左右並排的跨頁。
+ * 小尺寸縮圖：每頁按 `maxWidth` 等比縮小再畫，輸出 JPEG。
+ * 圖冊頁選擇器用這個（一頁約 15–25 KB），不要用整頁預覽的 scale 2。
  */
-export async function readQuotePdfPageSizes(source: ArrayBuffer): Promise<QuotePdfPageSize[]> {
+export async function renderQuotePdfThumbnails(
+  source: ArrayBuffer,
+  options: { maxWidth?: number; quality?: number } = {},
+): Promise<QuotePdfThumbnail[]> {
+  const maxWidth = Math.min(1200, Math.max(80, options.maxWidth ?? 360));
+  const quality = Math.min(0.95, Math.max(0.4, options.quality ?? 0.7));
   const pdfjs = await getPdfjs();
   const data = new Uint8Array(new Uint8Array(source));
   const doc = await pdfjs.getDocument({ data }).promise;
+  const thumbnails: QuotePdfThumbnail[] = [];
+
   try {
-    const sizes: QuotePdfPageSize[] = [];
     for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
       const page = await doc.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 1 });
-      sizes.push({ width: viewport.width, height: viewport.height });
+      const natural = page.getViewport({ scale: 1 });
+      const scale = Math.min(2, maxWidth / Math.max(1, natural.width));
+      const viewport = page.getViewport({ scale });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(viewport.width));
+      canvas.height = Math.max(1, Math.round(viewport.height));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('無法建立縮圖畫布');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      await page.render({ canvasContext: ctx, viewport, intent: 'print' }).promise;
+
+      thumbnails.push({
+        dataUrl: canvas.toDataURL('image/jpeg', quality),
+        width: canvas.width,
+        height: canvas.height,
+      });
+
+      canvas.width = 0;
+      canvas.height = 0;
       page.cleanup();
     }
-    return sizes;
   } finally {
     await doc.destroy();
   }
+
+  return thumbnails;
 }
 
 /**
