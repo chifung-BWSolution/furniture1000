@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -85,7 +85,13 @@ internal static class WorkerSetup {
             if (args.Contains("--run")) { RunWorker(); return 0; }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new SetupForm());
+            bool uiCreated;
+            using (var uiMutex = new Mutex(true, "Local\\FdsSkpReviewUi", out uiCreated)) {
+                if (!uiCreated) return 0;
+                var form = new SetupForm();
+                if (args.Contains("--monitor")) form.Shown += (s, e) => form.Hide();
+                Application.Run(form);
+            }
             return 0;
         } catch (Exception ex) {
             if (args.Contains("--self-test")) { File.WriteAllText(args.Last(), "FAIL: " + ex.Message); return 1; }
@@ -371,6 +377,7 @@ internal static class WorkerSetup {
         bool created;
         using (var mutex = new Mutex(true, MutexName, out created)) {
             if (!created) return;
+            Process.Start(new ProcessStartInfo(InstalledExe, "--monitor") { UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden });
             using (var stop = new EventWaitHandle(false, EventResetMode.ManualReset, StopName)) {
                 Log("Worker 管理程式已啟動。授權、連線與寫檔依賴會分開記錄。");
                 var failures = 0;
@@ -466,6 +473,11 @@ internal sealed class SetupForm : Form {
     readonly Label computer = new Label { AutoSize = true };
     readonly Label sketchupState = new Label { AutoSize = true };
     readonly TextBox sketchup = new TextBox();
+    readonly TextBox logs = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Height = 180, Dock = DockStyle.Fill };
+    readonly System.Windows.Forms.Timer logTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+    readonly NotifyIcon reviewNotice = new NotifyIcon { Icon = SystemIcons.Information, Text = "FDS 模型驗收", Visible = true };
+    readonly HashSet<string> notifiedReviews = new HashSet<string>();
+    string lastLogText = "";
     readonly CheckBox auto = new CheckBox { Text = "登入 Windows 後自動啟動", Checked = true, AutoSize = true };
     readonly Label status = new Label { AutoSize = false, Height = 140, Dock = DockStyle.Fill };
     readonly FlowLayoutPanel actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
@@ -476,23 +488,36 @@ internal sealed class SetupForm : Form {
         Text = "FDS SKP Worker 安裝及管理";
         Font = new Font("Microsoft JhengHei UI", 10);
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(720, 680); MinimumSize = new Size(680, 700);
+        ClientSize = new Size(1180, 850); MinimumSize = new Size(980, 760);
+        BackColor = Color.FromArgb(245, 248, 252);
+        ForeColor = Color.FromArgb(30, 46, 70);
         StartPosition = FormStartPosition.CenterScreen;
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(22), ColumnCount = 1, AutoScroll = true };
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24), ColumnCount = 1, AutoScroll = true };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         Controls.Add(grid);
-        Add(grid, new Label { Text = "FDS SKP Worker", Font = new Font(Font.FontFamily, 19, FontStyle.Bold), AutoSize = true });
-        Add(grid, new Label { Text = "使用瀏覽器以 FDS 帳號授權這台電腦。不需要、也不應輸入 service role key。SketchUp 須自行安裝並完成授權登入。", AutoSize = true, MaximumSize = new Size(640, 0) });
+        Add(grid, new Label { Text = "FDS SKP Worker", Font = new Font(Font.FontFamily, 24, FontStyle.Bold), AutoSize = true });
+        Add(grid, new Label { Text = "使用瀏覽器以 FDS 帳號授權這台電腦。不需要、也不應輸入 service role key。SketchUp 須自行安裝並完成授權登入。", AutoSize = true, MaximumSize = new Size(1080, 0), ForeColor = Color.FromArgb(91, 108, 133) });
+        var settings = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Margin = new Padding(0, 12, 0, 16) };
+        settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
+        settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
+        settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        var environmentCard = Card("環境設定");
+        var sketchupCard = Card("SketchUp 設定");
+        var startupCard = Card("啟動設定");
+        settings.Controls.Add(environmentCard); settings.Controls.Add(sketchupCard); settings.Controls.Add(startupCard);
+        Add(grid, settings);
         environment.Font = new Font(Font, FontStyle.Bold);
-        Add(grid, environment);
-        Add(grid, computer);
+        computer.MaximumSize = new Size(270, 0);
+        Add(environmentCard, environment);
+        Add(environmentCard, computer);
         advanced.CheckedChanged += (s, e) => { targets.Visible = advanced.Checked; ApplyTarget(); };
-        Add(grid, advanced);
+        Add(startupCard, advanced);
         targets.Items.AddRange(new object[] { WorkerSetup.Production.Name, WorkerSetup.Branch.Name });
         targets.SelectedIndex = 0;
         targets.Visible = false;
         targets.SelectedIndexChanged += (s, e) => ApplyTarget();
-        Add(grid, targets);
-        Add(grid, new Label { Text = "SketchUp.exe 路徑", AutoSize = true });
+        Add(environmentCard, targets);
+        Add(sketchupCard, new Label { Text = "SketchUp.exe 路徑", AutoSize = true });
         var browseRow = new TableLayoutPanel { ColumnCount = 2, Dock = DockStyle.Fill, AutoSize = true };
         browseRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         browseRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -502,17 +527,41 @@ internal sealed class SetupForm : Form {
         var browse = new Button { Text = "選擇…", AutoSize = true };
         browse.Click += (s, e) => { using (var dialog = new OpenFileDialog { Filter = "SketchUp.exe|SketchUp.exe", FileName = "SketchUp.exe" }) if (dialog.ShowDialog() == DialogResult.OK) sketchup.Text = dialog.FileName; };
         browseRow.Controls.Add(browse);
-        Add(grid, browseRow);
-        Add(grid, sketchupState);
-        Add(grid, auto);
+        Add(sketchupCard, browseRow);
+        sketchupState.MaximumSize = new Size(420, 0);
+        Add(sketchupCard, sketchupState);
+        Add(startupCard, auto);
         AddAction("使用瀏覽器登入並授權", Authorize);
         AddAction("取消配對", CancelPairing);
         AddAction("檢查狀態", CheckStatus);
         AddAction("停止 Worker", async () => { await Task.Run(() => WorkerSetup.StopWorker()); status.Text = "已停止。網站上的舊心跳最多 90 秒後失效。授權仍然保留。"; });
         AddAction("解除連線", Disconnect);
         AddAction("開啟記錄", () => { if (File.Exists(WorkerSetup.LogFile)) Process.Start("notepad.exe", "\"" + WorkerSetup.LogFile + "\""); else status.Text = "尚未有記錄。"; return Task.FromResult(0); });
-        Add(grid, actions);
-        Add(grid, status);
+        var operations = Card("操作控制");
+        Add(grid, operations);
+        Add(operations, actions);
+        status.BackColor = Color.FromArgb(237, 245, 252);
+        status.Padding = new Padding(16);
+        status.Height = 115;
+        Add(operations, status);
+        var journal = Card("近期任務日誌 · 每 2 秒更新");
+        Add(grid, journal);
+        logs.Height = 220;
+        logs.Font = new Font("Consolas", 10);
+        logs.BackColor = Color.FromArgb(249, 251, 254);
+        logs.ForeColor = Color.FromArgb(54, 72, 98);
+        logs.BorderStyle = BorderStyle.FixedSingle;
+        Add(journal, logs);
+        AddAction("複製日誌", () => { if (logs.Text.Length > 0) Clipboard.SetText(logs.Text); return Task.FromResult(0); });
+        AddAction("開啟任務資料夾", () => { var jobs = Path.Combine(WorkerSetup.Home, "jobs"); if (Directory.Exists(jobs)) Process.Start("explorer.exe", jobs); return Task.FromResult(0); });
+        AddAction("待驗收模型", () => { OpenReviews(); return Task.FromResult(0); });
+        reviewNotice.BalloonTipClicked += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); OpenReviews(); };
+        reviewNotice.DoubleClick += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
+        FormClosing += (s, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
+        logTimer.Tick += (s, e) => { RefreshLogs(); CheckReviews(); };
+        FormClosed += (s, e) => { logTimer.Stop(); logTimer.Dispose(); reviewNotice.Dispose(); };
+        RefreshLogs();
+        logTimer.Start();
         var download = new LinkLabel { Text = "下載 SketchUp 桌面版", AutoSize = true };
         download.LinkClicked += (s, e) => Process.Start("https://help.sketchup.com/en/downloading-sketchup");
         Add(grid, download);
@@ -523,6 +572,102 @@ internal sealed class SetupForm : Form {
         if (WorkerSetup.HasLegacyConfig()) status.Text = "這台電腦仍保存舊的 service role 設定。它不會被帶入新授權。請使用瀏覽器重新授權，成功後舊金鑰會從本機刪除。";
         else if (File.Exists(WorkerSetup.ConfigFile)) status.Text = WorkerSetup.Running() ? "已授權。Worker 正在運行。請用「檢查狀態」分開確認連線與寫檔依賴。" : "已保存授權。Worker 目前未運行。";
         else status.Text = "尚未連接 FDS。預設是正式環境。按「使用瀏覽器登入並授權」。";
+    }
+
+    // A non-activating desktop toast has no sound and never flashes the taskbar.
+    sealed class ReviewToast : Form {
+        protected override bool ShowWithoutActivation { get { return true; } }
+        protected override CreateParams CreateParams { get { var p = base.CreateParams; p.ExStyle |= 0x08000000; return p; } }
+    }
+
+    void ShowReviewToast() {
+        var toast = new ReviewToast { FormBorderStyle = FormBorderStyle.FixedToolWindow, ShowInTaskbar = false, TopMost = true, Size = new Size(360, 130), StartPosition = FormStartPosition.Manual, Text = "FDS Worker" };
+        var area = Screen.PrimaryScreen.WorkingArea;
+        toast.Location = new Point(area.Right - toast.Width - 16, area.Bottom - toast.Height - 16);
+        var label = new Label { Text = "模型已生成，等待驗收\r\n點擊查看原圖及模型", Dock = DockStyle.Fill, Padding = new Padding(16), Cursor = Cursors.Hand };
+        label.Click += (s, e) => { toast.Close(); Show(); WindowState = FormWindowState.Normal; Activate(); OpenReviews(); };
+        toast.Controls.Add(label);
+        var timer = new System.Windows.Forms.Timer { Interval = 10000 };
+        timer.Tick += (s, e) => toast.Close();
+        toast.FormClosed += (s, e) => { timer.Stop(); timer.Dispose(); };
+        toast.Show(); timer.Start();
+    }
+
+    void CheckReviews() {
+        var jobs = Path.Combine(WorkerSetup.Home, "jobs");
+        if (!Directory.Exists(jobs)) return;
+        foreach (var file in Directory.GetFiles(jobs, "review.json", SearchOption.AllDirectories)) {
+            try {
+                var r = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(file));
+                if (WorkerSetup.Text(r, "status") != "pending" || notifiedReviews.Contains(file)) continue;
+                notifiedReviews.Add(file);
+                ShowReviewToast();
+            } catch (IOException) { } catch (ArgumentException) { }
+        }
+    }
+
+    void OpenReviews() {
+        var jobs = Path.Combine(WorkerSetup.Home, "jobs");
+        if (!Directory.Exists(jobs)) return;
+        using (var dialog = new Form { Text = "待驗收模型", Size = new Size(740, 480), StartPosition = FormStartPosition.CenterParent }) {
+            var list = new ListBox { Dock = DockStyle.Fill };
+            var files = Directory.GetFiles(jobs, "review.json", SearchOption.AllDirectories).Where(file => {
+                try { return WorkerSetup.Text(new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(file)), "status") == "pending"; } catch { return false; }
+            }).ToArray();
+            foreach (var file in files) list.Items.Add(Path.GetFileName(Path.GetDirectoryName(file)));
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 90 };
+            Action<string, Action<string, Dictionary<string, object>>> add = (label, action) => {
+                var button = new Button { Text = label, AutoSize = true };
+                button.Click += (s, e) => {
+                    if (list.SelectedIndex < 0) return;
+                    var file = files[list.SelectedIndex];
+                    try { action(file, new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(file))); }
+                    catch (Exception ex) { status.Text = "驗收操作失敗：" + ex.Message; }
+                };
+                buttons.Controls.Add(button);
+            };
+            add("查看原圖", (file, r) => Process.Start("explorer.exe", Path.Combine(Path.GetDirectoryName(file), "references")));
+            add("查看預覽", (file, r) => Process.Start(WorkerSetup.Text(r, "preview_path")));
+            add("SketchUp 開啟", (file, r) => Process.Start(WorkerSetup.Text(r, "model_path")));
+            add("接受並上傳", (file, r) => { r["status"] = "accepted"; File.WriteAllText(file, new JavaScriptSerializer().Serialize(r)); dialog.Close(); });
+            add("填寫問題後修正", (file, r) => {
+                using (var feedbackDialog = new Form { Text = "描述需要修正的細節", Size = new Size(540, 300), StartPosition = FormStartPosition.CenterParent }) {
+                    var feedback = new TextBox { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical };
+                    var send = new Button { Text = "交給 Codex 修正", Dock = DockStyle.Bottom, Height = 42 };
+                    send.Click += (s, e) => {
+                        if (String.IsNullOrWhiteSpace(feedback.Text)) return;
+                        r["feedback"] = feedback.Text.Trim(); r["status"] = "revise";
+                        File.WriteAllText(file, new JavaScriptSerializer().Serialize(r));
+                        feedbackDialog.DialogResult = DialogResult.OK;
+                    };
+                    feedbackDialog.Controls.Add(feedback); feedbackDialog.Controls.Add(send);
+                    if (feedbackDialog.ShowDialog(dialog) == DialogResult.OK) dialog.Close();
+                }
+            });
+            add("放棄草稿", (file, r) => { r["status"] = "discarded"; File.WriteAllText(file, new JavaScriptSerializer().Serialize(r)); dialog.Close(); });
+            dialog.Controls.Add(list); dialog.Controls.Add(buttons);
+            if (list.Items.Count > 0) list.SelectedIndex = 0;
+            dialog.ShowDialog(this);
+        }
+    }
+
+    void RefreshLogs() {
+        try {
+            if (!File.Exists(WorkerSetup.LogFile)) { logs.Text = "尚未有日誌。"; return; }
+            string text;
+            using (var stream = new FileStream(WorkerSetup.LogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream, Encoding.UTF8)) {
+                if (stream.Length > 65536) { stream.Seek(-65536, SeekOrigin.End); reader.ReadLine(); }
+                text = reader.ReadToEnd();
+            }
+            var lines = text.Split(new[] { '\n' });
+            text = String.Join("\n", lines.Skip(Math.Max(0, lines.Length - 150)));
+            if (text == lastLogText) return;
+            lastLogText = text;
+            logs.Text = text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+            logs.SelectionStart = logs.TextLength;
+            logs.ScrollToCaret();
+        } catch (IOException) { /* retry on next tick while the Worker writes */ }
     }
 
     void ApplyTarget() {
@@ -537,6 +682,14 @@ internal sealed class SetupForm : Form {
         sketchupState.Text = found ? "本機已找到 SketchUp.exe。這不代表 SketchUp 已登入或已選模板。" : "尚未找到 SketchUp.exe。仍可先授權；生成前需要安裝 SketchUp 並登入。";
     }
 
+    TableLayoutPanel Card(string title) {
+        var card = new TableLayoutPanel { ColumnCount = 1, Dock = DockStyle.Top, AutoSize = true, BackColor = Color.White, Padding = new Padding(18), Margin = new Padding(0, 0, 12, 14) };
+        card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var heading = new Label { Text = title, AutoSize = true, Font = new Font(Font.FontFamily, 12, FontStyle.Bold), ForeColor = Color.FromArgb(24, 65, 120), Margin = new Padding(0, 0, 0, 18) };
+        card.Controls.Add(heading);
+        return card;
+    }
+
     static void Add(TableLayoutPanel grid, Control control) {
         control.Margin = new Padding(0, 0, 0, 8);
         if (control is TextBox) control.Dock = DockStyle.Fill;
@@ -544,7 +697,9 @@ internal sealed class SetupForm : Form {
     }
 
     void AddAction(string text, Func<Task> action) {
-        var button = new Button { Text = text, AutoSize = true, Height = 34 };
+        var primary = actions.Controls.Count == 0;
+        var button = new Button { Text = text, AutoSize = true, MinimumSize = new Size(116, 46), Padding = new Padding(10, 8, 10, 8), Margin = new Padding(0, 0, 8, 10), FlatStyle = FlatStyle.Flat, BackColor = primary ? Color.FromArgb(0, 102, 235) : Color.White, ForeColor = primary ? Color.White : Color.FromArgb(35, 63, 102), Cursor = Cursors.Hand };
+        button.FlatAppearance.BorderColor = primary ? Color.FromArgb(0, 102, 235) : Color.FromArgb(217, 227, 240);
         button.Click += async (s, e) => {
             actions.Enabled = false;
             try { await action(); } catch (Exception ex) { status.Text = ex.Message; }
