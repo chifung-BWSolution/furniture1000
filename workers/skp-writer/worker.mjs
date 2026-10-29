@@ -17,7 +17,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -427,12 +427,13 @@ async function downloadSigned(url) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function processCodexJob(job) {
+async function processCodexJob(job, resumeDir) {
   activeLease = job.lease_id;
   try {
     const status = await codexStatus(CODEX);
     await runCodexJob(job, {
       callAgent,
+      resumeDir,
       uploadSigned,
       downloadSigned,
       config: CODEX,
@@ -547,6 +548,33 @@ try {
 }
 await resumePendingPublishes(CODEX, callAgent).catch((err) => console.error(err instanceof Error ? err.message : err));
 await cleanupWorkRoot(CODEX).catch(() => undefined);
+
+// Recover local reviews before claiming work (claim can supersede an old lease).
+await reportReadiness();
+const recoveredJobs = new Set();
+for (const name of (await readdir(CODEX.workRoot).catch(() => [])).sort((a,b) => b.localeCompare(a, undefined, { numeric: true }))) {
+  const dir = join(CODEX.workRoot, name);
+  try {
+    const review = JSON.parse(await readFile(join(dir, 'review.json'), 'utf8'));
+    if (recoveredJobs.has(review.job_id)) continue;
+    recoveredJobs.add(review.job_id);
+    if (!['pending', 'accepted', 'revise', 'revising'].includes(review.status)) continue;
+    if (!existsSync(join(dir, 'job.json')) || !existsSync(join(dir, 'checkpoint.json'))) {
+      console.error(`review recovery ${name}: legacy_checkpoint_missing; 舊版草稿保留在本機，請重新提交生成`);
+      continue;
+    }
+    const saved = JSON.parse(await readFile(join(dir, 'job.json'), 'utf8'));
+    const touched = await callAgent('heartbeat', { lease_id: saved.lease_id, progress: 0.7 });
+    if (touched.stop) throw new Error('lease_rejected');
+    console.log(`job ${saved.id} recovering local review/upload`);
+    await processCodexJob(saved, dir);
+  } catch (error) {
+    if (error?.code) authStop(error);
+    if (existsSync(join(dir, 'review.json'))) console.error(`review recovery ${name}: ${error.message}; 本機草稿已保留`);
+    // A transient network error must not fall through to claim and supersede this lease.
+    if (existsSync(join(dir, 'review.json')) && !['lease_rejected','stopped','revoked','expired','suspended','unauthorized'].includes(error?.code ?? error?.message)) throw error;
+  }
+}
 
 const readinessTimer = setInterval(() => reportReadiness().catch((err) => {
   if (!AUTH_STOP.has(err?.code)) return;

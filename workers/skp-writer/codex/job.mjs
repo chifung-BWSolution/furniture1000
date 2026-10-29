@@ -116,7 +116,7 @@ export async function runCodexJob(job, deps) {
   const { callAgent, uploadSigned, downloadSigned, config, sketchupExe, seedPath, codexVersion, secrets = [], log = console.log } = deps;
   const input = job.input ?? {};
   const leaseId = job.lease_id;
-  const dir = join(config.workRoot, `${job.id}-a${job.attempt}`);
+  const dir = deps.resumeDir ?? deps.revisionDir ?? join(config.workRoot, `${job.id}-a${job.attempt}`);
   const paths = {
     refs: join(dir, 'references'),
     outputs: join(dir, 'outputs'),
@@ -173,10 +173,28 @@ export async function runCodexJob(job, deps) {
     pulse = setInterval(() => heartbeat({}).catch(() => {}), 15_000);
     await stamp('product.json', input);
 
+    const checkpointPath = join(dir, 'checkpoint.json');
+    let generated;
+    if (deps.resumeDir) {
+      generated = JSON.parse(await readFile(checkpointPath, 'utf8'));
+      for (const item of generated.files) {
+        const bytes = await readFile(join(dir, item.path));
+        if (sha256(bytes) !== item.hash) throw new JobError('validation', 'checkpoint_hash_mismatch');
+      }
+    } else {
+      generated = await (async () => {
     await stage('download', 0.05, `下載 ${(input.references ?? []).length} 張參考圖`);
     const refs = await downloadReferences(input.references ?? [], paths.refs);
     await stamp('references.json', refs);
-    if (!refs.saved.length) throw new JobError('input', '沒有可用的參考圖片，請在產品補上圖片後再生成');
+    for (const failure of refs.failed) {
+      let host = 'invalid-url';
+      try { host = new URL(failure.url).hostname; } catch {}
+      log(`job ${job.id} [${failure.error}] reference download failed: ${host}`);
+    }
+    if (!refs.saved.length) {
+      const codes = [...new Set(refs.failed.map((f) => f.error))].join(', ');
+      throw new JobError('input', `參考圖片下載失敗 [${codes || 'reference_empty'}]；詳見 references.json。${codes.includes('reference_host_private') ? '請檢查代理 Fake-IP／DNS 設定。' : ''}`);
+    }
     guard();
 
     await stage('wait_sketchup', 0.1);
@@ -195,7 +213,7 @@ export async function runCodexJob(job, deps) {
     const port = await pickPort(config.bridgePort);
     const nonce = randomUUID();
     const working = join(dir, 'working.skp');
-    await copyFile(seedPath, working);
+    await copyFile(deps.revisionSeed ?? seedPath, working);
     const ready = join(dir, 'session-ready.json');
     const failed = join(dir, 'session-error.json');
     await rm(ready, { force: true });
@@ -226,7 +244,12 @@ export async function runCodexJob(job, deps) {
 
     await stage('codex', 0.2, 'Codex 建模中');
     const reportPath = join(paths.outputs, 'report.json');
-    const prompt = buildPrompt({ snapshot: input, references: refs.saved, reportPath, maxReviewRounds: config.maxReviewRounds });
+    let prompt = buildPrompt({ snapshot: input, references: refs.saved, reportPath, maxReviewRounds: config.maxReviewRounds });
+    if (deps.feedback) prompt += `
+## 人工修正要求
+目前場景已有上版模型。先讀取場景，在現有模型上修改，保留未要求變更的部件；不要重建或重複加入整件產品。本次原始「場景應為空」要求不適用。
+使用者要求：${JSON.stringify(deps.feedback)}
+修改後重新檢查四個視角並寫出新的完整報告。`;
     await stamp('prompt.md', prompt);
     const toolLog = join(paths.logs, 'mcp-tools.jsonl');
     const mcpEnv = bridgeEnv({ port, jobId: job.id, nonce, screenDir: paths.screens, toolLog });
@@ -298,8 +321,28 @@ export async function runCodexJob(job, deps) {
         resolve(lingered ? 0 : code);
       });
     });
-    events.end();
-    errors.end();
+    await Promise.all([new Promise(resolve => events.end(resolve)), new Promise(resolve => errors.end(resolve))]);
+    // Persist usage before validation/export/upload: those can fail after tokens were spent.
+    const usageEvents = (await readFile(join(paths.logs, 'codex-events.jsonl'), 'utf8')).split('\n');
+    const turns = [];
+    for (const line of usageEvents) {
+      try {
+        const event = JSON.parse(line);
+        if (event.type === 'turn.completed' && event.usage) turns.push(event.usage);
+      } catch { /* incomplete final line is not a usage event */ }
+    }
+    const count = (key) => turns.reduce((sum, u) => sum + (Number.isFinite(Number(u[key])) ? Math.max(0, Number(u[key])) : 0), 0);
+    const usage = {
+      job_id: job.id, attempt: job.attempt, model: config.model || null,
+      reasoning_effort: config.reasoningEffort || null, exit_code: exitCode,
+      recorded_at: new Date().toISOString(), usage_available: turns.length > 0,
+      input_tokens: turns.length ? count('input_tokens') : null,
+      cached_input_tokens: turns.length ? count('cached_input_tokens') : null,
+      output_tokens: turns.length ? count('output_tokens') : null,
+      turns,
+    };
+    await stamp('ai-usage.json', usage);
+    log(`job ${job.id} AI usage: ${JSON.stringify(usage)}`);
     guard();
     if (exitCode !== 0) {
       const tail = (await readFile(join(paths.logs, 'codex-stderr.log'), 'utf8').catch(() => '')).trim().split('\n').slice(-3).join(' ');
@@ -312,6 +355,16 @@ export async function runCodexJob(job, deps) {
       report = JSON.parse((await readFile(reportPath, 'utf8')).replace(/^\uFEFF/, ''));
     } catch {
       throw new JobError('modeling', 'Codex 沒有寫出有效的 report.json');
+    }
+    const toolEntries = (await readFile(toolLog, 'utf8')).trim().split('\n').flatMap((line) => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
+    const topScreens = (await readdir(paths.screens)).filter((name) => /-top\.png$/.test(name));
+    if (!Array.isArray(report.reference_analysis) || report.reference_analysis.length !== refs.saved.length ||
+        !report.unit_plan?.instances?.length || report.orientation_review?.passed !== true ||
+        !Array.isArray(report.orientation_review?.unresolved) || report.orientation_review.unresolved.length ||
+        !topScreens.length || !toolEntries.some((entry) => entry.tool === 'screenshot' && entry.ok)) {
+      throw new JobError('validation', 'orientation_review_required: 圖片分類、單元組合或頂視方向檢查未通過，模型保留在本機，未發布');
     }
     await assertIdentity(port, job.id, nonce, { timeoutMs: 20_000 }).catch(() => {
       throw new JobError('modeling', 'SketchUp 模型識別不符，已停止匯出');
@@ -368,6 +421,44 @@ export async function runCodexJob(job, deps) {
     };
     await stamp('validation.json', validation);
     if (!validation.ok) throw new JobError('validation', `模型檢查未通過：${validation.failed.join(', ')}`);
+        await writeFile(join(paths.outputs, 'fbx-bundle.zip'), zip);
+        const files = await Promise.all([out.skp, out.fbx, out.glb, out.preview, reportPath, join(dir, 'validation.json'), join(paths.outputs, 'fbx-bundle.zip')].map(async (path) => ({ path: relative(dir, path), hash: sha256(await readFile(path)) })));
+        return { out, validation, report, base, zipEntries, files };
+      })();
+      await stamp('checkpoint.json', generated);
+      await stamp('job.json', job);
+    }
+    const { out, validation, report, base, zipEntries } = generated;
+    const skpBytes = await readFile(out.skp), fbxBytes = await readFile(out.fbx);
+    const glbBytes = await readFile(out.glb), pngBytes = await readFile(out.preview);
+    const zip = await readFile(join(paths.outputs, 'fbx-bundle.zip'));
+    const reviewFile = join(dir, 'review.json');
+    if (!deps.resumeDir) await stamp('review.json', { status: 'pending', job_id: job.id, revision: deps.revision ?? 0, product: input.product, model_path: out.skp, preview_path: out.preview, created_at: new Date().toISOString() });
+    log(`job ${job.id} [awaiting_review] 模型已生成，等待 Worker 人工驗收`);
+    await heartbeat({ stage: 'validate', detail: '模型已生成，等待本機 Worker 人工驗收' });
+    for (;;) {
+      guard();
+      const review = JSON.parse(await readFile(reviewFile, 'utf8'));
+      if (review.status === 'accepted') break;
+      if (review.status === 'revise' || review.status === 'revising') {
+        if (!String(review.feedback ?? '').trim()) throw new JobError('input', 'revision_feedback_required');
+        await closeSketchUp();
+        await lock?.release();
+        clearInterval(pulse);
+        const revision = review.status === 'revising' ? Number(review.revision) : Number(review.revision ?? 0) + 1;
+        await stamp('review.json', { ...review, status: 'revising', revision });
+        const nextDir = join(config.workRoot, `${job.id}-a${job.attempt}-r${revision}`);
+        return await runCodexJob(job, { ...deps, resumeDir: undefined, revisionDir: nextDir, revisionSeed: out.skp, feedback: review.feedback, revision });
+      }
+      if (review.status === 'discarded') {
+        await callAgent('fail', { lease_id: leaseId, error: 'review_discarded: 人工驗收已放棄草稿', retryable: false });
+        return { discarded: true };
+      }
+      await sleep(2000);
+    }
+    for (const item of generated.files) {
+      if (sha256(await readFile(join(dir, item.path))) !== item.hash) throw new JobError('validation', 'review_files_changed: 驗收檔案已被修改，請透過修正流程重新匯出驗證');
+    }
 
     const reportBytes = Buffer.from(JSON.stringify(report, null, 2));
     const validationBytes = Buffer.from(JSON.stringify(validation, null, 2));
@@ -425,6 +516,8 @@ export async function runCodexJob(job, deps) {
       }
     }
     await stamp('publish.json', { status: 'done', job_id: job.id, lease_id: leaseId, manifest_hash: manifestHash, result: published, at: new Date().toISOString() });
+    const acceptedReview = JSON.parse(await readFile(reviewFile, 'utf8'));
+    await stamp('review.json', { ...acceptedReview, status: 'published' });
     log(`job ${job.id}: published ${JSON.stringify(published?.models ?? published)}`);
     return published;
   } catch (error) {
@@ -476,6 +569,7 @@ export async function cleanupWorkRoot(config) {
   for (const name of dirs) {
     const full = join(config.workRoot, name);
     const info = await stat(full).catch(() => null);
+    if (existsSync(join(full, 'review.json')) && !existsSync(join(full, 'publish.json'))) continue;
     if (info?.isDirectory() && info.mtimeMs < cutoff) await rm(full, { recursive: true, force: true }).catch(() => {});
   }
 }

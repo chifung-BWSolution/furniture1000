@@ -35,6 +35,17 @@ EXE 不包含 service role key。不要把裝置憑證放進命令列、Git 或�
 
 ## 建置及驗證
 
+### 本機人工驗收
+
+Codex 通過技術檢查後會保存 `checkpoint.json`、`job.json` 及 `review.json`，暫不上傳。
+管理程式在右下角顯示 10 秒無聲提示窗（不搶焦點）；點擊或使用「待驗收模型」可查看原圖、預覽、在 SketchUp 開啟模型。
+接受後才上傳並綁定；「填寫問題後修正」會以上一版 SKP 開始新的修正版，重新匯出驗證並再次等待接受；放棄會結束伺服器任務。
+請使用修正入口修改模型，不要直接另存覆蓋驗收檔案；檔案遭修改時雜湊檢查會阻止發布。
+
+關閉管理視窗會隱藏至系統匣，雙擊系統匣圖示可再次開啟；登入自動啟動的 Worker 也會啟動通知監視程式。
+重啟會先恢復本機待驗收／已接受上傳，再領取新任務。只有同一裝置且未取消、未被其他 Worker 接手的租約可恢復。
+舊版缺少 `job.json`／`checkpoint.json` 的草稿不會自動發布，須重新提交生成。所有新修正版各自保留日誌及 `ai-usage.json`。
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\workers\skp-writer\installer\build.ps1
 ```
