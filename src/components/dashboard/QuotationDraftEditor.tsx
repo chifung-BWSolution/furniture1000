@@ -2683,9 +2683,6 @@ export function QuotationDraftEditor({
   const [catalogPages, setCatalogPages] = useState<QuoteCatalogPage[]>(() =>
     parseQuoteCatalogPages((savedProjectData as Record<string, unknown>).catalogPageAttachments),
   );
-  const [showCatalogSource, setShowCatalogSource] = useState(
-    () => (savedProjectData as Record<string, unknown>).showCatalogSource !== false,
-  );
   const [catalogDialogOpen, setCatalogDialogOpen] = useState(false);
   const [zoneImages, setZoneImages] = useState<QuoteZoneImageMap>(() =>
     parseQuoteZoneImages(savedProjectData.zoneImages),
@@ -2769,8 +2766,6 @@ export function QuotationDraftEditor({
     setZonePhotoLayouts((prev) => (JSON.stringify(prev) === JSON.stringify(nextZoneLayouts) ? prev : nextZoneLayouts));
     const nextCatalogPages = parseQuoteCatalogPages(projectData?.catalogPageAttachments);
     setCatalogPages((prev) => (JSON.stringify(prev) === JSON.stringify(nextCatalogPages) ? prev : nextCatalogPages));
-    const nextShowSource = projectData?.showCatalogSource !== false;
-    setShowCatalogSource((prev) => (prev === nextShowSource ? prev : nextShowSource));
   }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
   // 報價 PDF 的 QR 指向這張單已有的客戶連結，不必每次開啟都重新生成。
@@ -4308,9 +4303,6 @@ export function QuotationDraftEditor({
         if ("catalogPageAttachments" in cachedRecord) {
           setCatalogPages(parseQuoteCatalogPages(cachedRecord.catalogPageAttachments));
         }
-        if ("showCatalogSource" in cachedRecord) {
-          setShowCatalogSource(cachedRecord.showCatalogSource !== false);
-        }
         if (cached.termsContent) {
           const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
           setTermsContent(
@@ -4389,7 +4381,6 @@ export function QuotationDraftEditor({
       zoneImages: zoneImages as unknown as Record<string, unknown>,
       zonePhotoLayouts: zonePhotoLayouts as unknown as Record<string, unknown>,
       catalogPageAttachments: catalogPages as unknown as Record<string, unknown>[],
-      showCatalogSource,
     }),
     [
       storageKey,
@@ -4413,7 +4404,6 @@ export function QuotationDraftEditor({
       zoneImages,
       zonePhotoLayouts,
       catalogPages,
-      showCatalogSource,
     ],
   );
 
@@ -4836,7 +4826,6 @@ export function QuotationDraftEditor({
         ],
       ),
       catalogPageAttachments: catalogPages,
-      showCatalogSource,
     };
   };
 
@@ -4960,7 +4949,6 @@ export function QuotationDraftEditor({
           conditionText: pdfLabels.installCondition,
         },
         catalogPages,
-        showCatalogSource,
       };
     }
 
@@ -5005,7 +4993,6 @@ export function QuotationDraftEditor({
     quoteContentPages: pdfContentPages,
     installationFee,
     catalogPages,
-    showCatalogSource,
   };
   };
 
@@ -6878,11 +6865,9 @@ export function QuotationDraftEditor({
       <QuoteCatalogPagesDialog
         open={catalogDialogOpen}
         pages={catalogPages}
-        showSource={showCatalogSource}
         onOpenChange={setCatalogDialogOpen}
-        onConfirm={(nextPages, nextShowSource) => {
+        onConfirm={(nextPages) => {
           setCatalogPages(nextPages);
-          setShowCatalogSource(nextShowSource);
           setCatalogDialogOpen(false);
         }}
       />

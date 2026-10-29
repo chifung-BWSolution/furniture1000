@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 
 /**
- * FDS-07 圖冊附件純邏輯（離線）：框選正規化、PDF 裁切框、頁面上限、來源標籤。
+ * FDS-07 圖冊附件純邏輯（離線）：框選正規化、PDF 裁切框、頁面上限、附件標籤。
  * 不含真正的 PDF 合併（需已授權圖冊與瀏覽器），那部分仍列待驗收。
  */
 
@@ -43,7 +43,7 @@ assert.deepEqual(box(M.catalogCropBox(600, 800, M.CATALOG_TOP_HALF)), [0, 400, 6
 assert.deepEqual(box(M.catalogCropBox(600, 800, M.CATALOG_BOTTOM_HALF)), [0, 0, 600, 400]);
 assert.deepEqual(box(M.catalogCropBox(1000, 500, { x: 0.25, y: 0.2, width: 0.5, height: 0.4 })), [250, 200, 750, 400]);
 
-// --- 頁面清單：上限 24、必要欄位、來源標籤 ---------------------------
+// --- 頁面清單：上限 24、必要欄位、附件標籤 ---------------------------
 const pages = M.parseQuoteCatalogPages([
   { documentId: 'doc-1', pageNo: 3, factoryName: '華座', title: '辦公椅', documentYear: 2026, series: 'A' },
   { documentId: 'doc-2', pageNo: 5, factoryName: '未來', crop: { x: 0, y: 0, width: 1, height: 0.5 } },
@@ -64,10 +64,9 @@ const many = M.parseQuoteCatalogPages(
 );
 assert.equal(many.length, 24, 'attachment list is capped at 24 pages');
 
-// --- 開關：關閉來源標籤時不得殘留標籤（由呼叫端不畫 band 保證） -------
-// 標籤只在 showSource 為 true 時才產生；此處驗證標籤文字本身可完全由頁面資料重建，
-// 沒有隱藏欄位會在關閉時漏出。
+// --- 附件標籤：只用頁面資料重建，PDF 本身不再印來源帶 -----------------
+// 報價 PDF 附錄只放圖冊頁面本身，不畫頁底來源；標籤僅供編輯器清單辨識。
 assert.equal(M.catalogPageLabel(pages[1]).includes('未來'), true);
 assert.equal(M.catalogPageLabel(pages[1]).includes('第 5 頁'), true);
 
-console.log('PASS catalog crop boxes, 24-page cap and source labels');
+console.log('PASS catalog crop boxes, 24-page cap and attachment labels');

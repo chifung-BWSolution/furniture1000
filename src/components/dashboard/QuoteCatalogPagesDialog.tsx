@@ -1,8 +1,7 @@
 import { useEffect, useState, type PointerEvent } from 'react';
-import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2, RefreshCw, X } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { LoadingImage } from '@/components/ui/loading-image';
 import {
   CATALOG_BOTTOM_HALF,
@@ -23,9 +22,8 @@ import { renderQuotePdfPages } from '@/lib/quotationPdfCanvas';
 interface QuoteCatalogPagesDialogProps {
   open: boolean;
   pages: QuoteCatalogPage[];
-  showSource: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (pages: QuoteCatalogPage[], showSource: boolean) => void;
+  onConfirm: (pages: QuoteCatalogPage[]) => void;
 }
 
 interface PagePreview {
@@ -64,7 +62,6 @@ function cropStyle(crop: QuoteCatalogCrop) {
 export function QuoteCatalogPagesDialog({
   open,
   pages,
-  showSource,
   onOpenChange,
   onConfirm,
 }: QuoteCatalogPagesDialogProps) {
@@ -76,22 +73,24 @@ export function QuoteCatalogPagesDialog({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [focusPageNo, setFocusPageNo] = useState(1);
   const [draftPages, setDraftPages] = useState<QuoteCatalogPage[]>([]);
-  const [draftSource, setDraftSource] = useState(true);
   const [manualPage, setManualPage] = useState('');
   const [preview, setPreview] = useState<PagePreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [cropDraft, setCropDraft] = useState<QuoteCatalogCrop | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     if (!open) return;
     setDraftPages(pages);
-    setDraftSource(showSource);
     setPreview(null);
     setCropDraft(null);
     setError(null);
     setManualPage('');
-  }, [open, pages, showSource]);
+    // 上次留下的搜尋字會令清單看起來「沒有圖冊」，每次開啟都重新由完整清單開始。
+    setQuery('');
+    setDebouncedQuery('');
+  }, [open, pages]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 250);
@@ -118,7 +117,7 @@ export function QuoteCatalogPagesDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, debouncedQuery]);
+  }, [open, debouncedQuery, reloadToken]);
 
   const active = catalogs.find((catalog) => catalog.id === activeId) ?? null;
 
@@ -217,24 +216,45 @@ export function QuoteCatalogPagesDialog({
       footer={
         <>
           <ModalButton variant="secondary" onClick={() => onOpenChange(false)}>取消</ModalButton>
-          <ModalButton onClick={() => onConfirm(draftPages, draftSource)}>完成</ModalButton>
+          <ModalButton onClick={() => onConfirm(draftPages)}>完成</ModalButton>
         </>
       }
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-3">
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜尋廠家、系列或標題"
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜尋廠家、系列、年份或標題（可多個關鍵字）"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 shrink-0 gap-1"
+              disabled={loading}
+              onClick={() => setReloadToken((n) => n + 1)}
+            >
+              <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+              重新整理
+            </Button>
+          </div>
           {loading ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> 正在讀取圖冊
             </p>
           ) : catalogs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">沒有可選的圖冊。</p>
+            <div className="space-y-1 rounded-md border border-dashed border-border px-3 py-2.5">
+              <p className="text-sm text-muted-foreground">
+                {query.trim() ? `找不到符合「${query.trim()}」的圖冊。` : '沒有可選的圖冊。'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                這裡只列出文件類型為「圖冊」的上載文件。若那份 PDF 上載時標成報價單（報價單含成本，不會出現在客戶 PDF），
+                請到「廠家詳情 → 廠家文件」把類型改成圖冊，再按「重新整理」。
+              </p>
+            </div>
           ) : (
             <div className="flex max-h-36 flex-wrap gap-2 overflow-auto">
               {catalogs.map((catalog) => (
@@ -375,11 +395,10 @@ export function QuoteCatalogPagesDialog({
         </div>
 
         <div className="space-y-3">
-          <label className="flex items-center justify-between gap-3 text-sm">
-            <span>頁底顯示來源</span>
-            <Switch checked={draftSource} onCheckedChange={setDraftSource} />
-          </label>
           <p className="text-xs text-muted-foreground">已選 {draftPages.length} / {QUOTE_CATALOG_PAGE_LIMIT} 項，順序即報價 PDF 附件順序。</p>
+          {draftPages.length === 0 ? (
+            <p className="text-xs text-muted-foreground">還未加入任何頁面。選好頁碼後按該頁，或用「上半頁／下半頁／加入框選」。</p>
+          ) : null}
           <ul className="max-h-72 space-y-1 overflow-auto">
             {draftPages.map((page, index) => (
               <li key={catalogPageKey(page)} className="flex items-center gap-1 rounded border border-border px-2 py-1">

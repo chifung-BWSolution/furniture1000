@@ -152,6 +152,4 @@ export interface QuotationPDFData {
     series: string | null;
     crop?: { x: number; y: number; width: number; height: number } | null;
   }[];
-  /** When true, each catalog page keeps a bottom strip with its source label. */
-  showCatalogSource?: boolean;
 }

@@ -17,7 +17,7 @@
 | # | 功能 | 完成內容 | 驗收入口（UI） | 驗收入口（自動） |
 |---|---|---|---|---|
 | 1 | **FDS-08 參考計價** | 數量／價格驗證、金額以仙一致、來源追溯、快照隔離、分享 token、PDF | 導航「PM報價 → 報價預算 → **參考報價**」分頁：選項目 → 選 QMS 報價 → 讀傢俬明細 → 匹配 2026 價目 → 儲存／客戶連結／下載 PDF | `node scripts/test-package-pricing.mjs`、`node scripts/test-package-pricing-live.mjs` |
-| 2 | **FDS-07 圖冊附件** | 多圖冊、整頁／上下半頁／框選、排序、來源開關；edge 只回抽取頁 | 報價編輯器 → 圖冊附件對話框：混選、重排、拖框、關閉來源 | `node scripts/test-quote-catalog-pages.mjs`（純邏輯） |
+| 2 | **FDS-07 圖冊附件** | 多圖冊、整頁／上下半頁／框選、排序；PDF 只用圖冊頁、不印來源標籤；edge 只回抽取頁 | 報價編輯器 → 圖冊附件對話框：多關鍵字搜尋 → 混選、重排、拖框 | `node scripts/test-quote-catalog-pages.mjs`（純邏輯） |
 | 3 | **FDS-06 SKP／FBX** | 既有生成／下載流程、版本、私有儲存 | 產品搜索 → 開啟型號 → 「生成／下載 SKP」「生成／下載 FBX」 | `node scripts/test-skp-review-regressions.mjs`（PASS）；`test-skp-device-auth.mjs` 受分支殘留 queue 影響 |
 | 4 | **FDS-10 設計專案分區** | 既有分區、空白區保留 | 設計專案 → 分區面板：改名、排序、刪除、產品移區 | `node scripts/test-empty-zone-prune.mjs` |
 | 5 | **FDS-11 成功案例** | 三頁即時讀 PMS、篩選、權限、匯出；兩級行業已按確認關閉 | 導航「成功案例」三頁；多條件篩選 → 客戶版匯出 | `node scripts/case-showcase.test.mjs`、`node scripts/case-list-filters.test.mjs` |
@@ -34,7 +34,7 @@
 4. **Asana（FDS-12）**：廠家目錄 → 廠家詳情 → Asana 面板 → 貼一個真實 task gid → 綁定 → 立即同步 → 看 Description／Comment 數；測完按「移除」。
 5. **分區示範圖（FDS-13）**：正式報價 → 平面圖 → 拉框 → 確認 → 生成透視圖；再到快速報價確認沒有「AI 生成」。
 6. **參考計價（FDS-08）**：PM報價 → 報價預算 → 參考報價 → 導入 → 儲存 → 改數量 → 重開；改基準價後確認舊單不變、新單用新價。
-7. **圖冊（FDS-07）**：報價編輯器 → 圖冊附件 → 三份圖冊混選整頁／框選 → 重排 → 關閉來源 → 下載 PDF 檢查。
+7. **圖冊（FDS-07）**：報價編輯器 → 圖冊附件 → 搜尋（可多關鍵字／年份）→ 三份圖冊混選整頁／框選 → 重排 → 下載 PDF 檢查（附錄不應有頁底來源字）。
 8. **案例（FDS-11）**：成功案例三頁 → 多條件交集 → 無結果 → 匯出客戶版。
 
 ## C. 全部自動測試指令

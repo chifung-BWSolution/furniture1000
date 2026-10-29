@@ -152,26 +152,15 @@ export async function fetchQuoteCatalogPdf(
   throw new Error(lastError);
 }
 
-/** Quote PDF first, then the selected catalog pages. Source labels are optional. */
+/** Quote PDF first, then the selected catalog pages, cropped and scaled to their own size. */
 export async function appendQuoteCatalogPages(
   quotePdf: ArrayBuffer,
   pages: Omit<QuoteCatalogPage, 'id'>[],
-  showSource: boolean,
 ): Promise<Uint8Array> {
-  const { PDFDocument, rgb } = await import('pdf-lib');
+  const { PDFDocument } = await import('pdf-lib');
   const base = await PDFDocument.load(quotePdf);
-  if (showSource) {
-    const { default: fontkit } = await import('@pdf-lib/fontkit');
-    base.registerFontkit(fontkit);
-  }
   if (pages.length === 0) return base.save();
   const extra = await PDFDocument.load(await fetchQuoteCatalogPdf(pages));
-  const font = showSource
-    ? await base.embedFont(await fetch('/fonts/pdf/NotoSansHK-Fallback-Regular-v1.ttf').then((res) => {
-      if (!res.ok) throw new Error('來源標籤字體未能載入');
-      return res.arrayBuffer();
-    }))
-    : null;
   const sources = extra.getPages();
   for (let i = 0; i < sources.length; i += 1) {
     const src = sources[i];
@@ -179,24 +168,8 @@ export async function appendQuoteCatalogPages(
     const meta = pages[i];
     const box = catalogCropBox(width, height, meta?.crop);
     const embedded = await base.embedPage(src, box);
-    const band = showSource ? 18 : 0;
-    const page = base.addPage([embedded.width, embedded.height + band]);
-    page.drawPage(embedded, { x: 0, y: band });
-    if (!font) continue;
-    const label = catalogPageLabel(meta ?? {
-      documentId: '',
-      pageNo: i + 1,
-      factoryName: '',
-      title: null,
-      documentYear: null,
-      series: null,
-      crop: null,
-    });
-    try {
-      page.drawText(label.slice(0, 80), { x: 8, y: 5, size: 8, font, color: rgb(0.25, 0.27, 0.3) });
-    } catch {
-      page.drawText(`p.${meta?.pageNo ?? i + 1}`, { x: 8, y: 5, size: 8, font, color: rgb(0.25, 0.27, 0.3) });
-    }
+    const page = base.addPage([embedded.width, embedded.height]);
+    page.drawPage(embedded, { x: 0, y: 0 });
   }
   return base.save();
 }
