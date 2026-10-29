@@ -1773,18 +1773,20 @@ export function PresentationView() {
                   </Select>
                   </div>
                 </Field>
-                <Field label="期望頁數" hint="建議 8–20 頁">
+                <Field label="期望頁數">
                   <div className="relative">
                     <Hash className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    className="h-10 rounded-lg bg-background pl-9"
+                    className="h-10 rounded-lg bg-background pl-9 pr-32"
                     type="number"
                     min={4}
                     max={40}
                     value={brief.pageCount ?? ''}
                     onChange={(e) => setBrief((b) => ({ ...b, pageCount: Number(e.target.value) || undefined }))}
+                    aria-describedby="presentation-page-count-hint"
                     placeholder="12"
                   />
+                    <span id="presentation-page-count-hint" className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 whitespace-nowrap text-xs text-muted-foreground">建議 8–20 頁</span>
                   </div>
                 </Field>
               </div>
@@ -1799,10 +1801,6 @@ export function PresentationView() {
                       <p className="mt-0.5 text-xs leading-5 text-muted-foreground">上傳封面圖與整體平面圖，讓系統自動識別分區並生成對應截圖。</p>
                     </div>
                   </div>
-                  <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <MapPin className="h-3.5 w-3.5" aria-hidden />
-                    建議 8-20 頁
-                  </p>
                 </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <PresentationImageField
