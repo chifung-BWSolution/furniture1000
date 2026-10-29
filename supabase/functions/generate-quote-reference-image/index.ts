@@ -28,6 +28,7 @@ const BUCKET = "quote-photos";
 const LIBRARY_LIMIT = 60;
 const MAX_BYTES = 15 * 1024 * 1024;
 const PROMPT_MAX = 500;
+const PRESENTATION_PROMPT_MAX = 2000;
 const MAX_REFERENCES = 5;
 const MAX_REFERENCE_BYTES = 8 * 1024 * 1024;
 
@@ -87,6 +88,8 @@ type GenerateBody = {
   /** Opt-in inferred drawing; existing scene generation remains the default. */
   purpose?: "orthographic" | "floor_plan" | "presentation_product";
   productId?: string;
+  /** FDS-13：分區示範圖所屬報價；有值時伺服器會重查報價範圍。 */
+  quoteUuid?: string;
   model?: string;
   prompt?: string;
   aspectRatio?: string;
@@ -390,6 +393,16 @@ Deno.serve(async (req: Request) => {
   // Orthographic generation also supports designers; scene-library management supports PMs.
   const { data: allowed } = await client.rpc('bwf_has_role', { p_roles: raw.purpose === 'orthographic' ? ['admin', 'uploader', 'pm', 'designer'] : ['admin', 'uploader', 'pm'] });
   if (allowed !== true) return fail('quote_photo_generate_permission_denied', 403);
+
+  // FDS-13：由報價頁發出的分區示範圖，要按報價重新檢查範圍（不能只靠前端隱藏按鈕）。
+  const quoteUuid = typeof raw.quoteUuid === 'string' ? raw.quoteUuid.trim() : '';
+  if (quoteUuid) {
+    if (!UUID_PATTERN.test(quoteUuid)) return fail('quote_photo_generate_invalid', 400, 'quoteUuid');
+    const { data: scope, error: scopeError } = await client.rpc('fds_quote_zone_scope', { p_quote_uuid: quoteUuid });
+    if (scopeError) return fail('quote_photo_generate_scope_denied', 403, scopeError.message);
+    const scopeRow = scope && typeof scope === 'object' ? scope as { allowed?: boolean; reason?: string } : null;
+    if (scopeRow?.allowed !== true) return fail('quote_photo_generate_scope_denied', 403, scopeRow?.reason || 'out_of_scope');
+  }
   const storageClient = raw.purpose === 'orthographic'
     ? createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false, autoRefreshToken: false } })
     : client;
@@ -404,7 +417,8 @@ Deno.serve(async (req: Request) => {
     ? raw.referenceUrls.filter((url): url is string => typeof url === "string")
     : [];
 
-  if ((raw.purpose !== 'orthographic' && !prompt) || prompt.length > PROMPT_MAX) return fail("quote_photo_generate_invalid", 400, "prompt");
+  const promptMax = raw.purpose === 'presentation_product' ? PRESENTATION_PROMPT_MAX : PROMPT_MAX;
+  if ((raw.purpose !== 'orthographic' && !prompt) || prompt.length > promptMax) return fail("quote_photo_generate_invalid", 400, "prompt");
   if (!RATIOS.has(aspectRatio)) return fail("quote_photo_generate_invalid", 400, "ratio");
   if (raw.purpose !== undefined && raw.purpose !== "orthographic" && raw.purpose !== "floor_plan" && raw.purpose !== "presentation_product") return fail("quote_photo_generate_invalid", 400, "purpose");
   if (referenceIds.length > MAX_REFERENCES || rawReferenceUrls.length > MAX_REFERENCES) {
@@ -478,7 +492,7 @@ Deno.serve(async (req: Request) => {
     raw.purpose === "orthographic"
       ? `產品 ${productModel}。以下為 AI 根據產品圖及產品描述自動分析的繪圖依據，並非使用者確認的要求：${JSON.stringify(analysis)}。綜合全部2至3張同款產品參考圖。只繪製一件家具，移除場景、配件及其他家具。在白底同一張圖上，以相同比例繪製互相一致的正面、右側及俯視正投影，標示 FRONT、RIGHT、TOP，不使用透視。準確保留圖片可見的外形、支撐數量、折彎及通空處；材質及功能參考產品描述。未知或衝突細節不能變成確定結構，不得憑空新增板件、腳架、插座位置或裝飾。不虛構數字尺寸，宣傳內容不轉成幾何。圖上註明「AI 推測三視圖：隱藏結構及尺寸未核實」，不可宣稱為實測施工圖。`
       : raw.purpose === "presentation_product"
-      ? `第一張圖是唯一產品，保留其外觀、材質、顏色及比例。其他圖片依 prompt 標示為平面圖或風格參考，不是其他產品，不可當作牆上掛畫。${prompt}`
+      ? `第一張圖是要突出的主體產品，保留其外觀、材質、顏色及比例。其他圖片按以下說明分辨為同房間搭配產品、房間場景或平面圖；搭配產品也須保持原樣並與主體同處一個一致的空間，不可當作牆上掛畫。${prompt}`
       : raw.purpose === "floor_plan"
       ? `將第一張平面圖轉為正上方俯視的室內配置效果圖。嚴格保留外輪廓、牆體、門窗、走廊、房間相對比例和家具位置及數量。只改變表面材質和光影；不得重新設計佈局，不添加房間或家具，不推測尺寸。不要透視、不要文字或尺寸標註。${prompt}`
       : referenceUrls.length > 0

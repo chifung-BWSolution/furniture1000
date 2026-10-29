@@ -3,13 +3,20 @@ import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 export async function handleGamma(service: SupabaseClient, userId: string, body: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   const action = String(body.action);
-  if (!['create_native', 'generation_status', 'design_pages', 'export_pptx', 'export_pdf'].includes(action)) return null;
+  if (!['create_native', 'generation_status', 'design_pages', 'export_pptx', 'export_pdf', 'remove_design'].includes(action)) return null;
   const table = () => service.from('canva_design_sessions');
   const { data: session, error } = await table().select('*').eq('id', String(body.session_id ?? '')).eq('staff_id', userId).maybeSingle();
   if (error) throw error;
   if (!session) throw new Error('session_not_found');
   const isGamma = session.populate_report?.provider === 'gamma';
   if (action !== 'create_native' && !isGamma) return null;
+  if (action === 'remove_design') {
+    if (!session.canva_design_id || session.status === 'creating') throw new Error('此記錄不能移除。');
+    const { data: removed, error: removeError } = await table().delete().eq('id', session.id).eq('staff_id', userId).eq('status', session.status).select('id').maybeSingle();
+    if (removeError) throw removeError;
+    if (!removed) throw new Error('記錄狀態已變更，請重新整理。');
+    return { removed: true };
+  }
   if (action === 'design_pages') return { pages: [] };
   if (action === 'export_pdf') throw new Error('請在 Gamma 編輯頁匯出 PDF。');
   if (action === 'export_pptx') {

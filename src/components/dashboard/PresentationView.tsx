@@ -28,6 +28,7 @@ import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -63,12 +64,12 @@ import {
 import {
   createNativeCanvaDesign, fetchCanvaDesignPages, fetchCanvaGenerationStatus, defaultBrief, exportCanvaSessionPdf,
   exportCanvaSessionPptx, listCanvaDesignExports, listCanvaDesignSessions,
-  listCanvaSessionVersions, probeCanvaNative, proPdfHandoffPath, saveCanvaDraft,
+  listCanvaSessionVersions, probeCanvaNative, proPdfHandoffPath, saveCanvaDraft, removeGammaDesign,
   type CanvaDesignBrief, type CanvaDesignExportRow, type CanvaDesignSession,
   type CanvaSessionVersionRow,
 } from '@/lib/canvaNativeDesign';
 import { MultiSelect } from '@/components/ui/multi-select';
-import { fetchCaseShowcase, type CaseBrand } from '@/lib/caseShowcase';
+import { fetchCaseShowcase, photoUrls, type CasePhotoProject, type CaseBrand } from '@/lib/caseShowcase';
 import { fetchZones } from '@/lib/solutionsApi';
 import {
   EMPTY_COMPANY_PROFILE,
@@ -582,6 +583,26 @@ export function PresentationView() {
   const [floorZones, setFloorZones] = useState<{ code: string | null; name: string }[]>([]);
   const [floorPresent, setFloorPresent] = useState(false);
   const [caseBrands, setCaseBrands] = useState<CaseBrand[]>([]);
+  const [casePhotoProjects, setCasePhotoProjects] = useState<CasePhotoProject[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchCaseShowcase<CasePhotoProject>('photos', controller.signal).then(result => setCasePhotoProjects(result.items)).catch(error => { if (!controller.signal.aborted) toast.error('完工照片案例載入失敗', { description: errorText(error) }); });
+    return () => controller.abort();
+  }, []);
+  const availableCases = useMemo<CaseBrand[]>(() => [
+    ...caseBrands,
+    ...casePhotoProjects.filter(project => photoUrls(project.completion_photos).length > 0).map(project => ({
+      id: `photo-project:${project.id}`,
+      brand_name_cn: project.real_customer_display_name || project.project_name,
+      brand_name_en: null,
+      company_name: project.real_customer_display_name,
+      display_name: [project.real_customer_display_name || project.project_name, project.project_code].filter(Boolean).join(' · '),
+      branding_icon: null, view_system: null, project_count: 1,
+      recent_projects: [{ id: project.id, project_code: project.project_code, project_name: project.project_name, signed_date: null }],
+      project_type_ids: [], service_type_ids: [], industries: project.industries,
+      filter_projects: [{ signed_date: null, estimated_income: null, furniture_types: project.furniture_types ?? [] }],
+    })),
+  ], [caseBrands, casePhotoProjects]);
   const [caseNote, setCaseNote] = useState('');
   const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
   const reduceMotion = useReducedMotion();
@@ -593,6 +614,7 @@ export function PresentationView() {
     floorZones: [] as { code: string | null; name: string }[],
     floorPresent: false,
     cases: [] as CaseBrand[],
+    photoProjects: [] as CasePhotoProject[],
     caseIds: [] as string[],
     products: [] as SearchProduct[],
   });
@@ -600,7 +622,8 @@ export function PresentationView() {
     company: companyProfile,
     floorZones,
     floorPresent,
-    cases: caseBrands,
+    cases: availableCases,
+    photoProjects: casePhotoProjects,
     caseIds: selectedCaseIds,
     products: selected,
   };
@@ -685,6 +708,7 @@ export function PresentationView() {
   const [outline, setOutline] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<CanvaDesignSession[]>([]);
+  const [designSearch, setDesignSearch] = useState('');
   const [activeSession, setActiveSession] = useState<CanvaDesignSession | null>(null);
   const [versionNote, setVersionNote] = useState('');
   const [versionRows, setVersionRows] = useState<CanvaSessionVersionRow[]>([]);
@@ -881,7 +905,7 @@ export function PresentationView() {
     void fetchCaseShowcase<CaseBrand>('brands')
       .then((result) => {
         if (!cancelled) {
-          setCaseBrands(result.items.slice(0, 40));
+          setCaseBrands(result.items);
           setCaseNote('');
         }
       })
@@ -937,6 +961,8 @@ export function PresentationView() {
       title: briefNow.title.trim() || briefNow.project?.trim() || '',
       client: briefNow.client?.trim() || '',
       includeFloor: state.includeFloor,
+      floorImageUrl: briefNow.floorImageUrl,
+      floorEffectImageUrl: briefNow.floorEffectImageUrl,
       zones: state.zones,
       products: current.products,
       productZone: state.productZone,
@@ -947,6 +973,7 @@ export function PresentationView() {
       services: state.servicesText,
       cases: current.cases.filter((item) => chosen.has(item.id)).map((item) => ({
         id: item.id,
+        photos: [...new Set(current.photoProjects.filter(project => item.recent_projects.some(recent => recent.id === project.id)).flatMap(project => photoUrls(project.completion_photos)))].slice(0, 6),
         title: state.caseDrafts[item.id]?.title ?? (item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例'),
         body: state.caseDrafts[item.id]?.body ?? [
           item.industries?.[0] ? `行業：${item.industries[0]}` : '',
@@ -1402,9 +1429,27 @@ export function PresentationView() {
   }, [ensureDrafts, syncOutline, pendingUploads]);
 
   const openDesignRow = (session: CanvaDesignSession) => {
-    loadSession(session);
     if (session.edit_url) {
       window.open(session.edit_url, '_blank', 'noopener,noreferrer');
+    } else {
+      toast.error('尚未有 Gamma 編輯連結');
+    }
+  };
+
+  const removeDesignRow = async (session: CanvaDesignSession) => {
+    const accepted = await confirm({
+      title: '從 FDS 移除此設計？',
+      description: '此操作會刪除 FDS 的簡報記錄及相關匯出記錄。Gamma 工作區中的原文件不會被刪除。',
+      confirmLabel: '移除',
+      destructive: true,
+    });
+    if (!accepted) return;
+    try {
+      await removeGammaDesign(session.id);
+      setSessions((current) => current.filter((item) => item.id !== session.id));
+      toast.success('已從 FDS 移除');
+    } catch (err) {
+      toast.error('未能移除設計', { description: errorText(err) });
     }
   };
 
@@ -1575,22 +1620,25 @@ export function PresentationView() {
         {rows.map((s) => (
           <li key={s.id}>
             <div className="flex items-start gap-1 rounded-xl hover:bg-muted/60">
-              <button type="button" onClick={() => { loadSession(s); setListDrawer(null); setWizardStep(4); }} className="flex min-w-0 flex-1 items-start gap-3 px-1 py-2 text-left">
+              <button type="button" onClick={() => openDesignRow(s)} className="flex min-w-0 flex-1 items-start gap-3 px-1 py-2 text-left">
                 <DesignThumbnail url={sessionThumbnail(s)} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
+                  <span title={sessionTitle(s)} className="block truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
                   <span className="mt-0.5 block truncate text-xs text-muted-foreground">{designStatusLine(s)}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">FDS 更新：{formatRecentTime(s.updated_at || s.created_at)}</span>
                 </span>
               </button>
-              <button
-                type="button"
-                className="mt-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-                aria-label={`開啟 ${sessionTitle(s)}`}
-                onClick={() => openDesignRow(s)}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="mt-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`${sessionTitle(s)} 的操作`}><MoreHorizontal className="h-4 w-4" /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled={!s.edit_url} onSelect={() => openDesignRow(s)}>在 Gamma 編輯</DropdownMenuItem>
+                  <DropdownMenuItem disabled={!s.edit_url} onSelect={() => { void navigator.clipboard.writeText(s.edit_url!).then(() => toast.success('已複製連結')).catch(() => toast.error('無法複製連結')); }}>複製連結</DropdownMenuItem>
+                  <DropdownMenuItem disabled={!s.export_download_url} onSelect={() => { if (s.export_download_url) window.open(s.export_download_url, '_blank', 'noopener,noreferrer'); }}>下載首次生成的 PPTX</DropdownMenuItem>
+                  {s.populate_report?.provider === 'gamma' && <DropdownMenuItem className="text-destructive" onSelect={() => { void removeDesignRow(s); }}>從 FDS 移除</DropdownMenuItem>}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </li>
         ))}
@@ -1792,7 +1840,7 @@ export function PresentationView() {
                     aria-describedby="presentation-page-count-hint"
                     placeholder="12"
                   />
-                    <span id="presentation-page-count-hint" className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 whitespace-nowrap text-xs text-muted-foreground">建議 8–20 頁</span>
+                    <span id="presentation-page-count-hint" className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 whitespace-nowrap text-xs text-muted-foreground">含最後 3 頁</span>
                   </div>
                 </Field>
               </div>
@@ -1878,7 +1926,7 @@ export function PresentationView() {
                           const sourceZones = [...zones];
                           const response = await fetch(brief.floorImageUrl!);
                           if (!response.ok) throw new Error('無法讀取原始平面圖');
-                          const result = await cropPresentationFloorPlan(await response.blob(), sourceZones.map((zone) => ({ name: zone.name, rect: presentationZoneBounds(zone.rects ?? (zone.rect ? [zone.rect] : [])) })));
+                          const result = await cropPresentationFloorPlan(await response.blob(), sourceZones.map((zone) => ({ name: zone.name, rect: presentationZoneBounds(zone.rects ?? (zone.rect ? [zone.rect] : [])), rects: zone.rects })));
                           if (request !== floorRecognitionRequest.current) return;
                           const images = new Map(sourceZones.map((zone, index) => [zone.id, result.zones[index]?.imageUrl]));
                           setZones((current) => current.map((zone) => images.get(zone.id) ? { ...zone, imageUrl: images.get(zone.id) } : zone));
@@ -1925,6 +1973,7 @@ export function PresentationView() {
                 <div className="rounded-xl border border-border p-3">
                   <p className="mb-2 text-sm font-medium">俯視效果圖 · AI 生成，僅供設計參考，請核對原圖佈局</p>
                   <LoadingImage src={brief.floorEffectImageUrl} alt="平面圖俯視效果圖" className="max-h-[480px] w-full" imgClassName="object-contain" />
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">生成簡報時，「項目平面圖」頁會用這張效果圖取代原本的平面圖。</p>
                 </div>
               ) : null}
               {zoneManagerOpen ? <PresentationZoneManager zones={zones} floorUrl={brief.floorImageUrl} onClose={() => setZoneManagerOpen(false)} onSave={(next) => {
@@ -1939,7 +1988,7 @@ export function PresentationView() {
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-foreground">公司介紹</p>
-                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">資質與服務內容將會出現在大綱末段。</p>
+                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">簡報末尾預留服務承諾、資質及公司介紹三頁；未填內容會標示待補充。</p>
                   </div>
                 </div>
                 <Button type="button" variant="outline" className="bg-white dark:bg-background" disabled={disabled} onClick={() => {
@@ -1953,13 +2002,13 @@ export function PresentationView() {
               </div>
               <Field label="參考案例（最多 8 個）" counter={`${selectedCaseIds.length}/8`}>
                 {caseNote ? <p className="text-sm text-destructive">{caseNote}</p> : (
-                  <MultiSelect label="參考案例" placeholder={caseBrands.length ? '搜尋並選擇參考案例' : '沒有可選案例'}
-                    options={caseBrands.map((item) => ({
+                  <MultiSelect label="參考案例" placeholder={availableCases.length ? '搜尋案例名稱或項目編號' : '沒有可選案例'}
+                    options={availableCases.map((item) => ({
                       value: item.id,
                       label: item.display_name || item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
-                      description: item.industries?.join(' · '),
+                      description: [item.id.startsWith('photo-project:') ? '有完工照片' : '', item.industries?.join(' · '), ...item.recent_projects.map(project => project.project_name)].filter(Boolean).join(' · '),
                     }))}
-                    value={selectedCaseIds} onValueChange={setSelectedCaseIds} maxSelected={8} disabled={disabled || !caseBrands.length} />
+                    value={selectedCaseIds} onValueChange={setSelectedCaseIds} maxSelected={8} disabled={disabled || !availableCases.length} />
                 )}
               </Field>
               <Field label="簡報原文" counter={`${contentCount}/${CONTENT_MAX}`}>
@@ -2361,8 +2410,9 @@ export function PresentationView() {
               共 {listDrawer === 'designs' ? designSessions.length : draftSessions.length} 筆
             </SheetDescription>
           </SheetHeader>
+          {listDrawer === 'designs' && <div className="px-4 pt-3"><Input aria-label="搜尋 Gamma 設計" placeholder="搜尋設計名稱" value={designSearch} onChange={(event) => setDesignSearch(event.target.value)} /></div>}
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            {listDrawer === 'designs' ? designList(designSessions) : draftList(draftSessions)}
+            {listDrawer === 'designs' ? designList(designSessions.filter((session) => sessionTitle(session).toLocaleLowerCase().includes(designSearch.trim().toLocaleLowerCase()))) : draftList(draftSessions)}
           </div>
         </SheetContent>
       </Sheet>

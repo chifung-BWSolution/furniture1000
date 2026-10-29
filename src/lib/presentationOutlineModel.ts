@@ -30,6 +30,7 @@ export interface PresentationProductDraft {
 }
 
 export interface PresentationCaseDraft {
+  photos?: string[];
   id: string;
   title: string;
   body: string;
@@ -39,6 +40,10 @@ export interface PresentationOutlineInput {
   title: string;
   client: string;
   includeFloor: boolean;
+  /** Original line-drawing floor plan. Only a layout reference when the AI render exists. */
+  floorImageUrl?: string;
+  /** AI top-down render. Replaces the line drawing as the floor-plan page hero image. */
+  floorEffectImageUrl?: string;
   zones: PresentationZoneDraft[];
   products: SearchProduct[];
   productZone: Record<string, string>;
@@ -103,17 +108,13 @@ export function presentationOutlineMarkdown(input: PresentationOutlineInput): st
     ].filter(Boolean),
   ].join('\n'));
 
-  const intro = input.companyIntro.trim();
-  if (intro) {
-    blocks.push([heading('公司介紹'), intro].join('\n'));
-  }
-
   if (input.includeFloor) {
     const names = input.zones.map((zone) => zone.name.trim()).filter(Boolean);
     blocks.push([
       heading('項目平面圖'),
-      names.length ? names.map((name) => `- ${name}`).join('\n') : '已有整體平面圖。',
-    ].join('\n'));
+      line('頁面主圖', input.floorEffectImageUrl?.trim() ? 'AI 俯視效果圖（取代原本平面圖）' : '整體平面圖'),
+      line('分區', names.length ? names.join('、') : ''),
+    ].filter(Boolean).join('\n'));
   }
 
   const unzoned = input.products.filter((product) => !input.zones.some((zone) => zone.id === input.productZone[product.id]));
@@ -121,25 +122,26 @@ export function presentationOutlineMarkdown(input: PresentationOutlineInput): st
     const name = zone.name.trim() || '未命名分區';
     const slideTitle = zone.chapterTitle?.trim() || name;
     blocks.push([
-      heading(slideTitle),
+      heading(`分區封面｜${slideTitle}`),
       line('分區', name),
+      zone.imageUrl?.trim() ? '頁面圖片：此分區的平面圖截圖' : '',
       line('房間描述', zone.roomNote ?? ''),
     ].filter(Boolean).join('\n'));
     for (const product of input.products) {
       if (input.productZone[product.id] !== zone.id) continue;
       const draft = draftFor(product, input.drafts);
       const image = draft.sampleImageUrl.trim() || draft.imageUrl.trim();
+      const sample = draft.sampleImageUrl.trim();
       const body = [
         line('展示名稱', draft.displayName),
         line('型號', draft.model),
-        image ? '產品圖：需在 Canva 中補上所選圖片' : '',
-        draft.sampleImageUrl.trim() ? '示例圖：僅供參考' : '',
+        image ? (sample ? '產品圖：使用此產品的 AI 生成示例圖（僅供參考，優先於原圖）' : '產品圖：使用此產品的原圖') : '',
         line('描述', draft.description),
         line('賣點', draft.sellingPoints),
         line('市場價', draft.marketPrice),
         line('項目優惠價', draft.projectPrice),
       ].filter(Boolean);
-      blocks.push([heading(`${name}｜${draft.displayName.trim() || '未命名產品'}`), ...body].join('\n'));
+      blocks.push([heading(`產品頁｜${name}｜${draft.displayName.trim() || '未命名產品'}`), ...body].join('\n'));
     }
   }
 
@@ -150,25 +152,22 @@ export function presentationOutlineMarkdown(input: PresentationOutlineInput): st
   for (const item of input.cases) {
     const title = item.title.trim();
     if (!title && !item.body.trim()) continue;
-    blocks.push([heading(title || '參考案例'), item.body.trim()].filter(Boolean).join('\n'));
+    blocks.push([heading(title || '參考案例'), item.body.trim(), ...(item.photos ?? []).map(url => `完工照片：${url}`)].filter(Boolean).join('\n'));
   }
 
-  if (input.qualifications.trim()) {
-    blocks.push([heading('公司資質'), input.qualifications.trim()].join('\n'));
-  }
-  if (input.services.trim()) {
-    blocks.push([heading('服務介紹'), input.services.trim()].join('\n'));
-  }
+  blocks.push([heading('服務承諾'), input.services.trim() || '內容待補充'].join('\n'));
+  blocks.push([heading('資質'), input.qualifications.trim() || '內容待補充'].join('\n'));
+  blocks.push([heading('公司介紹'), input.companyIntro.trim() || '內容待補充'].join('\n'));
   return blocks.join('\n\n');
 }
 
 export function presentationGenerateBlock(input: PresentationOutlineInput): string | null {
   if (!input.title.trim()) return '請填寫項目名稱。';
   if (!input.client.trim()) return '請填寫客戶名稱。';
-  const sections = 1 + Number(Boolean(input.companyIntro.trim())) + Number(input.includeFloor)
+  const sections = 1 + Number(input.includeFloor)
     + input.zones.length + input.products.length
     + input.cases.filter((item) => item.title.trim() || item.body.trim()).length
-    + Number(Boolean(input.qualifications.trim())) + Number(Boolean(input.services.trim()));
+    + 3;
   if (sections > 100) return '大綱超過 Canva 的 100 頁上限，請減少分區、產品或案例。';
   if (input.zones.filter((zone) => zone.name.trim()).length === 0) return '請先建立至少一個分區。';
   for (const product of input.products) {

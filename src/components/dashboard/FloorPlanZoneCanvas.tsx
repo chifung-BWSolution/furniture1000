@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { X } from 'lucide-react';
+import { Copy, X } from 'lucide-react';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { blankZoneManagerRow, MAX_FLOOR_PLAN_ZONES, normalizeZoneRect, type QuoteZoneRect, type ZoneManagerRow } from '@/lib/quoteFloorPlan';
 
@@ -26,6 +26,8 @@ type FloorPlanZoneCanvasProps = {
   disabled?: boolean;
   deleteLabel?: string;
   className?: string;
+  onCopyRegion?: (id: string) => void;
+  regionDisplay?: (id: string, index: number) => { colorIndex: number; number: number };
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -95,6 +97,8 @@ export function FloorPlanZoneCanvas({
   disabled = false,
   deleteLabel = '刪除空間',
   className,
+  onCopyRegion,
+  regionDisplay,
 }: FloorPlanZoneCanvasProps) {
   const maskId = useId().replace(/:/g, '');
   const frameRef = useRef<HTMLDivElement>(null);
@@ -133,7 +137,7 @@ export function FloorPlanZoneCanvas({
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled || !ready || event.button !== 0) return;
-    if ((event.target as HTMLElement).closest('[data-zone-delete]')) return;
+    if ((event.target as HTMLElement).closest('[data-zone-delete], [data-zone-copy]')) return;
     const frame = frameRef.current;
     if (!frame) return;
     const point = pointerPct(event, frame);
@@ -269,7 +273,8 @@ export function FloorPlanZoneCanvas({
             </svg>
             {zones.map((zone, index) => {
               if (!zone.rect) return null;
-              const color = floorPlanZoneColor(index);
+              const display = regionDisplay?.(zone.id, index) ?? { colorIndex: index, number: index + 1 };
+              const color = floorPlanZoneColor(display.colorIndex);
               const active = zone.id === activeId;
               return (
                 <div
@@ -305,7 +310,7 @@ export function FloorPlanZoneCanvas({
                     className="pointer-events-none absolute left-1/2 top-1/2 z-[1] flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full font-body text-xs font-semibold leading-none text-white shadow-sm"
                     style={{ background: color }}
                   >
-                    {index + 1}
+                    {display.number}
                   </span>
                   {(['nw', 'ne', 'sw', 'se'] as Corner[]).map((corner) => (
                     <span
@@ -320,6 +325,10 @@ export function FloorPlanZoneCanvas({
                       }}
                     />
                   ))}
+                  {!disabled && onCopyRegion ? <button type="button" data-zone-copy={zone.id} aria-label="複製區域"
+                    className="absolute -left-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-white text-primary shadow"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => { event.stopPropagation(); onCopyRegion(zone.id); }}><Copy className="h-3 w-3" /></button> : null}
                   {disabled ? null : (
                     <button
                       type="button"

@@ -172,6 +172,10 @@ export async function createNativeCanvaDesign(sessionId: string): Promise<CanvaD
   return invoke({ action: 'create_native', session_id: sessionId });
 }
 
+export async function removeGammaDesign(sessionId: string): Promise<void> {
+  await invoke({ action: 'remove_design', session_id: sessionId });
+}
+
 export async function exportCanvaSessionPptx(sessionId: string): Promise<{
   export_download_url: string;
   export_job_id: string;
