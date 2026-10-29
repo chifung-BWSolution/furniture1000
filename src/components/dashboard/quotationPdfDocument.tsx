@@ -38,6 +38,7 @@ import {
   PDF_COLORS,
   PDF_CONTENT_HEIGHT_PT,
   PDF_CONTENT_WIDTH_PT,
+  PDF_FOOTER_BOTTOM_PT,
   PDF_FOOTER_HEIGHT_PT,
   PDF_PAGE_MARGIN,
   PDF_TABLE,
@@ -1710,12 +1711,15 @@ export function QuotationDocument({
     <View
       style={{
         position: 'absolute',
-        left: 0,
-        right: 0,
+        // 絕對定位的基準是「頁面外框」，Page 的 paddingHorizontal 不會替它讓位：
+        // left/right 給 0 會讓報價單號與頁碼直接貼在裁切邊上（左右 0mm）。
+        // 所以這裡自己讓出左右頁邊距，頁尾才會跟表格左右邊對齊。
+        left: PDF_PAGE_MARGIN.xPt,
+        right: PDF_PAGE_MARGIN.xPt,
         // bottom: 0 會把 footer 放到換行區（wrapArea = 頁高 − paddingBottom）之外，
         // react-pdf 分頁引擎的 isOutside 規則會把它整個搬到下一頁（產生孤兒頁）。
         // 抬到底邊距之上，使其 nodeTop + height 落在 wrapArea 內。
-        bottom: 35,
+        bottom: PDF_FOOTER_BOTTOM_PT,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'flex-end',
