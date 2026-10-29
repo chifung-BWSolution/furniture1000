@@ -262,14 +262,14 @@ export function PresentationOutlineStep({
     } finally { setSamplingId(null); }
   }
 
-  async function correctAll() {
+  async function correctAll(imagesOnly = false) {
     if (batchRunning || samplingId || !active) return;
     const targetZone = active;
     const targetProducts = [...activeProducts];
     setBatchRunning(true);
     onProcessing?.(1);
     styleAnchor.current = null;
-    const total = targetProducts.length * 2 + 1;
+    const total = imagesOnly ? targetProducts.length : targetProducts.length * 2 + 1;
     let done = 0;
     let success = 0;
     setBeautifyProgress({ done, total, label: `準備美化房間：${targetZone.name}` });
@@ -301,8 +301,8 @@ export function PresentationOutlineStep({
         await runPresentationQueue(remaining, 2, updateImage);
       };
       await Promise.all([
-        runPresentationQueue(targetProducts, 2, updateCopy),
-        updateRoom(),
+        imagesOnly ? Promise.resolve() : runPresentationQueue(targetProducts, 2, updateCopy),
+        imagesOnly ? Promise.resolve() : updateRoom(),
         updateImages(),
       ]);
       step('美化完成');
@@ -468,7 +468,11 @@ export function PresentationOutlineStep({
               </div>
               <div>
                 <p className="text-sm font-semibold">已選產品（{activeProducts.length}）</p>
-                <Button type="button" variant="outline" disabled={disabled || samplingId !== null || !active} onClick={() => void correctAll()}>{batchRunning ? '正在美化圖片與文案…' : '一鍵美化當前房間'}</Button>
+                <div className="mt-3 flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" disabled={disabled || samplingId !== null || !active} onClick={() => void correctAll()}>一鍵美化全部</Button>
+                    <Button type="button" variant="outline" disabled={disabled || samplingId !== null || !active || !activeProducts.length} onClick={() => void correctAll(true)}>美化圖片</Button>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">僅處理當前房間；全部包含圖片、產品文案及房間描述。</p>
                 <p className="text-xs text-muted-foreground">統一木色與柔和日光，參考所屬分區平面圖，保留產品外觀。</p>
 
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
