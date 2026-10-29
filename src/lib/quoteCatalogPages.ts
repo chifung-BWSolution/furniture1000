@@ -135,6 +135,19 @@ export function parseCatalogCrop(value: unknown): QuoteCatalogCrop | null {
 
 const SLUGS = ['supabase-functions-quote-catalog-pages', 'quote-catalog-pages'];
 
+/**
+ * 縮圖一次要打幾批 edge，每批都重新 `getUser()`＋`getSession()` 會拖慢而且容易在
+ * 登入狀態剛恢復時失敗。這裡記住 60 秒內的 token，401 才重新取一次。
+ */
+let tokenCache: { token: string; at: number } | null = null;
+
+async function catalogRequestToken(refresh = false): Promise<string> {
+  if (!refresh && tokenCache && Date.now() - tokenCache.at < 60_000) return tokenCache.token;
+  const token = await requireUserAccessToken();
+  tokenCache = { token, at: Date.now() };
+  return token;
+}
+
 export function parseQuoteCatalogPages(value: unknown): QuoteCatalogPage[] {
   if (!Array.isArray(value)) return [];
   const pages: QuoteCatalogPage[] = [];
@@ -274,39 +287,51 @@ export async function listQuoteCatalogs(query: string): Promise<QuoteCatalogOpti
 export async function fetchQuoteCatalogPdf(
   pages: Pick<QuoteCatalogPage, 'documentId' | 'pageNo'>[],
 ): Promise<ArrayBuffer> {
-  const token = await requireUserAccessToken();
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
   const body = JSON.stringify({
     pages: pages.map((page) => ({ documentId: page.documentId, pageNo: page.pageNo })),
   });
-  let lastError = '圖冊頁未能讀取';
-  for (const slug of SLUGS) {
-    const res = await fetch(`${supabaseUrl}/functions/v1/${slug}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        apikey: anonKey,
-      },
-      body,
-    });
-    if (res.status === 404) continue;
-    if (!res.ok) {
-      const text = await res.text();
-      try {
-        lastError = (JSON.parse(text) as { error?: string }).error || lastError;
-      } catch {
-        lastError = text.slice(0, 180) || lastError;
+
+  const request = async (token: string) => {
+    let lastError = '圖冊頁未能讀取';
+    for (const slug of SLUGS) {
+      const res = await fetch(`${supabaseUrl}/functions/v1/${slug}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: anonKey,
+        },
+        body,
+      });
+      if (res.status === 404) continue;
+      if (!res.ok) {
+        const text = await res.text();
+        try {
+          lastError = (JSON.parse(text) as { error?: string }).error || lastError;
+        } catch {
+          lastError = text.slice(0, 180) || lastError;
+        }
+        if (lastError === 'permission_denied') lastError = '沒有權限讀取圖冊頁';
+        if (lastError === 'page_out_of_range') lastError = '所選頁碼超出圖冊頁數';
+        if (lastError === 'catalog_not_found') lastError = '找不到這份圖冊';
+        return { status: res.status, error: lastError, bytes: null as ArrayBuffer | null };
       }
-      if (lastError === 'permission_denied') lastError = '沒有權限讀取圖冊頁';
-      if (lastError === 'page_out_of_range') lastError = '所選頁碼超出圖冊頁數';
-      if (lastError === 'catalog_not_found') lastError = '找不到這份圖冊';
-      throw new Error(lastError);
+      return { status: res.status, error: null, bytes: await res.arrayBuffer() };
     }
-    return res.arrayBuffer();
+    return { status: 404, error: lastError, bytes: null as ArrayBuffer | null };
+  };
+
+  const first = await request(await catalogRequestToken());
+  if (first.bytes) return first.bytes;
+  // token 剛過期時 getSession 仍可能回舊值：清掉快取再試一次。
+  if (first.status === 401) {
+    const retried = await request(await catalogRequestToken(true));
+    if (retried.bytes) return retried.bytes;
+    throw new Error('登入已過期，請重新整理再試');
   }
-  throw new Error(lastError);
+  throw new Error(first.error ?? '圖冊頁未能讀取');
 }
 
 function catalogSourceKey(page: Pick<QuoteCatalogPage, 'documentId' | 'pageNo'>): string {

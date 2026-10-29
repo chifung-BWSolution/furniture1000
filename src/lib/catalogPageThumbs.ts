@@ -20,8 +20,8 @@ export interface CatalogPageThumb {
 /** 縮圖最大寬度（px）。A4 直向約 360 × 509，跨頁約 360 × 246。 */
 export const CATALOG_THUMB_WIDTH = 360;
 const THUMB_QUALITY = 0.72;
-/** edge 一次最多 24 頁；留一點餘裕，也讓第一批早點畫出來。 */
-const BATCH_SIZE = 8;
+/** edge 一次最多 24 頁；圖冊單頁 0.3–1.3 MB，每批 3 頁讓第一排縮圖早點出現。 */
+const BATCH_SIZE = 3;
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_ENTRIES = 400;
 
@@ -87,39 +87,95 @@ async function writeStored(documentId: string, pageNo: number, thumb: CatalogPag
   }
 }
 
+/** 最近一次失敗原因（給對話框顯示，不再只是一個壞掉的圖片圖示）。 */
+const failures = new Map<string, string>();
+
+export function catalogThumbFailure(documentId: string): string | null {
+  for (const [key, message] of failures) {
+    if (key.startsWith(`${documentId}#`)) return message;
+  }
+  return null;
+}
+
+export function clearCatalogThumbFailure(documentId: string): void {
+  for (const key of [...failures.keys()]) {
+    if (key.startsWith(`${documentId}#`)) failures.delete(key);
+  }
+}
+
+function describeError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/401|unauthor|請先登入/i.test(message)) return '登入已過期，請重新整理再試';
+  if (/abort|network|fetch/i.test(message)) return '網絡中斷，請再試一次';
+  if (/429|rate/i.test(message)) return '讀取太頻繁，請稍後再試';
+  return message.slice(0, 120) || '縮圖未能讀取';
+}
+
+/** 一批失敗時逐頁再試一次：一頁壞不要拖累其餘七頁。 */
+async function renderBatch(documentId: string, pageNos: number[]): Promise<Map<number, CatalogPageThumb>> {
+  const done = new Map<number, CatalogPageThumb>();
+  const bytes = await fetchQuoteCatalogPdf(pageNos.map((pageNo) => ({ documentId, pageNo })));
+  const thumbs = await renderQuotePdfThumbnails(bytes, {
+    maxWidth: CATALOG_THUMB_WIDTH,
+    quality: THUMB_QUALITY,
+  });
+  pageNos.forEach((pageNo, index) => {
+    const thumb = thumbs[index];
+    if (thumb) done.set(pageNo, thumb);
+  });
+  return done;
+}
+
 async function flush(documentId: string): Promise<void> {
   const jobs = queues.get(documentId) ?? [];
   queues.delete(documentId);
   for (let start = 0; start < jobs.length; start += BATCH_SIZE) {
     const batch = jobs.slice(start, start + BATCH_SIZE);
+    let done = new Map<number, CatalogPageThumb>();
+    let batchError: unknown = null;
     try {
-      const bytes = await fetchQuoteCatalogPdf(
-        batch.map((job) => ({ documentId, pageNo: job.pageNo })),
-      );
-      const thumbs = await renderQuotePdfThumbnails(bytes, {
-        maxWidth: CATALOG_THUMB_WIDTH,
-        quality: THUMB_QUALITY,
-      });
-      batch.forEach((job, index) => {
-        const thumb = thumbs[index] ?? null;
-        if (!thumb) {
-          job.resolve(null);
-          return;
-        }
-        memory.set(cacheKey(documentId, job.pageNo), thumb);
+      done = await renderBatch(documentId, batch.map((job) => job.pageNo));
+    } catch (err) {
+      batchError = err;
+    }
+    for (const job of batch) {
+      const thumb = done.get(job.pageNo);
+      const key = cacheKey(documentId, job.pageNo);
+      if (thumb) {
+        memory.set(key, thumb);
+        failures.delete(key);
         void writeStored(documentId, job.pageNo, thumb);
+        inFlight.delete(key);
         job.resolve(thumb);
-      });
-    } catch {
-      batch.forEach((job) => job.resolve(null));
-    } finally {
-      batch.forEach((job) => inFlight.delete(cacheKey(documentId, job.pageNo)));
+        continue;
+      }
+      // 整批失敗時逐頁重試一次，避免一個壞頁拖累同一批其他頁。
+      if (batchError && batch.length > 1) {
+        try {
+          const single = await renderBatch(documentId, [job.pageNo]);
+          const retried = single.get(job.pageNo);
+          if (retried) {
+            memory.set(key, retried);
+            failures.delete(key);
+            void writeStored(documentId, job.pageNo, retried);
+            inFlight.delete(key);
+            job.resolve(retried);
+            continue;
+          }
+        } catch (err) {
+          batchError = err;
+        }
+      }
+      failures.set(key, describeError(batchError ?? new Error('這一頁未能讀取')));
+      inFlight.delete(key);
+      job.resolve(null);
     }
   }
 }
 
 /**
- * 一頁縮圖。同一個 tick 內的多個請求會合成一批（每個文件最多 8 頁一次），
+ * 一頁縮圖。同一個 tick 內的多個請求會合成一批（每個文件最多 4 頁一次；
+ * 圖冊一頁 0.3–1.3 MB，小批才不會開一次彈窗就下載二十 MB），
  * 同一頁重複請求會共用同一個 promise。
  */
 export function getCatalogPageThumb(documentId: string, pageNo: number): Promise<CatalogPageThumb | null> {

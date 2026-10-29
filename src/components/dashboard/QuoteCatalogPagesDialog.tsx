@@ -39,9 +39,10 @@ import {
   type QuoteCatalogSplit,
 } from '@/lib/quoteCatalogPages';
 import {
+  clearCatalogThumbFailure,
+  catalogThumbFailure,
   loadCatalogPageThumb,
   peekCatalogPageThumb,
-  primeCatalogPageThumbs,
   type CatalogPageThumb as CatalogThumb,
 } from '@/lib/catalogPageThumbs';
 import { renderQuotePdfPages } from '@/lib/quotationPdfCanvas';
@@ -60,8 +61,8 @@ interface PagePreview {
   height: number;
 }
 
-/** 一屏 16 張，跟原本的清單密度一致。 */
-const PAGES_PER_VIEW = 16;
+/** 一屏 12 張：圖冊一頁 0.3–1.3 MB，一屏越多第一排縮圖越遲出現。 */
+const PAGES_PER_VIEW = 12;
 
 function pageFromCatalog(
   catalog: QuoteCatalogOption,
@@ -131,17 +132,22 @@ function CatalogPageThumb({
   className,
   imgClassName = 'object-contain',
   onSize,
+  onFail,
 }: {
   documentId: string;
   pageNo: number;
   className?: string;
   imgClassName?: string;
   onSize?: (thumb: CatalogThumb) => void;
+  onFail?: () => void;
 }) {
   const { thumb, failed } = useCatalogThumb(documentId, pageNo);
   const sizeHandler = useRef(onSize);
   sizeHandler.current = onSize;
+  const failHandler = useRef(onFail);
+  failHandler.current = onFail;
   const reported = useRef<string>('');
+  const reportedFail = useRef(false);
 
   useEffect(() => {
     if (!thumb) return;
@@ -151,6 +157,12 @@ function CatalogPageThumb({
     sizeHandler.current?.(thumb);
   }, [thumb, documentId, pageNo]);
 
+  useEffect(() => {
+    if (!failed || reportedFail.current) return;
+    reportedFail.current = true;
+    failHandler.current?.();
+  }, [failed]);
+
   if (failed) {
     return (
       <span className={cn('flex items-center justify-center bg-muted/60', className)} aria-hidden>
@@ -159,8 +171,11 @@ function CatalogPageThumb({
     );
   }
   if (!thumb) {
+    // 骨架要看得到（白底頁面卡上白底骨架等於空白），用 muted 底加脈衝。
     return (
-      <span className={cn('block animate-pulse bg-primary/10', className)} aria-hidden />
+      <span className={cn('flex items-center justify-center overflow-hidden bg-muted', className)} aria-hidden>
+        <span className="block h-full w-full animate-pulse bg-primary/10" />
+      </span>
     );
   }
   return (
@@ -235,6 +250,9 @@ export function QuoteCatalogPagesDialog({
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [shapeByDocument, setShapeByDocument] = useState<Record<string, 'spread' | 'page'>>({});
+  /** 縮圖失敗時顯示原因與重試，不要只出一個壞掉的圖片圖示。 */
+  const [thumbError, setThumbError] = useState<string | null>(null);
+  const [thumbRetry, setThumbRetry] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -350,8 +368,7 @@ export function QuoteCatalogPagesDialog({
     });
   }, [open, shapeByDocument]);
 
-  const totalPages = active?.page_count && active.page_count > 0 ? active.page_count : null;
-  const pageViewCount = totalPages ? Math.max(1, Math.ceil(totalPages / PAGES_PER_VIEW)) : 1;
+  const totalPages = active?.page_count && active.page_count > 0 ? active.page_count : null;  const pageViewCount = totalPages ? Math.max(1, Math.ceil(totalPages / PAGES_PER_VIEW)) : 1;
   const currentPageView = Math.min(pageView, pageViewCount);
   const pageNumbers = totalPages
     ? Array.from(
@@ -360,18 +377,7 @@ export function QuoteCatalogPagesDialog({
       )
     : [];
 
-  // 先把下一屏的縮圖排進隊列，按下一頁時不用等。
-  useEffect(() => {
-    if (!open || !activeIdResolved || pageNumbers.length === 0) return;
-    const nextStart = currentPageView * PAGES_PER_VIEW + 1;
-    if (!totalPages || nextStart > totalPages) return;
-    const nextPages = Array.from(
-      { length: Math.min(PAGES_PER_VIEW, totalPages - nextStart + 1) },
-      (_, index) => nextStart + index,
-    );
-    const timer = window.setTimeout(() => primeCatalogPageThumbs(activeIdResolved, nextPages), 400);
-    return () => window.clearTimeout(timer);
-  }, [open, activeIdResolved, currentPageView, pageNumbers.length, totalPages]);
+  // 不預取下一屏：一頁 0.3–1.3 MB，背景預取會多下載十幾 MB，反而拖慢目前這一屏。
 
   const addPages = (additions: QuoteCatalogPage[]) => {
     setError(null);
@@ -496,6 +502,18 @@ export function QuoteCatalogPagesDialog({
     () => new Set(draftPages.map((page) => `${page.documentId}#${page.pageNo}`)),
     [draftPages],
   );
+
+  const reportThumbFailure = (documentId: string) => {
+    setThumbError(catalogThumbFailure(documentId) ?? '縮圖未能讀取');
+  };
+
+  const retryThumbs = () => {
+    if (!activeIdResolved) return;
+    clearCatalogThumbFailure(activeIdResolved);
+    setThumbError(null);
+    setThumbRetry((token) => token + 1);
+  };
+
   const step = !active ? 1 : draftPages.length === 0 ? 2 : 3;
   const pagerItems = pagerWindow(currentPageView, pageViewCount);
 
@@ -515,7 +533,7 @@ export function QuoteCatalogPagesDialog({
     >
       <StepHeader current={step} />
 
-      <div className="grid gap-3 lg:h-[62vh] lg:grid-cols-[236px_minmax(0,1fr)_264px]">
+      <div className="grid gap-3 lg:h-[62vh] lg:grid-cols-[232px_minmax(0,1fr)_300px]">
         {/* ── 1. 圖冊 ─────────────────────────────────────────── */}
         <section className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
           <header className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -596,10 +614,12 @@ export function QuoteCatalogPagesDialog({
                     )}
                   >
                     <CatalogPageThumb
+                      key={`${catalog.id}-${thumbRetry}`}
                       documentId={catalog.id}
                       pageNo={1}
                       className="h-14 w-11 shrink-0 overflow-hidden rounded border border-border/60 bg-white"
                       onSize={(thumb) => rememberShape(catalog.id, thumb)}
+                      onFail={() => reportThumbFailure(catalog.id)}
                     />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-start justify-between gap-1">
@@ -644,6 +664,19 @@ export function QuoteCatalogPagesDialog({
             ) : null}
           </header>
 
+          {thumbError ? (
+            <p className="flex items-center gap-2 border-b border-border/70 bg-destructive/5 px-3 py-1.5 text-[11px] text-destructive">
+              縮圖載入失敗：{thumbError}
+              <button
+                type="button"
+                onClick={retryThumbs}
+                className="rounded border border-destructive/40 px-1.5 py-0.5 font-medium hover:bg-destructive/10"
+              >
+                重試
+              </button>
+            </p>
+          ) : null}
+
           <div className="min-h-0 flex-1 overflow-auto px-2.5 py-2">
             {!active ? (
               <p className="py-8 text-center text-xs text-muted-foreground">請先在左邊選擇一份圖冊。</p>
@@ -665,7 +698,7 @@ export function QuoteCatalogPagesDialog({
                   const picked = draftPageSet.has(`${active.id}#${pageNo}`);
                   return (
                     <button
-                      key={pageNo}
+                      key={`${pageNo}-${thumbRetry}`}
                       type="button"
                       onClick={() => toggleWholePage(active, pageNo)}
                       onDoubleClick={() => void showWholePage(pageFromCatalog(active, pageNo))}
@@ -681,6 +714,7 @@ export function QuoteCatalogPagesDialog({
                           'w-full overflow-hidden rounded bg-white',
                           activeIsSpread ? 'aspect-[4/3]' : 'aspect-[3/4]',
                         )}
+                        onFail={() => reportThumbFailure(active.id)}
                       />
                       <span className="mt-1 flex items-center justify-between px-0.5">
                         <span className={cn('text-[11px]', picked ? 'font-semibold text-primary' : 'text-muted-foreground')}>
@@ -860,32 +894,38 @@ export function QuoteCatalogPagesDialog({
             ) : (
               draftPages.map((page, index) => (
                 <div key={catalogPageKey(page)} className="flex items-start gap-1.5 rounded-lg border border-border p-1">
-                  <CatalogPageThumb
-                    documentId={page.documentId}
-                    pageNo={page.pageNo}
-                    className="h-11 w-8 shrink-0 overflow-hidden rounded border border-border/60 bg-white"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => void showPiece(page)}
+                    title="預覽這一張"
+                    className="shrink-0"
+                  >
+                    <CatalogPageThumb
+                      documentId={page.documentId}
+                      pageNo={page.pageNo}
+                      className="h-11 w-8 overflow-hidden rounded border border-border/60 bg-white"
+                    />
+                  </button>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[11px] font-medium text-foreground">第 {page.pageNo} 頁</p>
-                    <p className="truncate text-[11px] text-muted-foreground">
-                      {catalogPageBadge(page)}
+                    <p className="truncate text-[11px] font-medium text-foreground">
+                      第 {page.pageNo} 頁
+                      <span className="ml-1 rounded bg-muted px-1 py-px text-[10px] font-normal text-muted-foreground">
+                        {catalogPageBadge(page)}
+                      </span>
                     </p>
                     <p className="truncate text-[10px] text-muted-foreground/80" title={catalogPageLabel(page)}>
                       {[page.factoryName, page.series, page.title].filter(Boolean).join(' · ') || page.factoryName}
                     </p>
                   </div>
-                  <div className="flex flex-col items-center">
-                    <button type="button" onClick={() => movePage(index, -1)} aria-label="上移" className="text-muted-foreground hover:text-foreground">
-                      <ChevronUp className="h-3.5 w-3.5" />
-                    </button>
-                    <button type="button" onClick={() => movePage(index, 1)} aria-label="下移" className="text-muted-foreground hover:text-foreground">
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <button type="button" onClick={() => void showPiece(page)} className="text-[10px] text-muted-foreground hover:text-foreground">
-                      預覽
-                    </button>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <div className="flex items-center">
+                      <button type="button" onClick={() => movePage(index, -1)} aria-label="上移" className="text-muted-foreground hover:text-foreground">
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" onClick={() => movePage(index, 1)} aria-label="下移" className="text-muted-foreground hover:text-foreground">
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setDraftPages((current) => current.filter((item) => item.id !== page.id))}

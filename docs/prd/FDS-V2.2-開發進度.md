@@ -22,12 +22,14 @@
 
 使用者要求：把圖冊選擇彈窗改成三步式＋頁面縮圖，並反映「頁面縮圖載入很慢」。
 
-完成：`QuoteCatalogPagesDialog` 重做成三步（選擇圖冊 → 選擇頁面 → 確認加入）：左邊圖冊卡（封面縮圖、年份／頁數／系列、廠家 chips、搜尋、重新整理）、中間一屏 16 張頁面縮圖＋分頁＋「第 N 頁」工具列（預覽／框選、上下半頁或左右半頁），右邊已選清單（縮圖、`整頁／上半頁／下半頁／左半／右半／框選` 標籤、排序、刪除、預覽）。跨頁圖冊照前一條規則拆左半／右半。
+完成：`QuoteCatalogPagesDialog` 重做成三步（選擇圖冊 → 選擇頁面 → 確認加入）：左邊圖冊卡（封面縮圖、年份／頁數／系列、廠家 chips、搜尋、重新整理）、中間一屏 12 張頁面縮圖＋分頁＋「第 N 頁」工具列（預覽／框選、上下半頁或左右半頁），右邊已選清單（縮圖、`整頁／上半頁／下半頁／左半／右半／框選` 標籤、排序、刪除、點縮圖預覽）。跨頁圖冊照前一條規則拆左半／右半。
 
-縮圖效能：新增 `src/lib/catalogPageThumbs.ts` 與 `renderQuotePdfThumbnails`（`quotationPdfCanvas.ts`）。之前完全沒有縮圖管線；現在每頁由 edge 取一次抽取頁（同一頁左／右半、重複開啟都只取一次），pdf.js 以最大寬 360px 畫成 JPEG（q0.72），一頁約 15–25 KB，而整頁 PDF 是 0.3–1 MB。縮圖存 IndexedDB `fds-catalog-thumbs`（30 天、最多 400 張）＋記憶體；同一文件 60ms 內的多個請求合成一批（每批 8 頁，edge 上限 24），下一屏背景預取，重開或換頁不再下載。
+縮圖效能：新增 `src/lib/catalogPageThumbs.ts` 與 `renderQuotePdfThumbnails`（`quotationPdfCanvas.ts`）。之前完全沒有縮圖管線；現在每頁由 edge 取一次抽取頁（同一頁左／右半、重複開啟都只取一次），pdf.js 以最大寬 360px 畫成 JPEG（q0.72），一頁約 9–25 KB，而整頁 PDF 是 0.3–1.3 MB。縮圖存 IndexedDB `fds-catalog-thumbs`（30 天、最多 400 張）＋記憶體；同一文件 60ms 內的多個請求合成一批（**每批 3 頁**，edge 上限 24），批次失敗會逐頁重試一次。**不做下一屏預取**（一頁 1.3 MB，背景預取只會拖慢當前這一屏）。
 
-驗證：`scripts/test-quote-catalog-pages.mjs` PASS（新增清單短標籤）；`tsc --noEmit`、`npm run audit:ui`、`vite build --outDir .tmp-build-check` 通過。
-阻塞：縮圖與三步式版面未在瀏覽器截圖核對（本機沒有可自動化的瀏覽器），需在 preview 實測；縮圖第一次仍要下載當前 16 頁的 PDF（約 5 MB），第二次起才即時。
+「會載入失敗圖片」的處理：`fetchQuoteCatalogPdf` 之前每批都重新 `getUser()`＋`getSession()`，登入狀態剛恢復或 token 剛過期時會直接失敗，縮圖就變成破圖示。現在 token 記 60 秒、401 自動換 token 重試一次；真的失敗會保留原因（`catalogThumbFailure`），對話框顯示「縮圖載入失敗：<原因>〔重試〕」，不再只出一個壞掉圖片。
+
+驗證：`scripts/test-quote-catalog-pages.mjs` PASS（新增清單短標籤）；`tsc --noEmit`、`npm run audit:ui`、`vite build` 通過。**headless Chrome 實測**（本機靜態 build、開發分支、1600×1000、冷快取）：開啟後約 4 秒第一排 4 張、約 19 秒 12 張全部出齊，`<img>` 13 張（12 頁＋封面）、破圖 0、沒有失敗提示；點第 3 頁（跨頁）→ 已選頁面（2）＝「第 3 頁 左半」「第 3 頁 右半」。
+阻塞：縮圖第一次開啟仍要下載當前 12 頁的 PDF（這份圖冊一頁 1.3 MB，約 15 MB／15–20 秒），第二次起由 IndexedDB 即時。要第一次就即時，需要把縮圖預先產生好存進 Storage（新的 edge 工作，edge 端要能 rasterize PDF），未排入本輪。
 
 ## 2026-10-29 — FDS-07 跨頁圖冊按直向輸出
 
