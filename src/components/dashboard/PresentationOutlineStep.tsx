@@ -262,17 +262,19 @@ export function PresentationOutlineStep({
   }
 
   async function correctAll() {
-    if (batchRunning || samplingId) return;
+    if (batchRunning || samplingId || !active) return;
+    const targetZone = active;
+    const targetProducts = [...activeProducts];
     setBatchRunning(true);
     onProcessing?.(1);
     styleAnchor.current = null;
-    const total = products.length * 2 + zones.length;
+    const total = targetProducts.length * 2 + 1;
     let done = 0;
     let success = 0;
-    setBeautifyProgress({ done, total, label: '準備更新圖片與文案' });
+    setBeautifyProgress({ done, total, label: `準備美化房間：${targetZone.name}` });
     const step = (label: string) => setBeautifyProgress({ done, total, label });
     try {
-      for (const product of products) {
+      for (const product of targetProducts) {
         step(`更新產品文案：${product.title || '產品'}`);
         try {
           const copy = await generatePresentationCopy(product);
@@ -285,9 +287,9 @@ export function PresentationOutlineStep({
         if (await generateSample(product, true)) success++;
         done++;
       }
-      for (const zone of zones) {
+      for (const zone of [targetZone]) {
         step(`更新房間描述：${zone.name}`);
-        try { onZonePatch(zone.id, await generatePresentationRoomCopy(zone.name, products.filter(product => productZone[product.id] === zone.id))); success++; }
+        try { onZonePatch(zone.id, await generatePresentationRoomCopy(zone.name, targetProducts)); success++; }
         catch { /* Preserve existing room copy. */ }
         done++;
       }
@@ -454,7 +456,7 @@ export function PresentationOutlineStep({
               </div>
               <div>
                 <p className="text-sm font-semibold">已選產品（{activeProducts.length}）</p>
-                <Button type="button" variant="outline" disabled={disabled || samplingId !== null || !products.length} onClick={() => void correctAll()}>{batchRunning ? '正在美化圖片與文案…' : '一鍵美化圖片與文案'}</Button>
+                <Button type="button" variant="outline" disabled={disabled || samplingId !== null || !active} onClick={() => void correctAll()}>{batchRunning ? '正在美化圖片與文案…' : '一鍵美化當前房間'}</Button>
                 <p className="text-xs text-muted-foreground">統一木色與柔和日光，參考所屬分區平面圖，保留產品外觀。</p>
 
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
