@@ -1863,7 +1863,7 @@ export function PresentationView() {
                         if (!source) return;
                         trackUpload(1);
                         try {
-                          const asset = await generateQuoteReferenceImage({ purpose: 'floor_plan', model: 'grok', aspectRatio: '16:9', referenceUrls: [source], prompt: '風格：淺橡木地板、米白與自然木色家具、深灰牆體、柔和日光和接觸陰影，少量綠植。正交頂視、建築模型質感、乾淨米色背景。以原圖佈局為最高優先，僅供提案效果參考。' });
+                          const asset = await generateQuoteReferenceImage({ purpose: 'floor_plan', model: 'gemini', aspectRatio: '16:9', referenceUrls: [source], prompt: '風格：淺橡木地板、米白與自然木色家具、深灰牆體、柔和日光和接觸陰影，少量綠植。正交頂視、建築模型質感、乾淨米色背景。以原圖佈局為最高優先，僅供提案效果參考。' });
                           setBrief((current) => current.floorImageUrl === source ? { ...current, floorEffectImageUrl: asset.url } : current);
                           toast.success('俯視效果圖已生成', { description: '請核對牆體、門窗與家具位置後儲存草稿。' });
                         } catch (error) { toast.error('效果圖生成失敗', { description: errorText(error) }); }
