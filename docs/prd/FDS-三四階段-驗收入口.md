@@ -10,8 +10,9 @@
 - ✅ **FDS-13 分區示範圖**：正式報價 → 平面圖 → 拉框 → 確認 → 生成透視圖；快速報價沒有「AI 生成」（使用者驗收 PASS；GLB 場景決定不做）
 - ✅ **FDS-06 SKP／FBX**：改由 Codex 開發／驗收（使用者 2026-10-29 決定），本階段不再驗收實機
 - ✅ **FDS-15 郵件**：填模板（電話必填）→ 排入發送 → 收信 → 點「加單授權連結」（使用者驗收 PASS；有效查看後停該單跟進，已排隊跟進信實測被取消）
+- ✅ **FDS-14 客戶互動**：客戶分享連結提交＋報價一覽「客戶提交」面板；PM 通知實寄（使用者驗收 PASS）
 
-- Migration：12 支已套分支（見 `supabase/migrations/20261029*`）
+- Migration：17 支已套分支（見 `supabase/migrations/20261029*`）
 - Edge Function：`send-quote-email`、`notify-customer-quote-request`、`sync-asana-factories` 已部署分支（worker-secret 模式）
 - Cron：`fds-send-quote-email`（15 分鐘）、`fds-notify-customer-request`（10 分鐘）、`fds-sync-asana-factories`（每日 02:41），host 已確認指向分支
 - Secrets：`FDS_EMAIL_FROM`、`RESEND_API_KEY`、`FDS_APP_URL`、`ASANA_ACCESS_TOKEN`
