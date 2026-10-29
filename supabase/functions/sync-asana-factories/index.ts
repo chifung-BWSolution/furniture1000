@@ -252,7 +252,7 @@ async function handle(req: Request): Promise<Response> {
   const { data: links, error: linkError } = await query;
   if (linkError) return json({ error: linkError.message }, 500);
 
-  const results: Array<{ link_id: string; factory: string; status: string; comments?: number; pushed?: number; error?: string }> = [];
+  const results: Array<{ link_id: string; factory: string; status: string; comments?: number; pushed?: number; edited?: number; removed?: number; error?: string }> = [];
 
   for (const link of (links ?? []) as LinkRow[]) {
     try {
@@ -314,12 +314,53 @@ async function handle(req: Request): Promise<Response> {
         }
       }
 
+      // 編輯／刪除已推送的 FDS 留言：Asana stories 不支援 update，編輯＝刪舊 story 再 POST 新內容。
+      let edited = 0;
+      let removed = 0;
+      const { data: changes } = await admin.rpc("fds_asana_comment_pending_sync", {
+        p_link_id: link.id,
+        p_limit: 10,
+      });
+      for (const change of (Array.isArray(changes) ? changes as Array<{ id: string; asana_gid: string | null; body: string; delete_pending: boolean; update_pending: boolean }> : [])) {
+        try {
+          if (change.asana_gid) {
+            const del = await fetch(`${ASANA_BASE}/stories/${change.asana_gid}`, {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!del.ok && del.status !== 404) throw new Error(`asana_delete_${del.status}`);
+          }
+          if (change.delete_pending) {
+            await admin.rpc("fds_asana_comment_mark_deleted", { p_id: change.id });
+            removed += 1;
+            continue;
+          }
+          const postRes = await fetch(`${ASANA_BASE}/tasks/${link.asana_task_gid}/stories`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ data: { text: `${change.body}\n\n${PROGRESS_MARKER}` } }),
+          });
+          const postBody = await postRes.json().catch(() => null);
+          const storyGid = (postBody as { data?: { gid?: string } } | null)?.data?.gid;
+          if (!postRes.ok || !storyGid) throw new Error(`asana_story_${postRes.status}`);
+          await admin.rpc("fds_asana_comment_mark_updated", { p_id: change.id, p_gid: storyGid });
+          edited += 1;
+        } catch (syncError) {
+          await admin.rpc("fds_asana_comment_mark_sync_failed", {
+            p_id: change.id,
+            p_error: syncError instanceof Error ? syncError.message : "sync_failed",
+          });
+        }
+      }
+
       results.push({
         link_id: link.id,
         factory: link.factory_name,
         status: "synced",
         comments: Number((applied as { inserted_comments?: number } | null)?.inserted_comments ?? 0),
         pushed,
+        edited,
+        removed,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "sync failed";

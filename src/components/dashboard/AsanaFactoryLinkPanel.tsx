@@ -43,6 +43,8 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [commentBody, setCommentBody] = useState('');
   const [commentBusy, setCommentBusy] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingBody, setEditingBody] = useState('');
   const [taskGid, setTaskGid] = useState('');
   const [loading, setLoading] = useState(true);
   const [oauthConnected, setOauthConnected] = useState<boolean | null>(null);
@@ -185,6 +187,45 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     toast.success('已同步 Asana 廠家資料');
   };
 
+  const saveEdit = async () => {
+    if (!editingId || !editingBody.trim()) return;
+    setCommentBusy(true);
+    setError('');
+    const { error: editError } = await supabase.rpc('fds_asana_factory_comment_edit', {
+      p_id: editingId,
+      p_body: editingBody.trim(),
+    });
+    if (editError) {
+      setError(editError.message.includes('permission') ? '沒有權限編輯這則留言。' : editError.message);
+      setCommentBusy(false);
+      return;
+    }
+    setEditingId(null);
+    await sync();
+    setCommentBusy(false);
+  };
+
+  const deleteComment = async (comment: CommentRow) => {
+    const ok = await confirm({
+      title: '刪除這則留言？',
+      description: comment.asana_gid ? '會一併從 Asana 同一個 task 刪除。' : '這則留言尚未推送，會直接移除。',
+      confirmLabel: '刪除',
+      cancelLabel: '返回',
+      destructive: true,
+    });
+    if (!ok) return;
+    setCommentBusy(true);
+    setError('');
+    const { error: deleteError } = await supabase.rpc('fds_asana_factory_comment_delete', { p_id: comment.id });
+    if (deleteError) {
+      setError(deleteError.message.includes('permission') ? '沒有權限刪除這則留言。' : deleteError.message);
+      setCommentBusy(false);
+      return;
+    }
+    await sync();
+    setCommentBusy(false);
+  };
+
   const addComment = async () => {
     const body = commentBody.trim();
     if (!link || !body) return;
@@ -296,7 +337,45 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
                               </span>
                             ) : null}
                           </div>
-                          <p className="whitespace-pre-wrap">{comment.body}</p>
+                          {editingId === comment.id ? (
+                            <div className="mt-1 space-y-1">
+                              <Textarea
+                                rows={2}
+                                value={editingBody}
+                                maxLength={2000}
+                                onChange={(event) => setEditingBody(event.target.value)}
+                              />
+                              <div className="flex gap-2">
+                                <Button type="button" size="sm" disabled={commentBusy || !editingBody.trim()} onClick={() => void saveEdit()}>
+                                  儲存
+                                </Button>
+                                <Button type="button" size="sm" variant="ghost" disabled={commentBusy} onClick={() => setEditingId(null)}>
+                                  取消
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <p className="whitespace-pre-wrap">{comment.body}</p>
+                              {comment.source === 'fds' ? (
+                                <div className="mt-1 flex gap-3 text-xs">
+                                  <button
+                                    type="button"
+                                    className="underline"
+                                    onClick={() => {
+                                      setEditingId(comment.id);
+                                      setEditingBody(comment.body);
+                                    }}
+                                  >
+                                    編輯
+                                  </button>
+                                  <button type="button" className="underline text-destructive" onClick={() => void deleteComment(comment)}>
+                                    刪除
+                                  </button>
+                                </div>
+                              ) : null}
+                            </>
+                          )}
                         </li>
                       ))}
                     </ul>
