@@ -190,40 +190,44 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
               </button>
             </p>
           ) : null}
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              className="max-w-xs"
-              value={taskGid}
-              onChange={(event) => setTaskGid(event.target.value)}
-              placeholder="Asana task gid，例如 1204466337313611"
-              inputMode="numeric"
-            />
-            <Button type="button" size="sm" disabled={Boolean(busy) || oauthConnected !== true} onClick={() => void save()}>
-              {busy === 'save' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-              {link ? '更新綁定' : '綁定'}
-            </Button>
-            {link ? (
-              <>
-                <Button type="button" size="sm" variant="outline" disabled={Boolean(busy) || oauthConnected !== true} onClick={() => void sync()}>
-                  {busy === 'sync' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
-                  立即同步
+          {oauthConnected ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  className="max-w-xs"
+                  value={taskGid}
+                  onChange={(event) => setTaskGid(event.target.value)}
+                  placeholder="Asana task gid，例如 1204466337313611"
+                  inputMode="numeric"
+                />
+                <Button type="button" size="sm" disabled={Boolean(busy)} onClick={() => void save()}>
+                  {busy === 'save' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                  {link ? '更新綁定' : '綁定'}
                 </Button>
-                <Button type="button" size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => void remove()}>
-                  {busy === 'remove' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1 h-3.5 w-3.5" />}
-                  移除
-                </Button>
-              </>
-            ) : null}
-          </div>
-          {link ? (
-            <p className="text-xs text-muted-foreground">
-              已綁定 task {link.asana_task_gid} · {link.comment_count} 則 Comment
-              {link.last_synced_at ? ` · 上次同步 ${link.last_synced_at.slice(0, 16).replace('T', ' ')}` : ' · 未同步'}
-              {link.last_error ? ` · 錯誤：${link.last_error}` : ''}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">未綁定。貼上 Asana 專案內該廠家的 task gid 即可。</p>
-          )}
+                {link ? (
+                  <>
+                    <Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void sync()}>
+                      {busy === 'sync' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                      立即同步
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => void remove()}>
+                      {busy === 'remove' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1 h-3.5 w-3.5" />}
+                      移除
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+              {link ? (
+                <p className="text-xs text-muted-foreground">
+                  已綁定 task {link.asana_task_gid} · {link.comment_count} 則 Comment
+                  {link.last_synced_at ? ` · 上次同步 ${link.last_synced_at.slice(0, 16).replace('T', ' ')}` : ' · 未同步'}
+                  {link.last_error ? ` · 錯誤：${link.last_error}` : ''}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">未綁定。貼上 Asana 專案內該廠家的 task gid 即可。</p>
+              )}
+            </>
+          ) : null}
         </div>
       )}
     </section>

@@ -22,6 +22,7 @@ import {
   ArrowLeft,
   Copy,
   Check,
+  Link2,
   Factory,
   Package,
   MessageSquare,
@@ -88,7 +89,7 @@ export function FactoryDetailView({
   const [linkedProjects, setLinkedProjects] = useState<LinkedProjectRecord[]>([]);
   const [stats, setStats] = useState<{ order_count: number; comment_count: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'info' | 'orders' | 'comments' | 'catalogs'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'orders' | 'comments' | 'catalogs' | 'asana'>('info');
   const [urlCopied, setUrlCopied] = useState(false);
   const reduceMotion = useReducedMotion();
 
@@ -188,6 +189,7 @@ export function FactoryDetailView({
           icon: MessageSquare,
         },
         { id: 'catalogs' as const, label: '廠家文件', icon: FileText },
+        { id: 'asana' as const, label: 'Asana', icon: Link2 },
       ]
     : [];
 
@@ -341,10 +343,10 @@ export function FactoryDetailView({
             transition={{ duration: reduceMotion ? 0.12 : 0.22, ease: inkEase }}
           >
             {activeTab === 'info' && (
-              <>
-                <FactoryInfoTab factory={factory} onUpdated={(updated) => setFactory(updated)} />
-                <AsanaFactoryLinkPanel factoryId={factory.id} factoryName={factory.display_name} />
-              </>
+              <FactoryInfoTab factory={factory} onUpdated={(updated) => setFactory(updated)} />
+            )}
+            {activeTab === 'asana' && (
+              <AsanaFactoryLinkPanel factoryId={factory.id} factoryName={factory.display_name} />
             )}
             {activeTab === 'orders' && <FactoryOrdersTab records={orderHistoryRecords} />}
             {activeTab === 'comments' && (
