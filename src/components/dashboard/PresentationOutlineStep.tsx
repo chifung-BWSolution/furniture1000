@@ -1,3 +1,4 @@
+import { runPresentationQueue } from '@/lib/presentationQueue';
 import { Progress } from '@/components/ui/progress';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowUpDown, ChevronUp, LoaderCircle, Pencil, Sparkles, ZoomIn } from 'lucide-react';
@@ -274,25 +275,36 @@ export function PresentationOutlineStep({
     setBeautifyProgress({ done, total, label: `準備美化房間：${targetZone.name}` });
     const step = (label: string) => setBeautifyProgress({ done, total, label });
     try {
-      for (const product of targetProducts) {
+      const updateCopy = async (product: SearchProduct) => {
         step(`更新產品文案：${product.title || '產品'}`);
         try {
-          const copy = await generatePresentationCopy(product);
-          onDraftRef.current(product.id, copy);
+          onDraftRef.current(product.id, await generatePresentationCopy(product));
           setCopyState(current => ({ ...current, [product.id]: 'ready' }));
           success++;
         } catch { /* Preserve existing copy. */ }
-        done++;
-        step(`統一圖片風格：${product.title || '產品'}`);
-        if (await generateSample(product, true)) success++;
-        done++;
-      }
-      for (const zone of [targetZone]) {
-        step(`更新房間描述：${zone.name}`);
-        try { onZonePatch(zone.id, await generatePresentationRoomCopy(zone.name, targetProducts)); success++; }
+        finally { done++; step('正在美化當前房間的圖片與文案'); }
+      };
+      const updateRoom = async () => {
+        try { onZonePatch(targetZone.id, await generatePresentationRoomCopy(targetZone.name, targetProducts)); success++; }
         catch { /* Preserve existing room copy. */ }
-        done++;
-      }
+        finally { done++; step('正在美化當前房間的圖片與文案'); }
+      };
+      const updateImage = async (product: SearchProduct) => {
+        step(`統一圖片風格：${product.title || '產品'}`);
+        try { if (await generateSample(product, true)) success++; }
+        finally { done++; step('正在美化當前房間的圖片與文案'); }
+      };
+      const updateImages = async () => {
+        const remaining = [...targetProducts];
+        // Establish a shared style reference before starting parallel images.
+        while (remaining.length && !styleAnchor.current) await updateImage(remaining.shift()!);
+        await runPresentationQueue(remaining, 2, updateImage);
+      };
+      await Promise.all([
+        runPresentationQueue(targetProducts, 2, updateCopy),
+        updateRoom(),
+        updateImages(),
+      ]);
       step('美化完成');
       toast.message('一鍵美化完成', { description: `成功 ${success}／${total} 項；失敗項目保留原內容。請檢查並儲存草稿。` });
     } finally { setBatchRunning(false); onProcessing?.(-1); }
