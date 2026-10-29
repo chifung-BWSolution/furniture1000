@@ -18,10 +18,10 @@ export interface SendResult {
   id: string | null;
 }
 
-/** Sender shown to the recipient. `FDS_EMAIL_FROM` wins; otherwise the FDS no-reply box. */
+/** Sender shown to the recipient. `FDS_EMAIL_FROM` wins; otherwise the BW no-reply box. */
 export function emailFromAddress(): string {
   return Deno.env.get("FDS_EMAIL_FROM")?.trim()
-    || "FDS Furniture <no-reply@bwteam-furniture.com>";
+    || "BW Furniture <no-reply@bwteam-furniture.com>";
 }
 
 /** Reply-To / human contact line; never invented, only read from the environment. */

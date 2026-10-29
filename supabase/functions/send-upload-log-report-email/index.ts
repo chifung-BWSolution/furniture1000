@@ -176,7 +176,7 @@ async function sendEmailViaGmailSmtp(args: {
   await sendLine("DATA");
   const boundary = `----=_Part_${Date.now()}`;
   const body = [
-    `From: FDS Furniture <${user}>`,
+    `From: BW Furniture <${user}>`,
     `To: ${args.to.join(", ")}`,
     `Subject: =?UTF-8?B?${toBase64(args.subject)}?=`,
     "MIME-Version: 1.0",
@@ -245,7 +245,7 @@ async function sendEmailViaResend(args: {
 }): Promise<{ id?: string }> {
   const apiKey = Deno.env.get("RESEND_API_KEY") ?? "";
   const from = Deno.env.get("UPLOAD_LOG_REPORT_FROM_EMAIL") ??
-    "FDS Furniture <onboarding@resend.dev>";
+    "BW Furniture <onboarding@resend.dev>";
 
   if (!apiKey) {
     throw new Error("RESEND_API_KEY is not configured in Edge Function secrets");
