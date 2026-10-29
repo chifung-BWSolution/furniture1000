@@ -23,7 +23,7 @@
 | **FDS-12 Asana 雙向同步** | 只有 `AsanaLinkButton` 連結入口，**沒有**雙向同步 | 唯讀盤點確認來源＝Asana 專案 `BWFS 辦公室傢俬廠 Office Furniture Listing`（gid `1155109275123381`）。新增 link／comment 表與 RPC、worker（分頁＋去重）、CLI、廠家詳情 **Asana tab**；**授權對齊 QMS**：每用戶 OAuth＋refresh，cron 用 PAT；**留言雙向**：FDS 新增留言經 worker `POST /tasks/{gid}/stories` 追加到 Asana，回寫 story gid、重試不重複 | `test-asana-factory-sync.mjs`、`test-asana-factory-link-live.mjs` PASS；**留言推送實測 task 1204466337313611 成功**（story gid `1220005612872292`、`pushed=true`；第二次同步 0 重複）；OAuth `start`／`status` 200；`tsc`／build／audit 通過 | OAuth 首次連接仍待 Asana app 白名單 redirect；寫入只測試過一次（同一 task 已留一則「FDS 測試留言」）；未做刪除／編輯 Asana 留言 |
 | **FDS-13 BWF 分區示範圖與場景** | 已有平面圖上傳、Gemini 讀區名＋矩形、最多 24 區、拖畫／改框、確認、每區最多 8 張圖、4:3 透視圖生成（admin／uploader／PM）、私有儲存、`project_data` 關聯 | ①補分區資料規則回歸測試（框在圖內、24 區上限、換圖重新確認、刪區移圖、每區 8 張）；②**伺服器端報價範圍檢查**：新增 `fds_quote_zone_scope`，`generate-quote-reference-image` 接受 `quoteUuid` 並重查範圍；③報價編輯器 → 排版編輯器 → 生成對話框逐層傳遞所屬報價；④排版編輯器開啟時查範圍，非 BWF 正式報價**不顯示「AI 生成」按鈕**並顯示原因 | `scripts/test-quote-floor-plan.mjs` PASS；`scripts/test-quote-zone-scope.mjs` PASS；`scripts/test-quote-zone-scope-live.mjs` 在分支 PASS（正式報價放行；快速報價／客戶方案／DP-／設計專案／不存在報價／非職員全部拒絕）；**2026-10-29 使用者驗收 PASS**：正式報價 → 平面圖 → 拉框 → 確認 → 生成透視圖；快速報價確認沒有「AI 生成」 | ①「單張透視圖 → GLB」供應商未選定（Tripo 已停用），未做場景；②`generate-quote-reference-image` 未部署到任何環境，所以範圍檢查只能在程式與資料庫層驗證，未經線上 invoke 驗證；③範圍查詢失敗時前端仍顯示按鈕，最終由伺服器拒絕 |
 | **FDS-14 客戶互動報價** | 原有 `save_customer_quote_scheme` **會直接改寫 `bwf_quote_item.quantity` 與 `bwf_quote.total_amount`**，與 PRD 衝突 | 新增客戶提交記錄表與新 RPC；舊 RPC 保留簽名但改為只記錄提交；客戶頁改呼叫新函式並帶需求備註；加入 PM 通知佇列與通知 worker；客戶頁有效查看記錄（同事預覽自己的連結不會停信）；**報價一覽新增「客戶提交」面板**（PM 看選品／數量／需求、參考金額、通知狀態，可標記待處理／已確認／已開正式報價／不採用，只改提交記錄） | `scripts/test-customer-quote-request-live.mjs` 在分支 PASS（提交另存、正式報價不變、重送冪等、跨報價被拒、PM 可讀取與改狀態、非法狀態被拒、非職員被拒、處理後正式金額與數量仍不變）；`scripts/test-customer-quote-requests.mjs` PASS | PM 通知已**真實寄出**：客戶提交 → `quote_customer_request`（cfb.app02@chifung.net）；客戶有效查看 → `quote_view`（新補：PRD 要求的「查看後通知 PM」）；兩封都由 Resend 送出並寫入 central log |
-| **FDS-15 郵件模板與跟進** | 原本完全沒有 | 每張報價獨立模板、手動排入發送、3 天自動跟進、首次有效查看停該單、掃描器排除、狀態流轉、停信／查看與 claim 競爭由 `confirm_send` 覆核；寄件者 `no-reply@bwteam-furniture.com`（分支 secret 已設）；worker `send-quote-email` **已部署到分支** | 全部離線／分支測試 PASS；**已用 Resend 真實寄出測試信**到 `cfb.app02@chifung.net`（2 封）：`bwf_quote_email_message.status=sent`、`provider=resend`、有 `provider_message_id` 與 `sent_at`；修好 service_role 對 `email_notification_logs` 的 insert 後，第二封亦寫入 central log（`status=success`） | 仍待使用者開信點連結，確認有效查看會停該單跟進；PM 通知已另測成功（提交＋查看各一封） |
+| **FDS-15 郵件模板與跟進** | 原本完全沒有 | 每張報價獨立模板、手動立即發送（前端即時叫醒 worker，寄不出才留在隊列由 cron 補寄）、3 天自動跟進、首次有效查看停該單、掃描器排除、狀態流轉、停信／查看與 claim 競爭由 `confirm_send` 覆核；寄件者 `no-reply@bwteam-furniture.com`（分支 secret 已設）；worker `send-quote-email` **已部署到分支** | 全部離線／分支測試 PASS；**已用 Resend 真實寄出測試信**到 `cfb.app02@chifung.net`（2 封）：`bwf_quote_email_message.status=sent`、`provider=resend`、有 `provider_message_id` 與 `sent_at`；修好 service_role 對 `email_notification_logs` 的 insert 後，第二封亦寫入 central log（`status=success`） | 仍待使用者開信點連結，確認有效查看會停該單跟進；PM 通知已另測成功（提交＋查看各一封） |
 
 ### 1.1 FDS-11 行業標籤（已確認，2026-10-29）
 
@@ -61,7 +61,7 @@
 - `src/lib/quoteEmailFollowUp.ts`（新）
   - 固定三段＋自訂段的組裝、發送前檢查、狀態標籤、RPC 封裝、掃描器／webdriver 判定。
 - `src/components/dashboard/QuoteEmailFollowUpModal.tsx`（新）
-  - 每張報價的模板編輯、內容預覽、收件人／電話檢查、排入發送、停止自動跟進、發送與查看紀錄。
+  - 每張報價的模板編輯、內容預覽、收件人／電話檢查、立即發送、停止自動跟進、發送與查看紀錄。
 - `src/components/dashboard/QuotationListView.tsx`
   - 每行新增「郵件模板與跟進」入口。
 

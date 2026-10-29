@@ -39,7 +39,7 @@ Gmail SMTP（`GMAIL_SMTP_USER` + `GMAIL_SMTP_APP_PASSWORD`）會改寫寄件者�
 
 ### FDS-15 郵件
 1. 設好 `RESEND_API_KEY` 與 `FDS_APP_URL`，部署 `send-quote-email`。
-2. 在測試報價填模板（電話）、收件人用測試信箱，按「排入發送」。
+2. 在測試報價填模板（電話）、收件人用測試信箱，按「立即發送」（即時觸發 `send-quote-email`；叫不到時留在隊列由 cron 補寄）。
 3. 觸發 worker：`POST /functions/v1/send-quote-email`（`x-worker-secret`）。
 4. 核對：收到信、`bwf_quote_email_message.status=sent`、`email_notification_logs` 有紀錄。
 5. 用測試瀏覽器打開分享連結 → `bwf_quote_share_view.is_valid=true`、`bwf_quote_email_settings.status=viewed`、排隊跟進信 `cancelled`。

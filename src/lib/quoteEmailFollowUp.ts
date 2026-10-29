@@ -1,3 +1,4 @@
+import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -257,6 +258,46 @@ export async function scheduleQuoteEmail(input: {
   });
   if (error) throw new Error(quoteEmailErrorMessage(error));
   return data ? String(data) : null;
+}
+
+export interface QuoteEmailDispatchResult {
+  /** 有成功叫到 worker。false 代表只留在隊列，等 cron 補寄。 */
+  triggered: boolean;
+  /** worker 回報已寄出的訊息 id。 */
+  sentIds: string[];
+  error: string | null;
+}
+
+/**
+ * 立刻觸發 worker 把已排入的郵件寄出（「立即發送」用）。
+ *
+ * 不另開接口：仍然走 `send-quote-email`（cron 用的是同一支）。
+ * 失敗（edge 未部署、網絡、權限）不會丟失郵件：已排入的隊列照舊由 cron 每 15 分鐘處理。
+ */
+export async function dispatchQuoteEmailsNow(limit = 5): Promise<QuoteEmailDispatchResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke('send-quote-email', { body: { limit } });
+    if (error) {
+      return {
+        triggered: false,
+        sentIds: [],
+        error: await parseInvokeError(error, data as { error?: string; message?: string } | null),
+      };
+    }
+    const payload = (data ?? {}) as { results?: Array<{ id?: string; status?: string }> };
+    const rows = Array.isArray(payload.results) ? payload.results : [];
+    return {
+      triggered: true,
+      sentIds: rows.filter((row) => row?.status === 'sent' && row.id).map((row) => String(row.id)),
+      error: null,
+    };
+  } catch (err) {
+    return {
+      triggered: false,
+      sentIds: [],
+      error: err instanceof Error ? err.message : String(err ?? ''),
+    };
+  }
 }
 
 export async function stopQuoteEmail(quoteUuid: string, reason = 'manual'): Promise<void> {

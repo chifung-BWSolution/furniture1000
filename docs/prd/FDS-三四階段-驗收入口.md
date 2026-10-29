@@ -29,11 +29,11 @@
 | 6 | **FDS-12 Asana 唯讀同步** | link／comment 表、RPC、worker（分頁＋去重）、cron、CLI、廠家詳情頁面板 | 導航「廠家目錄」→ 開任一廠家 → **資訊** 分頁 → 「Asana 廠家同步」：貼 task gid → 綁定 → 立即同步 → 看 Comment 數／上次同步 | `node scripts/test-asana-factory-sync.mjs`、`node scripts/test-asana-factory-link-live.mjs`；CLI：`node scripts/link-asana-factory.mjs --list` |
 | 7 | **FDS-13 BWF 分區示範圖** | 平面圖／24 區／框選／確認、4:3 透視圖、伺服器範圍檢查、前端隱藏按鈕 | 報價一覽 → 開正式報價 → 平面圖上傳 → 拉框／確認 → 分區圖片 → 「AI 生成」（快速報價／`DP-` 應沒有按鈕） | `node scripts/test-quote-floor-plan.mjs`、`node scripts/test-quote-zone-scope.mjs`、`node scripts/test-quote-zone-scope-live.mjs` |
 | 8 | **FDS-14 客戶互動** | 提交另存（不改正式報價）、冪等、跨報價拒絕、PM 面板、狀態處理、有效查看記錄 | 客戶分享連結 `/customer?quote_share=<token>` → 選品／數量／提交；報價一覽 → 該單「**客戶提交**」按鈕 | `node scripts/test-customer-quote-request-live.mjs`、`node scripts/test-customer-quote-requests.mjs` |
-| 9 | **FDS-15 郵件模板／跟進** | 三固定段＋自訂段、排入發送、3 天跟進、有效查看停信、掃描器排除、`confirm_send`、Resend 實寄、central log | 報價一覽 → 該單「**郵件模板與跟進**」：填電話／收件人／引言 → 儲存模板 → 排入發送 → 看發送與查看紀錄 | `test-quote-email-template.mjs`、`test-quote-email-followup-live.mjs`、`test-quote-email-staff-live.mjs`、`test-quote-email-isolation-live.mjs`、`test-quote-email-retry-live.mjs` |
+| 9 | **FDS-15 郵件模板／跟進** | 三固定段＋自訂段、立即發送（即時觸發 worker）、3 天跟進、有效查看停信、掃描器排除、`confirm_send`、Resend 實寄、central log | 報價一覽 → 該單「**郵件模板與跟進**」：填電話／收件人／引言 → 儲存模板 → 立即發送 → 看發送與查看紀錄 | `test-quote-email-template.mjs`、`test-quote-email-followup-live.mjs`、`test-quote-email-staff-live.mjs`、`test-quote-email-isolation-live.mjs`、`test-quote-email-retry-live.mjs` |
 
 ## B. 快速驗收順序（建議 20 分鐘）
 
-1. **郵件（FDS-15）**：報價一覽 → 測試單 → 郵件模板與跟進 → 收件人填你的測試信箱、電話必填 → 儲存 → 排入發送。（worker/cron 會處理，或等 15 分鐘）
+1. **郵件（FDS-15）**：報價一覽 → 測試單 → 郵件模板與跟進 → 收件人填你的測試信箱、電話必填 → 儲存 → 立即發送。（按鈕即時叫醒 worker，約 1 秒寄出；叫不到時留在隊列，cron 15 分鐘內補寄）
 2. 收到信 → 點「加單授權連結」→ 回報我，我查 `bwf_quote_share_view` 與 `bwf_quote_email_settings` 是否 `viewed`、跟進信是否 `cancelled`。
 3. **客戶提交（FDS-14）**：用同一分享連結 → 選品／改數量／填需求 → 提交 → 到報價一覽「客戶提交」看紀錄與狀態；確認正式報價金額／明細沒有被改。
 4. **Asana（FDS-12）**：廠家目錄 → 廠家詳情 → Asana 面板 → 貼一個真實 task gid → 綁定 → 立即同步 → 看 Description／Comment 數；測完按「移除」。

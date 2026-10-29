@@ -11,6 +11,7 @@ import {
   QUOTE_EMAIL_PROBLEM_TEXT,
   QUOTE_EMAIL_STATUS_LABELS,
   buildQuoteEmailSections,
+  dispatchQuoteEmailsNow,
   loadQuoteEmailStatus,
   normalizeCustomQuoteEmailSections,
   quoteEmailErrorMessage,
@@ -32,7 +33,9 @@ export interface QuoteEmailFollowUpQuote {
 /**
  * FDS-15：每張報價自己的郵件模板與跟進狀態。
  * 固定三段（報價內容簡述、可電話聯繫、加單授權連結）不可刪除；
- * 沒有負責同事電話或有效客戶連結時不會排入發送。
+ * 沒有負責同事電話或有效客戶連結時不會發送。
+ * 「立即發送」＝先排入隊列（唯一待發索引防重複）再即時叫醒 `send-quote-email`；
+ * 叫不到時郵件仍在隊列，由每 15 分鐘一次的 cron 補寄。
  */
 export function QuoteEmailFollowUpModal({
   open,
@@ -143,11 +146,25 @@ export function QuoteEmailFollowUpModal({
       return;
     }
     try {
-      await scheduleQuoteEmail({ quoteUuid: quote.id, to: recipient, kind: 'manual' });
-      toast.success('已排入發送', {
-        description: '系統會用這張單目前的模板寄出；客戶首次有效查看後，只會停止這張單的自動跟進。',
+      // 先排入隊列（唯一待發索引保證不重複），再即時叫醒 worker 寄出。
+      // 即時寄出失敗時郵件仍在隊列，cron 每 15 分鐘會補寄，不會因為網絡問題丟信。
+      const messageId = await scheduleQuoteEmail({ quoteUuid: quote.id, to: recipient, kind: 'manual' });
+      const dispatch = await dispatchQuoteEmailsNow(5);
+      const next = await loadQuoteEmailStatus(quote.id).catch(() => null);
+      if (next) setStatus(next);
+      const message = next?.messages.find((row) => row.id === messageId) ?? null;
+      const sent = message?.status === 'sent' || (Boolean(messageId) && dispatch.sentIds.includes(String(messageId)));
+      if (sent) {
+        toast.success('已寄出', {
+          description: `已寄到 ${recipient.trim()}；客戶首次有效查看後，只會停止這張單的自動跟進。`,
+        });
+        return;
+      }
+      toast.info('已排入發送，最遲 15 分鐘內寄出', {
+        description: dispatch.error
+          ? `即時寄出未成功（${dispatch.error}），郵件仍在隊列，系統會自動補寄。`
+          : '系統會在背景寄出；客戶首次有效查看後，只會停止這張單的自動跟進。',
       });
-      setStatus(await loadQuoteEmailStatus(quote.id));
     } catch (err) {
       setError(quoteEmailErrorMessage(err));
     } finally {
@@ -199,7 +216,7 @@ export function QuoteEmailFollowUpModal({
           </Button>
           <Button type="button" disabled={Boolean(busy) || loading || Boolean(problem)} onClick={() => void handleSend()}>
             {busy === 'send' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mail className="mr-1.5 h-4 w-4" />}
-            排入發送
+            {busy === 'send' ? '正在寄出' : '立即發送'}
           </Button>
         </>
       }
@@ -317,7 +334,7 @@ export function QuoteEmailFollowUpModal({
 
           <div className="space-y-2 rounded-lg border bg-background p-3">
             <p className="text-sm font-medium">郵件內容預覽</p>
-            <p className="text-xs text-muted-foreground">固定三段不可刪除；發送時會用這張單當下的模板與報價現況。</p>
+            <p className="text-xs text-muted-foreground">固定三段不可刪除；發送時會用這張單當下的模板與報價現況。按「立即發送」會即時寄出，寄不出時留在隊列，15 分鐘內自動補寄。</p>
             {previewSections.map((section) => (
               <div key={section.key} className="rounded-md border border-border/60 px-2.5 py-2">
                 <p className="text-xs font-semibold text-foreground">{section.label}</p>
