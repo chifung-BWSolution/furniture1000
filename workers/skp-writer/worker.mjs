@@ -21,8 +21,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { looksLikeSkp } from './codex/artifacts.mjs';
+import { codexStatus, loadCodexConfig } from './codex/config.mjs';
+import { CODEX_JOB_VERSION, cleanupWorkRoot, resumePendingPublishes, runCodexJob } from './codex/job.mjs';
+import { acquireSketchUpLock } from './codex/lock.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const CODEX = loadCodexConfig(here);
 const URL_ = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const ANON = process.env.FDS_SKP_ANON_KEY || '';
 const EXE = process.env.SKP_WRITER_EXE || join(here, 'build', 'Release', 'skp_writer.exe');
@@ -60,20 +65,6 @@ function skpFailureRetryable(message) {
     text.includes('corrupt') ||
     text.includes('open failed')
   );
-}
-
-const SKP_SIGNATURE_UTF16 = Buffer.from([
-  0xff, 0xfe, 0xff, 0x0e,
-  0x53, 0x00, 0x6b, 0x00, 0x65, 0x00, 0x74, 0x00, 0x63, 0x00, 0x68, 0x00,
-  0x55, 0x00, 0x70, 0x00, 0x20, 0x00, 0x4d, 0x00, 0x6f, 0x00, 0x64, 0x00, 0x65, 0x00, 0x6c, 0x00,
-]);
-const SKP_SIGNATURE_ASCII = Buffer.from([
-  0x0e, 0x53, 0x6b, 0x65, 0x74, 0x63, 0x68, 0x55, 0x70, 0x20, 0x4d, 0x6f, 0x64, 0x65, 0x6c,
-]);
-
-function looksLikeSkp(bytes) {
-  return bytes.subarray(0, SKP_SIGNATURE_UTF16.length).equals(SKP_SIGNATURE_UTF16) ||
-    bytes.subarray(0, SKP_SIGNATURE_ASCII.length).equals(SKP_SIGNATURE_ASCII);
 }
 
 function findSketchUp() {
@@ -180,7 +171,7 @@ $tmp = $dest + '.tmp'
 $bytes = [Text.Encoding]::UTF8.GetBytes($json)
 $prot = [Security.Cryptography.ProtectedData]::Protect($bytes, $null, 'CurrentUser')
 [IO.File]::WriteAllBytes($tmp, $prot)
-if ([IO.File]::Exists($dest)) { [IO.File]::Replace($tmp, $dest, $null) } else { [IO.File]::Move($tmp, $dest) }
+if ([IO.File]::Exists($dest)) { [IO.File]::Replace($tmp, $dest, [NullString]::Value) } else { [IO.File]::Move($tmp, $dest) }
 `;
   await new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
@@ -245,6 +236,34 @@ function dependencyChecks() {
     api_dll: existsSync(join(dirname(EXE), 'SketchUpAPI.dll')),
     preferences_dll: existsSync(join(dirname(EXE), 'SketchUpCommonPreferences.dll')),
   };
+}
+
+/** Codex capability: CLI present and signed in, MCP bridge and session files installed, seed model ready. */
+async function codexChecks(base) {
+  const status = CODEX.enabled ? await codexStatus(CODEX) : { codex_cli: false, codex_version: null, codex_login: false };
+  const checks = {
+    ...status,
+    codex_enabled: CODEX.enabled,
+    mcp_bridge: existsSync(CODEX.mcpServer),
+    session_ruby: existsSync(CODEX.sessionScript),
+    seed: existsSync(SEED),
+  };
+  const ready = CODEX.enabled && base.sketchup && checks.codex_cli && checks.codex_login && checks.mcp_bridge && checks.session_ruby && checks.seed;
+  return { ...checks, codex_ready: ready ? 'true' : 'false' };
+}
+
+/** Serialises every SketchUp run on this machine (parametric, preview and Codex jobs share one lock). */
+async function withSketchUpLock(kind, fn) {
+  const lock = await acquireSketchUpLock(CODEX.lockPath, { token: randomUUID(), kind }, {
+    onWait: async () => {
+      if (await pulseLease().catch(() => false)) throw Object.assign(new Error('job_stopped'), { code: 'revoked' });
+    },
+  });
+  try {
+    return await fn(lock);
+  } finally {
+    await lock.release().catch(() => undefined);
+  }
 }
 
 function boxFaces([w, d, h], [cx, cy, cz]) {
@@ -331,11 +350,14 @@ async function runSketchUp(input, output, dir) {
     console.log('首次執行：請在 SketchUp 歡迎視窗選一個模板（建議毫米），之後不用再操作。');
   }
   const args = ['-RubyStartup', join(here, 'skp_build.rb'), ...(firstRun ? [] : [SEED])];
-  const child = spawn(SKETCHUP, args, {
-    env: { ...process.env, FDS_SKP_INPUT: input, FDS_SKP_OUTPUT: output, FDS_SKP_ERROR: errorFile, FDS_SKP_SEED: SEED },
-    stdio: 'ignore',
+  await withSketchUpLock('parametric', async (lock) => {
+    const child = spawn(SKETCHUP, args, {
+      env: { ...process.env, FDS_SKP_INPUT: input, FDS_SKP_OUTPUT: output, FDS_SKP_ERROR: errorFile, FDS_SKP_SEED: SEED },
+      stdio: 'ignore',
+    });
+    await lock.update({ sketchup_pid: child.pid });
+    await watchChild(child, firstRun ? SKETCHUP_FIRST_RUN_TIMEOUT_MS : SKETCHUP_TIMEOUT_MS);
   });
-  await watchChild(child, firstRun ? SKETCHUP_FIRST_RUN_TIMEOUT_MS : SKETCHUP_TIMEOUT_MS);
   if (existsSync(errorFile)) throw new Error(clean(await readFile(errorFile, 'utf8')) || 'SketchUp 寫檔失敗');
   if (!existsSync(output)) throw new Error('SketchUp 沒有寫出 SKP');
 }
@@ -356,11 +378,14 @@ async function runSketchUpPreview(inputSkp, outputGlb, dir) {
     throw new Error('SketchUp 或 skp_preview.rb 未安裝，無法轉換預覽');
   }
   const errorFile = join(dir, 'error.txt');
-  const child = spawn(SKETCHUP, ['-RubyStartup', PREVIEW_RUBY, ...(existsSync(SEED) ? [SEED] : [])], {
-    env: { ...process.env, FDS_SKP_INPUT: inputSkp, FDS_SKP_OUTPUT: outputGlb, FDS_SKP_ERROR: errorFile },
-    stdio: 'ignore',
+  await withSketchUpLock('preview', async (lock) => {
+    const child = spawn(SKETCHUP, ['-RubyStartup', PREVIEW_RUBY, ...(existsSync(SEED) ? [SEED] : [])], {
+      env: { ...process.env, FDS_SKP_INPUT: inputSkp, FDS_SKP_OUTPUT: outputGlb, FDS_SKP_ERROR: errorFile },
+      stdio: 'ignore',
+    });
+    await lock.update({ sketchup_pid: child.pid });
+    await watchChild(child, PREVIEW_TIMEOUT_MS);
   });
-  await watchChild(child, PREVIEW_TIMEOUT_MS);
   if (existsSync(errorFile)) throw new Error(clean(await readFile(errorFile, 'utf8')) || 'SketchUp 預覽轉換失敗');
   if (!existsSync(outputGlb)) throw new Error('SketchUp 沒有寫出 GLB');
 }
@@ -383,6 +408,43 @@ async function uploadBytes(leaseId, bytes, contentType) {
     storage_path: prepared.path,
   });
   return prepared.path;
+}
+
+async function uploadSigned(path, token, bytes, contentType) {
+  const encoded = String(path).split('/').map(encodeURIComponent).join('/');
+  const target = sameHost(new URL(`/storage/v1/object/upload/sign/product-models/${encoded}?token=${encodeURIComponent(token)}`, URL_));
+  const response = await fetch(target, {
+    method: 'PUT',
+    headers: { apikey: ANON, 'Content-Type': contentType, 'x-upsert': 'true' },
+    body: bytes,
+  });
+  if (!response.ok) throw new Error(`upload_failed_${response.status}`);
+}
+
+async function downloadSigned(url) {
+  const response = await fetch(sameHost(url), { headers: { apikey: ANON } });
+  if (!response.ok) throw new Error(`download_failed_${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function processCodexJob(job) {
+  activeLease = job.lease_id;
+  try {
+    const status = await codexStatus(CODEX);
+    await runCodexJob(job, {
+      callAgent,
+      uploadSigned,
+      downloadSigned,
+      config: CODEX,
+      sketchupExe: SKETCHUP,
+      seedPath: SEED,
+      codexVersion: status.codex_version,
+      secrets: [creds.access, creds.refresh, creds.pendingRefresh, process.env.SUPABASE_ACCESS_TOKEN],
+    });
+  } finally {
+    activeLease = '';
+    await cleanupWorkRoot(CODEX).catch(() => undefined);
+  }
 }
 
 async function downloadInput(leaseId, destination) {
@@ -441,8 +503,14 @@ async function reportReadiness() {
   const checks = dependencyChecks();
   const canGenerate = (checks.writer && checks.api_dll && checks.preferences_dll) || (checks.sketchup && checks.ruby_script);
   const canPreview = checks.sketchup && checks.preview_ruby;
-  const ready = canGenerate || canPreview;
-  await callAgent('ready', { ready, checks, version: 'device-auth-2' });
+  const codex = await codexChecks(checks);
+  const capabilities = [
+    ...(canGenerate ? ['parametric'] : []),
+    ...(canPreview ? ['preview'] : []),
+    ...(codex.codex_ready === 'true' ? ['codex_v1'] : []),
+  ];
+  const ready = canGenerate || canPreview || codex.codex_ready === 'true';
+  await callAgent('ready', { ready, checks: { ...checks, ...codex, capabilities }, version: `device-auth-3+${CODEX_JOB_VERSION}` });
   return ready;
 }
 
@@ -453,17 +521,18 @@ async function tick() {
   if (!job) return false;
   try {
     if (job.job_type === 'preview_skp') await processPreviewJob(job);
+    else if (job.job_type === 'generate_skp' && job.mode === 'codex_v1') await processCodexJob(job);
     else if (job.job_type === 'generate_skp') await processGenerateJob(job);
     else throw new Error('forbidden');
   } catch (err) {
     authStop(err);
     const message = err instanceof Error ? err.message : String(err);
-    if (err?.code === 'revoked') return false;
+    if (err?.code === 'revoked' || err?.kind === 'cancelled') return false;
     console.error(`job ${job.id} failed: ${message}`);
     await callAgent('fail', {
       lease_id: job.lease_id,
       error: message,
-      retryable: skpFailureRetryable(message),
+      retryable: typeof err?.retryable === 'boolean' ? err.retryable : skpFailureRetryable(message),
     }).catch((error) => authStop(error));
   }
   return true;
@@ -476,6 +545,8 @@ try {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 }
+await resumePendingPublishes(CODEX, callAgent).catch((err) => console.error(err instanceof Error ? err.message : err));
+await cleanupWorkRoot(CODEX).catch(() => undefined);
 
 const readinessTimer = setInterval(() => reportReadiness().catch((err) => {
   if (!AUTH_STOP.has(err?.code)) return;

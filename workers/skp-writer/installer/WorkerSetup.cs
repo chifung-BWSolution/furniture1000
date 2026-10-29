@@ -429,7 +429,7 @@ internal static class WorkerSetup {
         Directory.CreateDirectory(temp);
         try {
             Extract(temp);
-            foreach (var file in new [] { "node.exe", "worker.mjs", "skp_build.rb", "skp_seed.rb", "skp_preview.rb", "licenses/Node-LICENSE.txt" })
+            foreach (var file in new [] { "node.exe", "worker.mjs", "skp_build.rb", "skp_seed.rb", "skp_preview.rb", "codex-mcp.mjs", "fds_codex_session.rb", "licenses/Node-LICENSE.txt" })
                 if (!File.Exists(Path.Combine(temp, file))) throw new Exception("Missing " + file);
             var workerSource = File.ReadAllText(Path.Combine(temp, "worker.mjs"));
             if (workerSource.Contains("SUPABASE_SERVICE_ROLE_KEY") || workerSource.Contains("service_role"))

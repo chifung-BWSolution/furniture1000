@@ -19,6 +19,20 @@
 EXE 不包含 service role key。不要把裝置憑證放進命令列、Git 或安裝包。
 封裝未簽章；正式對外分發前可用公司的 Windows 程式碼簽章憑證簽署。
 
+## 本機 Codex 建模（`codex_v1`）
+
+網站開了 `fds_runtime_flags.skp_codex_entry` 後，「生成 SKP」會建立 `generate_skp`、`payload.mode = codex_v1` 的任務，
+只有回報 `codex_v1` 能力的 Worker 會領取。這台電腦還要有：
+
+- 本機 Codex CLI 已登入（`codex login`）。自動尋找 `%LOCALAPPDATA%\OpenAI\Codex\bin\*\codex.exe` 與 PATH；可用 `FDS_CODEX_EXE` 指定。
+- `seed.skp`、`codex-mcp.mjs`、`fds_codex_session.rb`（安裝包已內置）。
+
+每個任務另開一個專用 SketchUp（獨立端口，預設 9877 起），不會碰使用者自己開著的 SketchUp；
+同一時間只有一個 SketchUp 任務（`sketchup.lock`）。Codex 子程序拿不到裝置憑證或任何 token。
+工作目錄 `%LOCALAPPDATA%\FDS\SkpWorker\jobs\<job_id>`（`prompt.md`、`validation.json`、`manifest.json`，記錄在 `logs/mcp-tools.jsonl`、`logs/codex-events.jsonl`），
+預設保留 14 天。可選環境變數：`FDS_CODEX_MODEL`、`FDS_CODEX_REASONING`、`FDS_CODEX_TIMEOUT_MIN`（45）、
+`FDS_SKP_MCP_PORT`、`FDS_SKP_RETENTION_DAYS`、`FDS_CODEX_REVIEW_ROUNDS`。
+
 ## 建置及驗證
 
 ```powershell

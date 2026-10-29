@@ -106,17 +106,25 @@ import {
   type SizeAxis,
 } from '@/lib/furnitureParametric';
 import {
+  cancelProductSkp,
   deleteProductModel,
-  downloadModel,
+  downloadModelFile,
   fetchModelFlags,
   fetchProductModels,
+  fetchProductSkpStatus,
+  fetchSkpRequirements,
   fetchSkpStatus,
+  PRODUCT_SKP_STAGE_LABELS,
+  productSkpActive,
+  productSkpErrorText,
   registerGeneratedFile,
+  requestProductSkp,
   requestSkp,
   uploadProductModel,
   type ModelFlags,
   type ModelFormatFlags,
   type ProductModelFile,
+  type ProductSkpJob,
   type SkpStatus,
 } from '@/lib/productModels';
 import {
@@ -1622,6 +1630,110 @@ function ProductModelsSection({
   useEffect(() => { setScopeChoice(undefined); setScopeRequest(null); }, [productId, extraPhotos, product.images]);
   const [genProgress, setGenProgress] = useState<{ percent: number; label: string } | null>(null);
   const skpRequirements = useSkpRequirements();
+
+  /** Local Codex generation (codex_v1): one server job per product; its status survives leaving the page. */
+  const [codexEntry, setCodexEntry] = useState(false);
+  const [codexJob, setCodexJob] = useState<ProductSkpJob | null>(null);
+  const [codexChoice, setCodexChoice] = useState(false);
+  const [codexReplace, setCodexReplace] = useState<string[]>([]);
+  const [codexSubmitting, setCodexSubmitting] = useState(false);
+  const [codexNoticeHidden, setCodexNoticeHidden] = useState<string | null>(null);
+  /** Same request id for retries from one dialog, so a lost response or double click reuses the job. */
+  const codexRequestRef = useRef<string>('');
+  const codexSettledRef = useRef<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchSkpRequirements()
+      .then((r) => { if (!cancelled) setCodexEntry(r.codex_entry === true); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setCodexJob(null);
+    setCodexChoice(false);
+    codexSettledRef.current = null;
+    if (!codexEntry) return;
+    fetchProductSkpStatus(productId)
+      .then((job) => {
+        if (cancelled) return;
+        if (job.status !== 'none' && !productSkpActive(job)) codexSettledRef.current = job.job_id;
+        setCodexJob(job);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [productId, codexEntry]);
+  const codexActive = productSkpActive(codexJob);
+  useEffect(() => {
+    if (!codexActive) return;
+    const timer = window.setInterval(() => {
+      fetchProductSkpStatus(productId)
+        .then((job) => {
+          setCodexJob(job);
+          if (job.status === 'none' || productSkpActive(job) || codexSettledRef.current === job.job_id) return;
+          codexSettledRef.current = job.job_id;
+          if (job.status === 'succeeded') {
+            toast.success('SKP／FBX／GLB 已生成', { description: 'AI 草稿，未經人工驗收；請檢查後再交付。' });
+            setReload((n) => n + 1);
+            onChanged();
+          } else if (job.status === 'failed') {
+            toast.error('SKP 生成失敗', { description: productSkpErrorText(job.error) });
+          }
+        })
+        .catch(() => undefined);
+    }, SKP_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [codexActive, productId, onChanged]);
+
+  const openCodex = () => {
+    if (filesError) {
+      toast.error('讀不到現有模型檔，請重新載入後再生成');
+      return;
+    }
+    codexRequestRef.current = crypto.randomUUID();
+    setCodexReplace([]);
+    setCodexChoice(true);
+  };
+
+  const submitCodex = async (photos: (string | File)[]) => {
+    setCodexSubmitting(true);
+    try {
+      if (!await skpRequirements.check(false, 'codex')) return;
+      const urls = await collectRecognitionUrls(productId, photos);
+      if (urls.length === 0) throw new Error('請至少選擇一張可讀取的圖片');
+      const job = await requestProductSkp(productId, codexRequestRef.current, urls, codexReplace);
+      codexSettledRef.current = null;
+      setCodexNoticeHidden(null);
+      setCodexJob(job);
+      setCodexChoice(false);
+      setExtraPhotos([]);
+      toast.success(job.status !== 'none' && job.already_queued ? '此產品已有生成中的任務' : '已交給本機 Codex 建模', {
+        description: '完成後會出現 SKP、FBX（含貼圖 ZIP）及 GLB，可以離開此頁。',
+      });
+    } catch (err) {
+      toast.error('未能開始生成', { description: errorText(err) });
+    } finally {
+      setCodexSubmitting(false);
+    }
+  };
+
+  const cancelCodex = async () => {
+    if (!codexJob || codexJob.status === 'none') return;
+    const ok = await confirm({
+      title: '停止生成？',
+      description: 'Worker 會在下一次心跳時停止 Codex 和專用 SketchUp，已存在的模型檔不受影響。',
+      confirmLabel: '停止生成',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const job = await cancelProductSkp(codexJob.job_id);
+      codexSettledRef.current = job.status !== 'none' ? job.job_id : null;
+      setCodexJob(job);
+    } catch (err) {
+      toast.error('未能停止', { description: errorText(err) });
+    }
+  };
   /** Gate for the structure form: opened once the progress dialog hands over. */
   const [confirmShown, setConfirmShown] = useState(false);
   const confirmShownRef = useRef(false);
@@ -1780,8 +1892,10 @@ function ProductModelsSection({
   const workbench = appearance === 'workbench';
   const skpFile = latestSkpFile(files);
   const skpReady = skp?.status === 'ready' || skpFile != null;
-  const skpFailed = !skpFile && (skp?.status === 'failed' || skp?.status === 'cancelled');
-  const skpRunning = (workbench || !skpFile) && (skp?.status === 'queued' || skp?.status === 'running');
+  const skpFailed = !skpFile && (codexEntry
+    ? codexJob?.status === 'failed' || codexJob?.status === 'cancelled'
+    : skp?.status === 'failed' || skp?.status === 'cancelled');
+  const skpRunning = codexActive || ((workbench || !skpFile) && (skp?.status === 'queued' || skp?.status === 'running'));
   const skpButtonLabel = skpRunning
     ? 'SKP 生成中'
     : skpFailed
@@ -1792,7 +1906,8 @@ function ProductModelsSection({
 
   const onSkpAction = () => {
     if (workbench && skpReady) {
-      start('skp', true);
+      if (codexEntry) openCodex();
+      else start('skp', true);
       return;
     }
     if (skpReady) {
@@ -1800,30 +1915,34 @@ function ProductModelsSection({
         toast.error('找不到 SKP 檔', { description: '請重新載入後再試' });
         return;
       }
-      void downloadModel(skpFile.storage_path, skpFile.file_name).catch((err) =>
+      void downloadModelFile(skpFile).catch((err) =>
         toast.error('SKP 下載失敗', { description: errorText(err) }),
       );
       return;
     }
-    start('skp');
+    if (codexEntry) openCodex();
+    else start('skp');
   };
 
   const fbxFile = latestFbxFile(files);
   // 工作台的既有檔案可從「下載模型」選單下載，主按鈕用於重新生成。
   const fbxButtonLabel = fbxFile ? (workbench ? '重新生成 FBX' : '下載 FBX') : '生成 FBX';
 
+  // With local Codex the SKP job also writes FBX and GLB, so both buttons start the same job.
   const onFbxAction = () => {
     if (workbench && fbxFile) {
-      start('fbx', true);
+      if (codexEntry) openCodex();
+      else start('fbx', true);
       return;
     }
     if (fbxFile) {
-      void downloadModel(fbxFile.storage_path, fbxFile.file_name).catch((err) =>
+      void downloadModelFile(fbxFile).catch((err) =>
         toast.error('FBX 下載失敗', { description: errorText(err) }),
       );
       return;
     }
-    start('fbx');
+    if (codexEntry) openCodex();
+    else start('fbx');
   };
 
   /** Turn a stored recognition into the confirm-dialog draft. No network. */
@@ -2603,6 +2722,38 @@ function ProductModelsSection({
           void prepare(target, null, false, photos);
         }}
       />
+      <FurnitureModelPhotoChoice
+        open={codexChoice}
+        images={availableModelPhotos}
+        minImages={1}
+        busy={codexSubmitting}
+        title="生成 SKP／FBX／GLB"
+        description="勾選同一款家具的參考圖片（1–6 張）。本機 Codex 會依產品資料與圖片直接在 SketchUp 建模，不需確認參數。"
+        confirmLabel={codexSubmitting ? '提交中…' : '開始生成'}
+        note="有目錄尺寸時以目錄為準；缺少的尺寸由 Codex 估算並寫進報告。結果是 AI 草稿，未經人工驗收。"
+        onCancel={() => setCodexChoice(false)}
+        onAddPhotos={() => photoInputRef.current?.click()}
+        onChoose={(photos) => void submitCodex(photos)}
+      >
+        {latestModelFiles(files).length > 0 && (
+          <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 text-sm">
+            <legend className="px-1 text-xs font-medium text-muted-foreground">完成後替換（可選）</legend>
+            <p className="text-xs text-muted-foreground">預設保留舊檔。勾選的檔案會在新模型全部檢查及發布成功後才移除，並保留 30 天備份。</p>
+            {latestModelFiles(files).map((file) => (
+              <label key={file.id} className="flex items-center gap-2">
+                <Checkbox
+                  checked={codexReplace.includes(file.id)}
+                  disabled={codexSubmitting}
+                  onCheckedChange={(value) => setCodexReplace((current) => value === true ? [...new Set([...current, file.id])] : current.filter((id) => id !== file.id))}
+                />
+                <span className="text-xs font-semibold">{file.format.toUpperCase()}</span>
+                <span className="min-w-0 flex-1 truncate">{file.file_name ?? file.storage_path.split('/').pop()}</span>
+                <span className="text-xs text-muted-foreground">{modelSourceLabel(file.source)}</span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+      </FurnitureModelPhotoChoice>
       <FurnitureProductScopeDialog detection={scopeRequest?.detection ?? null} images={modelPhotos}
         onCancel={() => {
           const jobId = scopeRequest?.jobId;
@@ -2627,7 +2778,7 @@ function ProductModelsSection({
             {busy === 'skp' || recognitionActive ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : workbench ? <Sparkles className="mr-1 h-3.5 w-3.5" /> : null}
             {recognitionActive ? '辨認中' : skpButtonLabel}
           </Button>
-          <Button size="sm" variant="outline" className={workbench ? 'h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50' : 'h-7'} disabled={busy != null || recognitionActive} onClick={onFbxAction}>
+          <Button size="sm" variant="outline" className={workbench ? 'h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50' : 'h-7'} disabled={busy != null || recognitionActive || codexActive} onClick={onFbxAction}>
             {busy === 'fbx' || recognitionActive ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
             {recognitionActive ? '辨認中' : fbxButtonLabel}
           </Button>
@@ -2645,7 +2796,7 @@ function ProductModelsSection({
                   latestModelFiles(files).map((file) => (
                     <DropdownMenuItem
                       key={file.id}
-                      onClick={() => void downloadModel(file.storage_path, file.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
+                      onClick={() => void downloadModelFile(file).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
                     >
                       {(file.format ?? '').toUpperCase()} · {modelSourceLabel(file.source)}
                       {file.size_bytes != null ? ` · ${modelSizeLabel(file.size_bytes)}` : ''}
@@ -2674,7 +2825,9 @@ function ProductModelsSection({
       </div>
       {!workbench && (
         <p className="text-xs text-muted-foreground">
-          先選擇同一款式的參考圖片，辨認結構並確認尺寸後生成。SU 是 SKP，完成後可下載；3D 會同時寫出 GLB 和 FBX。
+          {codexEntry
+            ? '選擇同一款式的參考圖片後，由本機 Codex 在 SketchUp 直接建模，一次產生 SKP、FBX（含貼圖 ZIP）及 GLB。'
+            : '先選擇同一款式的參考圖片，辨認結構並確認尺寸後生成。SU 是 SKP，完成後可下載；3D 會同時寫出 GLB 和 FBX。'}
         </p>
       )}
       {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
@@ -2795,7 +2948,7 @@ function ProductModelsSection({
               <button
                 type="button"
                 className="text-xs text-primary hover:underline"
-                onClick={() => void downloadModel(file.storage_path, file.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
+                onClick={() => void downloadModelFile(file).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
               >
                 下載
               </button>
@@ -2905,6 +3058,24 @@ function ProductModelsSection({
           {skpStatusText(skp)}
         </p>
       )}
+      {codexJob && codexJob.status !== 'none' && (codexActive || (codexJob.status === 'failed' && codexNoticeHidden !== codexJob.job_id)) && (
+        <p className={codexActive ? 'flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground' : 'flex flex-wrap items-center gap-x-2 text-xs text-destructive'} aria-live="polite">
+          {codexActive ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {codexJob.status === 'queued'
+                ? `排隊中，等待 Codex Worker 領取${codexJob.attempts > 0 ? `（第 ${codexJob.attempts + 1} 次嘗試）` : ''}`
+                : `${PRODUCT_SKP_STAGE_LABELS[codexJob.stage ?? 'download'] ?? '處理中'}${codexJob.stage_detail ? `：${codexJob.stage_detail}` : ''}`}
+              <button type="button" className="text-primary hover:underline" onClick={() => void cancelCodex()}>停止</button>
+            </>
+          ) : (
+            <>
+              {productSkpErrorText(codexJob.error)}
+              <button type="button" className="text-primary hover:underline" onClick={() => setCodexNoticeHidden(codexJob.job_id)}>關閉</button>
+            </>
+          )}
+        </p>
+      )}
       {!workbench && files.length === 0 ? (
         <p className="text-xs text-muted-foreground">未有模型檔。</p>
       ) : !workbench ? (
@@ -2922,9 +3093,9 @@ function ProductModelsSection({
               <button
                 type="button"
                 className="text-primary hover:underline"
-                onClick={() => void downloadModel(f.storage_path, f.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
+                onClick={() => void downloadModelFile(f).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
               >
-                下載
+                {f.format === 'fbx' && f.bundle_storage_path ? '下載（含貼圖 ZIP）' : '下載'}
               </button>
               {canManage && f.source === 'uploaded' && (
                 <button

@@ -21,7 +21,17 @@ const result = await build({
   metafile: true,
   legalComments: 'eof',
 });
+await build({
+  entryPoints: [join(installer, '../codex/mcp-server.mjs')],
+  outfile: join(output, 'codex-mcp.mjs'),
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node22',
+});
 await copyFile(process.execPath, join(output, 'node.exe'));
+await copyFile(join(installer, '../fds_codex_session.rb'), join(output, 'fds_codex_session.rb'));
+await copyFile(join(installer, 'licenses/su-mcp-bridge-LICENSE.txt'), join(licenses, 'su-mcp-bridge-LICENSE.txt'));
 await copyFile(join(installer, '../skp_build.rb'), join(output, 'skp_build.rb'));
 await copyFile(join(installer, '../skp_seed.rb'), join(output, 'skp_seed.rb'));
 await copyFile(join(installer, '../skp_preview.rb'), join(output, 'skp_preview.rb'));

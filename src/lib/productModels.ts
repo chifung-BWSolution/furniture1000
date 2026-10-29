@@ -33,6 +33,10 @@ export interface ProductModelFile {
   version_note: string | null;
   created_at: string;
   preview?: SkpPreviewStatus | null;
+  /** FBX with external textures: ZIP holding the FBX and its texture folder. */
+  bundle_storage_path?: string | null;
+  generation_job_id?: string | null;
+  generation_mode?: 'codex_v1' | null;
 }
 
 /**
@@ -70,6 +74,14 @@ function modelError(message: string): string {
   if (message.includes('format_invalid')) return '只接受 .skp、.glb 或 .fbx';
   if (message.includes('storage_object_missing')) return '檔案未上載成功';
   if (message.includes('storage_path_invalid')) return '模型路徑不正確';
+  if (message.includes('codex_entry_disabled')) return '本機 Codex 建模尚未開放';
+  if (message.includes('codex_worker_unavailable')) return '沒有可用的 Codex SKP Worker：請確認 Worker 電腦已安裝最新版、Codex 已登入、SketchUp 可用並已上線。';
+  if (message.includes('reference_images_required')) return '請至少選擇一張產品圖片或補充照片';
+  if (message.includes('reference_image_not_product')) return '所選圖片不屬於此產品';
+  if (message.includes('reference_image_missing')) return '補充照片未上載成功，請重新選擇';
+  if (message.includes('reference_image_invalid')) return '圖片網址不正確';
+  if (message.includes('replace_model_not_found')) return '要替換的模型已不存在，請重新整理';
+  if (message.includes('request_id_conflict')) return '請重新提交';
   return message;
 }
 
@@ -136,6 +148,15 @@ export async function downloadModel(storagePath: string, fileName?: string | nul
   link.click();
 }
 
+/** FBX with a texture bundle downloads as the ZIP; a bare FBX would lose its textures. */
+export async function downloadModelFile(file: ProductModelFile): Promise<void> {
+  if (file.format === 'fbx' && file.bundle_storage_path) {
+    const base = (file.file_name || 'model.fbx').replace(/\.fbx$/i, '');
+    return downloadModel(file.bundle_storage_path, `${base}-fbx.zip`);
+  }
+  return downloadModel(file.storage_path, file.file_name);
+}
+
 /** Preview URL, not a download. Expires with the same short TTL as a download link. */
 export async function signedModelUrl(storagePath: string): Promise<string> {
   const { data, error } = await supabase.storage
@@ -191,12 +212,112 @@ export async function fetchSkpStatus(furnitureModelId: string): Promise<SkpStatu
   return data as SkpStatus;
 }
 
+export type CodexCheckKey = 'sketchup' | 'codex_cli' | 'codex_login' | 'mcp_bridge' | 'session_ruby' | 'seed';
+
 export interface SkpRequirements {
   ready: boolean;
   connected: boolean | null;
   checks: Partial<
     Record<'sketchup' | 'ruby_script' | 'preview_ruby' | 'writer' | 'api_dll' | 'preferences_dll', boolean>
   > | null;
+  /** Product-page generation goes through local Codex when this is on (server flag). */
+  codex_entry?: boolean;
+  codex_ready?: boolean;
+  codex_connected?: boolean;
+  codex_checks?: (Partial<Record<CodexCheckKey, boolean>> & { codex_version?: string | null }) | null;
+}
+
+// ── 本機 Codex 直接建模（codex_v1）────────────────────────────────────────
+
+export type ProductSkpStage =
+  | 'download' | 'wait_sketchup' | 'codex' | 'export' | 'validate' | 'upload' | 'publish' | 'done' | 'cancelled';
+
+export const PRODUCT_SKP_STAGE_LABELS: Record<ProductSkpStage, string> = {
+  download: '下載產品資料與圖片',
+  wait_sketchup: '等待 SketchUp',
+  codex: 'Codex 建模',
+  export: '匯出 SKP／FBX／GLB',
+  validate: '檢查模型',
+  upload: '上傳檔案',
+  publish: '發布',
+  done: '完成',
+  cancelled: '已取消',
+};
+
+export const PRODUCT_SKP_STAGE_ORDER: ProductSkpStage[] = [
+  'download', 'wait_sketchup', 'codex', 'export', 'validate', 'upload', 'publish',
+];
+
+export type ProductSkpJob =
+  | { status: 'none' }
+  | {
+      status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+      job_id: string;
+      request_id?: string;
+      stage?: ProductSkpStage;
+      stage_detail?: string;
+      stage_at?: string;
+      progress?: number;
+      attempts: number;
+      max_attempts: number;
+      error?: string | null;
+      replace?: boolean;
+      reference_count?: number;
+      models?: { skp?: string; fbx?: string; glb?: string };
+      created_at?: string;
+      started_at?: string;
+      finished_at?: string;
+      already_queued?: boolean;
+    };
+
+export function productSkpActive(job: ProductSkpJob | null | undefined): boolean {
+  return !!job && (job.status === 'queued' || job.status === 'running');
+}
+
+export async function requestProductSkp(
+  productId: string,
+  requestId: string,
+  imageUrls: string[],
+  replaceModelIds: string[] = [],
+): Promise<ProductSkpJob> {
+  const { data, error } = await supabase.rpc('fds_request_product_skp', {
+    p_product_id: productId,
+    p_request_id: requestId,
+    p_image_urls: imageUrls,
+    p_replace_model_ids: replaceModelIds.length ? replaceModelIds : null,
+  });
+  if (error) throw new Error(modelError(error.message));
+  return data as ProductSkpJob;
+}
+
+export async function fetchProductSkpStatus(productId: string): Promise<ProductSkpJob> {
+  const { data, error } = await supabase.rpc('fds_product_skp_status', { p_product_id: productId });
+  if (error) throw new Error(modelError(error.message));
+  return (data ?? { status: 'none' }) as ProductSkpJob;
+}
+
+export async function cancelProductSkp(jobId: string): Promise<ProductSkpJob> {
+  const { data, error } = await supabase.rpc('fds_product_skp_cancel', { p_job_id: jobId });
+  if (error) throw new Error(modelError(error.message));
+  return data as ProductSkpJob;
+}
+
+/** Worker errors are `<kind>: <detail>`; show the detail and say whether the user can act on it. */
+export function productSkpErrorText(error: string | null | undefined): string {
+  const text = String(error ?? '').trim();
+  if (!text) return '生成失敗';
+  const match = /^(setup|input|network|modeling|export|validation|cancelled):\s*(.*)$/s.exec(text);
+  if (!match) return text;
+  const prefix: Record<string, string> = {
+    setup: 'Worker 設定問題',
+    input: '資料不足',
+    network: '網路錯誤',
+    modeling: '建模失敗',
+    export: '匯出失敗',
+    validation: '模型檢查未通過',
+    cancelled: '已停止',
+  };
+  return `${prefix[match[1]]}：${match[2]}`;
 }
 
 export class SkpRequirementsError extends Error {

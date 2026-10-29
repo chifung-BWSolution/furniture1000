@@ -358,6 +358,14 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   模型檔在私有 bucket `product-models`（`uploaded/` 給 admin／uploader，`generated/` 只給 service role），
   登記在 `product_models`，只經 `fds_product_model*`／`fds_request_skp`／`fds_skp_status` RPC。
   舊的 service role Worker 在改裝前仍可心跳；撤銷的裝置即使 90 秒內有心跳也不算可用。
+  **本機 Codex 建模**（`docs/prd/FDS-本機Codex-SketchUp自動建模-PRD.md`）：`fds_runtime_flags.skp_codex_entry` 開了，
+  產品頁才走 `fds_request_product_skp` → `generate_skp` + `payload.mode='codex_v1'`。只有回報 `codex_v1` 能力的裝置
+  經 `fds_skp_device_claim` 領得到；通用 `fds_processing_jobs_claim` 一律不派 codex 任務（舊 service role Worker 會做錯）。
+  階段經 heartbeat `stage` → `fds_skp_device_job_stage`；多產物先 `artifact-upload`，再 `publish`
+  （`fds_skp_device_publish`，按 manifest hash 冪等，一次登記 SKP／FBX（`bundle_storage_path` 是貼圖 ZIP）／GLB）。
+  Codex 模式的座標是 SketchUp 原生：正面朝 -Y，不再轉 180°。
+  Worker 的 PowerShell 存憑證不能寫 `[IO.File]::Replace(..., $null)`（PS 會傳空字串而失敗）：伺服器已輪換、本機沒存到，
+  下次用舊 refresh token 會被判 `refresh_replay` 撤銷，只能重新配對。
 - 正式價錢在 `supplier_prices`、來源在 `product_source_refs`（產品／報價／來源分離，產品身份＝型號＋供應商）；
  只有審核通過的項目才可寫入（BR-02）。匯入只經 `fds_import_extracted_products`：同廠家同型號沿用既有產品且不改它，
  只追加報價；不寫 `products.cost_price`（報價可能是外幣）。

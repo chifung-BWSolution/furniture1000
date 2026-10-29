@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const payload = process.argv[2];
@@ -45,6 +46,11 @@ try {
     assert.equal(ready.body.ready, true);
     assert.equal(ready.body.checks.sketchup, true);
     assert.equal(ready.body.checks.writer, false);
+    assert.equal(typeof ready.body.checks.codex_ready, 'string');
+    assert.ok(Array.isArray(ready.body.checks.capabilities), 'worker must report capabilities');
+    assert.ok(String(ready.body.version).includes('codex-'), 'worker version must include the Codex job version');
+    assert.ok(existsSync(join(payload, 'codex-mcp.mjs')), 'bundled MCP server missing');
+    assert.ok(existsSync(join(payload, 'fds_codex_session.rb')), 'SketchUp session script missing');
     assert.equal(JSON.stringify(ready.body).includes('fixture-refresh-token'), false);
     assert.ok(requests.some((request) => request.body?.action === 'claim'), 'worker must claim through the device proxy');
     assert.equal(requests.some((request) => String(request.path).includes('/rest/v1/')), false);
