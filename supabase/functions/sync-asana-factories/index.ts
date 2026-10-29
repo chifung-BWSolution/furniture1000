@@ -204,7 +204,7 @@ async function handle(req: Request): Promise<Response> {
   const { data: links, error: linkError } = await query;
   if (linkError) return json({ error: linkError.message }, 500);
 
-  const results: Array<{ link_id: string; factory: string; status: string; comments?: number; error?: string }> = [];
+  const results: Array<{ link_id: string; factory: string; status: string; comments?: number; pushed?: number; error?: string }> = [];
 
   for (const link of (links ?? []) as LinkRow[]) {
     try {
@@ -240,11 +240,38 @@ async function handle(req: Request): Promise<Response> {
       });
       if (applyError) throw new Error(applyError.message);
 
+      // FDS → Asana：把本地新增的留言追加到同一個 task（只追加，不改既有留言）。
+      let pushed = 0;
+      const { data: pending } = await admin.rpc("fds_asana_comment_pending_push", {
+        p_link_id: link.id,
+        p_limit: 10,
+      });
+      for (const comment of (Array.isArray(pending) ? pending as Array<{ id: string; body: string }> : [])) {
+        try {
+          const postRes = await fetch(`${ASANA_BASE}/tasks/${link.asana_task_gid}/stories`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ data: { text: `${comment.body}\n\n${PROGRESS_MARKER}` } }),
+          });
+          const postBody = await postRes.json().catch(() => null);
+          const storyGid = (postBody as { data?: { gid?: string } } | null)?.data?.gid;
+          if (!postRes.ok || !storyGid) throw new Error(`asana_story_${postRes.status}`);
+          await admin.rpc("fds_asana_comment_mark_pushed", { p_id: comment.id, p_gid: storyGid });
+          pushed += 1;
+        } catch (pushError) {
+          await admin.rpc("fds_asana_comment_mark_push_failed", {
+            p_id: comment.id,
+            p_error: pushError instanceof Error ? pushError.message : "push_failed",
+          });
+        }
+      }
+
       results.push({
         link_id: link.id,
         factory: link.factory_name,
         status: "synced",
         comments: Number((applied as { inserted_comments?: number } | null)?.inserted_comments ?? 0),
+        pushed,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "sync failed";

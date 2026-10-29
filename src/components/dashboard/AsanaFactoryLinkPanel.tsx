@@ -3,6 +3,7 @@ import { Loader2, Link2, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { confirm } from '@/components/ui/confirm-dialog';
 import { supabase } from '@/lib/supabase';
 
@@ -22,10 +23,25 @@ type LinkRow = {
   enabled: boolean;
 };
 
+type CommentRow = {
+  id: string;
+  source: 'asana' | 'fds';
+  author_name: string | null;
+  body: string;
+  asana_gid: string | null;
+  pushed_at: string | null;
+  push_error: string | null;
+  created_at_remote: string | null;
+  fetched_at: string;
+};
+
 const TASK_GID = /^\d{6,25}$/;
 
 export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: string; factoryName: string }) {
   const [link, setLink] = useState<LinkRow | null>(null);
+  const [comments, setComments] = useState<CommentRow[]>([]);
+  const [commentBody, setCommentBody] = useState('');
+  const [commentBusy, setCommentBusy] = useState(false);
   const [taskGid, setTaskGid] = useState('');
   const [loading, setLoading] = useState(true);
   const [oauthConnected, setOauthConnected] = useState<boolean | null>(null);
@@ -45,6 +61,15 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     setLink(found);
     setTaskGid(found?.asana_task_gid ?? '');
     setError('');
+    if (found) {
+      const { data: commentRows } = await supabase.rpc('fds_asana_factory_comment_list', {
+        p_link_id: found.id,
+        p_limit: 50,
+      });
+      setComments(Array.isArray(commentRows) ? (commentRows as CommentRow[]) : []);
+    } else {
+      setComments([]);
+    }
     try {
       const status = await supabase.functions.invoke('fds-asana-oauth', { body: { action: 'status' } });
       const body = status.data as { connected?: boolean; asana_user_name?: string | null } | null;
@@ -159,12 +184,31 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     toast.success('已同步 Asana 廠家資料');
   };
 
+  const addComment = async () => {
+    const body = commentBody.trim();
+    if (!link || !body) return;
+    setCommentBusy(true);
+    setError('');
+    const { error: addError } = await supabase.rpc('fds_asana_factory_comment_add', {
+      p_link_id: link.id,
+      p_body: body,
+    });
+    if (addError) {
+      setError(addError.message.includes('permission') ? '沒有權限新增留言。' : addError.message);
+      setCommentBusy(false);
+      return;
+    }
+    setCommentBody('');
+    await sync();
+    setCommentBusy(false);
+  };
+
   return (
     <section className="mt-4 rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Link2 className="h-4 w-4 text-muted-foreground" />
         <h3 className="text-sm font-semibold">Asana 廠家同步</h3>
-        <span className="text-xs text-muted-foreground">唯讀：Asana → FDS，不會向 Asana 發留言</span>
+        <span className="text-xs text-muted-foreground">雙向：Asana → FDS；FDS 留言會追加到同一個 task</span>
       </div>
 
       {loading ? (
@@ -226,6 +270,45 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
               ) : (
                 <p className="text-xs text-muted-foreground">未綁定。貼上 Asana 專案內該廠家的 task gid 即可。</p>
               )}
+              {link ? (
+                <div className="space-y-2 border-t pt-3">
+                  <p className="text-xs font-medium">留言（Asana ↔ FDS）</p>
+                  {comments.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">還沒有留言。</p>
+                  ) : (
+                    <ul className="max-h-60 space-y-1 overflow-auto text-sm">
+                      {comments.map((comment) => (
+                        <li key={comment.id} className="rounded border px-2 py-1">
+                          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            <span>{comment.source === 'fds' ? 'FDS' : 'Asana'} · {comment.author_name || '—'}</span>
+                            <span>{(comment.created_at_remote || comment.fetched_at).slice(0, 16).replace('T', ' ')}</span>
+                            {comment.source === 'fds' ? (
+                              <span className={comment.asana_gid ? 'text-emerald-700' : comment.push_error ? 'text-destructive' : 'text-amber-700'}>
+                                {comment.asana_gid ? '已推送' : comment.push_error ? `推送失敗：${comment.push_error}` : '待推送'}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="whitespace-pre-wrap">{comment.body}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <Textarea
+                    rows={3}
+                    value={commentBody}
+                    maxLength={2000}
+                    onChange={(event) => setCommentBody(event.target.value)}
+                    placeholder="新增留言；送出後會追加到 Asana 同一個 task"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" size="sm" disabled={commentBusy || !commentBody.trim()} onClick={() => void addComment()}>
+                      {commentBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                      送出並同步
+                    </Button>
+                    <span className="text-xs text-muted-foreground">只追加，不會改寫 Asana 既有留言。</span>
+                  </div>
+                </div>
+              ) : null}
             </>
           ) : null}
         </div>
