@@ -1855,6 +1855,23 @@ export function PresentationView() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {brief.floorImageUrl && zones.some((zone) => zone.rect) ? (
+                      <Button type="button" variant="outline" disabled={disabled} onClick={async () => {
+                        const request = ++floorRecognitionRequest.current;
+                        setRecognizingFloor(true);
+                        try {
+                          const sourceZones = [...zones];
+                          const response = await fetch(brief.floorImageUrl!);
+                          if (!response.ok) throw new Error('無法讀取原始平面圖');
+                          const result = await cropPresentationFloorPlan(await response.blob(), sourceZones.map((zone) => ({ name: zone.name, rect: zone.rect ?? null })));
+                          if (request !== floorRecognitionRequest.current) return;
+                          const images = new Map(sourceZones.map((zone, index) => [zone.id, result.zones[index]?.imageUrl]));
+                          setZones((current) => current.map((zone) => images.get(zone.id) ? { ...zone, imageUrl: images.get(zone.id) } : zone));
+                          toast.success('已更新分區高清截圖', { description: result.failedCrops ? '部分截圖失敗，已保留原圖。' : '按原有分區裁切，請儲存草稿；已有簡報需要建立新版本重新生成。' });
+                        } catch (error) { toast.error('高清截圖失敗', { description: errorText(error) }); }
+                        finally { if (request === floorRecognitionRequest.current) setRecognizingFloor(false); }
+                      }}>更新高清截圖</Button>
+                    ) : null}
                     {brief.floorImageUrl ? (
                       <Button type="button" variant="outline" className="bg-white dark:bg-background" disabled={disabled || recognizingFloor} onClick={async () => {
                         trackUpload(1);
