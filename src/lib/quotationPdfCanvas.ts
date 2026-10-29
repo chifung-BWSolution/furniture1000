@@ -47,6 +47,33 @@ export interface QuotePdfPreviewPage {
 const PREVIEW_RENDER_SCALE = 2;
 const PREVIEW_JPEG_QUALITY = 0.92;
 
+export interface QuotePdfPageSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * 只讀每頁「看到的方向」的尺寸（已計入 /Rotate），不畫任何東西。
+ * 圖冊附錄靠它判斷一張 PDF 頁是單頁還是左右並排的跨頁。
+ */
+export async function readQuotePdfPageSizes(source: ArrayBuffer): Promise<QuotePdfPageSize[]> {
+  const pdfjs = await getPdfjs();
+  const data = new Uint8Array(new Uint8Array(source));
+  const doc = await pdfjs.getDocument({ data }).promise;
+  try {
+    const sizes: QuotePdfPageSize[] = [];
+    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+      const page = await doc.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1 });
+      sizes.push({ width: viewport.width, height: viewport.height });
+      page.cleanup();
+    }
+    return sizes;
+  } finally {
+    await doc.destroy();
+  }
+}
+
 /**
  * Render every page of a PDF into a JPEG data URL.
  * Throws when the PDF cannot be opened or a page cannot be painted.

@@ -1,23 +1,30 @@
-import { useEffect, useState, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { ChevronDown, ChevronUp, Loader2, RefreshCw, X } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { LoadingImage } from '@/components/ui/loading-image';
 import {
   CATALOG_BOTTOM_HALF,
+  CATALOG_SPLIT_LEFT,
+  CATALOG_SPLIT_RIGHT,
   CATALOG_TOP_HALF,
   QUOTE_CATALOG_PAGE_LIMIT,
+  buildQuoteCatalogPiecePdf,
+  catalogPageCrop,
   catalogPageKey,
   catalogPageLabel,
   fetchQuoteCatalogPdf,
+  isSpreadSize,
   listQuoteCatalogs,
   newCatalogPageId,
   parseCatalogCrop,
+  splitSpreadAttachments,
   type QuoteCatalogCrop,
   type QuoteCatalogOption,
   type QuoteCatalogPage,
+  type QuoteCatalogSplit,
 } from '@/lib/quoteCatalogPages';
-import { renderQuotePdfPages } from '@/lib/quotationPdfCanvas';
+import { readQuotePdfPageSizes, renderQuotePdfPages } from '@/lib/quotationPdfCanvas';
 
 interface QuoteCatalogPagesDialogProps {
   open: boolean;
@@ -36,7 +43,8 @@ interface PagePreview {
 function pageFromCatalog(
   catalog: QuoteCatalogOption,
   pageNo: number,
-  crop: QuoteCatalogCrop | null,
+  crop: QuoteCatalogCrop | null = null,
+  split: QuoteCatalogSplit | null = null,
 ): QuoteCatalogPage {
   return {
     id: newCatalogPageId(),
@@ -47,6 +55,7 @@ function pageFromCatalog(
     documentYear: catalog.document_year,
     series: catalog.series,
     crop,
+    split,
   };
 }
 
@@ -76,14 +85,21 @@ export function QuoteCatalogPagesDialog({
   const [manualPage, setManualPage] = useState('');
   const [preview, setPreview] = useState<PagePreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  /** 只有整頁預覽才可以在上面拖框；單張預覽看到的就是附錄那一張。 */
+  const [previewEditable, setPreviewEditable] = useState(false);
   const [cropDraft, setCropDraft] = useState<QuoteCatalogCrop | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  /** 每份圖冊是「一頁一個版面」還是「一頁兩個直向版面（跨頁）」。 */
+  const [shapeByDocument, setShapeByDocument] = useState<Record<string, 'spread' | 'page'>>({});
+  const [shapePendingId, setShapePendingId] = useState<string | null>(null);
+  const probedDocuments = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!open) return;
     setDraftPages(pages);
     setPreview(null);
+    setPreviewEditable(false);
     setCropDraft(null);
     setError(null);
     setManualPage('');
@@ -120,31 +136,102 @@ export function QuoteCatalogPagesDialog({
   }, [open, debouncedQuery, reloadToken]);
 
   const active = catalogs.find((catalog) => catalog.id === activeId) ?? null;
+  const activeIdResolved = active?.id ?? null;
+  const activeShape = activeIdResolved ? shapeByDocument[activeIdResolved] ?? null : null;
+  const activeIsSpread = activeShape === 'spread';
 
-  const addAttachment = (pageNo: number, crop: QuoteCatalogCrop | null) => {
-    if (!active) return;
-    setError(null);
-    setDraftPages((current) => {
-      if (current.length >= QUOTE_CATALOG_PAGE_LIMIT) {
-        setError(`一次最多 ${QUOTE_CATALOG_PAGE_LIMIT} 頁`);
-        return current;
+  // 問一次第一頁的尺寸就知道整份是跨頁還是單頁（同一份圖冊的頁面一起輸出）。
+  // 已選附件所屬的圖冊也要判斷，否則舊單的整頁附件在清單裡看不到左／右半。
+  const documentsToProbe = useMemo(() => {
+    const ids: string[] = [];
+    if (activeIdResolved) ids.push(activeIdResolved);
+    for (const page of draftPages) if (!ids.includes(page.documentId)) ids.push(page.documentId);
+    return ids;
+  }, [activeIdResolved, draftPages]);
+
+  useEffect(() => {
+    if (!open) return;
+    const nextId = documentsToProbe.find(
+      (id) => !shapeByDocument[id] && !probedDocuments.current.has(id),
+    );
+    if (!nextId) return;
+    probedDocuments.current.add(nextId);
+    setShapePendingId(nextId);
+    // 不用 cleanup 取消：dev 的 StrictMode 會把 effect 連跑兩次，取消會令請求永遠作廢。
+    void (async () => {
+      try {
+        const bytes = await fetchQuoteCatalogPdf([{ documentId: nextId, pageNo: 1 }]);
+        const sizes = await readQuotePdfPageSizes(bytes);
+        const first = sizes[0];
+        if (!first) return;
+        setShapeByDocument((current) => ({
+          ...current,
+          [nextId]: isSpreadSize(first.width, first.height) ? 'spread' : 'page',
+        }));
+      } catch {
+        // 判斷不到就沿用整頁；合併 PDF 時仍會依實際頁面寬高把跨頁拆開。
+      } finally {
+        setShapePendingId((current) => (current === nextId ? null : current));
       }
-      return [...current, pageFromCatalog(active, pageNo, crop)];
+    })();
+  }, [open, documentsToProbe, shapeByDocument]);
+
+  // 確定是跨頁後，把舊資料裡「整頁」的附件換成左、右兩列，清單與 PDF 才會一致。
+  useEffect(() => {
+    if (!open) return;
+    const spreadIds = Object.keys(shapeByDocument).filter((id) => shapeByDocument[id] === 'spread');
+    if (spreadIds.length === 0) return;
+    setDraftPages((current) => {
+      let next = current;
+      for (const id of spreadIds) next = splitSpreadAttachments(next, id);
+      return next;
     });
+  }, [open, shapeByDocument]);
+
+  useEffect(() => {
+    // 「重新整理」時重新判斷版面（例如剛換過檔案）。
+    if (reloadToken === 0) return;
+    probedDocuments.current.clear();
+    setShapeByDocument({});
+  }, [reloadToken]);
+
+  const addPages = (additions: QuoteCatalogPage[]) => {
+    setError(null);
+    if (additions.length === 0) return;
+    if (draftPages.length + additions.length > QUOTE_CATALOG_PAGE_LIMIT) {
+      setError(`一次最多 ${QUOTE_CATALOG_PAGE_LIMIT} 頁`);
+      return;
+    }
+    setDraftPages((current) => [...current, ...additions]);
   };
 
   const toggleWholePage = (catalog: QuoteCatalogOption, pageNo: number) => {
     setFocusPageNo(pageNo);
     setError(null);
-    setDraftPages((current) => {
-      const whole = current.find((page) => page.documentId === catalog.id && page.pageNo === pageNo && !page.crop);
-      if (whole) return current.filter((page) => page.id !== whole.id);
-      if (current.length >= QUOTE_CATALOG_PAGE_LIMIT) {
-        setError(`一次最多 ${QUOTE_CATALOG_PAGE_LIMIT} 頁`);
-        return current;
-      }
-      return [...current, pageFromCatalog(catalog, pageNo, null)];
-    });
+    // 同一頁的整頁／左半／右半算同一組；框選是自己畫的，不會被這裡刪掉。
+    const existing = draftPages.filter(
+      (page) => page.documentId === catalog.id && page.pageNo === pageNo && !parseCatalogCrop(page.crop),
+    );
+    if (existing.length > 0) {
+      const ids = new Set(existing.map((page) => page.id));
+      setDraftPages((current) => current.filter((page) => !ids.has(page.id)));
+      return;
+    }
+    addPages(
+      shapeByDocument[catalog.id] === 'spread'
+        ? [pageFromCatalog(catalog, pageNo, null, 'left'), pageFromCatalog(catalog, pageNo, null, 'right')]
+        : [pageFromCatalog(catalog, pageNo)],
+    );
+  };
+
+  const addSplit = (split: QuoteCatalogSplit) => {
+    if (!active) return;
+    addPages([pageFromCatalog(active, focusPageNo, null, split)]);
+  };
+
+  const addAttachment = (crop: QuoteCatalogCrop) => {
+    if (!active) return;
+    addPages([pageFromCatalog(active, focusPageNo, crop)]);
   };
 
   const addManualPage = () => {
@@ -173,19 +260,44 @@ export function QuoteCatalogPagesDialog({
     });
   };
 
-  const showPage = async (page: QuoteCatalogPage) => {
+  /** 清單上的「預覽」：看它在報價 PDF 裡實際的那一張（已裁切、已轉正）。 */
+  const showPiece = async (page: QuoteCatalogPage) => {
     setPreviewing(true);
     setError(null);
-    setCropDraft(page.crop);
+    setPreviewEditable(false);
+    setPreview(null);
+    try {
+      const bytes = await buildQuoteCatalogPiecePdf(page);
+      const rendered = await renderQuotePdfPages(bytes);
+      const first = rendered[0];
+      if (!first) {
+        setError('這一頁未能預覽');
+        return;
+      }
+      setCropDraft(null);
+      setPreview({ page, url: first.dataUrl, width: first.width, height: first.height });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '這一頁未能預覽');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  /** 整頁預覽：讓用戶在整張 PDF 頁上拖框（跨頁就是左右兩版一起看）。 */
+  const showWholePage = async (page: QuoteCatalogPage) => {
+    setPreviewing(true);
+    setError(null);
+    setPreviewEditable(true);
+    setPreview(null);
     try {
       const bytes = await fetchQuoteCatalogPdf([page]);
       const rendered = await renderQuotePdfPages(bytes);
       const first = rendered[0];
       if (!first) {
         setError('這一頁未能預覽');
-        setPreview(null);
         return;
       }
+      setCropDraft(catalogPageCrop(page));
       setPreview({ page, url: first.dataUrl, width: first.width, height: first.height });
     } catch (err) {
       setError(err instanceof Error ? err.message : '這一頁未能預覽');
@@ -212,7 +324,7 @@ export function QuoteCatalogPagesDialog({
       onOpenChange={onOpenChange}
       size="5xl"
       title="圖冊附件"
-      description="可選整頁、上半頁、下半頁，或在預覽上拖出框選。頁面可以不連續，也可以來自不同圖冊。"
+      description="可選整頁、上半頁、下半頁，或在預覽上拖出框選。跨頁圖冊（左右兩版並排）按左、右兩個直向版面加入。頁面可以不連續，也可以來自不同圖冊。"
       footer={
         <>
           <ModalButton variant="secondary" onClick={() => onOpenChange(false)}>取消</ModalButton>
@@ -312,12 +424,35 @@ export function QuoteCatalogPagesDialog({
                   <Button type="button" variant="outline" size="sm" onClick={addManualPage}>加入整頁</Button>
                 </div>
               )}
+              {shapePendingId === active.id ? (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在判斷版面（單頁／跨頁）
+                </p>
+              ) : activeIsSpread ? (
+                <p className="text-xs text-muted-foreground">
+                  這份圖冊是跨頁：選一頁會加入「左半」「右半」兩個直向版面。
+                </p>
+              ) : null}
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => void showPage(pageFromCatalog(active, focusPageNo, null))}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void showWholePage(pageFromCatalog(active, focusPageNo))}
+                >
                   預覽第 {focusPageNo} 頁
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => addAttachment(focusPageNo, CATALOG_TOP_HALF)}>上半頁</Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => addAttachment(focusPageNo, CATALOG_BOTTOM_HALF)}>下半頁</Button>
+                {activeIsSpread ? (
+                  <>
+                    <Button type="button" variant="outline" size="sm" onClick={() => addSplit('left')}>左半頁</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => addSplit('right')}>右半頁</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button type="button" variant="outline" size="sm" onClick={() => addAttachment(CATALOG_TOP_HALF)}>上半頁</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => addAttachment(CATALOG_BOTTOM_HALF)}>下半頁</Button>
+                  </>
+                )}
                 <Button
                   type="button"
                   variant="outline"
@@ -326,18 +461,12 @@ export function QuoteCatalogPagesDialog({
                   onClick={() => {
                     const crop = parseCatalogCrop(cropDraft);
                     if (!crop) return;
-                    const source = preview?.page;
+                    const source = previewEditable ? preview?.page : null;
                     if (!source) {
-                      addAttachment(focusPageNo, crop);
+                      addAttachment(crop);
                       return;
                     }
-                    setDraftPages((current) => {
-                      if (current.length >= QUOTE_CATALOG_PAGE_LIMIT) {
-                        setError(`一次最多 ${QUOTE_CATALOG_PAGE_LIMIT} 頁`);
-                        return current;
-                      }
-                      return [...current, { ...source, id: newCatalogPageId(), crop }];
-                    });
+                    addPages([{ ...source, id: newCatalogPageId(), crop, split: null }]);
                   }}
                 >
                   加入框選
@@ -354,17 +483,21 @@ export function QuoteCatalogPagesDialog({
             <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> 正在預覽</p>
           ) : preview ? (
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">在預覽上拖出範圍，再按「加入框選」。不拖則這一頁維持整頁。</p>
+              <p className="text-xs text-muted-foreground">
+                {previewEditable
+                  ? '在預覽上拖出範圍，再按「加入框選」。不拖則這一頁維持整頁。'
+                  : '這一張就是會加在報價 PDF 後面的樣子。'}
+              </p>
               <div
-                className="relative w-full max-w-md touch-none"
+                className={previewEditable ? 'relative w-full max-w-md touch-none' : 'relative w-full max-w-xs'}
                 style={{ aspectRatio: `${preview.width} / ${preview.height}` }}
-                onPointerDown={(event) => {
+                onPointerDown={previewEditable ? (event) => {
                   const point = pointInPreview(event);
                   setDragStart(point);
                   setCropDraft({ x: point.x, y: point.y, width: 0, height: 0 });
                   event.currentTarget.setPointerCapture(event.pointerId);
-                }}
-                onPointerMove={(event) => {
+                } : undefined}
+                onPointerMove={previewEditable ? (event) => {
                   if (!dragStart) return;
                   const point = pointInPreview(event);
                   const x = Math.min(dragStart.x, point.x);
@@ -375,8 +508,8 @@ export function QuoteCatalogPagesDialog({
                     width: Math.abs(point.x - dragStart.x),
                     height: Math.abs(point.y - dragStart.y),
                   });
-                }}
-                onPointerUp={() => setDragStart(null)}
+                } : undefined}
+                onPointerUp={previewEditable ? () => setDragStart(null) : undefined}
               >
                 <div className="absolute inset-0">
                   <LoadingImage
@@ -386,8 +519,13 @@ export function QuoteCatalogPagesDialog({
                     imgClassName="object-fill"
                   />
                 </div>
-                {cropDraft && cropDraft.width > 0 && cropDraft.height > 0 ? (
-                  <div className="pointer-events-none absolute border-2 border-primary bg-primary/20" style={cropStyle(cropDraft)} />
+                {previewEditable && cropDraft ? (
+                  <div
+                    className={`pointer-events-none absolute border-2 border-primary ${
+                      cropDraft.width > 0.005 && cropDraft.height > 0.005 ? 'bg-primary/20' : ''
+                    }`}
+                    style={cropStyle(cropDraft)}
+                  />
                 ) : null}
               </div>
             </div>
@@ -397,13 +535,13 @@ export function QuoteCatalogPagesDialog({
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">已選 {draftPages.length} / {QUOTE_CATALOG_PAGE_LIMIT} 項，順序即報價 PDF 附件順序。</p>
           {draftPages.length === 0 ? (
-            <p className="text-xs text-muted-foreground">還未加入任何頁面。選好頁碼後按該頁，或用「上半頁／下半頁／加入框選」。</p>
+            <p className="text-xs text-muted-foreground">還未加入任何頁面。選好頁碼後按該頁，或用「上半頁／下半頁／左半頁／右半頁／加入框選」。</p>
           ) : null}
           <ul className="max-h-72 space-y-1 overflow-auto">
             {draftPages.map((page, index) => (
               <li key={catalogPageKey(page)} className="flex items-center gap-1 rounded border border-border px-2 py-1">
                 <span className="min-w-0 flex-1 truncate text-xs">{catalogPageLabel(page)}</span>
-                <button type="button" className="text-xs text-muted-foreground" onClick={() => { setFocusPageNo(page.pageNo); void showPage(page); }}>預覽</button>
+                <button type="button" className="text-xs text-muted-foreground" onClick={() => void showPiece(page)}>預覽</button>
                 <button type="button" onClick={() => movePage(index, -1)} aria-label="上移"><ChevronUp className="h-4 w-4" /></button>
                 <button type="button" onClick={() => movePage(index, 1)} aria-label="下移"><ChevronDown className="h-4 w-4" /></button>
                 <button type="button" onClick={() => setDraftPages((current) => current.filter((item) => item.id !== page.id))} aria-label="移除">
