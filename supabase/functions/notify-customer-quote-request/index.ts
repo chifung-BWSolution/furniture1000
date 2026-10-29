@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { escapeHtml, isSafeEmail, sendEmail } from "../_shared/email.ts";
+import { buildQuoteViewEmail } from "../_shared/quoteViewEmail.ts";
 
 /**
  * FDS-14：客戶提交報價選擇後通知該單負責 PM。
@@ -13,6 +14,8 @@ import { escapeHtml, isSafeEmail, sendEmail } from "../_shared/email.ts";
  * 呼叫方式：
  *   POST { "limit": 10 }
  * 授權：x-worker-secret（pg_cron／vault）或 admin／uploader／pm 登入帳號。
+ *
+ * 注意：`_shared/*` 要用 supabase CLI 部署，單檔上傳不會打包。
  */
 
 const corsHeaders = {
@@ -242,14 +245,11 @@ Deno.serve(async (req: Request) => {
           viewResults.push({ id: view.id, status: "pm_email_missing" });
           continue;
         }
-        const viewedAt = new Date(view.viewed_at).toISOString().slice(0, 16).replace("T", " ");
-        const subject = `客戶已查看報價：${quoteId || "未命名報價"}`;
-        const text = `${quoteId || "報價"} 的客戶已於 ${viewedAt} 開啟授權頁。\n\n這只會停止該單的自動跟進信，其他報價不受影響。`;
-        const html = `<div style="font-family:system-ui,-apple-system,'Noto Sans HK',sans-serif;font-size:14px;line-height:1.7;color:#1a1a2e;">
-  <p>${escapeHtml(quoteId || "報價")} 的客戶已於 ${escapeHtml(viewedAt)} 開啟授權頁。</p>
-  <p style="color:#555">這只會停止該單的自動跟進信，其他報價不受影響。</p>
-</div>`;
-        const sent = await sendEmail({ to: [email], subject, text, html });
+        const message = buildQuoteViewEmail({
+          quoteId,
+          viewedAtIso: view.viewed_at,
+        });
+        const sent = await sendEmail({ to: [email], ...message });
         const { error: logError } = await admin.from("email_notification_logs").insert({
           recipient: email,
           notification_type: "quote_view",
