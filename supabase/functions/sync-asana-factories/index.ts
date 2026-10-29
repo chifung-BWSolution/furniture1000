@@ -98,6 +98,75 @@ function commentsFrom(stories: AsanaStory[]): Array<{ gid: string; body: string;
     }));
 }
 
+async function refreshAsanaToken(refreshToken: string): Promise<{ access_token?: string; refresh_token?: string; expires_in?: number } | null> {
+  const clientId = Deno.env.get("ASANA_CLIENT_ID") ?? "";
+  const clientSecret = Deno.env.get("ASANA_CLIENT_SECRET") ?? "";
+  if (!clientId || !clientSecret || !refreshToken) return null;
+  const res = await fetch("https://app.asana.com/-/oauth_token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+    }).toString(),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.access_token) return null;
+  return body;
+}
+
+/**
+ * 對齊 QMS：一般職員用自己 OAuth 連接的 token；cron（worker secret）沒有用戶身分，
+ * 才用 edge secret 的 `ASANA_ACCESS_TOKEN` 作系統連線。Token 不會回傳前端。
+ */
+async function resolveAsanaToken(req: Request, admin: SupabaseClient): Promise<{ token: string; source: string }> {
+  if (req.headers.get("x-worker-secret") !== null) {
+    return { token: (Deno.env.get("ASANA_ACCESS_TOKEN") ?? "").trim(), source: "pat_cron" };
+  }
+  const jwt = (req.headers.get("Authorization") ?? "").match(/^Bearer\s+(\S+)$/i)?.[1]?.trim() ?? "";
+  if (jwt) {
+    const { data: userData } = await admin.auth.getUser(jwt);
+    const uid = userData.user?.id ?? null;
+    if (uid) {
+      const { data: row } = await admin
+        .from("fds_asana_oauth_tokens")
+        .select("access_token,refresh_token,expires_at,asana_user_gid,asana_user_name")
+        .eq("auth_user_id", uid)
+        .maybeSingle();
+      const record = row as {
+        access_token?: string | null;
+        refresh_token?: string | null;
+        expires_at?: string | null;
+        asana_user_gid?: string | null;
+        asana_user_name?: string | null;
+      } | null;
+      if (record?.access_token) {
+        const expiring = record.expires_at ? new Date(record.expires_at).getTime() < Date.now() + 60_000 : false;
+        if (!expiring) return { token: record.access_token, source: "oauth" };
+        if (record.refresh_token) {
+          const refreshed = await refreshAsanaToken(record.refresh_token);
+          if (refreshed?.access_token) {
+            await admin.rpc("fds_asana_oauth_save", {
+              p_auth_user_id: uid,
+              p_access_token: refreshed.access_token,
+              p_refresh_token: refreshed.refresh_token ?? record.refresh_token,
+              p_expires_at: refreshed.expires_in
+                ? new Date(Date.now() + Number(refreshed.expires_in) * 1000).toISOString()
+                : record.expires_at ?? null,
+              p_asana_user_gid: record.asana_user_gid ?? null,
+              p_asana_user_name: record.asana_user_name ?? null,
+            });
+            return { token: refreshed.access_token, source: "oauth_refreshed" };
+          }
+        }
+      }
+    }
+  }
+  return { token: (Deno.env.get("ASANA_ACCESS_TOKEN") ?? "").trim(), source: "pat" };
+}
+
 async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -112,7 +181,8 @@ async function handle(req: Request): Promise<Response> {
   const denied = await authorize(req, admin);
   if (denied) return denied;
 
-  const token = (Deno.env.get("ASANA_ACCESS_TOKEN") ?? "").trim();
+  const resolved = await resolveAsanaToken(req, admin);
+  const token = resolved.token;
   if (!token) return json({ error: "asana_not_configured" }, 503);
 
   let body: { link_id?: string; limit?: number } = {};
@@ -183,7 +253,7 @@ async function handle(req: Request): Promise<Response> {
     }
   }
 
-  return json({ ok: true, mode: "read_only", processed: results.length, results });
+  return json({ ok: true, mode: "read_only", token_source: resolved.source, processed: results.length, results });
 }
 
 Deno.serve(async (req: Request) => {

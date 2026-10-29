@@ -28,6 +28,9 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
   const [link, setLink] = useState<LinkRow | null>(null);
   const [taskGid, setTaskGid] = useState('');
   const [loading, setLoading] = useState(true);
+  const [oauthConnected, setOauthConnected] = useState<boolean | null>(null);
+  const [oauthName, setOauthName] = useState('');
+  const [connecting, setConnecting] = useState(false);
   const [busy, setBusy] = useState<'save' | 'remove' | 'sync' | null>(null);
   const [error, setError] = useState('');
 
@@ -42,6 +45,14 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     setLink(found);
     setTaskGid(found?.asana_task_gid ?? '');
     setError('');
+    try {
+      const status = await supabase.functions.invoke('fds-asana-oauth', { body: { action: 'status' } });
+      const body = status.data as { connected?: boolean; asana_user_name?: string | null } | null;
+      setOauthConnected(Boolean(body?.connected));
+      setOauthName(body?.asana_user_name ?? '');
+    } catch {
+      setOauthConnected(false);
+    }
   };
 
   useEffect(() => {
@@ -56,6 +67,39 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     // Reload only when a different factory is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factoryId]);
+
+  const connect = async () => {
+    setConnecting(true);
+    setError('');
+    try {
+      const { data, error: startError } = await supabase.functions.invoke('fds-asana-oauth', {
+        body: { action: 'start' },
+      });
+      const url = (data as { authorize_url?: string } | null)?.authorize_url;
+      if (startError || !url) {
+        setError(startError?.message || (data as { error?: string } | null)?.error || '未能開始 Asana 連接。');
+        return;
+      }
+      window.location.assign(url);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const disconnect = async () => {
+    const ok = await confirm({
+      title: '中斷 Asana 連接？',
+      description: '中斷後不能用你的 Asana 授權同步廠家；已同步的資料仍保留。',
+      confirmLabel: '中斷連接',
+      cancelLabel: '返回',
+      destructive: true,
+    });
+    if (!ok) return;
+    setConnecting(true);
+    await supabase.functions.invoke('fds-asana-oauth', { body: { action: 'disconnect' } });
+    setConnecting(false);
+    await load();
+  };
 
   const save = async () => {
     const gid = taskGid.trim();
@@ -130,6 +174,22 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
       ) : (
         <div className="mt-3 space-y-2">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {oauthConnected === false ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <span>未連接 Asana。連接後才能用你的授權同步廠家。</span>
+              <Button type="button" size="sm" disabled={connecting} onClick={() => void connect()}>
+                {connecting ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                連接 Asana
+              </Button>
+            </div>
+          ) : oauthConnected ? (
+            <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              已連接 Asana{oauthName ? `：${oauthName}` : ''}
+              <button type="button" className="underline" disabled={connecting} onClick={() => void disconnect()}>
+                中斷連接
+              </button>
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Input
               className="max-w-xs"
@@ -138,13 +198,13 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
               placeholder="Asana task gid，例如 1204466337313611"
               inputMode="numeric"
             />
-            <Button type="button" size="sm" disabled={Boolean(busy)} onClick={() => void save()}>
+            <Button type="button" size="sm" disabled={Boolean(busy) || oauthConnected !== true} onClick={() => void save()}>
               {busy === 'save' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               {link ? '更新綁定' : '綁定'}
             </Button>
             {link ? (
               <>
-                <Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void sync()}>
+                <Button type="button" size="sm" variant="outline" disabled={Boolean(busy) || oauthConnected !== true} onClick={() => void sync()}>
                   {busy === 'sync' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
                   立即同步
                 </Button>
