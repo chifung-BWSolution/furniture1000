@@ -1,18 +1,23 @@
 /**
- * 圖冊頁縮圖：向 edge 取抽取頁 → pdf.js 畫成小尺寸 JPEG → IndexedDB 快取。
+ * 圖冊頁縮圖。兩個來源，先便宜後貴：
  *
- * 為甚麼要這樣做：報價附件的圖冊選擇器要同時顯示十幾頁。直接下載整頁 PDF
- * （一頁約 0.3–1 MB）再在瀏覽器畫，開一次要十幾 MB；縮圖版一頁約 15–25 KB，
- * 而且第二次打開（同一部機）直接由 IndexedDB 取，不再打 edge。
+ * 1. **Storage 預先產好的縮圖**（`product-images/catalog-thumbs/<doc>/<page>.jpg`）：
+ *    夜間解析／cron 用 pdfium 畫好，一頁約 9–25 KB，公開 URL 由 CDN 快取。
+ * 2. 沒有預產時才回退到舊做法：向 edge 取整頁 PDF（0.3–1.3 MB）再用 pdf.js 畫，
+ *    並存進 IndexedDB（同一部機第二次開啟即時）。
  *
- * 快取是盡力而為：IndexedDB 不可用或失敗時照樣向 edge 取，只是慢一點。
+ * 所以「夜間有跑過」的圖冊第一次打開就已經是縮圖；未跑過的仍可用，只是慢一點。
  */
 import { createStore, del, get, set } from 'idb-keyval';
+import { supabase } from '@/lib/supabase';
 import { fetchQuoteCatalogPdf } from '@/lib/quoteCatalogPages';
 import { renderQuotePdfThumbnails } from '@/lib/quotationPdfCanvas';
 
 export interface CatalogPageThumb {
-  dataUrl: string;
+  /** 瀏覽器直接載入的圖片（Storage 預產縮圖）。 */
+  url?: string;
+  /** 瀏覽器即場畫出來的 JPEG data URL（沒有預產縮圖時）。 */
+  dataUrl?: string;
   width: number;
   height: number;
 }
@@ -24,6 +29,7 @@ const THUMB_QUALITY = 0.72;
 const BATCH_SIZE = 3;
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_ENTRIES = 400;
+const THUMB_BUCKET = 'product-images';
 
 const store = createStore('fds-catalog-thumbs', 'pages');
 const INDEX_KEY = '__index__';
@@ -35,6 +41,58 @@ const memory = new Map<string, CatalogPageThumb>();
 const inFlight = new Map<string, Promise<CatalogPageThumb | null>>();
 const queues = new Map<string, { pageNo: number; resolve: (thumb: CatalogPageThumb | null) => void }[]>();
 const timers = new Map<string, number>();
+/** 每份圖冊只叫一次「補畫縮圖」，不要在背景狂打 edge。 */
+const fillRequested = new Set<string>();
+
+/** 預產縮圖的公開 URL（與 edge `catalog-thumbs` 的路徑一致）。 */
+export function catalogThumbUrl(documentId: string, pageNo: number): string {
+  const base = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
+  const path = `catalog-thumbs/${documentId}/${String(pageNo).padStart(4, '0')}.jpg`;
+  return `${base}/storage/v1/object/public/${THUMB_BUCKET}/${path}`;
+}
+
+/** 圖片存在就回尺寸（順便讓瀏覽器快取那張圖），不存在回 null。 */
+function probeCatalogThumb(url: string): Promise<CatalogPageThumb | null> {
+  return new Promise((resolve) => {
+    if (typeof Image === 'undefined') {
+      resolve(null);
+      return;
+    }
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => {
+      if (image.naturalWidth > 0) {
+        resolve({ url, width: image.naturalWidth, height: image.naturalHeight });
+      } else {
+        resolve(null);
+      }
+    };
+    image.onerror = () => resolve(null);
+    image.src = url;
+  });
+}
+
+/**
+ * 背景請 edge 補畫這份圖冊還缺的縮圖（一次幾頁）。同一份圖冊每次開啟只叫一次；
+ * 失敗不影響畫面（仍會用回退路徑）。
+ */
+export function requestCatalogThumbFill(documentId: string): void {
+  if (fillRequested.has(documentId)) return;
+  fillRequested.add(documentId);
+  void (async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      await supabase.functions.invoke('catalog-thumbs', {
+        body: { documentId },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // 補畫只是加速，失敗照舊用 PDF 回退。
+    }
+  })();
+}
 
 function cacheKey(documentId: string, pageNo: number): string {
   return `${documentId}#${pageNo}`;
@@ -203,7 +261,7 @@ export function getCatalogPageThumb(documentId: string, pageNo: number): Promise
   return promise;
 }
 
-/** 先讀 IndexedDB（不快取記憶體以外的東西），沒有才排隊產生。 */
+/** 先看記憶體／IndexedDB，再看 Storage 有沒有預產縮圖，最後才向 edge 拿整頁來畫。 */
 export async function loadCatalogPageThumb(
   documentId: string,
   pageNo: number,
@@ -212,6 +270,14 @@ export async function loadCatalogPageThumb(
   if (cached) return cached;
   const stored = await readStored(documentId, pageNo);
   if (stored) return stored;
+
+  const prepared = await probeCatalogThumb(catalogThumbUrl(documentId, pageNo));
+  if (prepared) {
+    memory.set(cacheKey(documentId, pageNo), prepared);
+    return prepared;
+  }
+  // 這份圖冊還缺預產縮圖：請 edge 在背景補幾頁，下一次開啟就會快。
+  requestCatalogThumbFill(documentId);
   return getCatalogPageThumb(documentId, pageNo);
 }
 

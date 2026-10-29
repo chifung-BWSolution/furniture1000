@@ -18,6 +18,26 @@
 阻塞：尚未用一份真實項目走完 Canva 生成與 PowerPoint 打開。套餐公式仍未對 Google Sheet。
 下一項：套餐快速報價。
 
+## 2026-10-29 — FDS-07 夜間解析順便產縮圖（伺服器端）
+
+使用者要求：「改成夜間解析時順便產縮圖」，即不要再讓瀏覽器為了一屏縮圖下載十幾 MB 的圖冊頁。
+
+完成（伺服器端）：
+
+- `supabase/functions/_shared/catalogThumbs.ts`：用 pdfium（`@hyzyla/pdfium` WASM）把頁畫成 360px JPEG（q72，一頁約 9–25 KB），存到**公開** bucket `product-images/catalog-thumbs/<document_id>/<page>.jpg`（`Cache-Control: immutable`）。抽頁交現有的 `quote-catalog-pages`（新增 service-role 呼叫；它本來就會回指定頁），不在縮圖程序裡自己載入 70–120MB 的整份 PDF。
+- 新 edge function `catalog-thumbs`（slug `catalog-thumbs`，CLI 部署）：
+  - `{ documentId, action: "status" }` → 已有哪些頁
+  - `{ documentId, pages?, limit? }` → 補畫（前端背景叫）
+  - `{}`（pg_cron 帶 `x-worker-secret`）→ 找下一份還有缺頁的圖冊，畫一批
+- 夜間兩條路：
+  1. **解析時**：`process-jobs`（slug `supabase-functions-process-jobs`）在 `parse_pdf` 抽字那一批之後，用 service role 背景叫 `catalog-thumbs` 畫同一批頁（`EdgeRuntime.waitUntil`，不阻塞抽字；不把 pdfium 拉進 worker 記憶體）。
+  2. **補畫**：pg_cron `fds-catalog-thumbs`（上海時間 23:00–09:00，每 2 分鐘）每次畫 1 頁，覆蓋舊圖冊；92 頁約 3 小時補完。
+- 前端：`src/lib/catalogPageThumbs.ts` 先探 Storage 縮圖（命中即用，`LoadingImage` 會再轉 320px webp），沒有才回退舊做法（下載整頁 PDF + pdf.js 畫 + IndexedDB），並順便叫一次背景補畫。
+
+實測（headless Chrome、本機靜態 build、分支資料）：開圖冊附件後 **0.8 秒 5 張、2 秒 13 張全部由 Storage 載入**（0 個 data URL、0 次 `quote-catalog-pages` 請求）；同一畫面之前要 19 秒、約 20MB。
+
+限制：Edge CPU 上限令一次呼叫只穩定畫 **1 頁**（2 頁偶爾、4 頁一定 546 `WORKER_RESOURCE_LIMIT`），所以補畫是分批慢慢做，不是一次畫完整本；分支已部署 function＋cron，**正式庫（`riaubhtruisbwdlwjzur`）未部署、未套 migration**。
+
 ## 2026-10-29 — FDS-07 圖冊附件改成縮圖選擇器（含縮圖壓縮）
 
 使用者要求：把圖冊選擇彈窗改成三步式＋頁面縮圖，並反映「頁面縮圖載入很慢」。

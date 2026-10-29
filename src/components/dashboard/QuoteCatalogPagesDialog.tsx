@@ -179,7 +179,12 @@ function CatalogPageThumb({
     );
   }
   return (
-    <LoadingImage src={thumb.dataUrl} alt="" className={className} imgClassName={imgClassName} />
+    <LoadingImage
+      src={thumb.url ?? thumb.dataUrl}
+      alt=""
+      className={className}
+      imgClassName={imgClassName}
+    />
   );
 }
 

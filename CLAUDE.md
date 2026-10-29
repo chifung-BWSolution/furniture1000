@@ -396,6 +396,18 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   `p_sort`：`popular_demand`（類別熱度 → 類內用量）、`popular_quotes`、`popular_quantity`、`popular_amount`。
   **不要**在前端掃 `bwf_quote_item` 做排名（`quoteUsageReports` 那套全掃描已量到 18.7 秒）。
   **PMS 與目錄在產品層級對不上**（PMS 只有通用類型名、沒有 SKU，名稱比對 0 命中），只能做到類別層級。
+- 圖冊頁縮圖（FDS-07 報價附件選擇器）：前端 `src/lib/catalogPageThumbs.ts` **先探 Storage**
+  `product-images/catalog-thumbs/<document_id>/<page>.jpg`（公開 bucket、`Cache-Control: immutable`，
+  一頁 9–25 KB），沒有才回退舊做法（edge 抽整頁 PDF + pdf.js 畫 + IndexedDB）並背景叫補畫。
+  產生者是 edge **`catalog-thumbs`（slug 無前綴，CLI 部署）** ＋ `_shared/catalogThumbs.ts`
+  （pdfium WASM `@hyzyla/pdfium` + `jpeg-js`）；抽頁沿用 `quote-catalog-pages`（已支援 service-role 呼叫）。
+  夜間兩條路：`parse_pdf` 每批抽字後用 `EdgeRuntime.waitUntil` 背景叫它；pg_cron
+  `fds-catalog-thumbs`（上海 23:00–09:00 每 2 分鐘）補畫舊圖冊。
+  **Edge CPU 上限：一次呼叫只穩定畫 1 頁**（2 頁偶爾成功、4 頁一定 546 `WORKER_RESOURCE_LIMIT`），
+  所以 92 頁要分 ~92 次補完（約 3 小時），不要改成「一次畫一批」。
+  `quote-catalog-pages` 與 `process-jobs` 兩個 function 都同時有前綴／無前綴 slug，
+  但 **CLI 只會部署到無前綴那個**，而 cron 與前端用前綴那個 → 改完兩邊都要部署
+  （process-jobs 可以把目錄複製成 `supabase-functions-process-jobs` 再 deploy，之後刪掉）。
 
 ## 9. 成功案例三頁（訂單數據／完工相片／知名客戶）＝即時讀 PMS，沒有同步 job
 
