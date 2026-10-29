@@ -677,7 +677,10 @@ export function QuoteCatalogPagesDialog({
                       <CatalogPageThumb
                         documentId={active.id}
                         pageNo={pageNo}
-                        className="aspect-[3/4] w-full overflow-hidden rounded bg-white"
+                        className={cn(
+                          'w-full overflow-hidden rounded bg-white',
+                          activeIsSpread ? 'aspect-[4/3]' : 'aspect-[3/4]',
+                        )}
                       />
                       <span className="mt-1 flex items-center justify-between px-0.5">
                         <span className={cn('text-[11px]', picked ? 'font-semibold text-primary' : 'text-muted-foreground')}>
