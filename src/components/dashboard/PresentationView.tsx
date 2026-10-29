@@ -717,7 +717,7 @@ export function PresentationView() {
   const [generationPending, setGenerationPending] = useState(false);
   const [generationError, setGenerationError] = useState('');
   const [statusReadError, setStatusReadError] = useState('');
-  const [listDrawer, setListDrawer] = useState<null | 'recent'>(null);
+  const [listDrawer, setListDrawer] = useState<null | 'drafts' | 'designs'>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
   const [previewPage, setPreviewPage] = useState(0);
   const [pageThumbs, setPageThumbs] = useState<(string | null)[]>([]);
@@ -1461,7 +1461,11 @@ export function PresentationView() {
     const right = Date.parse(b.updated_at || b.created_at);
     return (Number.isNaN(right) ? 0 : right) - (Number.isNaN(left) ? 0 : left);
   }), [sessions]);
-  const visibleRecent = recentSessions.slice(0, SIDEBAR_PREVIEW);
+  // Every saved session keeps its editable draft, including ones already generated.
+  const draftSessions = recentSessions;
+  const designSessions = useMemo(() => recentSessions.filter(isCanvaDesign), [recentSessions]);
+  const visibleDrafts = draftSessions.slice(0, SIDEBAR_PREVIEW);
+  const visibleDesigns = designSessions.slice(0, SIDEBAR_PREVIEW);
   const phase = generationPhase(activeSession, generating);
   const gammaPreview = activeSession?.populate_report?.provider === 'gamma'
     ? gammaEmbedUrl(activeSession.view_url || activeSession.edit_url)
@@ -1503,8 +1507,8 @@ export function PresentationView() {
       });
     return () => { cancelled = true; };
   }, [activeSession?.id, activeSession?.canva_design_id, activeSession?.status, activeSession?.thumbnail_url]);
-  const openList = () => {
-    setListDrawer('recent');
+  const openList = (kind: 'drafts' | 'designs') => {
+    setListDrawer(kind);
     void refreshSessions(40);
   };
   const languageOptions = optionsWithCurrent(LANGUAGE_OPTIONS, brief.language);
@@ -1585,56 +1589,40 @@ export function PresentationView() {
     );
   }
 
-  const recentList = (rows: CanvaDesignSession[]) => (
+  const draftList = (rows: CanvaDesignSession[]) => (
     rows.length === 0 ? (
-      <p className="py-6 text-center text-sm text-muted-foreground">尚無編輯記錄</p>
+      <p className="py-6 text-center text-sm text-muted-foreground">尚無草稿</p>
     ) : (
       <ul className="space-y-1">
         {rows.map((s) => {
           const design = isCanvaDesign(s);
-          const title = sessionTitle(s);
+          const exported = s.status === 'exported' || Boolean(s.export_download_url);
           const badge = design
-            ? (s.status === 'exported' || s.export_download_url ? '已匯出' : '已生成')
+            ? (exported ? '已匯出' : '已生成')
             : s.status === 'creating' ? '生成中' : s.status === 'failed' ? '生成失敗' : '草稿';
           return (
             <li key={s.id}>
-              <div className="flex items-start gap-1 rounded-xl hover:bg-muted/60">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (design) { openDesignRow(s); setListDrawer(null); }
-                    else { loadSession(s); setListDrawer(null); }
-                  }}
-                  className="flex min-w-0 flex-1 items-start gap-3 px-1 py-2 text-left"
-                >
-                  <DesignThumbnail url={sessionThumbnail(s)} />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-start justify-between gap-2">
-                      <span title={title} className="truncate text-sm font-medium text-foreground">{title}</span>
-                      <Badge className={cn('shrink-0 border-transparent', design
-                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-200'
-                        : 'bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200')}>{badge}</Badge>
-                    </span>
-                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{design
-                      ? designStatusLine(s)
-                      : s.status === 'creating' ? '等待 Gamma 生成' : s.status === 'failed' ? '生成失敗，可重新生成' : '尚未生成 Gamma 設計'}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">更新：{formatRecentTime(s.updated_at || s.created_at)}</span>
+              <button
+                type="button"
+                onClick={() => { loadSession(s); setListDrawer(null); }}
+                className="flex w-full items-start gap-3 rounded-xl px-1 py-2 text-left hover:bg-muted/60"
+              >
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">
+                  <FileText className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-start justify-between gap-2">
+                    <span title={sessionTitle(s)} className="truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
+                    <Badge className={cn('shrink-0 border-transparent', design
+                      ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-200'
+                      : 'bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200')}>{badge}</Badge>
                   </span>
-                </button>
-                {design ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button type="button" className="mt-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`${title} 的操作`}><MoreHorizontal className="h-4 w-4" /></button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem disabled={!s.edit_url} onSelect={() => openDesignRow(s)}>在 Gamma 編輯</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!s.edit_url} onSelect={() => { void navigator.clipboard.writeText(s.edit_url!).then(() => toast.success('已複製連結')).catch(() => toast.error('無法複製連結')); }}>複製連結</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!s.export_download_url} onSelect={() => { if (s.export_download_url) window.open(s.export_download_url, '_blank', 'noopener,noreferrer'); }}>下載首次生成的 PPTX</DropdownMenuItem>
-                      {s.populate_report?.provider === 'gamma' && <DropdownMenuItem className="text-destructive" onSelect={() => { void removeDesignRow(s); }}>從 FDS 移除</DropdownMenuItem>}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : null}
-              </div>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{design
+                    ? '已生成過，可載入後建立新版本繼續編輯'
+                    : s.status === 'creating' ? '等待 Gamma 生成' : s.status === 'failed' ? '生成失敗，可重新生成' : '尚未生成 Gamma 設計'}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">更新：{formatRecentTime(s.updated_at || s.created_at)}</span>
+                </span>
+              </button>
             </li>
           );
         })}
@@ -1642,16 +1630,50 @@ export function PresentationView() {
     )
   );
 
-  const recentCard = (preview: ReactNode) => (
+  const designList = (rows: CanvaDesignSession[]) => (
+    rows.length === 0 ? (
+      <p className="py-6 text-center text-sm text-muted-foreground">尚無 Gamma 設計</p>
+    ) : (
+      <ul className="space-y-1">
+        {rows.map((s) => (
+          <li key={s.id}>
+            <div className="flex items-start gap-1 rounded-xl hover:bg-muted/60">
+              <button type="button" onClick={() => openDesignRow(s)} className="flex min-w-0 flex-1 items-start gap-3 px-1 py-2 text-left">
+                <DesignThumbnail url={sessionThumbnail(s)} />
+                <span className="min-w-0 flex-1">
+                  <span title={sessionTitle(s)} className="block truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{designStatusLine(s)}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">FDS 更新：{formatRecentTime(s.updated_at || s.created_at)}</span>
+                </span>
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="mt-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`${sessionTitle(s)} 的操作`}><MoreHorizontal className="h-4 w-4" /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled={!s.edit_url} onSelect={() => openDesignRow(s)}>在 Gamma 編輯</DropdownMenuItem>
+                  <DropdownMenuItem disabled={!s.edit_url} onSelect={() => { void navigator.clipboard.writeText(s.edit_url!).then(() => toast.success('已複製連結')).catch(() => toast.error('無法複製連結')); }}>複製連結</DropdownMenuItem>
+                  <DropdownMenuItem disabled={!s.export_download_url} onSelect={() => { if (s.export_download_url) window.open(s.export_download_url, '_blank', 'noopener,noreferrer'); }}>下載首次生成的 PPTX</DropdownMenuItem>
+                  {s.populate_report?.provider === 'gamma' && <DropdownMenuItem className="text-destructive" onSelect={() => { void removeDesignRow(s); }}>從 FDS 移除</DropdownMenuItem>}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </li>
+        ))}
+      </ul>
+    )
+  );
+
+  const recentCard = (title: string, kind: 'drafts' | 'designs', preview: ReactNode) => (
     <motion.section
       layout
-      layoutId="recent-edits"
+      layoutId={kind === 'drafts' ? 'recent-drafts' : 'recent-designs'}
       transition={panelTransition}
       className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm"
     >
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-bold text-foreground">最近編輯</h3>
-        <button type="button" className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300" onClick={openList}>
+        <h3 className="text-sm font-bold text-foreground">{title}</h3>
+        <button type="button" className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300" onClick={() => openList(kind)}>
           查看全部
         </button>
       </div>
@@ -2386,7 +2408,8 @@ export function PresentationView() {
               </motion.section>
           )}
           </AnimatePresence>
-          {recentCard(recentList(visibleRecent))}
+          {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
+          {recentCard('最近 Gamma 設計', 'designs', designList(visibleDesigns))}
         </aside>
       </div>
       </LayoutGroup>
@@ -2400,14 +2423,16 @@ export function PresentationView() {
       <Sheet open={listDrawer !== null} onOpenChange={(open) => { if (!open) setListDrawer(null); }}>
         <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
           <SheetHeader className="space-y-1 border-b px-5 py-4 pr-12 text-left">
-            <SheetTitle>最近編輯</SheetTitle>
+            <SheetTitle>{listDrawer === 'designs' ? '最近 Gamma 設計' : '最近草稿'}</SheetTitle>
             <SheetDescription>
-              共 {recentSessions.length} 筆
+              共 {listDrawer === 'designs' ? designSessions.length : draftSessions.length} 筆
             </SheetDescription>
           </SheetHeader>
           <div className="px-4 pt-3"><Input aria-label="搜尋編輯記錄" placeholder="搜尋簡報名稱" value={designSearch} onChange={(event) => setDesignSearch(event.target.value)} /></div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            {recentList(recentSessions.filter((session) => sessionTitle(session).toLocaleLowerCase().includes(designSearch.trim().toLocaleLowerCase())))}
+            {listDrawer === 'designs'
+              ? designList(designSessions.filter((session) => sessionTitle(session).toLocaleLowerCase().includes(designSearch.trim().toLocaleLowerCase())))
+              : draftList(draftSessions.filter((session) => sessionTitle(session).toLocaleLowerCase().includes(designSearch.trim().toLocaleLowerCase())))}
           </div>
         </SheetContent>
       </Sheet>
