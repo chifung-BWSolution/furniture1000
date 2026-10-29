@@ -23,9 +23,9 @@ export async function handleGamma(service: SupabaseClient, userId: string, body:
     if (claimError) throw claimError;
     if (!claimed) throw new Error('生成任務已啟動，請重新整理。');
     try {
-      const result = await gammaRequest('/generations', request);
+      const result = await gammaRequest('/agent/generations', request);
       if (!result.generationId) throw new Error('Gamma 沒有回傳任務編號。');
-      const { data, error } = await table().update({ populate_report: { provider: 'gamma', generation_job_id: result.generationId }, updated_at: new Date().toISOString() }).eq('id', session.id).eq('staff_id', userId).select('*').single();
+      const { data, error } = await table().update({ populate_report: { provider: 'gamma', generation_job_id: result.generationId, engine: 'agent' }, updated_at: new Date().toISOString() }).eq('id', session.id).eq('staff_id', userId).select('*').single();
       if (error) throw error;
       return data;
     } catch (error) {
@@ -36,7 +36,7 @@ export async function handleGamma(service: SupabaseClient, userId: string, body:
     }
   }
   if (session.status !== 'creating' || !session.populate_report?.generation_job_id) return session;
-  const result = await gammaRequest(`/generations/${encodeURIComponent(session.populate_report.generation_job_id)}`);
+  const result = await gammaRequest(`/${session.populate_report.engine === 'agent' ? 'agent/' : ''}generations/${encodeURIComponent(session.populate_report.generation_job_id)}`);
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (result.status === 'completed' && result.gammaUrl) Object.assign(patch, { status: 'ready', canva_design_id: `gamma:${session.populate_report.generation_job_id}`, edit_url: result.gammaUrl, view_url: result.gammaUrl, export_download_url: result.exportUrl ?? null, error: null });
   else if (result.status === 'failed') Object.assign(patch, { status: 'failed', error: 'Gamma 生成失敗，請查看 Gamma 工作區。' });
