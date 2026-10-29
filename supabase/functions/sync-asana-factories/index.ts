@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 
 /**
  * FDS-12 第一版（唯讀）Asana 廠家同步 worker。
@@ -167,6 +168,51 @@ async function resolveAsanaToken(req: Request, admin: SupabaseClient): Promise<{
   return { token: (Deno.env.get("ASANA_ACCESS_TOKEN") ?? "").trim(), source: "pat" };
 }
 
+function parsePmsTaskGid(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  const match = text.match(/\/task\/(\d{6,25})/);
+  return match ? match[1] : null;
+}
+
+/**
+ * PMS factories.asana_link 優先：把有效的 task URL 寫成 link（source='pms'）。
+ * 只接受 /task/<gid>；'asanalink' 或搜尋 URL 之類一律忽略，保留手動綁定作 fallback。
+ */
+async function reconcilePmsFactoryLinks(admin: SupabaseClient): Promise<number> {
+  const base = pmsProjectUrl();
+  const key = pmsServiceRoleKey();
+  if (!base || !key) return 0;
+  const res = await fetch(
+    `${base}/rest/v1/factories?select=id,display_name,factory_code,asana_link&asana_link=not.is.null&limit=500`,
+    { headers: { apikey: key, Authorization: `Bearer ${key}` } },
+  );
+  if (!res.ok) return 0;
+  const rows = (await res.json().catch(() => [])) as Array<{
+    id?: string;
+    display_name?: string;
+    factory_code?: string;
+    asana_link?: string;
+  }>;
+  let count = 0;
+  for (const row of rows) {
+    const gid = parsePmsTaskGid(row.asana_link);
+    if (!row.id || !gid) continue;
+    const { error } = await admin.from("fds_asana_factory_link").upsert(
+      {
+        factory_id: row.id,
+        factory_name: String(row.display_name || row.factory_code || "未命名廠家").slice(0, 200),
+        asana_task_gid: gid,
+        asana_project_gid: "1155109275123381",
+        source: "pms",
+        enabled: true,
+      },
+      { onConflict: "factory_id" },
+    );
+    if (!error) count += 1;
+  }
+  return count;
+}
+
 async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -184,6 +230,8 @@ async function handle(req: Request): Promise<Response> {
   const resolved = await resolveAsanaToken(req, admin);
   const token = resolved.token;
   if (!token) return json({ error: "asana_not_configured" }, 503);
+
+  const pmsLinks = await reconcilePmsFactoryLinks(admin);
 
   let body: { link_id?: string; limit?: number } = {};
   try {
@@ -280,7 +328,7 @@ async function handle(req: Request): Promise<Response> {
     }
   }
 
-  return json({ ok: true, mode: "read_only", token_source: resolved.source, processed: results.length, results });
+  return json({ ok: true, mode: "read_only", token_source: resolved.source, pms_links: pmsLinks, processed: results.length, results });
 }
 
 Deno.serve(async (req: Request) => {

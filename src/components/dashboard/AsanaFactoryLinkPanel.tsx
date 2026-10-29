@@ -21,6 +21,7 @@ type LinkRow = {
   last_error: string | null;
   comment_count: number;
   enabled: boolean;
+  source?: 'manual' | 'pms' | null;
 };
 
 type CommentRow = {
@@ -264,11 +265,18 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
               {link ? (
                 <p className="text-xs text-muted-foreground">
                   已綁定 task {link.asana_task_gid} · {link.comment_count} 則 Comment
+                  · 來源：{link.source === 'pms' ? 'PMS' : '手動'}
                   {link.last_synced_at ? ` · 上次同步 ${link.last_synced_at.slice(0, 16).replace('T', ' ')}` : ' · 未同步'}
                   {link.last_error ? ` · 錯誤：${link.last_error}` : ''}
                 </p>
               ) : (
-                <p className="text-xs text-muted-foreground">未綁定。貼上 Asana 專案內該廠家的 task gid 即可。</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-muted-foreground">未綁定。貼上 Asana task gid，或先從 PMS 讀取廠家已設定嘅 Asana 連結。</p>
+                  <Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void sync()}>
+                    {busy === 'sync' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                    從 PMS 讀取綁定
+                  </Button>
+                </div>
               )}
               {link ? (
                 <div className="space-y-2 border-t pt-3">

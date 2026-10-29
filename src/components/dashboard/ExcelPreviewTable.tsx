@@ -1511,7 +1511,7 @@ export function ExcelPreviewTable({
         <div className="flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/10">
           <CheckCircle2 className="w-8 h-8 text-emerald-500" />
         </div>
-        <h3 className="font-semibold text-lg text-foreground font-[Syne]">
+        <h3 className="font-semibold text-lg text-foreground font-display">
           所有產品已處理完成
         </h3>
         <p className="text-sm text-muted-foreground font-[Manrope]">
@@ -1538,7 +1538,7 @@ export function ExcelPreviewTable({
             <Columns3 className="w-5 h-5 text-indigo-400" />
           </div>
           <div>
-            <h3 className="font-semibold text-foreground font-[Syne]">
+            <h3 className="font-semibold text-foreground font-display">
               數據預覽 & 欄位對應 (Column Mapping)
             </h3>
             <p className="text-sm text-foreground/70 font-[Manrope]">
@@ -2449,7 +2449,7 @@ export function ExcelPreviewTable({
           <Button
             onClick={() => handleAction('catalog-only')}
             disabled={isGenerating || mappedCount < 2 || totalSelected === 0}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white gap-1.5 text-sm font-[Syne] font-semibold"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white gap-1.5 text-sm font-display font-semibold"
           >
             {isGenerating ? (
               <span className="contents">
