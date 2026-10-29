@@ -5681,23 +5681,6 @@ export function QuotationDraftEditor({
                     }}
                   />
                 </div>
-                <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2">
-                  <p className="text-sm text-foreground">
-                    {ui('圖冊附件', 'Catalog pages')}
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {catalogPages.length > 0
-                        ? ui(`${catalogPages.length} 頁，會加在報價 PDF 後面`, `${catalogPages.length} pages, added after the quotation PDF`)
-                        : ui('可選不同圖冊的整頁', 'Whole pages from one or more catalogs')}
-                    </span>
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setCatalogDialogOpen(true)}
-                    className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
-                  >
-                    {ui('選擇頁面', 'Choose pages')}
-                  </button>
-                </div>
                 <p className="mb-4 border-b border-border/80 pb-3 text-xs text-muted-foreground">
                   {ui('產品項目', 'Products')} {productCount} · {ui('增值服務', 'Services')} {serviceCount} · {ui('備註標題', 'Titles')} {titleCount}{ui('；依報價單順序排列，可拖曳或上下移動調整位置。', '; drag or use the arrows to reorder items as they appear in the quotation.')}
                 </p>
@@ -6112,6 +6095,29 @@ export function QuotationDraftEditor({
                     setQuotePhotoAssets(usedAssets);
                   }}
                 />
+
+                {/* 圖冊附件：放在報價單圖片下面（附件頁會接在報價 PDF 後面） */}
+                <div className="mt-5 border-t border-border/80 pt-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm text-foreground">
+                        {ui('圖冊附件', 'Catalog pages')}
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {catalogPages.length > 0
+                            ? ui(`${catalogPages.length} 項，會加在報價 PDF 後面`, `${catalogPages.length} items, added after the quotation PDF`)
+                            : ui('可選不同圖冊的整頁；跨頁圖冊會拆成左半／右半', 'Whole pages from one or more catalogs; spreads are split into left/right')}
+                        </span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCatalogDialogOpen(true)}
+                      className="inline-flex h-8 shrink-0 items-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
+                    >
+                      {ui('選擇頁面', 'Choose pages')}
+                    </button>
+                  </div>
+                </div>
               </section>
 
               {/* 條款及付款 / TERMS AND CONDITIONS */}

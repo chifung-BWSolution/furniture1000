@@ -29,6 +29,9 @@
 「會載入失敗圖片」的處理：`fetchQuoteCatalogPdf` 之前每批都重新 `getUser()`＋`getSession()`，登入狀態剛恢復或 token 剛過期時會直接失敗，縮圖就變成破圖示。現在 token 記 60 秒、401 自動換 token 重試一次；真的失敗會保留原因（`catalogThumbFailure`），對話框顯示「縮圖載入失敗：<原因>〔重試〕」，不再只出一個壞掉圖片。
 
 驗證：`scripts/test-quote-catalog-pages.mjs` PASS（新增清單短標籤）；`tsc --noEmit`、`npm run audit:ui`、`vite build` 通過。**headless Chrome 實測**（本機靜態 build、開發分支、1600×1000、冷快取）：開啟後約 4 秒第一排 4 張、約 19 秒 12 張全部出齊，`<img>` 13 張（12 頁＋封面）、破圖 0、沒有失敗提示；點第 3 頁（跨頁）→ 已選頁面（2）＝「第 3 頁 左半」「第 3 頁 右半」。
+
+位置（2026-10-29 使用者指示「放在報價單圖片下面」）：報價編輯器的「圖冊附件」不再放在「報價內容」上方，改為 `#quote-sec-photos`（報價單圖片）卡片底部、`QuotePhotoPages` 之後，位於「條款及付款」之前；同樣的「選擇頁面」按鈕。headless Chrome 核對四個 section 的順序：報價內容 → 費用與總價 → 報價單圖片（含圖冊附件）→ 條款及付款。
+
 阻塞：縮圖第一次開啟仍要下載當前 12 頁的 PDF（這份圖冊一頁 1.3 MB，約 15 MB／15–20 秒），第二次起由 IndexedDB 即時。要第一次就即時，需要把縮圖預先產生好存進 Storage（新的 edge 工作，edge 端要能 rasterize PDF），未排入本輪。
 
 ## 2026-10-29 — FDS-07 跨頁圖冊按直向輸出
