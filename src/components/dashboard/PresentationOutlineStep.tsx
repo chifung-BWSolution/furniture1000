@@ -1,3 +1,4 @@
+import { Progress } from '@/components/ui/progress';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowUpDown, ChevronUp, LoaderCircle, Pencil, Sparkles, ZoomIn } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { generateQuoteReferenceImage, quotePhotoErrorText, QUOTE_PHOTO_GENERATE_MODELS, type QuotePhotoGenerateModel } from '@/lib/quotePhotoLibrary';
 import type { SearchProduct } from '@/lib/productSearch';
-import { generatePresentationCopy } from '@/lib/presentationCopy';
+import { generatePresentationCopy, generatePresentationRoomCopy } from '@/lib/presentationCopy';
 import { floorPlanZoneColor } from './FloorPlanZoneCanvas';
 import { cn } from '@/lib/utils';
 import {
@@ -120,6 +121,7 @@ export function PresentationOutlineStep({
   services,
   includeFloor,
   floorReferenceUrl,
+  onProcessing,
   zones,
   products,
   productZone,
@@ -145,6 +147,7 @@ export function PresentationOutlineStep({
   services: string;
   includeFloor: boolean;
   floorReferenceUrl?: string;
+  onProcessing?: (delta: number) => void;
   zones: PresentationZoneDraft[];
   products: SearchProduct[];
   productZone: Record<string, string>;
@@ -172,6 +175,7 @@ export function PresentationOutlineStep({
   const [dragId, setDragId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [beautifyProgress, setBeautifyProgress] = useState({ done: 0, total: 1, label: '準備美化' });
   const styleAnchor = useRef<string | null>(null);
   const disabled = parentDisabled || batchRunning;
   const startedCopy = useRef(new Set<string>());
@@ -244,7 +248,7 @@ export function PresentationOutlineStep({
       const asset = await generateQuoteReferenceImage({
         purpose: 'presentation_product', model: sampleModel, aspectRatio: '4:3',
         referenceUrls: [reference, floor, anchor].filter((url): url is string => Boolean(url)),
-        prompt: `統一提案攝影風格：自然淺橡木地板、暖白牆面、柔和側窗日光、低飽和中性色、乾淨留白、真實室內攝影。固定相近視線高度與三分之四視角，產品完整入鏡，外觀材質顏色保持原樣。${floor ? '第二張是分區平面圖，只參考房間、門窗和家具擺位。' : ''}${anchor ? '最後一張是全份簡報風格基準，統一地板、色溫、光線和攝影質感，不複製其他產品。' : ''} 分區：${zone?.name ?? ''}。產品：${draft.displayName} ${draft.model}。僅供提案參考。`,
+        prompt: `統一提案攝影風格：自然淺橡木地板、暖白牆面、柔和側窗日光、低飽和中性色、乾淨留白、真實室內攝影。固定相近視線高度與三分之四視角，產品完整入鏡，外觀材質顏色保持原樣。圖片不要加入文字、標語、水印或商標，文案由簡報文字欄呈現。${floor ? '第二張是分區平面圖，只參考房間、門窗和家具擺位。' : ''}${anchor ? '最後一張是全份簡報風格基準，統一地板、色溫、光線和攝影質感，不複製其他產品。' : ''} 分區：${zone?.name ?? ''}。產品：${draft.displayName} ${draft.model}。僅供提案參考。`,
       });
       if (draftFor(product, draftsRef.current).imageUrl !== draft.imageUrl) return false;
       onDraftRef.current(product.id, { sampleImageUrl: asset.url, noBackground: true });
@@ -260,12 +264,36 @@ export function PresentationOutlineStep({
   async function correctAll() {
     if (batchRunning || samplingId) return;
     setBatchRunning(true);
+    onProcessing?.(1);
     styleAnchor.current = null;
+    const total = products.length * 2 + zones.length;
+    let done = 0;
     let success = 0;
+    setBeautifyProgress({ done, total, label: '準備更新圖片與文案' });
+    const step = (label: string) => setBeautifyProgress({ done, total, label });
     try {
-      for (const product of products) if (await generateSample(product, true)) success++;
-      toast.message('批量圖片修正完成', { description: `成功 ${success}／${products.length} 張；失敗項目保留原圖，可單獨重試。` });
-    } finally { setBatchRunning(false); }
+      for (const product of products) {
+        step(`更新產品文案：${product.title || '產品'}`);
+        try {
+          const copy = await generatePresentationCopy(product);
+          onDraftRef.current(product.id, copy);
+          setCopyState(current => ({ ...current, [product.id]: 'ready' }));
+          success++;
+        } catch { /* Preserve existing copy. */ }
+        done++;
+        step(`統一圖片風格：${product.title || '產品'}`);
+        if (await generateSample(product, true)) success++;
+        done++;
+      }
+      for (const zone of zones) {
+        step(`更新房間描述：${zone.name}`);
+        try { onZonePatch(zone.id, await generatePresentationRoomCopy(zone.name, products.filter(product => productZone[product.id] === zone.id))); success++; }
+        catch { /* Preserve existing room copy. */ }
+        done++;
+      }
+      step('美化完成');
+      toast.message('一鍵美化完成', { description: `成功 ${success}／${total} 項；失敗項目保留原內容。請檢查並儲存草稿。` });
+    } finally { setBatchRunning(false); onProcessing?.(-1); }
   }
 
   const active = zones.find((zone) => zone.id === activeId) ?? zones[0];
@@ -284,7 +312,18 @@ export function PresentationOutlineStep({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4" aria-busy={batchRunning}>
+      {batchRunning ? (
+        <div className="absolute inset-0 z-30 rounded-2xl bg-background/80 backdrop-blur-sm">
+          <div className="sticky top-24 mx-auto flex max-w-md flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-lg" role="status" aria-live="polite">
+            <div className="flex items-center gap-2 font-semibold"><LoaderCircle className="h-5 w-5 animate-spin" aria-hidden />正在美化圖片與文案</div>
+            <p className="text-sm text-muted-foreground">{beautifyProgress.label}</p>
+            <Progress value={Math.round(beautifyProgress.done / Math.max(1, beautifyProgress.total) * 100)} aria-label="美化進度" />
+            <p className="text-right text-xs tabular-nums text-muted-foreground">{beautifyProgress.done} / {beautifyProgress.total} 項 · {Math.round(beautifyProgress.done / Math.max(1, beautifyProgress.total) * 100)}%</p>
+            <p className="text-xs text-muted-foreground">圖片生成需要一些時間，請保留此頁面。</p>
+          </div>
+        </div>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200/90 bg-white p-4 dark:border-border dark:bg-card">
           <p className="text-sm font-semibold text-foreground">封面資訊</p>
@@ -415,7 +454,7 @@ export function PresentationOutlineStep({
               </div>
               <div>
                 <p className="text-sm font-semibold">已選產品（{activeProducts.length}）</p>
-                <Button type="button" variant="outline" disabled={disabled || samplingId !== null || !products.length} onClick={() => void correctAll()}>{batchRunning ? '正在統一圖片風格…' : '一鍵修正全部圖片'}</Button>
+                <Button type="button" variant="outline" disabled={disabled || samplingId !== null || !products.length} onClick={() => void correctAll()}>{batchRunning ? '正在美化圖片與文案…' : '一鍵美化圖片與文案'}</Button>
                 <p className="text-xs text-muted-foreground">統一木色與柔和日光，參考所屬分區平面圖，保留產品外觀。</p>
 
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">

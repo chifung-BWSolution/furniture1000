@@ -3,7 +3,7 @@ import { gammaEmbedUrl } from '@/lib/gammaPreview';
 import { PresentationImageField } from './PresentationImageField';
 import { PresentationZoneManager } from './PresentationZoneManager';
 import { floorPlanZoneColor } from './FloorPlanZoneCanvas';
-import { cropPresentationFloorPlan, recognizePresentationFloorPlan } from '@/lib/presentationFloorPlan';
+import { cropPresentationFloorPlan, presentationZoneBounds, recognizePresentationFloorPlan } from '@/lib/presentationFloorPlan';
 // ============================================================================
 // FDS 2.1 — 客戶簡報（F-AI-009）
 // Gamma AI POST /v1/generations（canvaNativeDesign.ts）。
@@ -633,7 +633,7 @@ export function PresentationView() {
         for (const detected of result.zones) {
           const index = next.findIndex((zone) => zone.name.trim().toLowerCase() === detected.name.toLowerCase());
           if (index >= 0) {
-            next[index] = { ...next[index], rect: detected.rect, ...(detected.imageUrl ? { imageUrl: detected.imageUrl } : {}) };
+            next[index] = { ...next[index], rect: detected.rect, rects: detected.rect ? [detected.rect] : [], ...(detected.imageUrl ? { imageUrl: detected.imageUrl } : {}) };
           } else {
             next.push({ id: crypto.randomUUID(), ...detected });
           }
@@ -1878,7 +1878,7 @@ export function PresentationView() {
                           const sourceZones = [...zones];
                           const response = await fetch(brief.floorImageUrl!);
                           if (!response.ok) throw new Error('無法讀取原始平面圖');
-                          const result = await cropPresentationFloorPlan(await response.blob(), sourceZones.map((zone) => ({ name: zone.name, rect: zone.rect ?? null })));
+                          const result = await cropPresentationFloorPlan(await response.blob(), sourceZones.map((zone) => ({ name: zone.name, rect: presentationZoneBounds(zone.rects ?? (zone.rect ? [zone.rect] : [])) })));
                           if (request !== floorRecognitionRequest.current) return;
                           const images = new Map(sourceZones.map((zone, index) => [zone.id, result.zones[index]?.imageUrl]));
                           setZones((current) => current.map((zone) => images.get(zone.id) ? { ...zone, imageUrl: images.get(zone.id) } : zone));
@@ -2011,6 +2011,7 @@ export function PresentationView() {
                 <PresentationOutlineStep
                   title={brief.title}
                   floorReferenceUrl={brief.floorImageUrl}
+                  onProcessing={trackUpload}
                   client={brief.client ?? ''}
                   companyIntro={companyIntro}
                   qualifications={qualifications}
