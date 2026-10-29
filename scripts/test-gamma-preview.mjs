@@ -1,0 +1,4 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';import ts from 'typescript';
+const source=fs.readFileSync('src/lib/gammaPreview.ts','utf8');const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;const {gammaEmbedUrl}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+assert.equal(gammaEmbedUrl('https://gamma.app/docs/furniture-abc123'),'https://gamma.app/embed/furniture-abc123');assert.equal(gammaEmbedUrl('https://gamma.app/embed/abc123'),'https://gamma.app/embed/abc123');for(const url of [null,'javascript:alert(1)','https://gamma.app.evil.com/docs/test','https://example.com/docs/test'])assert.equal(gammaEmbedUrl(url),null);
+const ui=fs.readFileSync('src/components/dashboard/PresentationView.tsx','utf8');assert.ok(ui.includes('src={gammaPreview}'));assert.ok(ui.includes('{gammaPreview ? ('));console.log('Gamma preview URL and render-path checks passed');

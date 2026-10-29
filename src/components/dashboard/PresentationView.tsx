@@ -1,3 +1,4 @@
+import { gammaEmbedUrl } from '@/lib/gammaPreview';
 import { PresentationImageField } from './PresentationImageField';
 import { PresentationZoneManager } from './PresentationZoneManager';
 import { floorPlanZoneColor } from './FloorPlanZoneCanvas';
@@ -1413,6 +1414,9 @@ export function PresentationView() {
   const visibleDrafts = draftSessions.slice(0, SIDEBAR_PREVIEW);
   const visibleDesigns = designSessions.slice(0, SIDEBAR_PREVIEW);
   const phase = generationPhase(activeSession, generating);
+  const gammaPreview = activeSession?.populate_report?.provider === 'gamma'
+    ? gammaEmbedUrl(activeSession.view_url || activeSession.edit_url)
+    : null;
   const previewPages = pageThumbs.length > 0 ? pageThumbs.length : 1;
   const previewIndex = Math.min(previewPage, previewPages - 1);
   const previewSrc = pageThumbs[previewIndex] || (previewIndex === 0 ? (activeSession ? sessionThumbnail(activeSession) : null) : null);
@@ -2247,7 +2251,9 @@ export function PresentationView() {
                   </div>
                 </div>
                 <div className="relative overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-900">
-                  {previewSrc ? (
+                  {gammaPreview ? (
+                    <iframe key={gammaPreview} src={gammaPreview} title="Gamma 簡報預覽" className="aspect-[16/10] min-h-[360px] w-full border-0" allow="fullscreen" allowFullScreen />
+                  ) : previewSrc ? (
                     <div className="transition-transform" style={{ transform: `scale(${previewZoom / 100})` }}>
                       <LoadingImage
                         key={previewSrc}
@@ -2265,6 +2271,9 @@ export function PresentationView() {
                     </div>
                   )}
                 </div>
+                {gammaPreview ? (
+                  <p className="mt-2 text-xs text-muted-foreground">可在預覽內切換頁面。若 Gamma 要求登入或不允許內嵌，請使用「在新分頁打開」查看；文件存取權限沿用 Gamma 設定。</p>
+                ) : (<>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
                     <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="上一頁" disabled={(pagesLoading && pageThumbs.length === 0) || previewIndex === 0} onClick={() => setPreviewPage((page) => Math.max(0, page - 1))}>
@@ -2288,6 +2297,7 @@ export function PresentationView() {
                 {pagesNote && (
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">{pagesNote}</p>
                 )}
+                </>)}
               </motion.section>
           )}
           </AnimatePresence>
