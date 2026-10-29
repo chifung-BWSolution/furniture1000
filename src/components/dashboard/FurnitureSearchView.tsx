@@ -166,6 +166,7 @@ const SCOPES: { id: SearchScope; label: string }[] = [
   { id: 'catalog', label: '圖冊' },
   { id: 'shopify', label: '已上架' },
   { id: 'quoted', label: '有供應商報價' },
+  { id: 'modeled', label: '已有模型' },
 ];
 
 const SORTS: { id: SearchSort; label: string }[] = [
