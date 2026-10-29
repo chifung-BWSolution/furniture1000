@@ -84,6 +84,7 @@ export function SidebarNav({
   });
   const pinnedChildren = section.children.filter((child) => {
     if (!child.pinned) return false;
+    if (child.hidden) return false;
     if (!navChildVisible(child, isAdmin, profileRole)) return false;
     if (
       quoteShareGuest &&
