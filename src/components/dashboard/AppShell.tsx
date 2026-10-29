@@ -1473,13 +1473,16 @@ function AppShellContent() {
       return;
     }
     const leavingView = implementedPage(store.currentView) ?? store.currentView;
-    const enteringView = linked ?? view;
+    // 側欄的客戶專區項目是 `fds2-*` legacy view；先換成真正的 portal view 再導航，
+    // 否則會掉到 staff 路徑 `/fds/customer/…`，分享連結訪客就丟了 `?quote_share=`。
+    const portalView = linked ?? view;
+    const enteringView = portalView;
     if (leavingView === 'category-management' && enteringView !== 'category-management') {
       store.reloadProducts();
     }
-    if (isCustomerPortalView(view)) {
+    if (isCustomerPortalView(portalView)) {
       // Quote-share guests may browse portal pages except 機構採購帳號.
-      if (quoteShareGuestActive && view === 'customer-org-account') {
+      if (quoteShareGuestActive && portalView === 'customer-org-account') {
         return;
       }
       const token =
@@ -1489,14 +1492,14 @@ function AppShellContent() {
         ? null
         : new URLSearchParams(location.search).get('quote_share') ||
           readStoredQuoteShareToken();
-      const path = pathFromCustomerView(view);
+      const path = pathFromCustomerView(portalView);
       const target = withCustomerPortalQuery(path, {
         portalToken: token,
         quoteShareToken: qShare,
       });
       quoteUrlSyncRef.current = target;
       navigate(target, { replace: true });
-      store.setCurrentView(view);
+      store.setCurrentView(portalView);
       store.setFilterProductId(null);
       setEditingQuoteId(null);
       return;

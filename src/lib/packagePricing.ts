@@ -3,6 +3,8 @@ import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import {
   PACKAGE_PRICE_NOTE,
   PACKAGE_PRICE_YEAR,
+  clonePackageLines,
+  validatePackageLines,
   type PackageLine,
   type PackageQuoteSnapshot,
 } from '@/lib/packagePricingMath';
@@ -11,6 +13,9 @@ type PgError = { message?: string; code?: string } | null;
 
 export function packageQuoteErrorMessage(error: PgError): string {
   const message = error?.message || '';
+  if (error?.code === 'invalid_lines') {
+    return message || '這張單有未完成的項目，未能儲存。';
+  }
   if (error?.code === '42P01' || error?.code === '42703' || error?.code === '42883') {
     return '套餐計價還沒準備好，暫時不能使用。請聯絡管理員。';
   }
@@ -96,7 +101,8 @@ function snapshotOf(title: string, lines: PackageLine[]): PackageQuoteSnapshot {
     title: title.trim() || '套餐參考報價',
     priceYear: PACKAGE_PRICE_YEAR,
     note: PACKAGE_PRICE_NOTE,
-    lines,
+    // Copy: a saved quote is frozen at save time and must not follow later edits.
+    lines: clonePackageLines(lines),
   };
 }
 
@@ -105,6 +111,10 @@ export async function savePackageQuote(input: {
   title: string;
   lines: PackageLine[];
 }): Promise<{ id: string | null; error: PgError }> {
+  const problems = validatePackageLines(input.lines);
+  if (problems.length > 0) {
+    return { id: null, error: { code: 'invalid_lines', message: problems.map((problem) => problem.message).join('；') } };
+  }
   const snapshot = snapshotOf(input.title, input.lines);
   const title = snapshot.title;
   if (input.id) {

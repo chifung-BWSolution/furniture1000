@@ -1,10 +1,12 @@
+import { generateQuoteReferenceImage } from '@/lib/quotePhotoLibrary';
+import { gammaEmbedUrl } from '@/lib/gammaPreview';
 import { PresentationImageField } from './PresentationImageField';
 import { PresentationZoneManager } from './PresentationZoneManager';
 import { floorPlanZoneColor } from './FloorPlanZoneCanvas';
-import { cropPresentationFloorPlan, recognizePresentationFloorPlan } from '@/lib/presentationFloorPlan';
+import { cropPresentationFloorPlan, presentationZoneBounds, recognizePresentationFloorPlan } from '@/lib/presentationFloorPlan';
 // ============================================================================
 // FDS 2.1 — 客戶簡報（F-AI-009）
-// Canva AI POST /v1/generations（canvaNativeDesign.ts）。
+// Gamma AI POST /v1/generations（canvaNativeDesign.ts）。
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -26,6 +28,7 @@ import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -61,12 +64,12 @@ import {
 import {
   createNativeCanvaDesign, fetchCanvaDesignPages, fetchCanvaGenerationStatus, defaultBrief, exportCanvaSessionPdf,
   exportCanvaSessionPptx, listCanvaDesignExports, listCanvaDesignSessions,
-  listCanvaSessionVersions, probeCanvaNative, proPdfHandoffPath, saveCanvaDraft,
+  listCanvaSessionVersions, probeCanvaNative, proPdfHandoffPath, saveCanvaDraft, removeGammaDesign,
   type CanvaDesignBrief, type CanvaDesignExportRow, type CanvaDesignSession,
   type CanvaSessionVersionRow,
 } from '@/lib/canvaNativeDesign';
 import { MultiSelect } from '@/components/ui/multi-select';
-import { fetchCaseShowcase, type CaseBrand } from '@/lib/caseShowcase';
+import { fetchCaseShowcase, photoUrls, type CasePhotoProject, type CaseBrand } from '@/lib/caseShowcase';
 import { fetchZones } from '@/lib/solutionsApi';
 import {
   EMPTY_COMPANY_PROFILE,
@@ -91,7 +94,7 @@ const TITLE_MAX = 100;
 const PURPOSE_MAX = 200;
 const CONTENT_MAX = 1000;
 const SIDEBAR_PREVIEW = 3;
-const AI_DOC_HREF = 'https://github.com/chifung-BWSolution/furniture1000/blob/develop/docs/prd/FDS-2.1-Canva-AI生成.md';
+const AI_DOC_HREF = 'https://github.com/chifung-BWSolution/furniture1000/blob/develop/docs/prd/FDS-2.1-Gamma-AI生成.md';
 const LANGUAGE_OPTIONS = ['繁體中文', '簡體中文', 'English', '中英對照'];
 const STYLE_OPTIONS = ['專業、簡潔', '現代、簡約、專業', '簡約現代', '高端精品', '活潑清晰'];
 const WIZARD_STEPS = [
@@ -108,23 +111,23 @@ const WIZARD_STEPS = [
   {
     title: '即將生成的大綱',
     subtitle: '列出並修改每一段',
-    hint: '以下是即將送給 Canva 的大綱。每一段都可以改；改過只會在這份簡報。',
+    hint: '以下是即將送給 Gamma 的大綱。每一段都可以改；改過只會在這份簡報。',
   },
   {
     title: '生成及匯出',
     subtitle: '用改過的大綱生成',
-    hint: '用上一步的大綱在 Canva 建立簡報。完成後可預覽、編輯與匯出。',
+    hint: '用上一步的大綱在 Gamma 建立簡報。完成後可預覽、編輯與匯出。',
   },
 ] as const;
 
-const GEN_PHASES = ['解析需求', '生成內容', '建立 Canva 簡報', '完成並預覽'] as const;
+const GEN_PHASES = ['解析需求', '生成內容', '建立 Gamma 簡報', '完成並預覽'] as const;
 
 type Status = 'idle' | 'creating' | 'exporting';
 
 function errorText(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (raw.includes('revoked_access_token') || raw.includes('Access token is revoked')) {
-    return 'Canva 授權已失效，請重新連接。';
+    return 'Gamma 授權已失效，請重新連接。';
   }
   return raw;
 }
@@ -150,7 +153,7 @@ function ConnectionHint({ children, content }: { children: ReactNode; content: R
 }
 
 function CanvaMark({ className }: { className?: string }) {
-  return <img src="/canva-logo.svg" alt="Canva" className={className} />;
+  return <img src="/canva-logo.svg" alt="Gamma" className={className} />;
 }
 
 function sessionTitle(session: CanvaDesignSession): string {
@@ -158,7 +161,7 @@ function sessionTitle(session: CanvaDesignSession): string {
   return title || '未命名';
 }
 
-/** Canva thumbnail URLs expire about 15 minutes after they are issued. */
+/** Gamma thumbnail URLs expire about 15 minutes after they are issued. */
 function sessionThumbnail(session: CanvaDesignSession): string | null {
   // An explicit null means the live metadata lookup failed. Never fall back
   // to an older signed URL embedded in the saved brief/report.
@@ -211,7 +214,7 @@ function DesignThumbnail({ url }: { url: string | null }) {
 function designStatusLine(session: CanvaDesignSession): string {
   const pages = (session.brief as CanvaDesignBrief | null)?.pageCount;
   const exported = session.status === 'exported' || Boolean(session.export_download_url);
-  const state = exported ? '已匯出 PPTX' : 'Canva 編輯中';
+  const state = exported ? '已匯出 PPTX' : 'Gamma 編輯中';
   return typeof pages === 'number' && pages > 0 ? `${pages} 頁・${state}` : state;
 }
 
@@ -445,7 +448,7 @@ function CanvaConnectionCard({
         </div>
         <div className={cn('relative z-10 min-w-0', compact ? 'flex-1 text-left' : '')}>
           <div className={cn('flex items-center gap-1.5', compact ? 'flex-nowrap' : 'flex-wrap justify-center')}>
-            <h3 className={cn('font-bold text-foreground', compact ? 'truncate text-xs' : 'text-base')}>Canva 連接</h3>
+            <h3 className={cn('font-bold text-foreground', compact ? 'truncate text-xs' : 'text-base')}>Gamma 連接</h3>
             <AnimatePresence mode="wait">
               {connected && (
                 <motion.span
@@ -470,7 +473,7 @@ function CanvaConnectionCard({
           <p className={cn('truncate text-muted-foreground', compact ? 'text-[10px] leading-tight' : 'mt-1 text-sm')}>{account}</p>
           {!compact && (
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              AI 生成需要帳戶具備 Canva AI 與 Magic Design 功能。
+              AI 生成需要帳戶具備 Gamma AI 與 Magic Design 功能。
             </p>
           )}
         </div>
@@ -495,21 +498,21 @@ function CanvaConnectionCard({
           )}
           {canva && (!canva.configured || !canImport) && (
             <ConnectionHint content={!canva.configured ? (
-              <p>請設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，並在 Canva 設定 redirect URI：{`${window.location.origin}${PRESENTATION_PATH}`}。 <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看設定文件</a></p>
-            ) : '僅 admin／傢俬組可使用 Canva 簡報功能。'}>
+              <p>請設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，並在 Gamma 設定 redirect URI：{`${window.location.origin}${PRESENTATION_PATH}`}。 <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看設定文件</a></p>
+            ) : '僅 admin／傢俬組可使用 Gamma 簡報功能。'}>
               <Button type="button" variant="outline" className="w-full">{!canva.configured ? '尚未配置' : '權限不足'}</Button>
             </ConnectionHint>
           )}
           {canva?.configured && canImport && !connected && (
             <Button type="button" className="w-full bg-indigo-600 text-white hover:bg-indigo-500" onClick={onConnect} disabled={disabled}>
-              <Link2 className="h-4 w-4" /> 連接 Canva
+              <Link2 className="h-4 w-4" /> 連接 Gamma
             </Button>
           )}
           {connected && (
             <div className="grid grid-cols-2 gap-2">
               <ConnectionHint content={showGenerationWarning ? (
-                <p>{generationProbe?.message ?? '無法確認 Canva AI 生成權限。'}{generationProbe?.missing_scopes?.length ? ` 缺少 scope：${generationProbe.missing_scopes.join(', ')}。` : ''} <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a></p>
-              ) : generationProbe?.ok ? '已連接 Canva，可以 AI 生成簡報。' : '已連接 Canva，正在確認 AI 生成權限。'}>
+                <p>{generationProbe?.message ?? '無法確認 Gamma AI 生成權限。'}{generationProbe?.missing_scopes?.length ? ` 缺少 scope：${generationProbe.missing_scopes.join(', ')}。` : ''} <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a></p>
+              ) : generationProbe?.ok ? '已連接 Gamma，可以 AI 生成簡報。' : '已連接 Gamma，正在確認 AI 生成權限。'}>
                 <Button type="button" variant="outline" className="h-9 w-full bg-background px-1 text-xs" onClick={onRefresh}>
                   <RefreshCcw className="h-3.5 w-3.5" />
                   重新檢查
@@ -525,7 +528,7 @@ function CanvaConnectionCard({
       )}
       {compact && canva?.configured && canImport && !connected && (
         <Button type="button" className="mt-3 w-full bg-indigo-600 text-white hover:bg-indigo-500" onClick={onConnect} disabled={disabled}>
-          <Link2 className="h-4 w-4" /> 連接 Canva
+          <Link2 className="h-4 w-4" /> 連接 Gamma
         </Button>
       )}
     </section>
@@ -580,6 +583,26 @@ export function PresentationView() {
   const [floorZones, setFloorZones] = useState<{ code: string | null; name: string }[]>([]);
   const [floorPresent, setFloorPresent] = useState(false);
   const [caseBrands, setCaseBrands] = useState<CaseBrand[]>([]);
+  const [casePhotoProjects, setCasePhotoProjects] = useState<CasePhotoProject[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchCaseShowcase<CasePhotoProject>('photos', controller.signal).then(result => setCasePhotoProjects(result.items)).catch(error => { if (!controller.signal.aborted) toast.error('完工照片案例載入失敗', { description: errorText(error) }); });
+    return () => controller.abort();
+  }, []);
+  const availableCases = useMemo<CaseBrand[]>(() => [
+    ...caseBrands,
+    ...casePhotoProjects.filter(project => photoUrls(project.completion_photos).length > 0).map(project => ({
+      id: `photo-project:${project.id}`,
+      brand_name_cn: project.real_customer_display_name || project.project_name,
+      brand_name_en: null,
+      company_name: project.real_customer_display_name,
+      display_name: [project.real_customer_display_name || project.project_name, project.project_code].filter(Boolean).join(' · '),
+      branding_icon: null, view_system: null, project_count: 1,
+      recent_projects: [{ id: project.id, project_code: project.project_code, project_name: project.project_name, signed_date: null }],
+      project_type_ids: [], service_type_ids: [], industries: project.industries,
+      filter_projects: [{ signed_date: null, estimated_income: null, furniture_types: project.furniture_types ?? [] }],
+    })),
+  ], [caseBrands, casePhotoProjects]);
   const [caseNote, setCaseNote] = useState('');
   const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
   const reduceMotion = useReducedMotion();
@@ -591,6 +614,7 @@ export function PresentationView() {
     floorZones: [] as { code: string | null; name: string }[],
     floorPresent: false,
     cases: [] as CaseBrand[],
+    photoProjects: [] as CasePhotoProject[],
     caseIds: [] as string[],
     products: [] as SearchProduct[],
   });
@@ -598,7 +622,8 @@ export function PresentationView() {
     company: companyProfile,
     floorZones,
     floorPresent,
-    cases: caseBrands,
+    cases: availableCases,
+    photoProjects: casePhotoProjects,
     caseIds: selectedCaseIds,
     products: selected,
   };
@@ -631,7 +656,7 @@ export function PresentationView() {
         for (const detected of result.zones) {
           const index = next.findIndex((zone) => zone.name.trim().toLowerCase() === detected.name.toLowerCase());
           if (index >= 0) {
-            next[index] = { ...next[index], rect: detected.rect, ...(detected.imageUrl ? { imageUrl: detected.imageUrl } : {}) };
+            next[index] = { ...next[index], rect: detected.rect, rects: detected.rect ? [detected.rect] : [], ...(detected.imageUrl ? { imageUrl: detected.imageUrl } : {}) };
           } else {
             next.push({ id: crypto.randomUUID(), ...detected });
           }
@@ -683,12 +708,14 @@ export function PresentationView() {
   const [outline, setOutline] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<CanvaDesignSession[]>([]);
+  const [designSearch, setDesignSearch] = useState('');
   const [activeSession, setActiveSession] = useState<CanvaDesignSession | null>(null);
   const [versionNote, setVersionNote] = useState('');
   const [versionRows, setVersionRows] = useState<CanvaSessionVersionRow[]>([]);
   const [exportRows, setExportRows] = useState<CanvaDesignExportRow[]>([]);
   const [generationProbe, setGenerationProbe] = useState<Awaited<ReturnType<typeof probeCanvaNative>> | null>(null);
   const [generationPending, setGenerationPending] = useState(false);
+  const [continuingId, setContinuingId] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState('');
   const [statusReadError, setStatusReadError] = useState('');
   const [listDrawer, setListDrawer] = useState<null | 'drafts' | 'designs'>(null);
@@ -828,7 +855,7 @@ export function PresentationView() {
       window.history.replaceState(null, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams}` : ''));
     };
     if (!cb.valid || !cb.verifier) {
-      toast.error('Canva 授權失敗', { description: 'state 驗證不符或授權被取消' });
+      toast.error('Gamma 授權失敗', { description: 'state 驗證不符或授權被取消' });
       clearCanvaOauthState();
       clean();
       return;
@@ -839,9 +866,9 @@ export function PresentationView() {
         const connected = await exchangeCanvaCode(code, cb.verifier, redirectUri);
         statusRequestRef.current += 1;
         setCanva((current) => ({ ...current, ...connected, configured: current?.configured ?? true }));
-        toast.success('Canva 已連接', { description: connected.account_name ? `帳戶：${connected.account_name}` : 'chifung.login' });
+        toast.success('Gamma 已連接', { description: connected.account_name ? `帳戶：${connected.account_name}` : 'chifung.login' });
       } catch (err) {
-        toast.error('Canva 授權失敗', { description: errorText(err) });
+        toast.error('Gamma 授權失敗', { description: errorText(err) });
       } finally {
         clearCanvaOauthState();
         clean();
@@ -879,7 +906,7 @@ export function PresentationView() {
     void fetchCaseShowcase<CaseBrand>('brands')
       .then((result) => {
         if (!cancelled) {
-          setCaseBrands(result.items.slice(0, 40));
+          setCaseBrands(result.items);
           setCaseNote('');
         }
       })
@@ -935,6 +962,8 @@ export function PresentationView() {
       title: briefNow.title.trim() || briefNow.project?.trim() || '',
       client: briefNow.client?.trim() || '',
       includeFloor: state.includeFloor,
+      floorImageUrl: briefNow.floorImageUrl,
+      floorEffectImageUrl: briefNow.floorEffectImageUrl,
       zones: state.zones,
       products: current.products,
       productZone: state.productZone,
@@ -945,6 +974,7 @@ export function PresentationView() {
       services: state.servicesText,
       cases: current.cases.filter((item) => chosen.has(item.id)).map((item) => ({
         id: item.id,
+        photos: [...new Set(current.photoProjects.filter(project => item.recent_projects.some(recent => recent.id === project.id)).flatMap(project => photoUrls(project.completion_photos)))].slice(0, 6),
         title: state.caseDrafts[item.id]?.title ?? (item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例'),
         body: state.caseDrafts[item.id]?.body ?? [
           item.industries?.[0] ? `行業：${item.industries[0]}` : '',
@@ -1038,13 +1068,13 @@ export function PresentationView() {
       if (session.edit_url) {
         setCanvaLink({ edit_url: session.edit_url, title: payload.title });
         toast.success('AI 已生成簡報', {
-          description: 'AI 已生成，請在 Canva 微調後匯出。',
+          description: 'AI 已生成，請在 Gamma 微調後匯出。',
         });
       }
       await refreshSessions();
       await refreshStatus();
     } catch (err) {
-      // A browser timeout is not evidence that Canva failed. Reconcile with the task.
+      // A browser timeout is not evidence that Gamma failed. Reconcile with the task.
       const current = taskSessionId ? await fetchCanvaGenerationStatus(taskSessionId).catch(() => null) : null;
       if (current) setActiveSession(current);
       if (current?.canva_design_id && current.edit_url) {
@@ -1053,13 +1083,13 @@ export function PresentationView() {
         return;
       }
       if (current?.status === 'creating') {
-        setStatusReadError('生成請求連線已中斷，正在查詢 Canva 任務狀態，毋須再次生成。');
+        setStatusReadError('生成請求連線已中斷，正在查詢 Gamma 任務狀態，毋須再次生成。');
         return;
       }
       const msg = current?.error || errorText(err);
       setGenerationError(msg);
-      if (msg.includes('design_already_exists') || msg.includes('design_exists') || msg.includes('已有 Canva 設計')) {
-        toast.message('此草稿已有 Canva 設計', { description: '請用「新版本」另建設計，勿覆蓋 Canva 內修改。' });
+      if (msg.includes('design_already_exists') || msg.includes('design_exists') || msg.includes('已有 Gamma 設計')) {
+        toast.message('此草稿已有 Gamma 設計', { description: '請用「新版本」另建設計，勿覆蓋 Gamma 內修改。' });
       } else {
         toast.error('AI 生成失敗', { description: msg });
       }
@@ -1089,7 +1119,7 @@ export function PresentationView() {
       const res = await exportCanvaSessionPptx(sid);
       if (res.export_download_url) {
         window.open(res.export_download_url, '_blank', 'noopener,noreferrer');
-        toast.success('PPTX 匯出完成', { description: '請在 PowerPoint 驗證 Canva 最後修改是否可編輯。' });
+        toast.success('PPTX 匯出完成', { description: '請在 PowerPoint 驗證 Gamma 最後修改是否可編輯。' });
       }
       await refreshSessions();
       await refreshSessionDetail(sid);
@@ -1149,8 +1179,8 @@ export function PresentationView() {
     refreshSessionDetail(s.id);
   };
 
-  const newVersion = async (parent: CanvaDesignSession) => {
-    if (disabled) return;
+  const newVersion = async (parent: CanvaDesignSession): Promise<boolean> => {
+    if (disabled) return false;
     setGenerationError('');
     setStatusReadError('');
     setCanvaLink(null);
@@ -1171,11 +1201,24 @@ export function PresentationView() {
       );
       setSessionId(session_id);
       setWizardStep(4);
-      toast.message('已建立新版本草稿', { description: '確認後可再次建立 Canva 設計，不覆蓋舊設計。' });
+      toast.message('已建立新版本草稿', { description: '確認後可再次建立 Gamma 設計，不覆蓋舊設計。' });
       await refreshSessions();
       await refreshSessionDetail(session_id);
+      return true;
     } catch (err) {
       toast.error('無法建立新版本', { description: errorText(err) });
+      return false;
+    }
+  };
+
+  /** Reopen a generated draft by cloning it into a new version, so the Gamma deck is never overwritten. */
+  const continueEditing = async (session: CanvaDesignSession) => {
+    if (disabled || continuingId) return;
+    setContinuingId(session.id);
+    try {
+      if (await newVersion(session)) setWizardStep(1);
+    } finally {
+      setContinuingId(null);
     }
   };
 
@@ -1185,7 +1228,7 @@ export function PresentationView() {
       const authorizeUrl = await startCanvaConnect(redirectUri);
       window.location.href = authorizeUrl;
     } catch (err) {
-      toast.error('無法啟動 Canva 授權', { description: errorText(err) });
+      toast.error('無法啟動 Gamma 授權', { description: errorText(err) });
     }
   };
 
@@ -1193,7 +1236,7 @@ export function PresentationView() {
     try {
       await canvaDisconnect();
       await refreshStatus();
-      toast.message('已解除 Canva 連接');
+      toast.message('已解除 Gamma 連接');
     } catch (err) {
       toast.error('解除失敗', { description: errorText(err) });
     }
@@ -1281,6 +1324,7 @@ export function PresentationView() {
       content: latest.content?.trim() ? latest.content : imported.content,
       coverImageUrl: latest.coverImageUrl || imported.coverImageUrl || undefined,
       floorImageUrl: imported.floorImageUrl || latest.floorImageUrl,
+      floorEffectImageUrl: imported.floorImageUrl && imported.floorImageUrl !== latest.floorImageUrl ? undefined : latest.floorEffectImageUrl,
     });
     if (imported.floorImageUrl) setIncludeFloor(true);
     if (imported.zones.length) {
@@ -1399,20 +1443,47 @@ export function PresentationView() {
   }, [ensureDrafts, syncOutline, pendingUploads]);
 
   const openDesignRow = (session: CanvaDesignSession) => {
-    loadSession(session);
     if (session.edit_url) {
       window.open(session.edit_url, '_blank', 'noopener,noreferrer');
+    } else {
+      toast.error('尚未有 Gamma 編輯連結');
+    }
+  };
+
+  const removeDesignRow = async (session: CanvaDesignSession) => {
+    const accepted = await confirm({
+      title: '從 FDS 移除此設計？',
+      description: '此操作會刪除 FDS 的簡報記錄及相關匯出記錄。Gamma 工作區中的原文件不會被刪除。',
+      confirmLabel: '移除',
+      destructive: true,
+    });
+    if (!accepted) return;
+    try {
+      await removeGammaDesign(session.id);
+      setSessions((current) => current.filter((item) => item.id !== session.id));
+      toast.success('已從 FDS 移除');
+    } catch (err) {
+      toast.error('未能移除設計', { description: errorText(err) });
     }
   };
 
   const titleCount = brief.title.length;
   const purposeCount = (brief.purpose ?? '').length;
   const contentCount = (brief.content ?? '').length;
-  const draftSessions = useMemo(() => sessions.filter((s) => !isCanvaDesign(s)), [sessions]);
-  const designSessions = useMemo(() => sessions.filter(isCanvaDesign), [sessions]);
+  const recentSessions = useMemo(() => [...sessions].sort((a, b) => {
+    const left = Date.parse(a.updated_at || a.created_at);
+    const right = Date.parse(b.updated_at || b.created_at);
+    return (Number.isNaN(right) ? 0 : right) - (Number.isNaN(left) ? 0 : left);
+  }), [sessions]);
+  // Every saved session keeps its editable draft, including ones already generated.
+  const draftSessions = recentSessions;
+  const designSessions = useMemo(() => recentSessions.filter(isCanvaDesign), [recentSessions]);
   const visibleDrafts = draftSessions.slice(0, SIDEBAR_PREVIEW);
   const visibleDesigns = designSessions.slice(0, SIDEBAR_PREVIEW);
   const phase = generationPhase(activeSession, generating);
+  const gammaPreview = activeSession?.populate_report?.provider === 'gamma'
+    ? gammaEmbedUrl(activeSession.view_url || activeSession.edit_url)
+    : null;
   const previewPages = pageThumbs.length > 0 ? pageThumbs.length : 1;
   const previewIndex = Math.min(previewPage, previewPages - 1);
   const previewSrc = pageThumbs[previewIndex] || (previewIndex === 0 ? (activeSession ? sessionThumbnail(activeSession) : null) : null);
@@ -1532,74 +1603,75 @@ export function PresentationView() {
     );
   }
 
-  const canvaCard = (
-    <CanvaConnectionCard
-      compact={false}
-      canva={canva}
-      connected={connected}
-      canImport={canImport}
-      disabled={disabled}
-      showGenerationWarning={showGenerationWarning}
-      generationProbe={generationProbe}
-      onConnect={() => { void connect(); }}
-      onRefresh={() => { void refreshStatus(); }}
-      onDisconnect={() => { void disconnect(); }}
-    />
-  );
-
   const draftList = (rows: CanvaDesignSession[]) => (
     rows.length === 0 ? (
       <p className="py-6 text-center text-sm text-muted-foreground">尚無草稿</p>
     ) : (
       <ul className="space-y-1">
-        {rows.map((s) => (
-          <li key={s.id}>
-            <button
-              type="button"
-              onClick={() => { loadSession(s); setListDrawer(null); }}
-              className="flex w-full items-start gap-3 rounded-xl px-1 py-2 text-left hover:bg-muted/60"
-            >
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">
-                <FileText className="h-4 w-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-start justify-between gap-2">
-                  <span className="truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
-                  <Badge className="shrink-0 border-transparent bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200">{s.status === 'creating' ? '生成中' : s.status === 'failed' ? '生成失敗' : '草稿'}</Badge>
+        {rows.map((s) => {
+          const design = isCanvaDesign(s);
+          const exported = s.status === 'exported' || Boolean(s.export_download_url);
+          const badge = design
+            ? (exported ? '已匯出' : '已生成')
+            : s.status === 'creating' ? '生成中' : s.status === 'failed' ? '生成失敗' : '草稿';
+          return (
+            <li key={s.id}>
+              <button
+                type="button"
+                onClick={() => { setListDrawer(null); if (design) void continueEditing(s); else loadSession(s); }}
+                disabled={continuingId === s.id}
+                className="flex w-full items-start gap-3 rounded-xl px-1 py-2 text-left hover:bg-muted/60"
+              >
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">
+                  <FileText className="h-4 w-4" />
                 </span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
-              </span>
-            </button>
-          </li>
-        ))}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-start justify-between gap-2">
+                    <span title={sessionTitle(s)} className="truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
+                    <Badge className={cn('shrink-0 border-transparent', design
+                      ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-200'
+                      : 'bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200')}>{badge}</Badge>
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{design
+                    ? continuingId === s.id ? '正在建立新版本…' : '點擊建立新版本繼續編輯（不覆蓋 Gamma 原稿）'
+                    : s.status === 'creating' ? '等待 Gamma 生成' : s.status === 'failed' ? '生成失敗，可重新生成' : '尚未生成 Gamma 設計'}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">更新：{formatRecentTime(s.updated_at || s.created_at)}</span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
     )
   );
 
   const designList = (rows: CanvaDesignSession[]) => (
     rows.length === 0 ? (
-      <p className="py-6 text-center text-sm text-muted-foreground">尚無 Canva 設計</p>
+      <p className="py-6 text-center text-sm text-muted-foreground">尚無 Gamma 設計</p>
     ) : (
       <ul className="space-y-1">
         {rows.map((s) => (
           <li key={s.id}>
             <div className="flex items-start gap-1 rounded-xl hover:bg-muted/60">
-              <button type="button" onClick={() => { loadSession(s); setListDrawer(null); setWizardStep(4); }} className="flex min-w-0 flex-1 items-start gap-3 px-1 py-2 text-left">
+              <button type="button" onClick={() => openDesignRow(s)} className="flex min-w-0 flex-1 items-start gap-3 px-1 py-2 text-left">
                 <DesignThumbnail url={sessionThumbnail(s)} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
+                  <span title={sessionTitle(s)} className="block truncate text-sm font-medium text-foreground">{sessionTitle(s)}</span>
                   <span className="mt-0.5 block truncate text-xs text-muted-foreground">{designStatusLine(s)}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">{formatRecentTime(s.updated_at || s.created_at)}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">FDS 更新：{formatRecentTime(s.updated_at || s.created_at)}</span>
                 </span>
               </button>
-              <button
-                type="button"
-                className="mt-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-                aria-label={`開啟 ${sessionTitle(s)}`}
-                onClick={() => openDesignRow(s)}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="mt-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`${sessionTitle(s)} 的操作`}><MoreHorizontal className="h-4 w-4" /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled={!s.edit_url} onSelect={() => openDesignRow(s)}>在 Gamma 編輯</DropdownMenuItem>
+                  <DropdownMenuItem disabled={!s.edit_url} onSelect={() => { void navigator.clipboard.writeText(s.edit_url!).then(() => toast.success('已複製連結')).catch(() => toast.error('無法複製連結')); }}>複製連結</DropdownMenuItem>
+                  <DropdownMenuItem disabled={!s.export_download_url} onSelect={() => { if (s.export_download_url) window.open(s.export_download_url, '_blank', 'noopener,noreferrer'); }}>下載首次生成的 PPTX</DropdownMenuItem>
+                  {s.populate_report?.provider === 'gamma' && <DropdownMenuItem className="text-destructive" onSelect={() => { void removeDesignRow(s); }}>從 FDS 移除</DropdownMenuItem>}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </li>
         ))}
@@ -1788,18 +1860,20 @@ export function PresentationView() {
                   </Select>
                   </div>
                 </Field>
-                <Field label="期望頁數" hint="建議 8–20 頁">
+                <Field label="期望頁數">
                   <div className="relative">
                     <Hash className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    className="h-10 rounded-lg bg-background pl-9"
+                    className="h-10 rounded-lg bg-background pl-9 pr-32"
                     type="number"
                     min={4}
                     max={40}
                     value={brief.pageCount ?? ''}
                     onChange={(e) => setBrief((b) => ({ ...b, pageCount: Number(e.target.value) || undefined }))}
+                    aria-describedby="presentation-page-count-hint"
                     placeholder="12"
                   />
+                    <span id="presentation-page-count-hint" className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 whitespace-nowrap text-xs text-muted-foreground">含最後 3 頁</span>
                   </div>
                 </Field>
               </div>
@@ -1814,10 +1888,6 @@ export function PresentationView() {
                       <p className="mt-0.5 text-xs leading-5 text-muted-foreground">上傳封面圖與整體平面圖，讓系統自動識別分區並生成對應截圖。</p>
                     </div>
                   </div>
-                  <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <MapPin className="h-3.5 w-3.5" aria-hidden />
-                    建議 8-20 頁
-                  </p>
                 </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <PresentationImageField
@@ -1839,7 +1909,7 @@ export function PresentationView() {
                     value={brief.floorImageUrl}
                     disabled={disabled}
                     onUploaded={recognizeFloor}
-                    onChange={(url) => { setBrief((current) => ({ ...current, floorImageUrl: url })); setIncludeFloor(Boolean(url)); }}
+                    onChange={(url) => { setBrief((current) => ({ ...current, floorImageUrl: url, floorEffectImageUrl: undefined })); setIncludeFloor(Boolean(url)); }}
                   />
                 </div>
               </div>
@@ -1868,6 +1938,36 @@ export function PresentationView() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {brief.floorImageUrl ? (
+                      <Button type="button" variant="outline" disabled={disabled} onClick={async () => {
+                        const source = brief.floorImageUrl;
+                        if (!source) return;
+                        trackUpload(1);
+                        try {
+                          const asset = await generateQuoteReferenceImage({ purpose: 'floor_plan', model: 'gemini', aspectRatio: '16:9', referenceUrls: [source], prompt: '風格：淺橡木地板、米白與自然木色家具、深灰牆體、柔和日光和接觸陰影，少量綠植。正交頂視、建築模型質感、乾淨米色背景。以原圖佈局為最高優先，僅供提案效果參考。' });
+                          setBrief((current) => current.floorImageUrl === source ? { ...current, floorEffectImageUrl: asset.url } : current);
+                          toast.success('俯視效果圖已生成', { description: '請核對牆體、門窗與家具位置後儲存草稿。' });
+                        } catch (error) { toast.error('效果圖生成失敗', { description: errorText(error) }); }
+                        finally { trackUpload(-1); }
+                      }}>生成俯視效果圖</Button>
+                    ) : null}
+                    {brief.floorImageUrl && zones.some((zone) => zone.rect) ? (
+                      <Button type="button" variant="outline" disabled={disabled} onClick={async () => {
+                        const request = ++floorRecognitionRequest.current;
+                        setRecognizingFloor(true);
+                        try {
+                          const sourceZones = [...zones];
+                          const response = await fetch(brief.floorImageUrl!);
+                          if (!response.ok) throw new Error('無法讀取原始平面圖');
+                          const result = await cropPresentationFloorPlan(await response.blob(), sourceZones.map((zone) => ({ name: zone.name, rect: presentationZoneBounds(zone.rects ?? (zone.rect ? [zone.rect] : [])), rects: zone.rects })));
+                          if (request !== floorRecognitionRequest.current) return;
+                          const images = new Map(sourceZones.map((zone, index) => [zone.id, result.zones[index]?.imageUrl]));
+                          setZones((current) => current.map((zone) => images.get(zone.id) ? { ...zone, imageUrl: images.get(zone.id) } : zone));
+                          toast.success('已更新分區高清截圖', { description: result.failedCrops ? '部分截圖失敗，已保留原圖。' : '按原有分區裁切，請儲存草稿；已有簡報需要建立新版本重新生成。' });
+                        } catch (error) { toast.error('高清截圖失敗', { description: errorText(error) }); }
+                        finally { if (request === floorRecognitionRequest.current) setRecognizingFloor(false); }
+                      }}>更新高清截圖</Button>
+                    ) : null}
                     {brief.floorImageUrl ? (
                       <Button type="button" variant="outline" className="bg-white dark:bg-background" disabled={disabled || recognizingFloor} onClick={async () => {
                         trackUpload(1);
@@ -1902,6 +2002,13 @@ export function PresentationView() {
                   </div>
                 )}
               </div>
+              {brief.floorEffectImageUrl ? (
+                <div className="rounded-xl border border-border p-3">
+                  <p className="mb-2 text-sm font-medium">俯視效果圖 · AI 生成，僅供設計參考，請核對原圖佈局</p>
+                  <LoadingImage src={brief.floorEffectImageUrl} alt="平面圖俯視效果圖" className="max-h-[480px] w-full" imgClassName="object-contain" />
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">生成簡報時，「項目平面圖」頁會用這張效果圖取代原本的平面圖。</p>
+                </div>
+              ) : null}
               {zoneManagerOpen ? <PresentationZoneManager zones={zones} floorUrl={brief.floorImageUrl} onClose={() => setZoneManagerOpen(false)} onSave={(next) => {
                 setZones(next);
                 const ids = new Set(next.map((zone) => zone.id));
@@ -1914,7 +2021,7 @@ export function PresentationView() {
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-foreground">公司介紹</p>
-                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">資質與服務內容將會出現在大綱末段。</p>
+                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">簡報末尾預留服務承諾、資質及公司介紹三頁；未填內容會標示待補充。</p>
                   </div>
                 </div>
                 <Button type="button" variant="outline" className="bg-white dark:bg-background" disabled={disabled} onClick={() => {
@@ -1928,13 +2035,13 @@ export function PresentationView() {
               </div>
               <Field label="參考案例（最多 8 個）" counter={`${selectedCaseIds.length}/8`}>
                 {caseNote ? <p className="text-sm text-destructive">{caseNote}</p> : (
-                  <MultiSelect label="參考案例" placeholder={caseBrands.length ? '搜尋並選擇參考案例' : '沒有可選案例'}
-                    options={caseBrands.map((item) => ({
+                  <MultiSelect label="參考案例" placeholder={availableCases.length ? '搜尋案例名稱或項目編號' : '沒有可選案例'}
+                    options={availableCases.map((item) => ({
                       value: item.id,
                       label: item.display_name || item.brand_name_cn || item.brand_name_en || item.company_name || '未命名案例',
-                      description: item.industries?.join(' · '),
+                      description: [item.id.startsWith('photo-project:') ? '有完工照片' : '', item.industries?.join(' · '), ...item.recent_projects.map(project => project.project_name)].filter(Boolean).join(' · '),
                     }))}
-                    value={selectedCaseIds} onValueChange={setSelectedCaseIds} maxSelected={8} disabled={disabled || !caseBrands.length} />
+                    value={selectedCaseIds} onValueChange={setSelectedCaseIds} maxSelected={8} disabled={disabled || !availableCases.length} />
                 )}
               </Field>
               <Field label="簡報原文" counter={`${contentCount}/${CONTENT_MAX}`}>
@@ -1985,6 +2092,8 @@ export function PresentationView() {
                 <SectionIntro icon={<ListChecks className="h-5 w-5" />} title={WIZARD_STEPS[2].title} hint={WIZARD_STEPS[2].hint} />
                 <PresentationOutlineStep
                   title={brief.title}
+                  floorReferenceUrl={brief.floorImageUrl}
+                  onProcessing={trackUpload}
                   client={brief.client ?? ''}
                   companyIntro={companyIntro}
                   qualifications={qualifications}
@@ -2018,7 +2127,7 @@ export function PresentationView() {
             {wizardStep === 4 && (
             <div className="space-y-4">
               <SectionIntro icon={<PresentationIcon className="h-5 w-5" />} title={WIZARD_STEPS[3].title} hint={WIZARD_STEPS[3].hint} />
-              <p className="text-sm text-muted-foreground">產品圖片會上傳至 Canva 素材庫。AI 排版仍需人工替換產品圖；平面圖也需自行補上。</p>
+              <p className="text-sm text-muted-foreground">大綱與圖片會交由 Gamma 排版，完成後請檢查產品圖片、平面圖與文字。</p>
               {generateBlock ? <p className="text-sm text-destructive">{generateBlock}</p> : null}
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="min-w-0 flex-1">
@@ -2058,10 +2167,10 @@ export function PresentationView() {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <p className="text-sm font-semibold">
-                        {activeSession?.status === 'failed' ? 'Canva 生成失敗' : phase >= 4 ? 'Canva 簡報已完成' : '正在生成簡報…'}
+                        {activeSession?.status === 'failed' ? 'Gamma 生成失敗' : phase >= 4 ? 'Gamma 簡報已完成' : '正在生成簡報…'}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {phase >= 4 ? '您的 Canva 簡報已成功生成，可前往編輯或匯出檔案。' : 'AI 正在根據您的內容於 Canva 中建立簡報，請稍候。'}
+                        {phase >= 4 ? '您的 Gamma 簡報已成功生成，可前往編輯或匯出檔案。' : 'AI 正在根據您的內容於 Gamma 中建立簡報，請稍候。'}
                       </p>
                     </div>
                     {phase > 0 && phase < 4 && (
@@ -2077,9 +2186,9 @@ export function PresentationView() {
                         {(activeSession.populate_report.product_assets as { product_id: string; name: string; url?: string; asset_id?: string; error?: string }[]).map((asset, index, list) => {
                           const ok = Boolean(asset.asset_id);
                           const label = ok
-                            ? '已上傳至 Canva'
+                            ? '已上傳至 Gamma'
                             : asset.error?.includes('missing_asset_write_scope')
-                              ? '請重新連接 Canva 以授權上傳圖片'
+                              ? '請重新連接 Gamma 以授權上傳圖片'
                               : '上傳失敗，請手動上傳原圖';
                           return (
                             <motion.li
@@ -2127,7 +2236,7 @@ export function PresentationView() {
                   )}
                   {activeSession?.populate_report?.generation_job_id && phase < 4 && (
                     <p className="break-all text-xs text-muted-foreground">
-                      Canva 任務：{String(activeSession.populate_report.generation_job_id)}
+                      Gamma 任務：{String(activeSession.populate_report.generation_job_id)}
                     </p>
                   )}
                   {(activeSession?.error || generationError) && !activeSession?.canva_design_id && (
@@ -2137,15 +2246,15 @@ export function PresentationView() {
                 </div>
               )}
               {!canvaPathReady && canImport && (
-                <p className="text-xs text-amber-700 dark:text-amber-300">請先連接 Canva 後再建立設計。</p>
+                <p className="text-xs text-amber-700 dark:text-amber-300">請先連接 Gamma 後再建立設計。</p>
               )}
               {activeSession?.canva_design_id && (
                 <div className="flex flex-wrap gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                   <div className="min-w-0 flex-1 space-y-2">
-                    <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Canva 簡報已完成</p>
+                    <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Gamma 簡報已完成</p>
                     <p className="text-xs text-emerald-800/80 dark:text-emerald-200/80">
-                      請先在 Canva 保存修改，再匯出。連結約 24 小時有效。
+                      可前往 Gamma 編輯；下方 PPTX 為首次生成版本，修改後請在 Gamma 匯出。
                       <a className="ml-1 underline" href={proPdfHandoffPath(brief)}>開啟專業 PDF 頁</a>
                     </p>
                     <div className="flex flex-wrap gap-2">
@@ -2153,7 +2262,7 @@ export function PresentationView() {
                         <Button className="bg-emerald-600 text-white hover:bg-emerald-500" asChild>
                           <a href={canvaLink.edit_url} target="_blank" rel="noreferrer">
                             <ExternalLink className="h-4 w-4" />
-                            在 Canva 編輯
+                            在 Gamma 編輯
                           </a>
                         </Button>
                       )}
@@ -2224,7 +2333,6 @@ export function PresentationView() {
         </div>
 
         <aside className="min-w-0 space-y-4 lg:sticky lg:top-4 lg:self-start">
-          {canvaCard}
           <AnimatePresence initial={false}>
           {wizardStep === 4 && (
             <motion.section
@@ -2237,7 +2345,7 @@ export function PresentationView() {
               className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm"
             >
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-bold text-foreground">Canva 簡報預覽</h3>
+                  <h3 className="text-sm font-bold text-foreground">Gamma 簡報預覽</h3>
                   <div className="flex items-center gap-2">
                     {versionRows.length > 0 && (
                       <Select
@@ -2265,7 +2373,9 @@ export function PresentationView() {
                   </div>
                 </div>
                 <div className="relative overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-900">
-                  {previewSrc ? (
+                  {gammaPreview ? (
+                    <iframe key={gammaPreview} src={gammaPreview} title="Gamma 簡報預覽" className="aspect-[16/10] min-h-[360px] w-full border-0" allow="fullscreen" allowFullScreen />
+                  ) : previewSrc ? (
                     <div className="transition-transform" style={{ transform: `scale(${previewZoom / 100})` }}>
                       <LoadingImage
                         key={previewSrc}
@@ -2279,10 +2389,13 @@ export function PresentationView() {
                   ) : (
                     <div className="flex aspect-[16/10] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
                       <PresentationIcon className="h-8 w-8 opacity-40" />
-                      {pagesLoading ? '正在載入這一頁' : previewPages > 1 ? '這一頁的預覽還沒準備好' : '生成完成後在此預覽 Canva 簡報'}
+                      {pagesLoading ? '正在載入這一頁' : previewPages > 1 ? '這一頁的預覽還沒準備好' : '生成完成後在此預覽 Gamma 簡報'}
                     </div>
                   )}
                 </div>
+                {gammaPreview ? (
+                  <p className="mt-2 text-xs text-muted-foreground">可在預覽內切換頁面。若 Gamma 要求登入或不允許內嵌，請使用「在新分頁打開」查看；文件存取權限沿用 Gamma 設定。</p>
+                ) : (<>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
                     <Button type="button" variant="outline" className="h-8 w-8 bg-background p-0" aria-label="上一頁" disabled={(pagesLoading && pageThumbs.length === 0) || previewIndex === 0} onClick={() => setPreviewPage((page) => Math.max(0, page - 1))}>
@@ -2306,11 +2419,12 @@ export function PresentationView() {
                 {pagesNote && (
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">{pagesNote}</p>
                 )}
+                </>)}
               </motion.section>
           )}
           </AnimatePresence>
           {recentCard('最近草稿', 'drafts', draftList(visibleDrafts))}
-          {recentCard('最近 Canva 設計', 'designs', designList(visibleDesigns))}
+          {recentCard('最近 Gamma 設計', 'designs', designList(visibleDesigns))}
         </aside>
       </div>
       </LayoutGroup>
@@ -2324,13 +2438,16 @@ export function PresentationView() {
       <Sheet open={listDrawer !== null} onOpenChange={(open) => { if (!open) setListDrawer(null); }}>
         <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
           <SheetHeader className="space-y-1 border-b px-5 py-4 pr-12 text-left">
-            <SheetTitle>{listDrawer === 'designs' ? '最近 Canva 設計' : '最近草稿'}</SheetTitle>
+            <SheetTitle>{listDrawer === 'designs' ? '最近 Gamma 設計' : '最近草稿'}</SheetTitle>
             <SheetDescription>
               共 {listDrawer === 'designs' ? designSessions.length : draftSessions.length} 筆
             </SheetDescription>
           </SheetHeader>
+          <div className="px-4 pt-3"><Input aria-label="搜尋編輯記錄" placeholder="搜尋簡報名稱" value={designSearch} onChange={(event) => setDesignSearch(event.target.value)} /></div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            {listDrawer === 'designs' ? designList(designSessions) : draftList(draftSessions)}
+            {listDrawer === 'designs'
+              ? designList(designSessions.filter((session) => sessionTitle(session).toLocaleLowerCase().includes(designSearch.trim().toLocaleLowerCase())))
+              : draftList(draftSessions.filter((session) => sessionTitle(session).toLocaleLowerCase().includes(designSearch.trim().toLocaleLowerCase())))}
           </div>
         </SheetContent>
       </Sheet>
@@ -2386,7 +2503,7 @@ export function PresentationView() {
                   disabled={!canCreateNative || disabled || Boolean(activeSession?.canva_design_id)}
                   onClick={createNative}
                 >
-                  {generating ? 'Canva 任務進行中' : activeSession?.canva_design_id ? '已有 Canva 設計' : '開始 AI 生成'}
+                  {generating ? 'Gamma 任務進行中' : activeSession?.canva_design_id ? '已有 Gamma 設計' : '開始 AI 生成'}
                 </Button>
               )}
             </div>

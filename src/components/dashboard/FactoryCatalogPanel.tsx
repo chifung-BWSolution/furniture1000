@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Modal } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
@@ -17,7 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { canManageSupplierDocuments, canViewSupplierCatalogs } from '@/lib/supplierDocuments';
+import { canManageSupplierDocuments, canViewSupplierCatalogs, setSupplierDocumentType } from '@/lib/supplierDocuments';
 import { DocumentUploadProgress, type DocumentUploadStatus } from './DocumentUploadProgress';
 import {
   fetchProductCategoryPairs,
@@ -82,6 +83,7 @@ export function FactoryCatalogPanel({
   const [uploads, setUploads] = useState<DocumentUploadStatus[]>([]);
   const [fileKey, setFileKey] = useState(0);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [typeBusyId, setTypeBusyId] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -125,6 +127,28 @@ export function FactoryCatalogPanel({
   const isCatalog = docType === 'catalog';
   const docLabel = supplierDocTypeLabel(docType);
   const selectedSet = useMemo(() => new Set(selectedCategories), [selectedCategories]);
+
+  /**
+   * 上載時標錯類型（最常見：圖冊存成報價單）可以在這裡改回圖冊，
+   * 不用重新上載整份 PDF；改完圖冊才會出現在報價的圖冊附件選擇器。
+   */
+  const changeDocType = useCallback(async (documentId: string, next: 'quote' | 'catalog') => {
+    setTypeBusyId(documentId);
+    try {
+      await setSupplierDocumentType(documentId, next);
+      toast.success(next === 'catalog'
+        ? '已改為圖冊，報價的「圖冊附件」現在可以選用'
+        : '已改為報價單，只有管理員／上載人員看得到');
+      await load(true);
+      onUploaded?.();
+    } catch (error) {
+      toast.error('更改文件類型失敗', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setTypeBusyId(null);
+    }
+  }, [load, onUploaded]);
 
   const toggleCategory = (name: string, checked: boolean) => {
     setSelectedCategories((current) => {
@@ -348,7 +372,12 @@ export function FactoryCatalogPanel({
 
       <div className="rounded-xl border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="font-display text-sm font-semibold">已上傳文件</h2>
+          <div>
+            <h2 className="font-display text-sm font-semibold">已上傳文件</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              只有「圖冊」會出現在報價的「圖冊附件」；上載時標錯可在類型欄直接改。
+            </p>
+          </div>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load(true)} disabled={loading}>
             <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
             重新整理狀態
@@ -384,7 +413,23 @@ export function FactoryCatalogPanel({
               visibleCatalogs.map((catalog) => (
                 <TableRow key={catalog.id} className={cn(catalog.id === highlightedId && 'bg-primary/5')}>
                   <TableCell>
-                    <span>{supplierDocTypeLabel(catalog.doc_type)}</span>
+                    {canUpload && (catalog.doc_type === 'catalog' || catalog.doc_type === 'quote') ? (
+                      <Select
+                        value={catalog.doc_type}
+                        onValueChange={(value) => void changeDocType(catalog.id, value as 'quote' | 'catalog')}
+                        disabled={typeBusyId === catalog.id}
+                      >
+                        <SelectTrigger className="h-7 w-[96px] text-xs" aria-label="文件類型">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="catalog">圖冊</SelectItem>
+                          <SelectItem value="quote">報價單</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span>{supplierDocTypeLabel(catalog.doc_type)}</span>
+                    )}
                     <p className="mt-1 max-w-[220px] break-all text-xs text-muted-foreground">{catalog.title || '未命名文件'}</p>
                   </TableCell>
                   <TableCell className="font-mono-data text-xs">{catalog.document_year ?? '—'}</TableCell>

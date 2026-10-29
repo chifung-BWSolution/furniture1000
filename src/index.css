@@ -137,8 +137,14 @@
   }
 }
 
+/*
+ * Display type = the body face.
+ * Syne only covers Latin, so a mixed string such as「佰家麗 MA03」drew the
+ * Chinese in the CJK fallback and the code in Syne: one line, two typefaces.
+ * Keep titles / headings / labels on Manrope so CJK and Latin match.
+ */
 .font-display {
-  font-family: 'Syne', sans-serif;
+  font-family: 'Manrope', sans-serif;
 }
 
 .font-mono-data {
@@ -243,7 +249,7 @@
 
 /*
  * Module header (icon, English role label, Chinese title) is shell chrome.
- * cjk-portal must not enlarge it or swap Syne / IBM Plex Mono, or
+ * cjk-portal must not enlarge it or swap typefaces, or
  * DESIGNER / 設計師選傢俬 render larger and looser than PM / PM報價.
  */
 [data-typography-zone='cjk-portal'] .zone-sidebar .zone-sidebar-header {
@@ -254,7 +260,7 @@
 }
 
 [data-typography-zone='cjk-portal'] .zone-sidebar .zone-sidebar-header .font-display {
-  font-family: 'Syne', sans-serif;
+  font-family: 'Manrope', sans-serif;
 }
 
 [data-typography-zone='cjk-portal'] .zone-sidebar .zone-sidebar-header .font-mono-data {
@@ -287,7 +293,7 @@
 }
 
 [data-typography-zone='cjk-portal'] .zone-top-nav .font-display {
-  font-family: 'Syne', sans-serif;
+  font-family: 'Manrope', sans-serif;
 }
 
 [data-typography-zone='cjk-portal'] .zone-top-nav .font-body {

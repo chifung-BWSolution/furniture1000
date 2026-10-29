@@ -105,6 +105,7 @@ const photoErrorMessages: Record<string, string> = {
   quote_photo_generate_timeout: 'AI 生成逾時，請再試一次或改用另一個模型。',
   quote_photo_generate_failed: 'AI 生成失敗，請再試一次或改用另一個模型。',
   quote_photo_generate_permission_denied: '只有管理員、上載員或 PM 可以生成參考圖。',
+  quote_photo_generate_scope_denied: '分區示範圖只適用於 BWF 正式報價；快速報價、客戶方案與設計專案不提供。',
 };
 
 export function quotePhotoErrorText(error: unknown): string {
@@ -286,8 +287,10 @@ const GENERATE_SLUGS = [
  * 生成結果 isGenerated = true，介面與 PDF 都會標示「僅供設計參考」。
  */
 export async function generateQuoteReferenceImage(input: {
-  purpose?: 'orthographic';
+  purpose?: 'orthographic' | 'floor_plan' | 'presentation_product';
   productId?: string;
+  /** 分區示範圖所屬報價（FDS-13）；有值時 Edge 會重新檢查報價範圍與角色。 */
+  quoteUuid?: string | null;
   model: QuotePhotoGenerateModel;
   prompt?: string;
   aspectRatio: string;
@@ -318,6 +321,7 @@ export async function generateQuoteReferenceImage(input: {
         body: JSON.stringify({
           purpose: input.purpose,
           productId: input.productId,
+          quoteUuid: input.quoteUuid ?? undefined,
           model: input.model,
           prompt,
           aspectRatio: input.aspectRatio,

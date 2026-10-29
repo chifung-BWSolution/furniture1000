@@ -7,6 +7,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
  * The installer and worker never receive a service role key. This function
  * holds that key and only forwards generate_skp / preview_skp operations
  * after the database has checked the device credential and job lease.
+ * Codex jobs (payload.mode = codex_v1) upload a manifest of artifacts and publish them together.
  */
 
 const corsHeaders = {
@@ -49,6 +50,7 @@ function statusFor(error: string) {
   if (error === "unauthorized" || error === "revoked" || error === "expired" || error === "suspended") return 401;
   if (error === "forbidden" || error === "lease_rejected" || error === "upload_rejected" || error === "environment_mismatch") return 403;
   if (error === "not_found") return 404;
+  if (error === "artifact_missing") return 409;
   return 400;
 }
 
@@ -211,10 +213,53 @@ Deno.serve(async (req) => {
   }
   if (action === "claim") return finish("fds_skp_device_claim", { p_access_token: access });
   if (action === "heartbeat") {
+    if (typeof body.stage === "string" && body.stage) {
+      return finish("fds_skp_device_job_stage", {
+        p_access_token: access,
+        p_lease_id: body.lease_id,
+        p_stage: body.stage,
+        p_progress: body.progress ?? null,
+        p_detail: typeof body.detail === "string" ? body.detail : null,
+      });
+    }
     return finish("fds_skp_device_job_touch", {
       p_access_token: access,
       p_lease_id: body.lease_id,
       p_progress: body.progress ?? null,
+    });
+  }
+  // Codex jobs upload several files per lease. Paths are chosen by the database, never by the Worker.
+  if (action === "artifact-upload") {
+    const prepared = await rpc(admin, "fds_skp_device_artifact_prepare", {
+      p_access_token: access,
+      p_lease_id: body.lease_id,
+      p_role: body.role,
+      p_content_hash: body.content_hash,
+      p_size_bytes: body.size_bytes,
+    });
+    if (typeof prepared.error === "string") return json(prepared, statusFor(prepared.error));
+    const path = String(prepared.storage_path ?? "");
+    const signed = await signUpload(supabaseUrl, serviceKey, path);
+    if (!signed) return json({ error: "unavailable" }, 502);
+    return json({ ok: true, path, token: signed.token, expires_in: 300 });
+  }
+  if (action === "artifact-download") {
+    const result = await rpc(admin, "fds_skp_device_artifact_path", {
+      p_access_token: access,
+      p_lease_id: body.lease_id,
+      p_role: body.role,
+    });
+    if (typeof result.error === "string") return json(result, statusFor(result.error));
+    const signed = await signDownload(supabaseUrl, serviceKey, String(result.storage_path ?? ""));
+    if (!signed) return json({ error: "unavailable" }, 502);
+    return json({ ok: true, url: signed, expires_in: 300 });
+  }
+  if (action === "publish") {
+    return finish("fds_skp_device_publish", {
+      p_access_token: access,
+      p_lease_id: body.lease_id,
+      p_manifest_hash: body.manifest_hash,
+      p_verify_only: body.verify_only === true,
     });
   }
   if (action === "fail") {

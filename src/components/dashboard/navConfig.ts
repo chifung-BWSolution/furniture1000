@@ -23,6 +23,8 @@ export interface SecondaryItem {
    * Still belongs to this section, so it only shows while the section is active.
    */
   pinned?: boolean;
+  /** Not listed in the sidebar. The page and its deep link stay reachable. */
+  hidden?: boolean;
 }
 
 export interface PrimaryItem {
@@ -78,7 +80,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Wallet,
     children: [
       { view: 'fds2-pm-budget', label: '報價預算', icon: CircleDollarSign },
-      { view: 'fds2-pm-quick', label: '快速報價', icon: Calculator },
+      { view: 'fds2-pm-package', label: '快速報價', icon: Calculator },
       { view: 'fds2-pm-presentation', label: '簡報生成', icon: Presentation },
     ],
   },
@@ -113,8 +115,8 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'fds2-products-factories', label: '廠家目錄', icon: BookOpen },
       { view: 'fds2-factory-sales', label: '銷售表現', icon: BarChart2 },
-      { view: 'fds2-factory-zones', label: '廠家分區', icon: Map },
-      { view: 'fds2-factory-login', label: '廠家登入', icon: LogIn },
+      { view: 'fds2-factory-zones', label: '廠家分區', icon: Map, hidden: true },
+      { view: 'fds2-factory-login', label: '廠家登入', icon: LogIn, hidden: true },
     ],
   },
   {
@@ -344,7 +346,9 @@ export function filterNavChildren(
     profileRole?: string | null;
   },
 ): SecondaryItem[] {
-  let list = children.filter((child) => navChildVisible(child, isAdmin, opts?.profileRole));
+  let list = children.filter(
+    (child) => !child.hidden && navChildVisible(child, isAdmin, opts?.profileRole),
+  );
   if (opts?.quoteShareOnly) {
     list = list.filter((c) => c.view === 'customer-quote-schemes');
   } else if (opts?.quoteShareGuest) {

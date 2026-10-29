@@ -8,7 +8,7 @@ import { COLOR_MAP, autoMatchColor } from '@/constants/color-map';
 import { MATERIAL_TAG_RULES, materialTermsForTags } from '@/constants/material-tags';
 
 export type PriceValidity = 'valid' | 'expired' | 'future' | 'unmarked';
-export type SearchScope = 'all' | 'catalog' | 'shopify' | 'quoted';
+export type SearchScope = 'all' | 'catalog' | 'shopify' | 'quoted' | 'modeled';
 export type SearchSort =
   | 'relevance'
   | 'newest'

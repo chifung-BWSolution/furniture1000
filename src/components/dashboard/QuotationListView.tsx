@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronUp, Clock, Copy, Sofa, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clock, Copy, Mail, MessageSquare, Sofa, Trash2 } from 'lucide-react';
 import { DESIGN_PROJECTS_PATH } from '@/lib/designProjectRoutes';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -50,6 +50,9 @@ import { formatClientIndustryLabel } from '@/lib/clientIndustryDisplay';
 import { normalizeQuoteDateInput } from '@/lib/quotationLocale';
 import { moveQuoteToTrash, QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
 import { BwfInquiryReplyPanel } from '@/components/dashboard/BwfInquiryReplyPanel';
+import { QuoteEmailFollowUpModal } from '@/components/dashboard/QuoteEmailFollowUpModal';
+import { CustomerQuoteRequestsModal } from '@/components/dashboard/CustomerQuoteRequestsModal';
+import { usePlatformRole } from '@/hooks/use-platform-role';
 
 import { attachQuoteListSiblings, fetchQuoteListPage, invalidateQuoteListCache, type QuoteRecord } from '@/lib/quoteListData';
 
@@ -167,6 +170,11 @@ export function QuotationListView({
   const [pitchingStatusFilter, setPitchingStatusFilter] = useState('__all__');
   const [staffFilter, setStaffFilter] = useState('__all__');
   const [deleteTarget, setDeleteTarget] = useState<QuoteListRow | null>(null);
+  const [emailTarget, setEmailTarget] = useState<QuoteListRow | null>(null);
+  const [requestsTarget, setRequestsTarget] = useState<QuoteListRow | null>(null);
+  const { profileRole } = usePlatformRole();
+  // FDS-15 郵件模板／跟進沿用 RPC 的角色限制：admin、uploader、PM。
+  const canUseQuoteEmail = ['admin', 'uploader', 'pm'].includes((profileRole ?? '').toLowerCase());
   const [isDeleting, setIsDeleting] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('created_date');
   const [sortDir, setSortDir] = useState<ListSortDir>('desc');
@@ -975,6 +983,40 @@ export function QuotationListView({
                       )}
                     >
                       <div className="flex items-center justify-end gap-1">
+                        {canUseQuoteEmail ? (
+                          <>
+                            <button
+                              type="button"
+                              title="客戶提交"
+                              aria-label={`客戶提交 ${code}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRequestsTarget(quote);
+                              }}
+                              className={cn(
+                                'flex items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary',
+                                isOldExpanded ? 'h-7 w-7' : 'h-8 w-8',
+                              )}
+                            >
+                              <MessageSquare className={isOldExpanded ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                            </button>
+                            <button
+                              type="button"
+                              title="郵件模板與跟進"
+                              aria-label={`郵件模板與跟進 ${code}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEmailTarget(quote);
+                              }}
+                              className={cn(
+                                'flex items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary',
+                                isOldExpanded ? 'h-7 w-7' : 'h-8 w-8',
+                              )}
+                            >
+                              <Mail className={isOldExpanded ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                            </button>
+                          </>
+                        ) : null}
                         <button
                           type="button"
                           title="複製報價單"
@@ -1057,6 +1099,29 @@ export function QuotationListView({
             </ModalButton>
           </>
         }
+      />
+
+      <QuoteEmailFollowUpModal
+        open={Boolean(emailTarget)}
+        quote={emailTarget ? {
+          id: emailTarget.id,
+          quoteId: quoteCode(emailTarget),
+          clientEmail: emailTarget.project_data?.clientInfo?.email ?? null,
+          clientName: emailTarget.project_data?.clientInfo?.name
+            ?? emailTarget.project_data?.formData?.clientName
+            ?? null,
+        } : null}
+        onOpenChange={(open) => {
+          if (!open) setEmailTarget(null);
+        }}
+      />
+
+      <CustomerQuoteRequestsModal
+        open={Boolean(requestsTarget)}
+        quote={requestsTarget ? { id: requestsTarget.id, quoteId: quoteCode(requestsTarget) } : null}
+        onOpenChange={(open) => {
+          if (!open) setRequestsTarget(null);
+        }}
       />
     </>
   );

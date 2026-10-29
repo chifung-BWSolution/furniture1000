@@ -25,7 +25,8 @@ interface SidebarNavProps {
   isAdmin?: boolean;
   /**
    * Quote-share / invite no-login guest:
-   * show 客戶專區 pages except「機構採購帳號」.
+   * show 客戶專區 pages except「機構採購帳號」. Menu clicks must keep
+   * `?quote_share=` or the guest loses the preview (see AppShell `portalView`).
    */
   quoteShareGuest?: boolean;
   /** PM cannot access 報價單格式設定 inside 傢俬報價. */
@@ -83,6 +84,7 @@ export function SidebarNav({
   });
   const pinnedChildren = section.children.filter((child) => {
     if (!child.pinned) return false;
+    if (child.hidden) return false;
     if (!navChildVisible(child, isAdmin, profileRole)) return false;
     if (
       quoteShareGuest &&

@@ -19,7 +19,32 @@
 EXE 不包含 service role key。不要把裝置憑證放進命令列、Git 或安裝包。
 封裝未簽章；正式對外分發前可用公司的 Windows 程式碼簽章憑證簽署。
 
+## 本機 Codex 建模（`codex_v1`）
+
+網站開了 `fds_runtime_flags.skp_codex_entry` 後，「生成 SKP」會建立 `generate_skp`、`payload.mode = codex_v1` 的任務，
+只有回報 `codex_v1` 能力的 Worker 會領取。這台電腦還要有：
+
+- 本機 Codex CLI 已登入（`codex login`）。自動尋找 `%LOCALAPPDATA%\OpenAI\Codex\bin\*\codex.exe` 與 PATH；可用 `FDS_CODEX_EXE` 指定。
+- `seed.skp`、`codex-mcp.mjs`、`fds_codex_session.rb`（安裝包已內置）。
+
+每個任務另開一個專用 SketchUp（獨立端口，預設 9877 起），不會碰使用者自己開著的 SketchUp；
+同一時間只有一個 SketchUp 任務（`sketchup.lock`）。Codex 子程序拿不到裝置憑證或任何 token。
+工作目錄 `%LOCALAPPDATA%\FDS\SkpWorker\jobs\<job_id>`（`prompt.md`、`validation.json`、`manifest.json`，記錄在 `logs/mcp-tools.jsonl`、`logs/codex-events.jsonl`），
+預設保留 14 天。可選環境變數：`FDS_CODEX_MODEL`、`FDS_CODEX_REASONING`、`FDS_CODEX_TIMEOUT_MIN`（45）、
+`FDS_SKP_MCP_PORT`、`FDS_SKP_RETENTION_DAYS`、`FDS_CODEX_REVIEW_ROUNDS`。
+
 ## 建置及驗證
+
+### 本機人工驗收
+
+Codex 通過技術檢查後會保存 `checkpoint.json`、`job.json` 及 `review.json`，暫不上傳。
+管理程式在右下角顯示 10 秒無聲提示窗（不搶焦點）；點擊或使用「待驗收模型」可查看原圖、預覽、在 SketchUp 開啟模型。
+接受後才上傳並綁定；「填寫問題後修正」會以上一版 SKP 開始新的修正版，重新匯出驗證並再次等待接受；放棄會結束伺服器任務。
+請使用修正入口修改模型，不要直接另存覆蓋驗收檔案；檔案遭修改時雜湊檢查會阻止發布。
+
+關閉管理視窗會隱藏至系統匣，雙擊系統匣圖示可再次開啟；登入自動啟動的 Worker 也會啟動通知監視程式。
+重啟會先恢復本機待驗收／已接受上傳，再領取新任務。只有同一裝置且未取消、未被其他 Worker 接手的租約可恢復。
+舊版缺少 `job.json`／`checkpoint.json` 的草稿不會自動發布，須重新提交生成。所有新修正版各自保留日誌及 `ai-usage.json`。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\workers\skp-writer\installer\build.ps1

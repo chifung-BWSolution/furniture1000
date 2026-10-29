@@ -41,6 +41,8 @@ import {
   type QuotePhotoRef,
 } from '@/lib/quotePhotoLibrary';
 import { QuotePhotoGenerateDialog, type GenerateChoice, type QuotePhotoZone } from '@/components/dashboard/QuotePhotoGenerateDialog';
+import { QUOTE_ZONE_SCOPE_MESSAGES } from '@/lib/quoteZoneScope';
+import { supabase } from '@/lib/supabase';
 import {
   AI_REFERENCE_LABEL,
   CAPTION_MAX,
@@ -539,6 +541,7 @@ export function QuotePhotoLayoutEditor({
   assets,
   productPhotos = [],
   photoZones = [],
+  quoteUuid = null,
   photos,
   canManage,
   onUploaded,
@@ -555,6 +558,8 @@ export function QuotePhotoLayoutEditor({
   productPhotos?: { id: string; title: string; url: string }[];
   /** 平面圖分區。有分區時，AI 描述改由分區和裡面的傢俬生成。 */
   photoZones?: QuotePhotoZone[];
+  /** FDS-13：所屬報價；分區示範圖生成時交給 Edge 重查範圍。 */
+  quoteUuid?: string | null;
   /** 這張報價已選的圖片，用來餵素材區。 */
   photos: QuotePhotoRef[];
   canManage: boolean;
@@ -590,6 +595,37 @@ export function QuotePhotoLayoutEditor({
   const [trayDrop, setTrayDrop] = useState(false);
   const [sizes, setSizes] = useState<Record<string, NaturalSize>>({});
   const [generateOpen, setGenerateOpen] = useState(false);
+  /** FDS-13：非 BWF 正式報價（快速報價／客戶方案／DP-／設計專案）不提供分區示範圖生成。 */
+  const [zoneScopeBlocked, setZoneScopeBlocked] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!quoteUuid) {
+      setZoneScopeBlocked(null);
+      return;
+    }
+    void supabase.rpc('fds_quote_zone_scope', { p_quote_uuid: quoteUuid }).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        // 未部署或查詢失敗時保留按鈕；伺服器仍會在生成時再拒絕。
+        setZoneScopeBlocked(null);
+        return;
+      }
+      const row = data && typeof data === 'object' ? data as { allowed?: boolean; reason?: string } : null;
+      if (row?.allowed === true) {
+        setZoneScopeBlocked(null);
+        return;
+      }
+      setZoneScopeBlocked(
+        row?.reason === 'design_project'
+          ? QUOTE_ZONE_SCOPE_MESSAGES.design_project
+          : QUOTE_ZONE_SCOPE_MESSAGES.not_formal_quote,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [quoteUuid]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 從報價內容「上傳圖片」進來時，父層是開窗後才去讀圖片庫，初始 assets 常常是空的。
@@ -1204,17 +1240,21 @@ export function QuotePhotoLayoutEditor({
                 >
                   從圖片庫加入
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 px-2.5 text-xs"
-                  disabled={!canManage || library.length >= QUOTE_PHOTO_LIBRARY_LIMIT}
-                  title={canManage ? undefined : '只有管理員或上載員可以生成圖片'}
-                  onClick={() => setGenerateOpen(true)}
-                >
-                  <Sparkles className="mr-1 h-3.5 w-3.5" aria-hidden />
-                  AI 生成
-                </Button>
+                {zoneScopeBlocked ? (
+                  <span className="max-w-[260px] text-right text-xs text-muted-foreground">{zoneScopeBlocked}</span>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 px-2.5 text-xs"
+                    disabled={!canManage || library.length >= QUOTE_PHOTO_LIBRARY_LIMIT}
+                    title={canManage ? undefined : '只有管理員或上載員可以生成圖片'}
+                    onClick={() => setGenerateOpen(true)}
+                  >
+                    <Sparkles className="mr-1 h-3.5 w-3.5" aria-hidden />
+                    AI 生成
+                  </Button>
+                )}
               </div>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -1486,6 +1526,7 @@ export function QuotePhotoLayoutEditor({
           onClose={() => setGenerateOpen(false)}
           choices={generateChoices}
           zones={photoZones}
+          quoteUuid={quoteUuid}
           libraryCount={library.length}
           onGenerated={onGenerated}
         />

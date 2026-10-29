@@ -397,7 +397,38 @@ async function geminiClassify(
 
 // ── parse_pdf phases ────────────────────────────────────────────────────
 
-async function extractBatch(admin: SupabaseClient, job: Job, documentId: string, state: ParseState) {
+/**
+ * 圖冊頁縮圖：交 `catalog-thumbs` 在背景畫（EdgeRuntime.waitUntil），
+ * 不阻塞這一批抽字，也不把 pdfium 拉進 worker 的記憶體。
+ *
+ * 那個 function 一次只夠畫 2 頁（實測 4 頁就 546），所以按 2 頁切成幾個並行呼叫；
+ * 沒畫到的頁由夜間 cron 補。
+ */
+function queueCatalogThumbs(documentId: string, pageNos: number[]): void {
+  const url = (Deno.env.get("SUPABASE_URL") ?? "").trim();
+  const serviceKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+  if (!url || !serviceKey || pageNos.length === 0) return;
+  const chunks: number[][] = [];
+  for (let index = 0; index < pageNos.length; index += 2) chunks.push(pageNos.slice(index, index + 2));
+  const task = Promise.allSettled(chunks.map((pages) => fetch(`${url}/functions/v1/catalog-thumbs`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ documentId, pages }),
+  }).then((res) => res.body?.cancel()))).catch((err) => {
+    console.warn("[process-jobs] catalog thumbs failed", err);
+  });
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (promise: Promise<unknown>) => void } }).EdgeRuntime;
+  if (runtime?.waitUntil) runtime.waitUntil(task);
+  else void task;
+}
+
+async function extractBatch(
+  admin: SupabaseClient,
+  job: Job,
+  documentId: string,
+  state: ParseState,
+  docType: string,
+) {
   const bytes = await downloadDocument(admin, documentId);
   const pdf = await openPdfText(bytes);
   let last = Math.min(state.page_count, state.cursor + EXTRACT_BATCH - 1);
@@ -477,6 +508,13 @@ async function extractBatch(admin: SupabaseClient, job: Job, documentId: string,
     .from("supplier_document_pages")
     .upsert(rows, { onConflict: "document_id,page_no" });
   if (error) throw new Error(`page upsert failed: ${error.message}`);
+
+  // 圖冊：同一批頁順便叫 catalog-thumbs 畫好附錄選擇器要用的縮圖。
+  // 用 HTTP 交另一支 function，避免 worker 這裡多載入 pdfium（記憶體只有 256MB）。
+  // 縮圖只是加速，失敗不可令夜間解析失敗。
+  if (docType === "catalog") {
+    queueCatalogThumbs(documentId, rows.map((row) => row.page_no));
+  }
 
   state.cursor = last + 1;
   if (state.cursor > state.page_count) {
@@ -1082,7 +1120,7 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
 
   const { data: head, error: headErr } = await admin
     .from("supplier_documents")
-    .select("file_size, parent_document_id")
+    .select("file_size, parent_document_id, doc_type")
     .eq("id", documentId)
     .maybeSingle();
   if (headErr) throw new Error(`document lookup failed: ${headErr.message}`);
@@ -1126,7 +1164,7 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
   await heartbeat(admin, job.id, progressOf(state));
 
   if (state.phase === "extract") {
-    await extractBatch(admin, job, documentId, state);
+    await extractBatch(admin, job, documentId, state, String(head.doc_type ?? "quote"));
   } else if (state.phase === "classify") {
     await classifyBatch(admin, documentId, state);
     if (state.cursor > state.page_count) {

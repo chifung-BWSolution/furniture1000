@@ -432,11 +432,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
       ]);
       const pages = pdfData.catalogPages ?? [];
       if (pages.length === 0) return blob;
-      const merged = await appendQuoteCatalogPages(
-        await blob.arrayBuffer(),
-        pages,
-        pdfData.showCatalogSource !== false,
-      );
+      const merged = await appendQuoteCatalogPages(await blob.arrayBuffer(), pages);
       const bytes = new Uint8Array(merged);
       return new Blob([bytes.buffer], { type: 'application/pdf' });
     } finally {

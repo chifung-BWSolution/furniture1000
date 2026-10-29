@@ -1,10 +1,21 @@
 import { useState } from 'react';
 import { AlertCircle, CheckCircle2, CircleX, Download, ExternalLink, Info, Loader2, Monitor, RotateCcw, Search, Settings } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
-import { fetchSkpRequirements, type SkpRequirements } from '@/lib/productModels';
+import { fetchSkpRequirements, type CodexCheckKey, type SkpRequirements } from '@/lib/productModels';
 
 const DOWNLOAD_URL = 'https://help.sketchup.com/en/downloading-sketchup';
 const SDK_URL = 'https://developer.sketchup.com/';
+
+type RequirementMode = 'parametric' | 'codex';
+
+const CODEX_CHECKS: [CodexCheckKey, string, string][] = [
+  ['sketchup', 'SketchUp 桌面版', '已授權並完成首次模板設定'],
+  ['seed', 'SketchUp 種子模型', '首次安裝時開啟 SketchUp 選擇模板後產生'],
+  ['codex_cli', 'Codex CLI', '安裝 Codex 桌面版或 CLI'],
+  ['codex_login', 'Codex 登入', '在 Worker 電腦用該帳號登入 Codex（Worker 不收集密碼）'],
+  ['mcp_bridge', 'SketchUp MCP 橋接', '隨最新版 SKP Worker 安裝'],
+  ['session_ruby', 'SketchUp 專用工作階段腳本', '隨最新版 SKP Worker 安裝'],
+];
 
 /** Shared by both SU entry points; failure stays in the dialog instead of a toast. */
 export function useSkpRequirements() {
@@ -12,9 +23,13 @@ export function useSkpRequirements() {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<SkpRequirements | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<RequirementMode>('parametric');
+  const readyFor = (value: SkpRequirements | null, which: RequirementMode) =>
+    which === 'codex' ? value?.codex_ready === true : value?.ready === true;
 
-  const check = async (retry = false): Promise<boolean> => {
+  const check = async (retry = false, nextMode: RequirementMode = 'parametric'): Promise<boolean> => {
     // 生成按鈕已經有進度窗。環境就緒時不要再疊一個檢測窗；只有未就緒或這窗裡的「重新檢測」才打開。
+    setMode(nextMode);
     if (retry) setOpen(true);
     setChecking(true);
     setError(null);
@@ -22,8 +37,9 @@ export function useSkpRequirements() {
     try {
       const next = await fetchSkpRequirements();
       setResult(next);
-      setOpen(!next.ready || retry);
-      return next.ready;
+      const ready = readyFor(next, nextMode);
+      setOpen(!ready || retry);
+      return ready;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setOpen(true);
@@ -57,7 +73,7 @@ export function useSkpRequirements() {
       footer={
         <>
           <ModalButton variant="secondary" disabled={checking} onClick={() => setOpen(false)}>關閉</ModalButton>
-          {!result?.ready && <ModalButton disabled={checking} onClick={() => void check(true)}>
+          {!readyFor(result, mode) && <ModalButton disabled={checking} onClick={() => void check(true, mode)}>
             {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}重新檢測
           </ModalButton>}
         </>
@@ -66,9 +82,37 @@ export function useSkpRequirements() {
       <div className="space-y-5" aria-live="polite" aria-busy={checking}>
         {checking ? <p className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />正在檢測 Worker 及寫檔程式…</p> : error ? (
           <p className="text-sm text-destructive">{error}。請確認網絡及登入狀態，再重新檢測。</p>
-        ) : result?.ready ? (
+        ) : readyFor(result, mode) ? (
           <p className="text-sm">生成環境已就緒，請關閉此視窗後再次點擊生成 SU。</p>
-        ) : result && <>
+        ) : result && mode === 'codex' ? <>
+          <div className="flex flex-wrap items-center gap-3 rounded-xl bg-rose-50 px-5 py-4 text-rose-600">
+            <AlertCircle className="h-7 w-7 shrink-0 fill-rose-500 text-white" />
+            <p className="min-w-0 flex-1 text-sm font-semibold sm:text-base">
+              {result.codex_connected ? 'Codex Worker 已連線，但建模環境尚未齊備。' : '未有支援本機 Codex 建模的 SKP Worker 上線。'}
+            </p>
+            <a href="/assets/downloads/FDS-SKP-Worker-Setup.exe" download className="inline-flex items-center gap-2 text-sm font-semibold underline underline-offset-4 hover:text-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600">
+              <Download className="h-4 w-4" />下載最新版 SKP Worker
+            </a>
+          </div>
+          <div className={sectionClass}>
+            <span className={iconClass}><Monitor className="h-6 w-6" /></span>
+            <div className="min-w-0 flex-1 space-y-3 text-sm leading-relaxed text-slate-500">
+              <h3 className="text-base font-semibold text-slate-950 sm:text-lg">Worker 電腦上的本機建模環境</h3>
+              {!result.codex_checks && <p>Worker 尚未回報 Codex 狀態（可能是舊版 Worker）。請更新 SKP Worker 後重新檢測。</p>}
+              <ul className="space-y-2">
+                {CODEX_CHECKS.map(([key, label, hint]) => (
+                  <li key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="min-w-0 font-medium text-slate-700">{label}</span>
+                    {status(result.codex_checks?.[key])}
+                    <span className="w-full text-xs">{hint}</span>
+                  </li>
+                ))}
+              </ul>
+              {result.codex_checks?.codex_version && <p className="border-t border-slate-200 pt-3 text-xs">Codex 版本：{result.codex_checks.codex_version}</p>}
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">本機建模不會改用舊的參數寫檔方式。環境未齊備時請先修正，再按「重新檢測」。</p>
+        </> : result && <>
           <div className="flex flex-wrap items-center gap-3 rounded-xl bg-rose-50 px-5 py-4 text-rose-600">
             <AlertCircle className="h-7 w-7 shrink-0 fill-rose-500 text-white" />
           <p className="min-w-0 flex-1 text-sm font-semibold sm:text-base">

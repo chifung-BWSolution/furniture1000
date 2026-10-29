@@ -29,6 +29,15 @@ export const PDF_CONTENT_HEIGHT_PT =
 /** 頁尾「Page X / Y」保留高度，正文不可侵入。 */
 export const PDF_FOOTER_HEIGHT_PT = 14;
 
+/**
+ * 頁尾文字與頁面底邊的距離（pt，約 12.3mm）。
+ *
+ * 頁尾用絕對定位，基準是頁面外框，Page 的 paddingBottom 不會替它讓位；
+ * 這個值必須大於 `PDF_PAGE_MARGIN.bottomPt`，否則節點會被 react-pdf 的
+ * isOutside 規則判定在換行區外，整塊搬到下一頁（產生孤兒頁）。
+ */
+export const PDF_FOOTER_BOTTOM_PT = 35;
+
 // ─── 欄寬 ───────────────────────────────────────────────────────────────────
 
 export type PdfColumnKey =

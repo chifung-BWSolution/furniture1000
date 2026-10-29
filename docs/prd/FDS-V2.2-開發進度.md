@@ -18,6 +18,57 @@
 阻塞：尚未用一份真實項目走完 Canva 生成與 PowerPoint 打開。套餐公式仍未對 Google Sheet。
 下一項：套餐快速報價。
 
+## 2026-10-29 — FDS-07 夜間解析順便產縮圖（伺服器端）
+
+使用者要求：「改成夜間解析時順便產縮圖」，即不要再讓瀏覽器為了一屏縮圖下載十幾 MB 的圖冊頁。
+
+完成（伺服器端）：
+
+- `supabase/functions/_shared/catalogThumbs.ts`：用 pdfium（`@hyzyla/pdfium` WASM）把頁畫成 360px JPEG（q72，一頁約 9–25 KB），存到**公開** bucket `product-images/catalog-thumbs/<document_id>/<page>.jpg`（`Cache-Control: immutable`）。抽頁交現有的 `quote-catalog-pages`（新增 service-role 呼叫；它本來就會回指定頁），不在縮圖程序裡自己載入 70–120MB 的整份 PDF。
+- 新 edge function `catalog-thumbs`（slug `catalog-thumbs`，CLI 部署）：
+  - `{ documentId, action: "status" }` → 已有哪些頁
+  - `{ documentId, pages?, limit? }` → 補畫（前端背景叫）
+  - `{}`（pg_cron 帶 `x-worker-secret`）→ 找下一份還有缺頁的圖冊，畫一批
+- 夜間兩條路：
+  1. **解析時**：`process-jobs`（slug `supabase-functions-process-jobs`）在 `parse_pdf` 抽字那一批之後，用 service role 背景叫 `catalog-thumbs` 畫同一批頁（`EdgeRuntime.waitUntil`，不阻塞抽字；不把 pdfium 拉進 worker 記憶體）。
+  2. **補畫**：pg_cron `fds-catalog-thumbs`（上海時間 23:00–09:00，每 2 分鐘）每次畫 1 頁，覆蓋舊圖冊；92 頁約 3 小時補完。
+- 前端：`src/lib/catalogPageThumbs.ts` 先探 Storage 縮圖（命中即用，`LoadingImage` 會再轉 320px webp），沒有才回退舊做法（下載整頁 PDF + pdf.js 畫 + IndexedDB），並順便叫一次背景補畫。
+
+實測（headless Chrome、本機靜態 build、分支資料）：開圖冊附件後 **0.8 秒 5 張、2 秒 13 張全部由 Storage 載入**（0 個 data URL、0 次 `quote-catalog-pages` 請求）；同一畫面之前要 19 秒、約 20MB。
+
+限制：Edge CPU 上限令一次呼叫只穩定畫 **1 頁**（2 頁偶爾、4 頁一定 546 `WORKER_RESOURCE_LIMIT`），所以補畫是分批慢慢做，不是一次畫完整本；分支已部署 function＋cron，**正式庫（`riaubhtruisbwdlwjzur`）未部署、未套 migration**。
+
+## 2026-10-29 — FDS-07 圖冊附件改成縮圖選擇器（含縮圖壓縮）
+
+使用者要求：把圖冊選擇彈窗改成三步式＋頁面縮圖，並反映「頁面縮圖載入很慢」。
+
+完成：`QuoteCatalogPagesDialog` 重做成三步（選擇圖冊 → 選擇頁面 → 確認加入）：左邊圖冊卡（封面縮圖、年份／頁數／系列、廠家 chips、搜尋、重新整理）、中間一屏 12 張頁面縮圖＋分頁＋「第 N 頁」工具列（預覽／框選、上下半頁或左右半頁），右邊已選清單（縮圖、`整頁／上半頁／下半頁／左半／右半／框選` 標籤、排序、刪除、點縮圖預覽）。跨頁圖冊照前一條規則拆左半／右半。
+
+縮圖效能：新增 `src/lib/catalogPageThumbs.ts` 與 `renderQuotePdfThumbnails`（`quotationPdfCanvas.ts`）。之前完全沒有縮圖管線；現在每頁由 edge 取一次抽取頁（同一頁左／右半、重複開啟都只取一次），pdf.js 以最大寬 360px 畫成 JPEG（q0.72），一頁約 9–25 KB，而整頁 PDF 是 0.3–1.3 MB。縮圖存 IndexedDB `fds-catalog-thumbs`（30 天、最多 400 張）＋記憶體；同一文件 60ms 內的多個請求合成一批（**每批 3 頁**，edge 上限 24），批次失敗會逐頁重試一次。**不做下一屏預取**（一頁 1.3 MB，背景預取只會拖慢當前這一屏）。
+
+「會載入失敗圖片」的處理：`fetchQuoteCatalogPdf` 之前每批都重新 `getUser()`＋`getSession()`，登入狀態剛恢復或 token 剛過期時會直接失敗，縮圖就變成破圖示。現在 token 記 60 秒、401 自動換 token 重試一次；真的失敗會保留原因（`catalogThumbFailure`），對話框顯示「縮圖載入失敗：<原因>〔重試〕」，不再只出一個壞掉圖片。
+
+驗證：`scripts/test-quote-catalog-pages.mjs` PASS（新增清單短標籤）；`tsc --noEmit`、`npm run audit:ui`、`vite build` 通過。**headless Chrome 實測**（本機靜態 build、開發分支、1600×1000、冷快取）：開啟後約 4 秒第一排 4 張、約 19 秒 12 張全部出齊，`<img>` 13 張（12 頁＋封面）、破圖 0、沒有失敗提示；點第 3 頁（跨頁）→ 已選頁面（2）＝「第 3 頁 左半」「第 3 頁 右半」。
+
+位置（2026-10-29 使用者指示「放在報價單圖片下面」）：報價編輯器的「圖冊附件」不再放在「報價內容」上方，改為 `#quote-sec-photos`（報價單圖片）卡片底部、`QuotePhotoPages` 之後，位於「條款及付款」之前；同樣的「選擇頁面」按鈕。headless Chrome 核對四個 section 的順序：報價內容 → 費用與總價 → 報價單圖片（含圖冊附件）→ 條款及付款。
+
+阻塞：縮圖第一次開啟仍要下載當前 12 頁的 PDF（這份圖冊一頁 1.3 MB，約 15 MB／15–20 秒），第二次起由 IndexedDB 即時。要第一次就即時，需要把縮圖預先產生好存進 Storage（新的 edge 工作，edge 端要能 rasterize PDF），未排入本輪。
+
+## 2026-10-29 — FDS-07 跨頁圖冊按直向輸出
+
+使用者驗收意見：「圖冊都是垂直的，不要水平放」。查開發庫的「向氏产品图册2026」：整份 PDF 每頁 1207.6 × 824.9，是左右兩個直向版面並排的跨頁，所以附錄也跟着出橫向頁。
+
+完成：圖冊附件開啟時先讀第一頁尺寸，寬高比 > 1.15 判為跨頁；跨頁選一頁＝加入「左半」「右半」兩個直向版面（24 項上限照算），半頁按鈕改成「左半頁／右半頁」，已存舊單的整頁附件會自動換成左、右兩列。附錄合併時再按實際頁面寬高拆頁（同一頁左右半只下載一次），並依來源頁 `/Rotate` 換算裁切框、把同一 `/Rotate` 套回輸出頁；清單「預覽」改成顯示附錄裡那一張（已裁切、已轉正），不再看到整張橫向跨頁。
+
+驗證：`scripts/test-quote-catalog-pages.mjs` PASS（新增跨頁判斷、左右半、`/Rotate` 90／180／270、舊單轉換、24 項上限）；用「向氏产品图册2026」第 8、30 頁實跑合併，整頁跨頁出 2 張 603.8 × 824.9 直向頁、左／右半各 1 張，逐頁渲染核對左右版面對應正確；`tsc --noEmit`、`npm run audit:ui` 通過；`vite build` 轉譯全部 4879 個模組後，在清空 `dist` 時因 `dist\skp-worker-review-v2\FDS-SKP-Worker-Setup.exe` 被其他程序佔用而失敗（既有環境問題，與本次改動無關）。
+阻塞：仍需在瀏覽器用三份真實已授權圖冊混選整頁與局部圖驗收。真正橫向的單頁圖冊也會被當成跨頁（用寬高比判斷，沒有偵測裝訂線）。
+
+## 2026-10-29 — FDS-07 移除來源標籤、修搜尋
+
+完成：對外報價 PDF 的圖冊附錄不再印「頁底顯示來源」，對話框的開關與草稿／PDF 型別一併移除（舊單的舊值忽略）。圖冊搜尋改為多關鍵字（AND，含年份／版本）、每次開啟重設搜尋字、加「重新整理」；空結果會說明只列「圖冊」類型，並可在「廠家詳情 → 廠家文件」把標錯成報價單的文件改成圖冊。`fds_list_quote_catalogs` 已重新套用到 prod 與分支。
+發現：分支開發庫唯一上載的 92 頁「向氏产品图册2026」被登記成 `doc_type=quote`（prod 同一份檔案是 `catalog`），所以圖冊附件一直顯示「沒有可選的圖冊」。已用 RPC 改成 `catalog`。
+阻塞：仍需用三份真實 PDF 在瀏覽器驗收整頁／框選合併。
+
 ## 2026-10-27 — FDS-07 框選，並移除 FDS-05
 
 完成：圖冊附件可在預覽上拖出範圍，也可直接加上下半頁。裁切只作用在已抽出的那一頁，輸出保持原比例，來源標籤加在框外。FDS-05 設計師產品分享已從 PRD 移除，產品搜尋與 SKP／FBX 仍在。

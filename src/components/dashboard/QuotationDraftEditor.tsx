@@ -2683,9 +2683,6 @@ export function QuotationDraftEditor({
   const [catalogPages, setCatalogPages] = useState<QuoteCatalogPage[]>(() =>
     parseQuoteCatalogPages((savedProjectData as Record<string, unknown>).catalogPageAttachments),
   );
-  const [showCatalogSource, setShowCatalogSource] = useState(
-    () => (savedProjectData as Record<string, unknown>).showCatalogSource !== false,
-  );
   const [catalogDialogOpen, setCatalogDialogOpen] = useState(false);
   const [zoneImages, setZoneImages] = useState<QuoteZoneImageMap>(() =>
     parseQuoteZoneImages(savedProjectData.zoneImages),
@@ -2769,8 +2766,6 @@ export function QuotationDraftEditor({
     setZonePhotoLayouts((prev) => (JSON.stringify(prev) === JSON.stringify(nextZoneLayouts) ? prev : nextZoneLayouts));
     const nextCatalogPages = parseQuoteCatalogPages(projectData?.catalogPageAttachments);
     setCatalogPages((prev) => (JSON.stringify(prev) === JSON.stringify(nextCatalogPages) ? prev : nextCatalogPages));
-    const nextShowSource = projectData?.showCatalogSource !== false;
-    setShowCatalogSource((prev) => (prev === nextShowSource ? prev : nextShowSource));
   }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
   // 報價 PDF 的 QR 指向這張單已有的客戶連結，不必每次開啟都重新生成。
@@ -4308,9 +4303,6 @@ export function QuotationDraftEditor({
         if ("catalogPageAttachments" in cachedRecord) {
           setCatalogPages(parseQuoteCatalogPages(cachedRecord.catalogPageAttachments));
         }
-        if ("showCatalogSource" in cachedRecord) {
-          setShowCatalogSource(cachedRecord.showCatalogSource !== false);
-        }
         if (cached.termsContent) {
           const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
           setTermsContent(
@@ -4389,7 +4381,6 @@ export function QuotationDraftEditor({
       zoneImages: zoneImages as unknown as Record<string, unknown>,
       zonePhotoLayouts: zonePhotoLayouts as unknown as Record<string, unknown>,
       catalogPageAttachments: catalogPages as unknown as Record<string, unknown>[],
-      showCatalogSource,
     }),
     [
       storageKey,
@@ -4413,7 +4404,6 @@ export function QuotationDraftEditor({
       zoneImages,
       zonePhotoLayouts,
       catalogPages,
-      showCatalogSource,
     ],
   );
 
@@ -4836,7 +4826,6 @@ export function QuotationDraftEditor({
         ],
       ),
       catalogPageAttachments: catalogPages,
-      showCatalogSource,
     };
   };
 
@@ -4960,7 +4949,6 @@ export function QuotationDraftEditor({
           conditionText: pdfLabels.installCondition,
         },
         catalogPages,
-        showCatalogSource,
       };
     }
 
@@ -5005,7 +4993,6 @@ export function QuotationDraftEditor({
     quoteContentPages: pdfContentPages,
     installationFee,
     catalogPages,
-    showCatalogSource,
   };
   };
 
@@ -5694,23 +5681,6 @@ export function QuotationDraftEditor({
                     }}
                   />
                 </div>
-                <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2">
-                  <p className="text-sm text-foreground">
-                    {ui('圖冊附件', 'Catalog pages')}
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {catalogPages.length > 0
-                        ? ui(`${catalogPages.length} 頁，會加在報價 PDF 後面`, `${catalogPages.length} pages, added after the quotation PDF`)
-                        : ui('可選不同圖冊的整頁', 'Whole pages from one or more catalogs')}
-                    </span>
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setCatalogDialogOpen(true)}
-                    className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
-                  >
-                    {ui('選擇頁面', 'Choose pages')}
-                  </button>
-                </div>
                 <p className="mb-4 border-b border-border/80 pb-3 text-xs text-muted-foreground">
                   {ui('產品項目', 'Products')} {productCount} · {ui('增值服務', 'Services')} {serviceCount} · {ui('備註標題', 'Titles')} {titleCount}{ui('；依報價單順序排列，可拖曳或上下移動調整位置。', '; drag or use the arrows to reorder items as they appear in the quotation.')}
                 </p>
@@ -6125,6 +6095,29 @@ export function QuotationDraftEditor({
                     setQuotePhotoAssets(usedAssets);
                   }}
                 />
+
+                {/* 圖冊附件：放在報價單圖片下面（附件頁會接在報價 PDF 後面） */}
+                <div className="mt-5 border-t border-border/80 pt-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm text-foreground">
+                        {ui('圖冊附件', 'Catalog pages')}
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {catalogPages.length > 0
+                            ? ui(`${catalogPages.length} 項，會加在報價 PDF 後面`, `${catalogPages.length} items, added after the quotation PDF`)
+                            : ui('可選不同圖冊的整頁；跨頁圖冊會拆成左半／右半', 'Whole pages from one or more catalogs; spreads are split into left/right')}
+                        </span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCatalogDialogOpen(true)}
+                      className="inline-flex h-8 shrink-0 items-center rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
+                    >
+                      {ui('選擇頁面', 'Choose pages')}
+                    </button>
+                  </div>
+                </div>
               </section>
 
               {/* 條款及付款 / TERMS AND CONDITIONS */}
@@ -6590,6 +6583,7 @@ export function QuotationDraftEditor({
           assets={photoLibrary}
           productPhotos={quoteProductPhotos}
           photoZones={quotePhotoZones}
+          quoteUuid={existingQuote?.quoteUuid ?? null}
           photos={quotePhotoAssets.map((asset) => ({
             assetId: asset.id,
             title: asset.title,
@@ -6877,11 +6871,9 @@ export function QuotationDraftEditor({
       <QuoteCatalogPagesDialog
         open={catalogDialogOpen}
         pages={catalogPages}
-        showSource={showCatalogSource}
         onOpenChange={setCatalogDialogOpen}
-        onConfirm={(nextPages, nextShowSource) => {
+        onConfirm={(nextPages) => {
           setCatalogPages(nextPages);
-          setShowCatalogSource(nextShowSource);
           setCatalogDialogOpen(false);
         }}
       />

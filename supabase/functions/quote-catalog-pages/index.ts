@@ -33,19 +33,25 @@ Deno.serve(async (req: Request) => {
 
   const url = Deno.env.get("SUPABASE_URL") ?? "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const serviceKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
   const authHeader = req.headers.get("Authorization") ?? "";
   if (!url || !anonKey || !serviceKey || !authHeader) return json({ error: "Unauthorized" }, 401);
 
-  const userClient = createClient(url, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: userData } = await userClient.auth.getUser();
-  if (!userData.user?.id) return json({ error: "Unauthorized" }, 401);
-  const { data: allowed, error: roleErr } = await userClient.rpc("bwf_has_role", { p_roles: ROLES });
-  if (roleErr) return json({ error: roleErr.message }, 400);
-  if (allowed !== true) return json({ error: "permission_denied" }, 403);
+  // 夜間解析（process-jobs）與 catalog-thumbs 會用 service role 直接叫這一支抽頁；
+  // 這種呼叫沒有使用者身分，只可以拿來抽「圖冊」頁（下面仍會檢查 doc_type）。
+  const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const workerCall = bearer !== "" && bearer === serviceKey;
+  if (!workerCall) {
+    const userClient = createClient(url, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: userData } = await userClient.auth.getUser();
+    if (!userData.user?.id) return json({ error: "Unauthorized" }, 401);
+    const { data: allowed, error: roleErr } = await userClient.rpc("bwf_has_role", { p_roles: ROLES });
+    if (roleErr) return json({ error: roleErr.message }, 400);
+    if (allowed !== true) return json({ error: "permission_denied" }, 403);
+  }
 
   let body: { pages?: PageRequest[] };
   try {

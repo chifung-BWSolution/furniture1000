@@ -28,9 +28,12 @@ export function customerQuoteError(error: PostgrestError): string {
     || message.includes('get_customer_quote')
     || message.includes('list_customer_quotes')
     || message.includes('save_customer_quote_scheme')
+    || message.includes('submit_customer_quote_request')
   ) {
     return '分享報價暫時不能使用。已保存的資料沒有被改動。';
   }
+  if (message.includes('empty_request')) return '未選擇任何產品，未能提交。';
+  if (message.includes('invalid_quantity')) return '有產品數量無效，請重新輸入。';
   if (error?.code === '42501' || message.includes('permission_denied') || message.includes('invalid_token')) {
     return '分享連結無效或已撤銷。';
   }
@@ -104,19 +107,54 @@ export async function loadCustomerSafeItems(quoteUuid: string): Promise<BwfQuote
   return quote?.items ?? [];
 }
 
-export async function saveCustomerQuoteScheme(input: {
+export interface CustomerQuoteRequestLine {
+  id: string;
+  quantity: number;
+  selected: boolean;
+  note?: string;
+}
+
+export type CustomerQuoteRequestType = 'scheme' | 'selection' | 'quantity' | 'additional' | 'replacement';
+
+/**
+ * FDS-14：客戶提交只建立自己的需求記錄，正式報價的單價與明細不會被改寫。
+ * 同一份內容重送會回傳同一筆需求（伺服器以內容雜湊去重）。
+ */
+export async function submitCustomerQuoteRequest(input: {
   token: string | null;
   quoteId: string;
-  lines: { id: string; quantity: number; selected: boolean }[];
-}): Promise<void> {
-  const { error } = await supabase.rpc('save_customer_quote_scheme', {
+  lines: CustomerQuoteRequestLine[];
+  note?: string;
+  requestType?: CustomerQuoteRequestType;
+  idempotencyKey?: string | null;
+}): Promise<string | null> {
+  const { data, error } = await supabase.rpc('submit_customer_quote_request', {
     p_token: input.token,
     p_quote_id: input.quoteId,
     p_lines: input.lines.map((line) => ({
       id: line.id,
       quantity: line.quantity,
       selected: line.selected,
+      ...(line.note ? { note: line.note } : {}),
     })),
+    p_note: (input.note ?? '').slice(0, 1000),
+    p_idempotency_key: input.idempotencyKey ?? null,
+    p_request_type: input.requestType ?? 'scheme',
   });
   if (error) throw error;
+  return data ? String(data) : null;
+}
+
+/** 舊呼叫點沿用同一支提交（不再改寫正式報價）。 */
+export async function saveCustomerQuoteScheme(input: {
+  token: string | null;
+  quoteId: string;
+  lines: { id: string; quantity: number; selected: boolean }[];
+}): Promise<void> {
+  await submitCustomerQuoteRequest({
+    token: input.token,
+    quoteId: input.quoteId,
+    lines: input.lines,
+    requestType: 'scheme',
+  });
 }

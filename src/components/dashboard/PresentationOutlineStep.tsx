@@ -1,3 +1,5 @@
+import { runPresentationQueue } from '@/lib/presentationQueue';
+import { Progress } from '@/components/ui/progress';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowUpDown, ChevronUp, LoaderCircle, Pencil, Sparkles, ZoomIn } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { generateQuoteReferenceImage, quotePhotoErrorText, QUOTE_PHOTO_GENERATE_MODELS, type QuotePhotoGenerateModel } from '@/lib/quotePhotoLibrary';
 import type { SearchProduct } from '@/lib/productSearch';
-import { generatePresentationCopy } from '@/lib/presentationCopy';
+import { generatePresentationCopy, generatePresentationRoomCopy, generatePresentationCaseCopy } from '@/lib/presentationCopy';
 import { floorPlanZoneColor } from './FloorPlanZoneCanvas';
 import { cn } from '@/lib/utils';
 import {
@@ -119,6 +121,8 @@ export function PresentationOutlineStep({
   qualifications,
   services,
   includeFloor,
+  floorReferenceUrl,
+  onProcessing,
   zones,
   products,
   productZone,
@@ -143,6 +147,8 @@ export function PresentationOutlineStep({
   qualifications: string;
   services: string;
   includeFloor: boolean;
+  floorReferenceUrl?: string;
+  onProcessing?: (delta: number) => void;
   zones: PresentationZoneDraft[];
   products: SearchProduct[];
   productZone: Record<string, string>;
@@ -158,9 +164,10 @@ export function PresentationOutlineStep({
   onReorder: (zones: PresentationZoneDraft[]) => void;
   onDraft: (productId: string, patch: Partial<PresentationProductDraft>) => void;
   onZone: (productId: string, zoneId: string) => void;
-  cases: { id: string; title: string; body: string }[];
+  cases: { id: string; title: string; body: string; photos?: string[] }[];
   onCase: (id: string, value: { title: string; body: string }) => void;
 }) {
+  const [caseGenerating, setCaseGenerating] = useState<string | null>(null);
   const [samplingId, setSamplingId] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<Record<string, 'running' | 'ready' | 'failed'>>({});
   const [activeId, setActiveId] = useState(zones[0]?.id ?? '');
@@ -169,7 +176,10 @@ export function PresentationOutlineStep({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
-  const disabled = parentDisabled;
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [beautifyProgress, setBeautifyProgress] = useState({ done: 0, total: 1, label: '準備美化' });
+  const roomAnchors = useRef<Record<string, string>>({});
+  const disabled = parentDisabled || batchRunning;
   const startedCopy = useRef(new Set<string>());
   const onDraftRef = useRef(onDraft);
   const draftsRef = useRef(drafts);
@@ -228,28 +238,98 @@ export function PresentationOutlineStep({
     if (imageSelections.current[productId] === url) onDraft(productId, { noBackground: cutout });
   }
 
-  async function generateSample(product: SearchProduct) {
-    const draft = draftFor(product, drafts);
+  async function generateSample(product: SearchProduct, silent = false): Promise<boolean> {
+    const draft = draftFor(product, draftsRef.current);
     const reference = draft.imageUrl.trim();
-    if (!reference) {
-      toast.error('這件產品沒有可參考的圖片');
-      return;
-    }
+    if (!reference) { if (!silent) toast.error('這件產品沒有可參考的圖片'); return false; }
+    const zone = zones.find((item) => item.id === productZone[product.id]);
+    const floor = zone?.imageUrl || floorReferenceUrl;
+    const zoneId = zone?.id ?? '';
+    const companions = products.filter((item) => item.id !== product.id && productZone[item.id] === zoneId)
+      .map((item) => ({ product: item, draft: draftFor(item, draftsRef.current) }))
+      .filter((item) => item.draft.imageUrl.trim());
+    const anchor = roomAnchors.current[zoneId] || companions.find((item) => item.draft.sampleImageUrl)?.draft.sampleImageUrl;
+    const references: string[] = [reference];
+    const descriptions = [`第1張：主體產品 ${(draft.displayName + ' ' + draft.model).slice(0, 40)}`];
+    const addReference = (url: string | undefined, description: string) => {
+      if (!url || references.includes(url) || references.length >= 5) return;
+      references.push(url);
+      descriptions.push(`第${references.length}張：${description}`);
+    };
+    addReference(anchor, '同一房間已生成的場景，保持相同空間、佈局和家具');
+    for (const item of companions) addReference(item.draft.imageUrl.trim(), `搭配產品 ${(item.draft.displayName + ' ' + item.draft.model).slice(0, 40)}`);
+    addReference(floor, '房間平面圖，僅參考空間和家具佈局');
     setSamplingId(product.id);
     try {
       const asset = await generateQuoteReferenceImage({
-        model: sampleModel,
-        aspectRatio: '4:3',
-        referenceUrls: [reference],
-        prompt: `Keep the exact product in the reference photo. Do not change its shape, material, color, or proportions. Place that same product in a simple office scene. The result is a presentation sample, not a new product design. ${draft.displayName} ${draft.model}`.trim(),
+        purpose: 'presentation_product', model: sampleModel, aspectRatio: '4:3',
+        referenceUrls: references,
+        prompt: [
+          '根據參考圖片生成同一房間的真實室內攝影圖。',
+          '產品準確度優先：第1張是本頁主體產品；標記為搭配產品的參考圖也要出現在同一空間。保留各產品的外形、腳架、扶手、桌面、顏色、材質和真實比例，不合併或替換款式，不新增參考圖中沒有的結構。看不清的細節不要自行補造。',
+          '場景一致性：如提供房間場景參考，沿用同一房間的牆面、地板、窗戶、光線、家具款式和位置，只改變攝影角度及取景，不重新設計房間或替換家具。平面圖只用來參考空間及擺位，不要出現在成品中。',
+          '主體構圖：以第1張產品作為視覺焦點，主體完整、清晰、不被遮擋，佔據畫面主要視覺位置；其他家具保持自然的真實比例。椅子頁突出椅子，會議桌頁突出會議桌。',
+          '畫面採用寫實室內攝影及自然光，不加文字、水印或商標。',
+          `參考圖對照：${descriptions.join('；')}。`,
+        ].join('\n'),
       });
-      onDraft(product.id, { sampleImageUrl: asset.url, noBackground: true });
-      toast.success('已生成示例圖', { description: '僅供參考，不會改寫產品原圖。' });
+      if (draftFor(product, draftsRef.current).imageUrl !== draft.imageUrl) return false;
+      onDraftRef.current(product.id, { sampleImageUrl: asset.url, noBackground: true });
+      if (!roomAnchors.current[zoneId]) roomAnchors.current[zoneId] = asset.url;
+      if (!silent) toast.success('已生成統一風格示例圖');
+      return true;
     } catch (error) {
-      toast.error('示例圖生成失敗', { description: quotePhotoErrorText(error) });
-    } finally {
-      setSamplingId(null);
-    }
+      if (!silent) toast.error('示例圖生成失敗', { description: quotePhotoErrorText(error) });
+      return false;
+    } finally { setSamplingId(null); }
+  }
+
+  async function correctAll(imagesOnly = false) {
+    if (batchRunning || samplingId || !active) return;
+    const targetZone = active;
+    const targetProducts = [...activeProducts];
+    setBatchRunning(true);
+    onProcessing?.(1);
+    delete roomAnchors.current[targetZone.id];
+    const total = imagesOnly ? targetProducts.length : targetProducts.length * 2 + 1;
+    let done = 0;
+    let success = 0;
+    setBeautifyProgress({ done, total, label: `準備美化房間：${targetZone.name}` });
+    const step = (label: string) => setBeautifyProgress({ done, total, label });
+    try {
+      const updateCopy = async (product: SearchProduct) => {
+        step(`更新產品文案：${product.title || '產品'}`);
+        try {
+          onDraftRef.current(product.id, await generatePresentationCopy(product));
+          setCopyState(current => ({ ...current, [product.id]: 'ready' }));
+          success++;
+        } catch { /* Preserve existing copy. */ }
+        finally { done++; step('正在美化當前房間的圖片與文案'); }
+      };
+      const updateRoom = async () => {
+        try { onZonePatch(targetZone.id, await generatePresentationRoomCopy(targetZone.name, targetProducts)); success++; }
+        catch { /* Preserve existing room copy. */ }
+        finally { done++; step('正在美化當前房間的圖片與文案'); }
+      };
+      const updateImage = async (product: SearchProduct) => {
+        step(`統一圖片風格：${product.title || '產品'}`);
+        try { if (await generateSample(product, true)) success++; }
+        finally { done++; step('正在美化當前房間的圖片與文案'); }
+      };
+      const updateImages = async () => {
+        const remaining = [...targetProducts];
+        // Build one shared room reference before generating the remaining views.
+        while (remaining.length && !roomAnchors.current[targetZone.id]) await updateImage(remaining.shift()!);
+        await runPresentationQueue(remaining, 2, updateImage);
+      };
+      await Promise.all([
+        imagesOnly ? Promise.resolve() : runPresentationQueue(targetProducts, 2, updateCopy),
+        imagesOnly ? Promise.resolve() : updateRoom(),
+        updateImages(),
+      ]);
+      step('美化完成');
+      toast.message('一鍵美化完成', { description: `成功 ${success}／${total} 項；失敗項目保留原內容。請檢查並儲存草稿。` });
+    } finally { setBatchRunning(false); onProcessing?.(-1); }
   }
 
   const active = zones.find((zone) => zone.id === activeId) ?? zones[0];
@@ -268,7 +348,18 @@ export function PresentationOutlineStep({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4" aria-busy={batchRunning}>
+      {batchRunning ? (
+        <div className="absolute inset-0 z-30 rounded-2xl bg-background/80 backdrop-blur-sm">
+          <div className="sticky top-24 mx-auto flex max-w-md flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-lg" role="status" aria-live="polite">
+            <div className="flex items-center gap-2 font-semibold"><LoaderCircle className="h-5 w-5 animate-spin" aria-hidden />正在美化圖片與文案</div>
+            <p className="text-sm text-muted-foreground">{beautifyProgress.label}</p>
+            <Progress value={Math.round(beautifyProgress.done / Math.max(1, beautifyProgress.total) * 100)} aria-label="美化進度" />
+            <p className="text-right text-xs tabular-nums text-muted-foreground">{beautifyProgress.done} / {beautifyProgress.total} 項 · {Math.round(beautifyProgress.done / Math.max(1, beautifyProgress.total) * 100)}%</p>
+            <p className="text-xs text-muted-foreground">圖片生成需要一些時間，請保留此頁面。</p>
+          </div>
+        </div>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200/90 bg-white p-4 dark:border-border dark:bg-card">
           <p className="text-sm font-semibold text-foreground">封面資訊</p>
@@ -371,6 +462,10 @@ export function PresentationOutlineStep({
                   ) : (
                     <p className="mt-2 flex h-40 items-center justify-center rounded-lg border border-dashed text-xs text-muted-foreground">尚未有這個分區的截圖</p>
                   )}
+                  <div className="mt-3 grid w-full grid-cols-2 gap-2">
+                    <Button type="button" className="w-full gap-1.5 bg-indigo-600 px-2 text-white hover:bg-indigo-500" disabled={disabled || samplingId !== null || !active} onClick={() => void correctAll()}><Sparkles className="h-4 w-4 shrink-0" aria-hidden />一鍵美化全部</Button>
+                    <Button type="button" variant="outline" className="w-full px-2" disabled={disabled || samplingId !== null || !active || !activeProducts.length} onClick={() => void correctAll(true)}>美化圖片</Button>
+                  </div>
                 </div>
                 <div className="space-y-3">
                   <p className="text-sm font-semibold">房間設定</p>
@@ -399,6 +494,7 @@ export function PresentationOutlineStep({
               </div>
               <div>
                 <p className="text-sm font-semibold">已選產品（{activeProducts.length}）</p>
+
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   {activeProducts.map((product) => {
                     const draft = draftFor(product, drafts);
@@ -416,7 +512,11 @@ export function PresentationOutlineStep({
                           {copyLabel}
                         </span>
                         <div className="flex gap-3">
-                          {shown ? <LoadingImage src={shown} alt="" className="h-16 w-24 shrink-0 rounded-md bg-muted/20" imgClassName="object-contain" /> : <div className="h-16 w-24 shrink-0 rounded-md bg-muted/30" />}
+                          {shown ? (
+                            <button type="button" className="shrink-0 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" aria-label={`放大查看${draft.displayName || product.title || '產品'}圖片`} onClick={() => setPreview({ url: shown, title: draft.displayName || product.title || '產品圖片' })}>
+                              <LoadingImage src={shown} alt="" className="h-16 w-24 rounded-md bg-muted/20" imgClassName="object-contain" />
+                            </button>
+                          ) : <div className="h-16 w-24 shrink-0 rounded-md bg-muted/30" />}
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold">{draft.displayName || product.title || '未命名產品'}</p>
                             <p className="mt-0.5 truncate text-xs text-muted-foreground">型號　{draft.model || '—'}</p>
@@ -463,13 +563,35 @@ export function PresentationOutlineStep({
         </section>
       ) : null}
 
-      {cases.map((item) => (
-        <section key={item.id} className="space-y-3 rounded-xl border p-4">
-          <p className="text-sm font-semibold">參考案例</p>
-          <Field label="案例標題"><Input value={item.title} disabled={disabled} onChange={(event) => onCase(item.id, { title: event.target.value, body: item.body })} /></Field>
-          <Field label="案例內容"><Textarea value={item.body} disabled={disabled} onChange={(event) => onCase(item.id, { title: item.title, body: event.target.value })} /></Field>
-        </section>
-      ))}
+      {cases.length ? <div className="space-y-4">
+        <h3 className="text-base font-semibold">傢俬案例展示</h3>
+        {cases.map((item) => (
+          <section key={item.id} className="overflow-hidden rounded-xl border border-border bg-card">
+            <div className="grid gap-5 p-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <div className="min-w-0">
+                {item.photos?.length ? <>
+                  <button type="button" className="block w-full overflow-hidden rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" onClick={() => setPreview({ url: item.photos![0], title: item.title })} aria-label={`放大${item.title}完工照片`}>
+                    <LoadingImage src={item.photos[0]} alt={`${item.title}完工傢俬`} className="aspect-[4/3] w-full" imgClassName="object-cover" />
+                  </button>
+                  {item.photos.length > 1 ? <div className="mt-2 grid grid-cols-5 gap-2">{item.photos.slice(1).map((url, index) => <button type="button" key={url} className="overflow-hidden rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" onClick={() => setPreview({ url, title: item.title })} aria-label={`查看完工照片 ${index + 2}`}><LoadingImage src={url} alt={`${item.title}完工照片 ${index + 2}`} className="aspect-square w-full" imgClassName="object-cover" /></button>)}</div> : null}
+                </> : <div className="flex aspect-[4/3] items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">此案例尚無完工照片</div>}
+              </div>
+              <div className="min-w-0 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold">{item.title || '參考案例'}</p>
+                  <Button type="button" className="gap-1.5 bg-indigo-600 text-white hover:bg-indigo-500" disabled={disabled || caseGenerating !== null} onClick={async () => {
+                    setCaseGenerating(item.id);
+                    try { const body = await generatePresentationCaseCopy(item); onCase(item.id, { title: item.title, body }); toast.success('已更新案例傢俬文案'); }
+                    catch (error) { toast.error(error instanceof Error ? error.message : '案例文案生成失敗'); }
+                    finally { setCaseGenerating(null); }
+                  }}>{caseGenerating === item.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}一鍵 AI 文案</Button>
+                </div>
+                <Field label="案例標題"><Input value={item.title} disabled={disabled || caseGenerating === item.id} onChange={(event) => onCase(item.id, { title: event.target.value, body: item.body })} /></Field>
+                <Field label="傢俬展示介紹"><Textarea className="min-h-40" placeholder="介紹案例中的辦公枱、座椅、收納及搭配特色" value={item.body} disabled={disabled || caseGenerating === item.id} onChange={(event) => onCase(item.id, { title: item.title, body: event.target.value })} /></Field>
+              </div>
+            </div>
+          </section>
+        ))}
+      </div> : null}
       <ProductCopyModal
         product={products.find((item) => item.id === editingId) ?? null}
         drafts={drafts}

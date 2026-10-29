@@ -298,6 +298,21 @@ export async function cancelSupplierDocumentParts(documentId: string): Promise<v
   if (error) throw new Error(rpcErrorMessage(error.message));
 }
 
+/**
+ * 文件類型只能在「報價單」與「圖冊」之間切換（admin／uploader）。
+ * 圖冊才會出現在報價附件的圖冊選擇器；報價單含成本，PM／設計師看不到。
+ */
+export async function setSupplierDocumentType(
+  documentId: string,
+  docType: 'quote' | 'catalog',
+): Promise<void> {
+  const { error } = await supabase.rpc('fds_supplier_document_update', {
+    p_document_id: documentId,
+    p_doc_type: docType,
+  });
+  if (error) throw new Error(rpcErrorMessage(error.message));
+}
+
 export async function cancelProcessingJob(jobId: string): Promise<boolean> {
   const { data, error } = await supabase.rpc('fds_processing_job_cancel', { p_job_id: jobId });
   if (error) throw new Error(rpcErrorMessage(error.message));

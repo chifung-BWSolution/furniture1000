@@ -62,8 +62,9 @@ export function buildCustomerPortalInviteUrl(
 
 /**
  * No-login customer portal share link.
- * Lands on「報價方案」for the shared quote; guests may browse other portal
- * pages except「機構採購帳號」.
+ * Lands on「報價方案」for the shared quote; guests may browse the other portal
+ * pages too (except「機構採購帳號」), so every in-portal page switch must keep
+ * `?quote_share=…` — see AppShell `handleViewChange` (`portalView`).
  */
 export function buildCustomerPortalQuoteShareUrl(
   origin: string,
