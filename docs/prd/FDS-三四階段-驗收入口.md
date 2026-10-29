@@ -8,6 +8,7 @@
 
 - ✅ **FDS-11 成功案例**：三頁、多條件交集、無結果、客戶版匯出（使用者驗收 PASS）
 - ✅ **FDS-13 分區示範圖**：正式報價 → 平面圖 → 拉框 → 確認 → 生成透視圖；快速報價沒有「AI 生成」（使用者驗收 PASS；GLB 場景仍未做，供應商待決策）
+- ✅ **FDS-15 郵件**：填模板（電話必填）→ 排入發送 → 收信 → 點「加單授權連結」（使用者驗收 PASS；有效查看後停該單跟進，已排隊跟進信實測被取消）
 
 - Migration：12 支已套分支（見 `supabase/migrations/20261029*`）
 - Edge Function：`send-quote-email`、`notify-customer-quote-request`、`sync-asana-factories` 已部署分支（worker-secret 模式）
