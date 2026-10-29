@@ -11,6 +11,7 @@
 - ✅ **FDS-06 SKP／FBX**：改由 Codex 開發／驗收（使用者 2026-10-29 決定），本階段不再驗收實機
 - ✅ **FDS-15 郵件**：填模板（電話必填）→ 排入發送 → 收信 → 點「加單授權連結」（使用者驗收 PASS；有效查看後停該單跟進，已排隊跟進信實測被取消）
 - ✅ **FDS-14 客戶互動**：客戶分享連結提交＋報價一覽「客戶提交」面板；PM 通知實寄（使用者驗收 PASS）
+- ✅ **FDS-10 設計專案分區**：多區、改名、排序、產品移區後重開（使用者驗收 PASS）
 
 - Migration：17 支已套分支（見 `supabase/migrations/20261029*`）
 - Edge Function：`send-quote-email`、`notify-customer-quote-request`、`sync-asana-factories` 已部署分支（worker-secret 模式）
