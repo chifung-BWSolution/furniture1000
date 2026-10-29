@@ -38,7 +38,7 @@ export async function handleGamma(service: SupabaseClient, userId: string, body:
   if (session.status !== 'creating' || !session.populate_report?.generation_job_id) return session;
   const result = await gammaRequest(`/${session.populate_report.engine === 'agent' ? 'agent/' : ''}generations/${encodeURIComponent(session.populate_report.generation_job_id)}`);
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (result.status === 'completed' && result.gammaUrl) Object.assign(patch, { status: 'ready', canva_design_id: `gamma:${session.populate_report.generation_job_id}`, edit_url: result.gammaUrl, view_url: result.gammaUrl, export_download_url: result.exportUrl ?? null, error: null });
+  if (result.status === 'completed' && result.gammaUrl) Object.assign(patch, { status: 'ready', canva_design_id: `gamma:${result.gamma?.gammaId ?? session.populate_report.generation_job_id}`, edit_url: result.gammaUrl, view_url: result.gammaUrl, export_download_url: result.exportUrl ?? null, error: null });
   else if (result.status === 'failed') Object.assign(patch, { status: 'failed', error: 'Gamma 生成失敗，請查看 Gamma 工作區。' });
   else return session;
   const { data, error: updateError } = await table().update(patch).eq('id', session.id).eq('staff_id', userId).eq('status', 'creating').select('*').maybeSingle();

@@ -3,6 +3,7 @@ export interface GammaGeneration {
   generationId?: string;
   status?: string;
   gammaUrl?: string;
+  gamma?: { gammaId: string; gammaUrl: string };
   exportUrl?: string;
   error?: unknown;
 }
@@ -63,5 +64,6 @@ export async function gammaRequest(path: string, body?: unknown): Promise<GammaG
     // Do not return provider bodies, which can contain private input or credentials.
     throw new Error(response.status === 429 ? 'Gamma 額度或速率受限，請稍後再試。' : `Gamma API 請求失敗（${response.status}）。`);
   }
-  return await response.json();
+  const result: GammaGeneration = await response.json();
+  return { ...result, gammaUrl: result.gamma?.gammaUrl ?? result.gammaUrl };
 }
