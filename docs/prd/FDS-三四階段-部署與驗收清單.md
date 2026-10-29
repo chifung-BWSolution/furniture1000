@@ -27,7 +27,7 @@ npx supabase functions deploy sync-asana-factories --project-ref omxizeukbcqzsnj
 
 | Secret | 值 | 狀態 |
 |---|---|---|
-| `FDS_EMAIL_FROM` | `FDS Furniture <no-reply@bwteam-furniture.com>` | 已設（2026-10-29） |
+| `FDS_EMAIL_FROM` | `BW Furniture <no-reply@bwteam-furniture.com>` | 已設（2026-10-29，改為 BW） |
 | `ASANA_ACCESS_TOKEN` | 唯讀用 PAT | 已設（2026-10-29） |
 | `RESEND_API_KEY` | Resend API key；`bwteam-furniture.com` 需先驗證 SPF／DKIM | **未設** |
 | `FDS_APP_URL` | 前端網址（郵件內加單連結用，例 `https://<develop-preview>`） | **未設** |

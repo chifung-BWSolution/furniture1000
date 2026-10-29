@@ -7,7 +7,7 @@
  * Production configuration.
  *
  *   node scripts/set-fds-email-sender.mjs
- *   node scripts/set-fds-email-sender.mjs --value "FDS Furniture <no-reply@bwteam-furniture.com>"
+ *   node scripts/set-fds-email-sender.mjs --value "BW Furniture <no-reply@bwteam-furniture.com>"
  *   node scripts/set-fds-email-sender.mjs --ref=prod --allow-prod
  *
  * The address must be on a domain verified by the email provider (Resend).
@@ -20,7 +20,7 @@ import path from 'node:path';
 const PROD_REF = 'riaubhtruisbwdlwjzur';
 const BRANCH_REF = 'omxizeukbcqzsnjsuwod';
 const ROOT = path.resolve(import.meta.dirname, '..');
-const DEFAULT_SENDER = 'FDS Furniture <no-reply@bwteam-furniture.com>';
+const DEFAULT_SENDER = 'BW Furniture <no-reply@bwteam-furniture.com>';
 
 const args = process.argv.slice(2);
 const refArg = (args.find((a) => a.startsWith('--ref=')) || '').slice('--ref='.length) || 'branch';
