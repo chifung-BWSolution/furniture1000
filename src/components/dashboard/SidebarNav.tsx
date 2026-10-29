@@ -24,8 +24,9 @@ interface SidebarNavProps {
   onCollapseChange?: (collapsed: boolean) => void;
   isAdmin?: boolean;
   /**
-   * Quote-share / invite no-login guest:
-   * show 客戶專區 pages except「機構採購帳號」.
+   * Quote-share guest (`?quote_share=…`): menu items stay visible, but the
+   * pages behind them require a login (only 報價方案 is readable).
+   *「機構採購帳號」stays hidden.
    */
   quoteShareGuest?: boolean;
   /** PM cannot access 報價單格式設定 inside 傢俬報價. */

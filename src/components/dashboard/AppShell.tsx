@@ -51,6 +51,7 @@ import {
   storePortalToken,
   storeQuoteShareToken,
   withCustomerPortalQuery,
+  type QuoteShareLoginState,
 } from "@/lib/customerPortalRoutes";
 import {
   appViewFromPath,
@@ -423,7 +424,8 @@ function AppShellContent() {
     (platformRole === 'staff' || platformRole === 'admin' || platformRole === 'supplier');
   const quoteShareGuestActive = quoteShareActive && !isStaffAccount;
   const portalTokenActive = invitePortalActive || quoteShareGuestActive;
-  // Anonymous quote-share visitors stay in 客戶專區.
+  // Anonymous quote-share visitors stay in 客戶專區 and only ever read
+  // 「報價方案」; every other portal page asks them to sign in.
   // Project invite tokens lock unknown/client roles; staff/admin can leave those.
   const clientOnly =
     platformRole === 'client' ||
@@ -433,6 +435,30 @@ function AppShellContent() {
         (platformRole !== 'staff' && platformRole !== 'admin' && platformRole !== 'supplier')));
   const isAdmin = platformRole === 'admin';
   const isSupplier = platformRole === 'supplier';
+
+  /**
+   * 分享連結（`?quote_share=…`）只開放「報價方案」。未登入訪客切換到其他專區頁
+   * 就等於要登入：先收掉訪客憑證，再停在目標頁讓 RequireAuth 顯示登入
+   * （登入後由角色權限決定該頁看得到什麼）。用 push 保留上一頁＝原本的分享報價。
+   */
+  const requireQuoteShareLogin = useCallback(
+    (view: ViewType, opts?: { replace?: boolean }) => {
+      const token =
+        new URLSearchParams(location.search).get('quote_share')?.trim() ||
+        readStoredQuoteShareToken();
+      clearQuoteShareToken();
+      const target = pathFromCustomerView(view);
+      const state: QuoteShareLoginState = {
+        quoteShareLogin: true,
+        quoteShareReturnTo: token
+          ? withCustomerPortalQuery(CUSTOMER_PORTAL_BASE, { quoteShareToken: token })
+          : undefined,
+      };
+      quoteUrlSyncRef.current = target;
+      navigate(target, { replace: opts?.replace ?? false, state });
+    },
+    [navigate, location.search],
+  );
 
   useEffect(() => {
     if (portalToken) {
@@ -492,9 +518,19 @@ function AppShellContent() {
     navigate,
   ]);
 
-  // Quote-share guests stay in 客戶專區 (except 機構採購帳號), defaulting to 報價方案.
+  // 分享連結訪客只可留在「報價方案」；其他專區頁（選單或直接開的深連結）＝要登入。
+  // 收掉 quote_share 與訪客憑證後留在原路徑，RequireAuth 就會顯示登入畫面。
   useEffect(() => {
     if (!quoteShareGuestActive) return;
+    if (!user) {
+      const deepLinkView = isCustomerPortalPath(location.pathname)
+        ? customerViewFromPath(location.pathname)
+        : null;
+      if (deepLinkView && deepLinkView !== 'customer-quote-schemes') {
+        requireQuoteShareLogin(deepLinkView, { replace: true });
+        return;
+      }
+    }
     if (
       !isCustomerPortalView(store.currentView) ||
       store.currentView === 'customer-org-account'
@@ -521,13 +557,16 @@ function AppShellContent() {
     }
   }, [
     quoteShareGuestActive,
+    user,
     quoteShareToken,
     storedQuoteShareToken,
     portalToken,
     storedPortalToken,
     store,
     location.pathname,
+    location.search,
     navigate,
+    requireQuoteShareLogin,
   ]);
 
   // /customer and /customer/:slug → switch the active client-portal view.
@@ -1412,6 +1451,19 @@ function AppShellContent() {
       return;
     }
 
+    // 分享連結只開放「報價方案」：未登入訪客選其他專區頁＝要求登入，不直接開頁。
+    // 側欄項目是 `fds2-*` legacy view，要先換成實際的 portal view 再判斷。
+    const portalView = linked ?? view;
+    if (
+      !user &&
+      quoteShareGuestActive &&
+      isCustomerPortalView(portalView) &&
+      portalView !== 'customer-quote-schemes'
+    ) {
+      requireQuoteShareLogin(portalView);
+      return;
+    }
+
     if (linked === "quick-quote" || view === "quick-quote") {
       if (unsavedGuard.isDirty && !(await unsavedGuard.confirmLeave())) return;
       writeQuickQuoteCopyFrom(user?.email, null);
@@ -1477,9 +1529,9 @@ function AppShellContent() {
     if (leavingView === 'category-management' && enteringView !== 'category-management') {
       store.reloadProducts();
     }
-    if (isCustomerPortalView(view)) {
-      // Quote-share guests may browse portal pages except 機構採購帳號.
-      if (quoteShareGuestActive && view === 'customer-org-account') {
+    if (isCustomerPortalView(portalView)) {
+      // 機構採購帳號 一律不給分享連結訪客（未登入訪客已在上面被導去登入）。
+      if (quoteShareGuestActive && portalView === 'customer-org-account') {
         return;
       }
       const token =
@@ -1489,14 +1541,14 @@ function AppShellContent() {
         ? null
         : new URLSearchParams(location.search).get('quote_share') ||
           readStoredQuoteShareToken();
-      const path = pathFromCustomerView(view);
+      const path = pathFromCustomerView(portalView);
       const target = withCustomerPortalQuery(path, {
         portalToken: token,
         quoteShareToken: qShare,
       });
       quoteUrlSyncRef.current = target;
       navigate(target, { replace: true });
-      store.setCurrentView(view);
+      store.setCurrentView(portalView);
       store.setFilterProductId(null);
       setEditingQuoteId(null);
       return;

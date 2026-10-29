@@ -17,7 +17,17 @@ function getPmsOrigin(): string | null {
   }
 }
 
-export function LoginView() {
+export function LoginView({
+  description,
+  onBack,
+  backLabel = '返回',
+}: {
+  /** Overrides the default subtitle (e.g. why a quote-share guest is here). */
+  description?: string;
+  /** Optional escape hatch shown under the sign-in button. */
+  onBack?: () => void;
+  backLabel?: string;
+} = {}) {
   const useQuickLogin = isDevelopQuickLoginBuild();
   const quickLogin = getQuickLoginCredentials();
   const [busy, setBusy] = useState(false);
@@ -84,9 +94,10 @@ export function LoginView() {
             FDS Furniture Design Platform
           </h1>
           <p className="text-sm text-muted-foreground">
-            {useQuickLogin
-              ? '開發預覽請使用一鍵登入'
-              : '請使用 PMS 帳號登入以存取傢俬設計管理平台'}
+            {description ||
+              (useQuickLogin
+                ? '開發預覽請使用一鍵登入'
+                : '請使用 PMS 帳號登入以存取傢俬設計管理平台')}
           </p>
         </div>
 
@@ -111,6 +122,17 @@ export function LoginView() {
             </Button>
           )}
         </div>
+
+        {onBack ? (
+          <Button
+            variant="ghost"
+            className="h-10 w-full text-sm font-medium"
+            onClick={onBack}
+            disabled={busy}
+          >
+            {backLabel}
+          </Button>
+        ) : null}
 
         {useQuickLogin && !quickLogin && (
           <p className="text-xs text-destructive">

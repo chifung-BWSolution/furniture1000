@@ -333,8 +333,9 @@ export function filterNavChildren(
   isAdmin: boolean,
   opts?: {
     /**
-     * Quote-share / invite no-login guest:
-     * show full 客戶專區 menu except「機構採購帳號」.
+     * Quote-share guest (`?quote_share=…`): the menu stays visible so the
+     * visitor can see what a login unlocks, but every other page asks them to
+     * sign in (AppShell `requireQuoteShareLogin`).「機構採購帳號」stays hidden.
      */
     quoteShareGuest?: boolean;
     /** @deprecated use quoteShareGuest — previously locked to 報價方案 only */
