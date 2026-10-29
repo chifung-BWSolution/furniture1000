@@ -63,3 +63,48 @@ verify_jwt = false
 [functions.supabase-functions-gemini-proxy]
 verify_jwt = false
 entrypoint = "./functions/gemini-proxy/index.ts"
+
+# 圖冊頁縮圖：夜間解析與 pg_cron 帶 x-worker-secret 呼叫，前端帶使用者 JWT。
+# 函式內部自己驗（worker secret／service role／admin|uploader|pm|designer）。
+[functions.catalog-thumbs]
+verify_jwt = false
+
+# 報價電郵：前端即時發送、cron 補寄與跟進都用這支。
+[functions.send-quote-email]
+verify_jwt = false
+
+# 客戶提交／有效查看的 PM 通知（pg_cron 與觸發器呼叫）。
+[functions.notify-customer-quote-request]
+verify_jwt = false
+
+# Asana 廠家同步 worker（pg_cron 呼叫）。
+[functions.sync-asana-factories]
+verify_jwt = false
+
+[functions.supabase-functions-sync-asana-factories]
+verify_jwt = false
+entrypoint = "./functions/sync-asana-factories/index.ts"
+
+# Asana 每用戶 OAuth 回呼（由 Asana 瀏覽器導回，沒有 Supabase JWT）。
+[functions.fds-asana-oauth]
+verify_jwt = false
+
+# 上載記錄報表電郵（pg_cron 呼叫）。
+[functions.send-upload-log-report-email]
+verify_jwt = false
+
+[functions.supabase-functions-send-upload-log-report-email]
+verify_jwt = false
+entrypoint = "./functions/send-upload-log-report-email/index.ts"
+
+# SKP 寫檔 Worker 代理（Worker 用自己的裝置憑證，不是 Supabase JWT）。
+[functions.skp-worker-agent]
+verify_jwt = false
+
+[functions.supabase-functions-skp-worker-agent]
+verify_jwt = false
+entrypoint = "./functions/skp-worker-agent/index.ts"
+
+# Canva 簡報：無前綴 slug 也一併維持（舊部署仍在用）。
+[functions.generate-canva-presentation]
+verify_jwt = false
