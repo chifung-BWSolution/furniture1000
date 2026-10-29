@@ -4,7 +4,12 @@
 環境：**FDS 2.0 分支** `omxizeukbcqzsnjsuwod`（Production 未套、未部署、前端未發布）
 狀態說明：「本地／分支完成」不等於 Production 或真人驗收完成。
 
-- Migration：11 支已套分支（見 `supabase/migrations/20261029*`）
+## 驗收進度（2026-10-29）
+
+- ✅ **FDS-11 成功案例**：三頁、多條件交集、無結果、客戶版匯出（使用者驗收 PASS）
+- ✅ **FDS-13 分區示範圖**：正式報價 → 平面圖 → 拉框 → 確認 → 生成透視圖；快速報價沒有「AI 生成」（使用者驗收 PASS；GLB 場景仍未做，供應商待決策）
+
+- Migration：12 支已套分支（見 `supabase/migrations/20261029*`）
 - Edge Function：`send-quote-email`、`notify-customer-quote-request`、`sync-asana-factories` 已部署分支（worker-secret 模式）
 - Cron：`fds-send-quote-email`（15 分鐘）、`fds-notify-customer-request`（10 分鐘）、`fds-sync-asana-factories`（每日 02:41），host 已確認指向分支
 - Secrets：`FDS_EMAIL_FROM`、`RESEND_API_KEY`、`FDS_APP_URL`、`ASANA_ACCESS_TOKEN`
