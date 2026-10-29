@@ -6590,6 +6590,7 @@ export function QuotationDraftEditor({
           assets={photoLibrary}
           productPhotos={quoteProductPhotos}
           photoZones={quotePhotoZones}
+          quoteUuid={existingQuote?.quoteUuid ?? null}
           photos={quotePhotoAssets.map((asset) => ({
             assetId: asset.id,
             title: asset.title,

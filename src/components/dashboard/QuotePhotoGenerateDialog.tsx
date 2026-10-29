@@ -55,6 +55,7 @@ export function QuotePhotoGenerateDialog({
   onClose,
   choices,
   zones = [],
+  quoteUuid = null,
   libraryCount,
   onGenerated,
 }: {
@@ -64,6 +65,8 @@ export function QuotePhotoGenerateDialog({
   choices: GenerateChoice[];
   /** 平面圖識別出的分區。沒有分區時改顯示常用描述。 */
   zones?: QuotePhotoZone[];
+  /** FDS-13：所屬報價；有值時 Edge 會重查報價範圍。 */
+  quoteUuid?: string | null;
   /** 圖片庫現有張數，用來擋上限。 */
   libraryCount: number;
   onGenerated: (asset: QuotePhotoAsset) => void;
@@ -190,6 +193,7 @@ export function QuotePhotoGenerateDialog({
         prompt: promptToSend,
         aspectRatio: ratio,
         referenceUrls,
+        quoteUuid,
       });
       onGenerated(asset);
       setPrompt('');

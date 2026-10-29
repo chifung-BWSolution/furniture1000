@@ -81,8 +81,9 @@ import {
   fetchSharedCustomerQuote,
   listCustomerQuotes,
   loadCustomerSafeItems,
-  saveCustomerQuoteScheme,
+  submitCustomerQuoteRequest,
 } from '@/lib/customerQuoteAccess';
+import { recordQuoteShareView } from '@/lib/quoteEmailFollowUp';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 import { unsavedGuard } from '@/lib/unsavedGuard';
 import {
@@ -2855,6 +2856,22 @@ export function CustomerQuoteSchemesView() {
     return () => unsavedGuard.setLeaveHandler(null);
   }, [showDetail]);
 
+  /**
+   * FDS-15：客戶真的用瀏覽器打開授權頁（JS 已執行、報價已載入）才算有效查看，
+   * 並只停這張報價的自動跟進。GET 請求、圖片載入與已知掃描器都不會走到這裡。
+   */
+  const shareViewRecordedRef = useRef(false);
+  useEffect(() => {
+    if (!showDetail || itemsLoading) return;
+    if (shareViewRecordedRef.current) return;
+    // 只有客戶（或未登入的分享連結訪客）才算查看；同事預覽自己的連結不會停信。
+    if (profileRole && profileRole !== 'client') return;
+    const shareToken = readStoredQuoteShareToken();
+    if (!shareToken) return;
+    shareViewRecordedRef.current = true;
+    void recordQuoteShareView(shareToken);
+  }, [showDetail, itemsLoading, activeId, profileRole]);
+
   useEffect(() => {
     if (!showDetail) return;
     const handler = (event: BeforeUnloadEvent) => {
@@ -2916,13 +2933,18 @@ export function CustomerQuoteSchemesView() {
       }
 
       if (quoteUuid && !costStaff) {
-        await saveCustomerQuoteScheme({
+        // FDS-14: the customer's submission becomes a request record. The official
+        // quote keeps its own unit prices, quantities and total until the PM confirms.
+        await submitCustomerQuoteRequest({
           token: readStoredQuoteShareToken(),
           quoteId: quoteUuid,
+          note: quoteNote.trim(),
+          requestType: 'scheme',
           lines: productItems.map((item) => ({
             id: item.id!,
             quantity: quantities[item.id!] || 0,
             selected: Boolean(selections[item.id!]),
+            note: (itemDraftNotes[item.id!] || '').trim() || undefined,
           })),
         });
       } else if (quoteUuid) {
@@ -3071,10 +3093,12 @@ export function CustomerQuoteSchemesView() {
       });
       unsavedGuard.clear();
       await fetchQuotes();
-      toast.success('已儲存報價方案', {
-        description: linkedProject
-          ? '選擇、數量已寫入設計專案與報價文件'
-          : '選擇、數量已寫入報價文件',
+      toast.success(costStaff ? '已儲存報價方案' : '已提交選擇及數量', {
+        description: costStaff
+          ? (linkedProject
+            ? '選擇、數量已寫入設計專案與報價文件'
+            : '選擇、數量已寫入報價文件')
+          : '已記錄你的選品、數量與需求。負責同事確認後會再與你安排正式報價，正式價格不會因這次提交而改變。',
       });
     } catch (error) {
       toast.error('儲存失敗', {
@@ -3094,6 +3118,7 @@ export function CustomerQuoteSchemesView() {
     items,
     quoteDecision,
     quoteNote,
+    itemDraftNotes,
     costStaff,
     resolveLinkedProject,
   ]);

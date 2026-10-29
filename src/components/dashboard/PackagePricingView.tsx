@@ -20,14 +20,18 @@ import {
   formatPackageMoney,
   lineCents,
   packageSharePath,
+  parsePackagePrice,
+  parsePackageQuantity,
+  toCents,
   totalCents,
+  validatePackageLines,
   type PackageLine,
 } from '@/lib/packagePricingMath';
 import { PackageImportPicker } from '@/components/dashboard/PackageImportPicker';
 import { buildPackageQuotePdf } from '@/components/dashboard/packageQuotePdf';
 
 function moneyInput(value: number | null): string {
-  return value == null ? '' : String(value);
+  return value == null || !Number.isFinite(value) ? '' : String(value);
 }
 
 export function PackagePricingView() {
@@ -49,6 +53,18 @@ export function PackagePricingView() {
   const frozen = Boolean(quoteId);
   const areas = useMemo(() => areaTotals(lines), [lines]);
   const total = useMemo(() => totalCents(lines), [lines]);
+  const problems = useMemo(() => (lines.length === 0 ? [] : validatePackageLines(lines)), [lines]);
+  const problemsByLine = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const problem of problems) {
+      if (!problem.lineId) continue;
+      const list = map.get(problem.lineId) || [];
+      if (!list.includes(problem.message)) list.push(problem.message);
+      map.set(problem.lineId, list);
+    }
+    return map;
+  }, [problems]);
+  const blockedReason = problems.length > 0 ? problems[0].message : '';
 
   const reloadSaved = async () => {
     const result = await listPackageQuotes();
@@ -98,22 +114,21 @@ export function PackagePricingView() {
   }, [quoteId]);
 
   const setQuantity = (id: string, raw: string) => {
-    const quantity = raw === '' ? 0 : Number(raw);
-    setLines((current) =>
-      current.map((line) => (line.id === id ? { ...line, quantity: Number.isFinite(quantity) ? quantity : 0 } : line)),
-    );
+    const quantity = parsePackageQuantity(raw);
+    setLines((current) => current.map((line) => (line.id === id ? { ...line, quantity } : line)));
   };
 
   const setPrice = (id: string, raw: string) => {
-    const unitPrice = raw === '' ? null : Number(raw);
-    setLines((current) =>
-      current.map((line) =>
-        line.id === id ? { ...line, unitPrice: unitPrice != null && Number.isFinite(unitPrice) ? unitPrice : null } : line,
-      ),
-    );
+    const unitPrice = parsePackagePrice(raw);
+    setLines((current) => current.map((line) => (line.id === id ? { ...line, unitPrice } : line)));
   };
 
   const persist = async (): Promise<string | null> => {
+    const blocking = validatePackageLines(lines);
+    if (blocking.length > 0) {
+      setErrorMessage(blocking[0].message);
+      return null;
+    }
     const result = await savePackageQuote({ id: quoteId || null, title, lines });
     if (result.error || !result.id) {
       setErrorMessage(packageQuoteErrorMessage(result.error));
@@ -138,7 +153,11 @@ export function PackagePricingView() {
   };
 
   const writeBasePrice = async (line: PackageLine) => {
-    if (line.unitPrice == null) return;
+    if (line.unitPrice == null || !Number.isFinite(line.unitPrice) || line.unitPrice < 0) {
+      setMessage('');
+      setErrorMessage('基準價未寫入：平均價必須是 0 或正數。');
+      return;
+    }
     setBusy(true);
     setErrorMessage('');
     const error = await savePackageBasePrice(line.templateId || line.id, line.unitPrice);
@@ -266,7 +285,22 @@ export function PackagePricingView() {
             <tbody>
               {lines.filter((line) => line.area === area.area).map((line) => (
                 <tr key={line.id} className="border-b">
-                  <td className="px-2 py-1">{line.itemName}{line.sourceItem ? <div className="text-xs text-muted-foreground">原項目：{line.sourceItem}{line.sourceDescription ? ` · ${line.sourceDescription}` : ''}</div> : null}</td>
+                  <td className="px-2 py-1">
+                    {line.itemName}
+                    {line.sourceItem ? (
+                      <div className="text-xs text-muted-foreground">
+                        原項目：{line.sourceItem}{line.sourceDescription ? ` · ${line.sourceDescription}` : ''}
+                      </div>
+                    ) : null}
+                    {line.sourceItem || line.sourceQuotationNo || line.sourceSectionName ? (
+                      <div className="text-xs text-muted-foreground">
+                        來源：{[line.sourcePitchingCode, line.sourceQuotationNo, line.sourceSectionName].filter(Boolean).join(' · ')}
+                      </div>
+                    ) : null}
+                    {problemsByLine.get(line.id)?.length ? (
+                      <div className="text-xs text-destructive">{problemsByLine.get(line.id)!.join('；')}</div>
+                    ) : null}
+                  </td>
                   <td className="px-2 py-1">{line.grade}</td>
                   <td className="px-2 py-1">{line.material}</td>
                   <td className="px-2 py-1">{line.dimension}</td>
@@ -277,7 +311,7 @@ export function PackagePricingView() {
                       type="number"
                       min={0}
                       step="any"
-                      value={line.quantity}
+                      value={Number.isFinite(line.quantity) ? line.quantity : ''}
                       onChange={(event) => setQuantity(line.id, event.target.value)}
                     />
                   </td>
@@ -295,7 +329,7 @@ export function PackagePricingView() {
                         </Button>
                       </span>
                     ) : (
-                      line.unitPrice == null ? '' : formatPackageMoney(Math.round(line.unitPrice * 100))
+                      line.unitPrice == null ? '' : formatPackageMoney(toCents(line.unitPrice) ?? 0)
                     )}
                   </td>
                   <td className="px-2 py-1">{formatPackageMoney(lineCents(line.quantity, line.unitPrice))}</td>
@@ -309,15 +343,18 @@ export function PackagePricingView() {
       ))}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-lg font-semibold">總額 {formatPackageMoney(total)}</p>
+        <div>
+          <p className="text-lg font-semibold">總額 {formatPackageMoney(total)}</p>
+          {blockedReason ? <p className="text-sm text-destructive">未能儲存或分享：{blockedReason}</p> : null}
+        </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={busy || loading || !imported || lines.length === 0} onClick={() => void save()}>
+          <Button type="button" disabled={busy || loading || !imported || lines.length === 0 || problems.length > 0} onClick={() => void save()}>
             儲存
           </Button>
-          <Button type="button" variant="outline" disabled={busy || loading || !imported || lines.length === 0} onClick={() => void share()}>
+          <Button type="button" variant="outline" disabled={busy || loading || !imported || lines.length === 0 || problems.length > 0} onClick={() => void share()}>
             客戶連結
           </Button>
-          <Button type="button" variant="outline" disabled={busy || loading || !imported || lines.length === 0} onClick={() => void downloadPdf()}>
+          <Button type="button" variant="outline" disabled={busy || loading || !imported || lines.length === 0 || problems.length > 0} onClick={() => void downloadPdf()}>
             下載 PDF
           </Button>
         </div>

@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { AsanaFactoryLinkPanel } from '@/components/dashboard/AsanaFactoryLinkPanel';
 import {
   ArrowLeft,
   Copy,
@@ -340,7 +341,10 @@ export function FactoryDetailView({
             transition={{ duration: reduceMotion ? 0.12 : 0.22, ease: inkEase }}
           >
             {activeTab === 'info' && (
-              <FactoryInfoTab factory={factory} onUpdated={(updated) => setFactory(updated)} />
+              <>
+                <FactoryInfoTab factory={factory} onUpdated={(updated) => setFactory(updated)} />
+                <AsanaFactoryLinkPanel factoryId={factory.id} factoryName={factory.display_name} />
+              </>
             )}
             {activeTab === 'orders' && <FactoryOrdersTab records={orderHistoryRecords} />}
             {activeTab === 'comments' && (

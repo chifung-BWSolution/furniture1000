@@ -715,6 +715,7 @@ export function PresentationView() {
   const [exportRows, setExportRows] = useState<CanvaDesignExportRow[]>([]);
   const [generationProbe, setGenerationProbe] = useState<Awaited<ReturnType<typeof probeCanvaNative>> | null>(null);
   const [generationPending, setGenerationPending] = useState(false);
+  const [continuingId, setContinuingId] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState('');
   const [statusReadError, setStatusReadError] = useState('');
   const [listDrawer, setListDrawer] = useState<null | 'drafts' | 'designs'>(null);
@@ -1178,8 +1179,8 @@ export function PresentationView() {
     refreshSessionDetail(s.id);
   };
 
-  const newVersion = async (parent: CanvaDesignSession) => {
-    if (disabled) return;
+  const newVersion = async (parent: CanvaDesignSession): Promise<boolean> => {
+    if (disabled) return false;
     setGenerationError('');
     setStatusReadError('');
     setCanvaLink(null);
@@ -1203,8 +1204,21 @@ export function PresentationView() {
       toast.message('已建立新版本草稿', { description: '確認後可再次建立 Gamma 設計，不覆蓋舊設計。' });
       await refreshSessions();
       await refreshSessionDetail(session_id);
+      return true;
     } catch (err) {
       toast.error('無法建立新版本', { description: errorText(err) });
+      return false;
+    }
+  };
+
+  /** Reopen a generated draft by cloning it into a new version, so the Gamma deck is never overwritten. */
+  const continueEditing = async (session: CanvaDesignSession) => {
+    if (disabled || continuingId) return;
+    setContinuingId(session.id);
+    try {
+      if (await newVersion(session)) setWizardStep(1);
+    } finally {
+      setContinuingId(null);
     }
   };
 
@@ -1604,7 +1618,8 @@ export function PresentationView() {
             <li key={s.id}>
               <button
                 type="button"
-                onClick={() => { loadSession(s); setListDrawer(null); }}
+                onClick={() => { setListDrawer(null); if (design) void continueEditing(s); else loadSession(s); }}
+                disabled={continuingId === s.id}
                 className="flex w-full items-start gap-3 rounded-xl px-1 py-2 text-left hover:bg-muted/60"
               >
                 <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">
@@ -1618,7 +1633,7 @@ export function PresentationView() {
                       : 'bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-950/50 dark:text-orange-200')}>{badge}</Badge>
                   </span>
                   <span className="mt-0.5 block truncate text-xs text-muted-foreground">{design
-                    ? '已生成過，可載入後建立新版本繼續編輯'
+                    ? continuingId === s.id ? '正在建立新版本…' : '點擊建立新版本繼續編輯（不覆蓋 Gamma 原稿）'
                     : s.status === 'creating' ? '等待 Gamma 生成' : s.status === 'failed' ? '生成失敗，可重新生成' : '尚未生成 Gamma 設計'}</span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">更新：{formatRecentTime(s.updated_at || s.created_at)}</span>
                 </span>

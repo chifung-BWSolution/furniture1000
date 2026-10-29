@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { listPackageSourceQuotes, loadPackageSourceItems, searchPackagePitchings, type PackagePitching, type PackageSourceQuote, type PackageSourceItem, type PackageSourceSection } from '@/lib/packagePricing';
-import type { PackageLine } from '@/lib/packagePricingMath';
+import { parsePackageQuantity, type PackageLine } from '@/lib/packagePricingMath';
 
 function normal(value: string) { return value.trim().toLowerCase().replace(/[\s\p{P}\p{S}]/gu, ''); }
 
@@ -50,11 +50,26 @@ export function PackageImportPicker({ template, onImport }: { template: PackageL
     return () => { active = false; };
   }, [pitching, quote, template]);
   const importLines = () => {
+    const quoteRow = quotes.find((row) => row.id === quote) ?? null;
     const lines = items.flatMap(item => {
       const base = template.find(line => line.id === matches[item.id]);
       if (!base) return [];
-      const quantity = Number(item.quantity);
-      return [{ ...base, id: item.id, templateId: base.id, sourcePitchingId: pitching?.id, sourceQuotationId: quote, sourceSectionId: item.section_id, sourceItem: item.item || '', sourceDescription: item.description || '', quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 0 }];
+      const quantity = parsePackageQuantity(String(item.quantity ?? ''));
+      const section = sections.find(section => section.id === item.section_id);
+      return [{
+        ...base,
+        id: item.id,
+        templateId: base.id,
+        sourcePitchingId: pitching?.id,
+        sourcePitchingCode: pitching?.pitching_code || undefined,
+        sourceQuotationId: quote,
+        sourceQuotationNo: quoteRow ? [quoteRow.quotation_no || quoteRow.name, quoteRow.version_number != null ? `V${quoteRow.version_number}` : ''].filter(Boolean).join(' ') : undefined,
+        sourceSectionId: item.section_id,
+        sourceSectionName: section?.name || undefined,
+        sourceItem: item.item || '',
+        sourceDescription: item.description || '',
+        quantity: Number.isFinite(quantity) ? quantity : Number.NaN,
+      }];
     });
     onImport(lines, `${pitching?.pitching_code || '項目'} 套餐參考報價`);
   };
