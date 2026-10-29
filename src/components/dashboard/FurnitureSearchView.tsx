@@ -114,7 +114,6 @@ import {
   fetchProductSkpStatus,
   fetchSkpRequirements,
   fetchSkpStatus,
-  PRODUCT_SKP_STAGE_LABELS,
   productSkpActive,
   productSkpErrorText,
   registerGeneratedFile,
@@ -1633,7 +1632,7 @@ function ProductModelsSection({
   const skpRequirements = useSkpRequirements();
 
   /** Local Codex generation (codex_v1): one server job per product; its status survives leaving the page. */
-  const [codexEntry, setCodexEntry] = useState(false);
+  const [codexEntry, setCodexEntry] = useState<boolean | null>(null);
   const [codexJob, setCodexJob] = useState<ProductSkpJob | null>(null);
   const [codexChoice, setCodexChoice] = useState(false);
   const [codexReplace, setCodexReplace] = useState<string[]>([]);
@@ -1646,7 +1645,7 @@ function ProductModelsSection({
     let cancelled = false;
     fetchSkpRequirements()
       .then((r) => { if (!cancelled) setCodexEntry(r.codex_entry === true); })
-      .catch(() => undefined);
+      .catch(() => { if (!cancelled) toast.error('無法確認模型生成模式，請重新載入頁面'); });
     return () => { cancelled = true; };
   }, []);
   useEffect(() => {
@@ -1708,8 +1707,8 @@ function ProductModelsSection({
       setCodexJob(job);
       setCodexChoice(false);
       setExtraPhotos([]);
-      toast.success(job.status !== 'none' && job.already_queued ? '此產品已有生成中的任務' : '已交給本機 Codex 建模', {
-        description: '完成後會出現 SKP、FBX（含貼圖 ZIP）及 GLB，可以離開此頁。',
+      toast.success(job.status !== 'none' && job.already_queued ? '此產品已有生成中的任務' : '已提交 Worker 排隊', {
+        description: 'Worker 會調用 Codex 建模，等待完成即可；可以離開此頁。',
       });
     } catch (err) {
       toast.error('未能開始生成', { description: errorText(err) });
@@ -2063,6 +2062,8 @@ function ProductModelsSection({
 
 
   useEffect(() => {
+    // Codex sends selected photos directly; do not reopen old recognition drafts.
+    if (codexEntry !== false) return;
     let cancelled = false;
     let timer = 0;
     const tick = async () => {
@@ -2089,7 +2090,7 @@ function ProductModelsSection({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [productId, recognition?.jobId]);
+  }, [productId, recognition?.jobId, codexEntry]);
 
   /** Queue image recognition. The confirm dialog opens when the job finishes, even after leaving this page. */
   const prepare = async (target: ModelTarget, choice: ProductScopeChoice | null | undefined = scopeChoice, reuseUrls = false, selectedPhotos?: (string | File)[]) => {
@@ -2775,13 +2776,13 @@ function ProductModelsSection({
         {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
         <div className="flex flex-wrap gap-1.5">
           {/* FDS-06：兩個明確動作，各自對應一個交付格式；GLB 不當主按鈕名稱。 */}
-          <Button size="sm" className={workbench ? 'h-10 rounded-lg bg-[#5b4dff] px-4 hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null || skpRunning || recognitionActive} onClick={onSkpAction}>
-            {busy === 'skp' || recognitionActive ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : workbench ? <Sparkles className="mr-1 h-3.5 w-3.5" /> : null}
-            {recognitionActive ? '辨認中' : skpButtonLabel}
+          <Button size="sm" className={workbench ? 'h-10 rounded-lg bg-[#5b4dff] px-4 hover:bg-[#4d40e6]' : 'h-7'} disabled={codexEntry == null || busy != null || skpRunning || (codexEntry === false && recognitionActive)} onClick={onSkpAction}>
+            {busy === 'skp' || (codexEntry === false && recognitionActive) ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : workbench ? <Sparkles className="mr-1 h-3.5 w-3.5" /> : null}
+            {codexEntry === false && recognitionActive ? '辨認中' : skpButtonLabel}
           </Button>
-          <Button size="sm" variant="outline" className={workbench ? 'h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50' : 'h-7'} disabled={busy != null || recognitionActive || codexActive} onClick={onFbxAction}>
-            {busy === 'fbx' || recognitionActive ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-            {recognitionActive ? '辨認中' : fbxButtonLabel}
+          <Button size="sm" variant="outline" className={workbench ? 'h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50' : 'h-7'} disabled={codexEntry == null || busy != null || (codexEntry === false && recognitionActive) || codexActive} onClick={onFbxAction}>
+            {busy === 'fbx' || (codexEntry === false && recognitionActive) ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            {codexEntry === false && recognitionActive ? '辨認中' : fbxButtonLabel}
           </Button>
           {workbench ? (
             <DropdownMenu>
@@ -3065,8 +3066,8 @@ function ProductModelsSection({
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {codexJob.status === 'queued'
-                ? `排隊中，等待 Codex Worker 領取${codexJob.attempts > 0 ? `（第 ${codexJob.attempts + 1} 次嘗試）` : ''}`
-                : `${PRODUCT_SKP_STAGE_LABELS[codexJob.stage ?? 'download'] ?? '處理中'}${codexJob.stage_detail ? `：${codexJob.stage_detail}` : ''}`}
+                ? '已提交 Worker 排隊，等待完成即可。'
+                : 'Worker 已領取任務並處理中，等待完成即可。'}
               <button type="button" className="text-primary hover:underline" onClick={() => void cancelCodex()}>停止</button>
             </>
           ) : (
