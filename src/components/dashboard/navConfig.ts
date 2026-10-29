@@ -78,7 +78,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Wallet,
     children: [
       { view: 'fds2-pm-budget', label: '報價預算', icon: CircleDollarSign },
-      { view: 'fds2-pm-quick', label: '快速報價', icon: Calculator },
+      { view: 'fds2-pm-package', label: '快速報價', icon: Calculator },
       { view: 'fds2-pm-presentation', label: '簡報生成', icon: Presentation },
     ],
   },

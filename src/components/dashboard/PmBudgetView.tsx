@@ -5,6 +5,7 @@ import { PM_QUICK_PATH, pmInquiryPath } from '@/content/bwaPm';
 import {
   formatHkMoney,
   getPmQuoteItems,
+  listPmQuickQuotes,
   listPmQuotesForWork,
   pmQuoteErrorMessage,
   type PmQuoteItem,
@@ -33,7 +34,7 @@ interface QuoteWithItems {
   items: PmQuoteItem[];
 }
 
-export function PmBudgetView() {
+function PmBudgetWorkSearch() {
   const [workQuery, setWorkQuery] = useState('');
   const [workOptions, setWorkOptions] = useState<BwaWorkOption[]>([]);
   const [workError, setWorkError] = useState('');
@@ -357,6 +358,118 @@ export function PmBudgetView() {
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── 報價預算（已報價列表） ────────────────────────────────────────────────
+// 預設列出所有 PM 快速報價單；「按工程試算」仍保留原本的 BWA 工程預算工具。
+export function PmBudgetView() {
+  const [mode, setMode] = useState<'list' | 'search'>('list');
+  if (mode === 'search') {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="px-4 pt-4 sm:px-6">
+          <Button type="button" variant="outline" size="sm" onClick={() => setMode('list')}>
+            返回預算列表
+          </Button>
+        </div>
+        <PmBudgetWorkSearch />
+      </div>
+    );
+  }
+  return <PmBudgetList onSearch={() => setMode('search')} />;
+}
+
+function PmBudgetList({ onSearch }: { onSearch: () => void }) {
+  const [rows, setRows] = useState<PmQuoteSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    void listPmQuickQuotes()
+      .then((result) => {
+        if (cancelled) return;
+        if (result.error) setError(pmQuoteErrorMessage(result.error));
+        else setRows(result.rows);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const total = rows.reduce((sum, row) => sum + row.totalAmount, 0);
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">報價預算</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            已報價的快速報價單（{rows.length} 張，合計 {formatHkMoney(total)}）。打開可看明細與預算試算。
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={onSearch}>
+            按工程試算
+          </Button>
+          <Button asChild>
+            <Link to={PM_QUICK_PATH}>新增預算</Link>
+          </Button>
+        </div>
+      </div>
+
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {loading ? (
+        <p className="text-sm text-muted-foreground">載入中…</p>
+      ) : rows.length === 0 ? (
+        <EmptyState
+          title="還沒有快速報價單"
+          description="按「新增預算」建立第一張 PM 快速報價單。"
+        />
+      ) : (
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full min-w-[880px] text-left text-sm">
+            <thead className="bg-muted/50 text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">單號</th>
+                <th className="px-3 py-2 font-medium">工程／提案</th>
+                <th className="px-3 py-2 font-medium">負責人</th>
+                <th className="px-3 py-2 font-medium">日期</th>
+                <th className="px-3 py-2 text-right font-medium">金額</th>
+                <th className="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} className="border-t">
+                  <td className="px-3 py-2 font-mono-data text-xs">{row.quoteId || row.id}</td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium">{row.bwaProjectName || row.bwaProjectRef || '—'}</div>
+                    {row.bwaProjectRef && row.bwaProjectName ? (
+                      <div className="text-xs text-muted-foreground">{row.bwaProjectRef}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2">{row.submitter || '—'}</td>
+                  <td className="px-3 py-2">{formatListDate(row.createdAt)}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{formatHkMoney(row.totalAmount)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <Button asChild size="sm" variant="outline">
+                      <Link to={`${PM_QUICK_PATH}?quote=${row.id}`}>打開</Link>
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

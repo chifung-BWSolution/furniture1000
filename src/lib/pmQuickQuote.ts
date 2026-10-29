@@ -307,3 +307,33 @@ export async function getPmQuickQuote(
   const items = itemsByQuote[summary.id] || [];
   return { quote: { ...summary, items }, error: null };
 }
+
+/** 報價預算列表：所有 PM 快速報價單（status=快速報價），只取列表用的輕量欄位。 */
+export async function listPmQuickQuotes(limit = 200): Promise<{ rows: PmQuoteSummary[]; error: PgError }> {
+  const { data, error } = await supabase
+    .from('bwf_quote')
+    .select('id,quote_id,bwa_pitching_id,bwa_project_id,bwa_project_ref,bwa_project_name,total_amount,submitter,created_at')
+    .eq('status', PM_QUOTE_STATUS)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) return { rows: [], error };
+  const rows = (Array.isArray(data) ? data : [])
+    .map((row): PmQuoteSummary | null => {
+      const record = row as Record<string, unknown>;
+      if (typeof record.id !== 'string') return null;
+      return {
+        id: record.id,
+        quoteId: String(record.quote_id || ''),
+        bwaPitchingId: asUuid(record.bwa_pitching_id),
+        bwaProjectId: asUuid(record.bwa_project_id),
+        bwaProjectRef: String(record.bwa_project_ref || ''),
+        bwaProjectName: String(record.bwa_project_name || ''),
+        totalAmount: asNumber(record.total_amount),
+        submitter: String(record.submitter || ''),
+        createdAt: typeof record.created_at === 'string' ? record.created_at : '',
+        itemCount: 0,
+      };
+    })
+    .filter((row): row is PmQuoteSummary => row !== null);
+  return { rows, error: null };
+}
