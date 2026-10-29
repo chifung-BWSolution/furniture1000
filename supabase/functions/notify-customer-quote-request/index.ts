@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { escapeHtml, isSafeEmail, sendEmail } from "../_shared/email.ts";
+import { isSafeEmail, sendEmail } from "../_shared/email.ts";
+import { buildQuoteRequestEmail } from "../_shared/quoteRequestEmail.ts";
 import { buildQuoteViewEmail } from "../_shared/quoteViewEmail.ts";
 
 /**
@@ -79,51 +80,21 @@ async function authorize(req: Request, admin: SupabaseClient): Promise<Response 
   return null;
 }
 
-function money(cents: number): string {
-  return `HK$ ${(Math.max(0, Number(cents) || 0) / 100).toLocaleString("en-HK", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
 function selectedLines(request: ClaimedRequest) {
   return (request.lines ?? []).filter((line) => line.selected && Number(line.quantity) > 0);
 }
 
 function buildMessage(request: ClaimedRequest): { subject: string; text: string; html: string } {
   const appUrl = (Deno.env.get("FDS_APP_URL") ?? "").trim().replace(/\/+$/, "");
-  const quoteLink = appUrl ? `${appUrl}/quote/${encodeURIComponent(request.quote_id)}` : "";
-  const rows = selectedLines(request);
-  const subject = `客戶提交報價選擇：${request.quote_id || "未命名報價"}`;
-  const linesText = rows.length
-    ? rows.map((line) => `- ${line.name || "未命名項目"} × ${line.quantity}${line.unit ? ` ${line.unit}` : ""}${line.note ? `（${line.note}）` : ""}`).join("\n")
-    : "- 客戶沒有勾選項目，只留下需求說明。";
-  const text = [
-    `${request.quote_id || "報價"} 收到客戶提交。`,
-    "",
-    linesText,
-    "",
-    `客戶選品合計（只作參考，不是正式報價金額）：${money(request.total_cents)}`,
-    request.note ? `客戶需求：${request.note}` : "",
-    request.pm_name ? `負責同事：${request.pm_name}` : "",
-    quoteLink ? `開啟報價：${quoteLink}` : "",
-    "",
-    "客戶提交不會改寫正式報價的單價、明細或總額；請確認後另行處理正式報價。",
-  ].filter((row) => row !== "").join("\n");
-
-  const rowsHtml = rows.length
-    ? rows.map((line) => `<li>${escapeHtml(line.name || "未命名項目")} × ${escapeHtml(String(line.quantity ?? ""))}${line.unit ? ` ${escapeHtml(line.unit)}` : ""}${line.note ? `（${escapeHtml(line.note)}）` : ""}</li>`).join("")
-    : "<li>客戶沒有勾選項目，只留下需求說明。</li>";
-  const html = `<div style="font-family:system-ui,-apple-system,'Noto Sans HK',sans-serif;font-size:14px;line-height:1.6;color:#1a1a2e;">
-  <p>${escapeHtml(request.quote_id || "報價")} 收到客戶提交。</p>
-  <ul>${rowsHtml}</ul>
-  <p>客戶選品合計（只作參考，不是正式報價金額）：<strong>${escapeHtml(money(request.total_cents))}</strong></p>
-  ${request.note ? `<p>客戶需求：${escapeHtml(request.note)}</p>` : ""}
-  ${request.pm_name ? `<p>負責同事：${escapeHtml(request.pm_name)}</p>` : ""}
-  ${quoteLink ? `<p><a href="${escapeHtml(quoteLink)}">開啟報價</a></p>` : ""}
-  <p style="color:#555">客戶提交不會改寫正式報價的單價、明細或總額；請確認後另行處理正式報價。</p>
-</div>`;
-  return { subject, text, html };
+  const quoteUrl = appUrl ? `${appUrl}/quote/${encodeURIComponent(request.quote_id)}` : "";
+  return buildQuoteRequestEmail({
+    quoteId: request.quote_id,
+    lines: selectedLines(request),
+    note: request.note,
+    totalCents: request.total_cents,
+    pmName: request.pm_name,
+    quoteUrl,
+  });
 }
 
 async function recordEmailLog(

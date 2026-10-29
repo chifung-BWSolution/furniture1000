@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { escapeHtml, isSafeEmail, sendEmail } from "../_shared/email.ts";
+import { isSafeEmail, sendEmail } from "../_shared/email.ts";
+import { buildQuoteCustomerEmail } from "../_shared/quoteCustomerEmail.ts";
 
 /**
  * FDS-15 郵件 worker。
@@ -79,13 +80,6 @@ async function authorize(req: Request, admin: SupabaseClient): Promise<Response 
   return null;
 }
 
-function money(dollars: number): string {
-  return `HK$ ${(Math.max(0, Number(dollars) || 0)).toLocaleString("en-HK", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
 function appUrl(): string {
   return (Deno.env.get("FDS_APP_URL") ?? "").trim().replace(/\/+$/, "");
 }
@@ -96,54 +90,18 @@ function shareUrl(token: string | null): string {
   return `${base}/customer?quote_share=${encodeURIComponent(token)}`;
 }
 
-function plainCustomSections(row: ClaimedEmail): Array<{ title: string; body: string }> {
-  if (!Array.isArray(row.custom_sections)) return [];
-  return row.custom_sections.flatMap((section) => {
-    const title = String(section?.title ?? "").trim().slice(0, 60);
-    const body = String(section?.body ?? "").trim().slice(0, 800);
-    if (!title && !body) return [];
-    return [{ title, body }];
-  });
-}
-
 function buildMessage(row: ClaimedEmail): { subject: string; text: string; html: string } {
-  const count = Math.max(0, Number(row.item_count) || 0);
-  const link = shareUrl(row.share_token);
-  const intro = String(row.intro_text ?? "").trim();
-  const summary = [
-    count > 0 ? `共 ${count} 項傢俬。` : "報價內容請見加單授權連結。",
-    row.sample_items ? `包括：${row.sample_items}。` : "",
-    Number(row.total_amount) > 0 ? `參考總額 ${money(Number(row.total_amount))}。` : "",
-    intro,
-  ].filter(Boolean).join(" ");
-
-  const isFollowUp = row.kind === "follow_up";
-  const subject = isFollowUp
-    ? `跟進：${row.quote_id || "傢俬方案"}（可隨時加單或改數量）`
-    : `${row.quote_id || "傢俬方案"} 報價及加單連結`;
-
-  const custom = plainCustomSections(row);
-  const textBlocks = [
-    summary,
-    `如對方案有任何問題，可致電 ${row.contact_phone} 與負責同事聯絡。`,
-    link ? `需要加單、改數量或替換款式，請用這個連結提交：${link}` : "",
-    ...custom.map((section) => [section.title, section.body].filter(Boolean).join("\n")),
-    "此為系統發出的參考報價通知，正式報價以雙方確認的版本為準。",
-  ].filter(Boolean);
-
-  const htmlBlocks = [
-    `<p>${escapeHtml(summary)}</p>`,
-    `<p>如對方案有任何問題，可致電 <strong>${escapeHtml(row.contact_phone)}</strong> 與負責同事聯絡。</p>`,
-    link ? `<p>需要加單、改數量或替換款式，請用<a href="${escapeHtml(link)}">這個連結</a>提交。</p>` : "",
-    ...custom.map((section) => `<section><h3 style="font-size:14px;margin:16px 0 4px;">${escapeHtml(section.title)}</h3><p style="white-space:pre-wrap;margin:0;">${escapeHtml(section.body)}</p></section>`),
-    `<p style="color:#666;font-size:12px;">此為系統發出的參考報價通知，正式報價以雙方確認的版本為準。</p>`,
-  ].filter(Boolean);
-
-  return {
-    subject,
-    text: textBlocks.join("\n\n"),
-    html: `<div style="font-family:system-ui,-apple-system,'Noto Sans HK',sans-serif;font-size:14px;line-height:1.7;color:#1a1a2e;">${htmlBlocks.join("")}</div>`,
-  };
+  return buildQuoteCustomerEmail({
+    kind: row.kind,
+    quoteId: row.quote_id,
+    introText: row.intro_text,
+    contactPhone: row.contact_phone,
+    customSections: row.custom_sections,
+    itemCount: row.item_count,
+    totalAmount: row.total_amount,
+    sampleItems: row.sample_items,
+    shareUrl: shareUrl(row.share_token),
+  });
 }
 
 async function recordLog(
