@@ -7,6 +7,8 @@ export interface PresentationZoneDraft {
   name: string;
   imageUrl?: string;
   rect?: QuoteZoneRect | null;
+  /** All floor-plan areas belonging to this zone; rect remains the first area for compatibility. */
+  rects?: QuoteZoneRect[];
   spaceType?: string;
   quantity?: number;
   /** Slide title shown for this room. Falls back to the zone name. */
