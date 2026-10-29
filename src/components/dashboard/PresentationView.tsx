@@ -1,3 +1,4 @@
+import { generateQuoteReferenceImage } from '@/lib/quotePhotoLibrary';
 import { gammaEmbedUrl } from '@/lib/gammaPreview';
 import { PresentationImageField } from './PresentationImageField';
 import { PresentationZoneManager } from './PresentationZoneManager';
@@ -1282,6 +1283,7 @@ export function PresentationView() {
       content: latest.content?.trim() ? latest.content : imported.content,
       coverImageUrl: latest.coverImageUrl || imported.coverImageUrl || undefined,
       floorImageUrl: imported.floorImageUrl || latest.floorImageUrl,
+      floorEffectImageUrl: imported.floorImageUrl && imported.floorImageUrl !== latest.floorImageUrl ? undefined : latest.floorEffectImageUrl,
     });
     if (imported.floorImageUrl) setIncludeFloor(true);
     if (imported.zones.length) {
@@ -1826,7 +1828,7 @@ export function PresentationView() {
                     value={brief.floorImageUrl}
                     disabled={disabled}
                     onUploaded={recognizeFloor}
-                    onChange={(url) => { setBrief((current) => ({ ...current, floorImageUrl: url })); setIncludeFloor(Boolean(url)); }}
+                    onChange={(url) => { setBrief((current) => ({ ...current, floorImageUrl: url, floorEffectImageUrl: undefined })); setIncludeFloor(Boolean(url)); }}
                   />
                 </div>
               </div>
@@ -1855,6 +1857,19 @@ export function PresentationView() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {brief.floorImageUrl ? (
+                      <Button type="button" variant="outline" disabled={disabled} onClick={async () => {
+                        const source = brief.floorImageUrl;
+                        if (!source) return;
+                        trackUpload(1);
+                        try {
+                          const asset = await generateQuoteReferenceImage({ purpose: 'floor_plan', model: 'grok', aspectRatio: '16:9', referenceUrls: [source], prompt: '風格：淺橡木地板、米白與自然木色家具、深灰牆體、柔和日光和接觸陰影，少量綠植。正交頂視、建築模型質感、乾淨米色背景。以原圖佈局為最高優先，僅供提案效果參考。' });
+                          setBrief((current) => current.floorImageUrl === source ? { ...current, floorEffectImageUrl: asset.url } : current);
+                          toast.success('俯視效果圖已生成', { description: '請核對牆體、門窗與家具位置後儲存草稿。' });
+                        } catch (error) { toast.error('效果圖生成失敗', { description: errorText(error) }); }
+                        finally { trackUpload(-1); }
+                      }}>生成俯視效果圖</Button>
+                    ) : null}
                     {brief.floorImageUrl && zones.some((zone) => zone.rect) ? (
                       <Button type="button" variant="outline" disabled={disabled} onClick={async () => {
                         const request = ++floorRecognitionRequest.current;
@@ -1906,6 +1921,12 @@ export function PresentationView() {
                   </div>
                 )}
               </div>
+              {brief.floorEffectImageUrl ? (
+                <div className="rounded-xl border border-border p-3">
+                  <p className="mb-2 text-sm font-medium">俯視效果圖 · AI 生成，僅供設計參考，請核對原圖佈局</p>
+                  <LoadingImage src={brief.floorEffectImageUrl} alt="平面圖俯視效果圖" className="max-h-[480px] w-full" imgClassName="object-contain" />
+                </div>
+              ) : null}
               {zoneManagerOpen ? <PresentationZoneManager zones={zones} floorUrl={brief.floorImageUrl} onClose={() => setZoneManagerOpen(false)} onSave={(next) => {
                 setZones(next);
                 const ids = new Set(next.map((zone) => zone.id));

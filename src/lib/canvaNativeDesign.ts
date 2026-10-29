@@ -11,6 +11,7 @@ export interface CanvaDesignBrief {
   title: string;
   coverImageUrl?: string;
   floorImageUrl?: string;
+  floorEffectImageUrl?: string;
   /** PMS customer display name, or free text. */
   client?: string;
   /** client_companies.id when the user picked an existing client. */

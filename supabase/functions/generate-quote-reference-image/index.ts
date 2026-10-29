@@ -85,7 +85,7 @@ type ModelId = "grok" | "gemini";
 
 type GenerateBody = {
   /** Opt-in inferred drawing; existing scene generation remains the default. */
-  purpose?: "orthographic";
+  purpose?: "orthographic" | "floor_plan";
   productId?: string;
   model?: string;
   prompt?: string;
@@ -406,7 +406,7 @@ Deno.serve(async (req: Request) => {
 
   if ((raw.purpose !== 'orthographic' && !prompt) || prompt.length > PROMPT_MAX) return fail("quote_photo_generate_invalid", 400, "prompt");
   if (!RATIOS.has(aspectRatio)) return fail("quote_photo_generate_invalid", 400, "ratio");
-  if (raw.purpose !== undefined && raw.purpose !== "orthographic") return fail("quote_photo_generate_invalid", 400, "purpose");
+  if (raw.purpose !== undefined && raw.purpose !== "orthographic" && raw.purpose !== "floor_plan") return fail("quote_photo_generate_invalid", 400, "purpose");
   if (referenceIds.length > MAX_REFERENCES || rawReferenceUrls.length > MAX_REFERENCES) {
     return fail("quote_photo_generate_reference_limit", 400);
   }
@@ -416,6 +416,7 @@ Deno.serve(async (req: Request) => {
 
   // 參考圖片：產品圖直接用公開 URL；舊參數就由圖片庫 object path 組 URL。
   // xAI 可以直接拉 URL；Gemini 需要 inline base64。
+  if (raw.purpose === "floor_plan" && rawReferenceUrls.length !== 1) return fail("quote_photo_generate_invalid", 400, "referenceUrls");
   let referenceUrls: string[] = [];
   let referenceInline: Array<{ mimeType: string; data: string }> = [];
   if (rawReferenceUrls.length > 0) {
@@ -476,6 +477,8 @@ Deno.serve(async (req: Request) => {
   const composedPrompt =
     raw.purpose === "orthographic"
       ? `產品 ${productModel}。以下為 AI 根據產品圖及產品描述自動分析的繪圖依據，並非使用者確認的要求：${JSON.stringify(analysis)}。綜合全部2至3張同款產品參考圖。只繪製一件家具，移除場景、配件及其他家具。在白底同一張圖上，以相同比例繪製互相一致的正面、右側及俯視正投影，標示 FRONT、RIGHT、TOP，不使用透視。準確保留圖片可見的外形、支撐數量、折彎及通空處；材質及功能參考產品描述。未知或衝突細節不能變成確定結構，不得憑空新增板件、腳架、插座位置或裝飾。不虛構數字尺寸，宣傳內容不轉成幾何。圖上註明「AI 推測三視圖：隱藏結構及尺寸未核實」，不可宣稱為實測施工圖。`
+      : raw.purpose === "floor_plan"
+      ? `將第一張平面圖轉為正上方俯視的室內配置效果圖。嚴格保留外輪廓、牆體、門窗、走廊、房間相對比例和家具位置及數量。只改變表面材質和光影；不得重新設計佈局，不添加房間或家具，不推測尺寸。不要透視、不要文字或尺寸標註。${prompt}`
       : referenceUrls.length > 0
       ? [
         `把上傳的產品圖原樣放進場景。${referenceUrls.map((_, index) => `第${index + 1}張上傳圖是參考圖${index + 1}`).join('，')}。`,
