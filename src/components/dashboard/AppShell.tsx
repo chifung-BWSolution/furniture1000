@@ -831,8 +831,17 @@ function AppShellContent() {
     if (readStoredQuoteShareToken()) clearQuoteShareToken();
   }, [quoteShareToken, location.pathname]);
 
+  const lastSyncedLocationRef = useRef(`${location.pathname}${location.search}`);
+
   // Keep browser URL aligned with quote / design-project / customer / section views.
   useEffect(() => {
+    const incomingLocation = `${location.pathname}${location.search}`;
+    if (lastSyncedLocationRef.current !== incomingLocation) {
+      // A Link/back/forward navigation owns this render. Let the inbound route
+      // effect update currentView before writing a URL from the previous view.
+      lastSyncedLocationRef.current = incomingLocation;
+      return;
+    }
     let target: string | null = null;
     const token =
       new URLSearchParams(location.search).get('portal_token') ||
@@ -910,7 +919,7 @@ function AppShellContent() {
           (params.has('code') || params.has('error'));
         const keepSkpPairing = sectionPath === '/fds/settings/skp-workers' && params.has('code');
         const packageQuote = params.get('quote');
-        const keepPackageQuote = (sectionPath === '/fds/pm/package' || sectionPath === '/fds/pm/budget') && (packageQuote || params.has('mode'));
+        const keepPackageQuote = (sectionPath === '/fds/pm/package' || sectionPath === '/fds/pm/budget' || sectionPath === '/fds/pm/quick') && (packageQuote || params.has('mode'));
         target = keepCanvaOauth || keepSkpPairing || keepPackageQuote
           ? `${sectionPath}?${params.toString()}`
           : sectionPath;

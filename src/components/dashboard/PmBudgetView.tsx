@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { CircleDollarSign, Pencil } from 'lucide-react';
 import { PM_QUICK_PATH, pmInquiryPath } from '@/content/bwaPm';
 import {
@@ -12,10 +12,25 @@ import {
   type PmQuoteSummary,
 } from '@/lib/pmQuickQuote';
 import { searchBwaWorks, type BwaWorkOption } from '@/lib/bwaWorks';
-import { formatListDate, formatListMoney } from '@/lib/listTableUtils';
+import {
+  compareNullable,
+  formatListDate,
+  formatListMoney,
+  SortHeaderIcon,
+  type ListSortDir,
+} from '@/lib/listTableUtils';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { EmptyState } from '@/components/ui/empty-state';
+import {
+  LIST_TABLE_TH_CLASS,
+  ListPageShell,
+  ListRefreshButton,
+  ListTableCard,
+  ListTableEmptyRow,
+  ListTableLoadingRow,
+} from '@/components/dashboard/ListPageShell';
 
 function workKindLabel(kind: BwaWorkOption['kind']): string {
   return kind === 'project' ? '工程' : '提案';
@@ -378,98 +393,216 @@ export function PmBudgetView() {
       </div>
     );
   }
-  return <PmBudgetList onSearch={() => setMode('search')} />;
+  return <PmBudgetList />;
 }
 
-function PmBudgetList({ onSearch }: { onSearch: () => void }) {
+type PmBudgetSortKey = 'quote' | 'work' | 'submitter' | 'date' | 'amount';
+
+const PM_BUDGET_SORT_COLUMNS: Array<[PmBudgetSortKey, string]> = [
+  ['quote', '單號'],
+  ['work', '工程／提案'],
+  ['submitter', '負責人'],
+  ['date', '日期'],
+  ['amount', '金額'],
+];
+
+function sortValue(row: PmQuoteSummary, key: PmBudgetSortKey): string | number {
+  switch (key) {
+    case 'quote':
+      return row.quoteId || '';
+    case 'work':
+      return row.bwaProjectName || row.bwaProjectRef || '';
+    case 'submitter':
+      return row.submitter || '';
+    case 'amount':
+      return row.totalAmount || 0;
+    case 'date':
+    default:
+      return row.createdAt || '';
+  }
+}
+
+function matchesQuery(row: PmQuoteSummary, query: string): boolean {
+  if (!query) return true;
+  return [row.quoteId, row.bwaProjectName, row.bwaProjectRef, row.submitter]
+    .some((value) => (value || '').toLowerCase().includes(query));
+}
+
+function PmBudgetList() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<PmQuoteSummary[]>([]);
+  const [query, setQuery] = useState('');
+  const [sortKey, setSortKey] = useState<PmBudgetSortKey>('date');
+  const [sortDir, setSortDir] = useState<ListSortDir>('desc');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const aliveRef = useRef(true);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-    void listPmQuickQuotes()
-      .then((result) => {
-        if (cancelled) return;
-        if (result.error) setError(pmQuoteErrorMessage(result.error));
-        else setRows(result.rows);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    aliveRef.current = true;
     return () => {
-      cancelled = true;
+      aliveRef.current = false;
     };
   }, []);
 
-  const total = rows.reduce((sum, row) => sum + row.totalAmount, 0);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    const result = await listPmQuickQuotes();
+    if (!aliveRef.current) return;
+    if (result.error) {
+      setError(pmQuoteErrorMessage(result.error));
+      setRows([]);
+    } else {
+      setRows(result.rows);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rows
+      .filter((row) => matchesQuery(row, needle))
+      .slice()
+      .sort((a, b) => compareNullable(sortValue(a, sortKey), sortValue(b, sortKey), sortDir));
+  }, [rows, query, sortKey, sortDir]);
+
+  const total = visible.reduce((sum, row) => sum + row.totalAmount, 0);
+  const filtered = visible.length !== rows.length;
+
+  const toggleSort = (key: PmBudgetSortKey) => {
+    setSortKey(key);
+    setSortDir(sortKey === key && sortDir === 'desc' ? 'asc' : 'desc');
+  };
+
+  const openQuote = (row: PmQuoteSummary) => navigate(`${PM_QUICK_PATH}?quote=${row.id}`);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">報價預算</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            已報價的快速報價單（{rows.length} 張，合計 {formatHkMoney(total)}）。打開可看明細與預算試算。
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={onSearch}>
-            按工程試算
-          </Button>
+    <ListPageShell
+      title="報價預算"
+      subtitle=""
+      hideHeader
+      search={query}
+      onSearchChange={setQuery}
+      searchPlaceholder="搜尋單號、工程／提案或負責人"
+      searchActions={
+        <div className="flex shrink-0 items-center gap-2">
           <Button asChild>
             <Link to={PM_QUICK_PATH}>新增預算</Link>
           </Button>
+          <ListRefreshButton loading={loading} onClick={() => void load()} />
         </div>
-      </div>
-
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      {loading ? (
-        <p className="text-sm text-muted-foreground">載入中…</p>
-      ) : rows.length === 0 ? (
-        <EmptyState
-          title="還沒有快速報價單"
-          description="按「新增預算」建立第一張 PM 快速報價單。"
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[880px] text-left text-sm">
-            <thead className="bg-muted/50 text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 font-medium">單號</th>
-                <th className="px-3 py-2 font-medium">工程／提案</th>
-                <th className="px-3 py-2 font-medium">負責人</th>
-                <th className="px-3 py-2 font-medium">日期</th>
-                <th className="px-3 py-2 text-right font-medium">金額</th>
-                <th className="px-3 py-2" />
+      }
+    >
+      <ListTableCard
+        minWidthClassName="min-w-[900px]"
+        footer={
+          !loading && !error
+            ? filtered
+              ? `搜尋到 ${visible.length} 張（全部 ${rows.length} 張），合計 ${formatHkMoney(total)}`
+              : `共 ${visible.length} 張快速報價單，合計 ${formatHkMoney(total)}`
+            : undefined
+        }
+      >
+        <thead>
+          <tr className="border-b border-border bg-muted/50">
+            {PM_BUDGET_SORT_COLUMNS.map(([key, label]) => (
+              <th
+                key={key}
+                scope="col"
+                aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
+                className={cn(
+                  LIST_TABLE_TH_CLASS,
+                  key === 'amount' && 'text-right',
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleSort(key)}
+                  className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
+                >
+                  {label}
+                  <SortHeaderIcon active={sortKey === key} dir={sortDir} />
+                </button>
+              </th>
+            ))}
+            <th scope="col" className={LIST_TABLE_TH_CLASS}>
+              <span className="sr-only">操作</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? (
+            <ListTableLoadingRow colSpan={6} label="載入報價單列表…" />
+          ) : error ? (
+            <tr>
+              <td colSpan={6} className="px-4 py-16 text-center" role="alert">
+                <p className="font-body text-sm text-destructive">{error}</p>
+                <Button variant="outline" className="mt-3" onClick={() => void load()}>
+                  重新載入
+                </Button>
+              </td>
+            </tr>
+          ) : visible.length === 0 ? (
+            <ListTableEmptyRow
+              colSpan={6}
+              message={
+                rows.length === 0
+                  ? '還沒有快速報價單，按「新增預算」建立第一張。'
+                  : '沒有符合搜尋的報價單。'
+              }
+            />
+          ) : (
+            visible.map((row) => (
+              <tr
+                key={row.id}
+                tabIndex={0}
+                onClick={() => openQuote(row)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openQuote(row);
+                  }
+                }}
+                className="cursor-pointer border-b border-border/70 transition-colors last:border-b-0 hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none"
+              >
+                <td className="whitespace-nowrap px-3 py-3 font-mono-data text-xs">
+                  {row.quoteId || row.id}
+                </td>
+                <td className="min-w-[200px] max-w-[360px] px-3 py-3">
+                  <div className="truncate text-sm font-semibold">
+                    {row.bwaProjectName || row.bwaProjectRef || '—'}
+                  </div>
+                  {row.bwaProjectRef && row.bwaProjectName ? (
+                    <div className="truncate text-xs text-muted-foreground">{row.bwaProjectRef}</div>
+                  ) : null}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3 text-sm">{row.submitter || '—'}</td>
+                <td className="whitespace-nowrap px-3 py-3 font-mono-data text-xs">
+                  {formatListDate(row.createdAt)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3 text-right font-mono-data text-xs tabular-nums">
+                  {formatHkMoney(row.totalAmount)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3 text-right">
+                  <Button asChild size="sm" variant="outline">
+                    <Link
+                      to={`${PM_QUICK_PATH}?quote=${row.id}`}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      打開
+                    </Link>
+                  </Button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className="border-t">
-                  <td className="px-3 py-2 font-mono-data text-xs">{row.quoteId || row.id}</td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{row.bwaProjectName || row.bwaProjectRef || '—'}</div>
-                    {row.bwaProjectRef && row.bwaProjectName ? (
-                      <div className="text-xs text-muted-foreground">{row.bwaProjectRef}</div>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2">{row.submitter || '—'}</td>
-                  <td className="px-3 py-2">{formatListDate(row.createdAt)}</td>
-                  <td className="px-3 py-2 text-right font-semibold">{formatHkMoney(row.totalAmount)}</td>
-                  <td className="px-3 py-2 text-right">
-                    <Button asChild size="sm" variant="outline">
-                      <Link to={`${PM_QUICK_PATH}?quote=${row.id}`}>打開</Link>
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+            ))
+          )}
+        </tbody>
+      </ListTableCard>
+    </ListPageShell>
   );
 }

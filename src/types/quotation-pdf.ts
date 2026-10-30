@@ -3,6 +3,10 @@ import type { PhotoLayoutGroup } from '@/lib/quotePhotoLayouts';
 export type QuotationDimensionMode = 'lwh' | 'dh';
 
 export interface QuotationPDFData {
+  /** Compact PM quotation without company details or confirmation terms. */
+  quickQuote?: boolean;
+  /** Optional title for compact reference quotations. */
+  referenceTitle?: string;
   // Customer-facing PDF only. Editor-internal fields (gpSummary, priceMultiplier, etc.)
   // must never be passed into QuotationPDFPreview / QuotationDocument.
   companyInfo: {
@@ -97,6 +101,9 @@ export interface QuotationPDFData {
     name: string;
     unitPrice: number;
     quantity: number;
+    /** Exact reference-quote specification and rounded line subtotal. */
+    referenceSpec?: string;
+    referenceLineTotal?: number;
     // Additional fields from bwf_product_master
     category?: string;
     material?: string;

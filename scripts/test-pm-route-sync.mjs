@@ -1,0 +1,18 @@
+import fs from 'node:fs';
+import ts from 'typescript';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const source=fs.readFileSync('src/components/dashboard/AppShell.tsx','utf8');
+const ast=ts.createSourceFile('AppShell.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+let callback;
+function visit(node){if(ts.isCallExpression(node)&&node.expression.getText(ast)==='useEffect'&&node.arguments[0]?.getText(ast).includes('let target: string | null = null'))callback=node.arguments[0].getText(ast);ts.forEachChild(node,visit);}visit(ast);
+assert.ok(callback);
+const quick='/fds/pm/quick';
+const quote='?quote=test-uuid';
+const calls=[];
+const context={location:{pathname:quick,search:quote},lastSyncedLocationRef:{current:'/fds/pm/budget'},store:{currentView:'fds2-pm-budget'},quoteUrlSyncRef:{current:null},URLSearchParams,isStaffAccount:true,quoteShareGuestActive:false,invitePortalActive:false,quoteShareToken:null,readStoredPortalToken:()=>null,readStoredQuoteShareToken:()=>null,isCustomerPortalView:()=>false,canonicalizeDirectoryView:v=>v,pathFromAppView:v=>v==='fds2-pm-quick'?quick:'/fds/pm/budget',navigate:path=>calls.push(path)};
+const run=vm.runInNewContext(ts.transpileModule('('+callback+')',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
+run();assert.deepEqual(calls,[],'Incoming Link must not be replaced by the previous view');
+context.store.currentView='fds2-pm-quick';run();assert.deepEqual(calls,[],'Quote parameter must survive view synchronization');
+context.location={pathname:'/fds/pm/budget',search:''};run();assert.deepEqual(calls,[],'Returning to the list must not bounce back');
+console.log('PASS: incoming navigation wins over stale view; quick quote ID retained; return navigation stable');

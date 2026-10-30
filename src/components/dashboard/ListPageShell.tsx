@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 interface ListPageShellProps {
   title: string;
   subtitle: string;
+  hideHeader?: boolean;
   search: string;
   onSearchChange: (value: string) => void;
   searchPlaceholder: string;
@@ -22,6 +23,7 @@ interface ListPageShellProps {
 export function ListPageShell({
   title,
   subtitle,
+  hideHeader = false,
   search,
   onSearchChange,
   searchPlaceholder,
@@ -36,12 +38,12 @@ export function ListPageShell({
     <div className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}>
       <div className="bg-background fds-page-padding pb-0">
         <div className="mx-auto flex w-full max-w-none flex-col gap-4">
-          <div className="fds-page-header">
+          {!hideHeader && <div className="fds-page-header">
             <h1 className="fds-page-title">
               {title}
             </h1>
             <p className="fds-page-description">{subtitle}</p>
-          </div>
+          </div>}
           <div
             className={cn(
               'flex w-full items-center gap-2',

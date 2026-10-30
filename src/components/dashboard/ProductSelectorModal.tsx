@@ -46,11 +46,13 @@ type MasterProduct = CatalogProductRow;
 
 interface ProductSelectorModalProps {
   open: boolean;
+  singleSelect?: boolean;
   onClose: () => void;
   onSelect: (products: {
     image: string;
     name: string;
     unitPrice: number;
+    salePrice?: number | null;
     costPrice?: number | null;
     category?: string;
     material?: string;
@@ -84,6 +86,7 @@ const CATALOG_SOURCE_OPTIONS: Array<{
 
 export function ProductSelectorModal({
   open,
+  singleSelect = false,
   onClose,
   onSelect,
   existingProductNames = [],
@@ -318,7 +321,7 @@ export function ProductSelectorModal({
     setSelectedProducts((prev) => {
       const next = new Map(prev);
       if (next.has(product.id)) next.delete(product.id);
-      else next.set(product.id, product);
+      else { if (singleSelect) next.clear(); next.set(product.id, product); }
       return next;
     });
   };
@@ -356,6 +359,7 @@ export function ProductSelectorModal({
             image: p.image_url || '',
             name: p.title || '',
             unitPrice: p.sale_price || p.cost_price || 0,
+            salePrice: p.sale_price,
             costPrice: p.cost_price,
             category: p.category?.trim() || undefined,
             material: p.material || undefined,
@@ -618,7 +622,7 @@ export function ProductSelectorModal({
             />
           ) : (
             <div className="space-y-3">
-              <div className="flex items-center gap-2 border-b border-border pb-2">
+              {!singleSelect && <div className="flex items-center gap-2 border-b border-border pb-2">
                 <button
                   type="button"
                   onClick={toggleSelectAll}
@@ -640,7 +644,7 @@ export function ProductSelectorModal({
                 <span className="font-body text-[11px] text-muted-foreground">
                   全選本頁
                 </span>
-              </div>
+              </div>}
 
               {/* Same 4-col card grid as 傢私方案「選擇產品」 */}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

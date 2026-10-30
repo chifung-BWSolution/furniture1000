@@ -4,6 +4,7 @@ import {
   PACKAGE_PRICE_NOTE,
   PACKAGE_PRICE_YEAR,
   clonePackageLines,
+  totalCents,
   validatePackageLines,
   type PackageLine,
   type PackageQuoteSnapshot,
@@ -78,21 +79,30 @@ export interface SavedPackageQuote {
   title: string;
   updatedAt: string;
   shareToken: string | null;
+  /** Frozen total in cents, so the list can show the amount without loading every line. */
+  totalCents: number;
+  lineCount: number;
 }
 
 export async function listPackageQuotes(): Promise<{ quotes: SavedPackageQuote[]; error: PgError }> {
   const { data, error } = await supabase
     .from('fds_package_quotes')
-    .select('id, title, updated_at, share_token')
+    .select('id, title, updated_at, share_token, snapshot')
     .order('updated_at', { ascending: false })
-    .limit(20);
+    .limit(100);
   if (error) return { quotes: [], error };
-  const quotes = (data || []).map((row) => ({
-    id: String(row.id),
-    title: String(row.title || ''),
-    updatedAt: String(row.updated_at || ''),
-    shareToken: row.share_token ? String(row.share_token) : null,
-  }));
+  const quotes = (data || []).map((row) => {
+    const snapshot = (row.snapshot || null) as PackageQuoteSnapshot | null;
+    const lines = Array.isArray(snapshot?.lines) ? snapshot.lines : [];
+    return {
+      id: String(row.id),
+      title: String(row.title || ''),
+      updatedAt: String(row.updated_at || ''),
+      shareToken: row.share_token ? String(row.share_token) : null,
+      totalCents: totalCents(lines),
+      lineCount: lines.length,
+    };
+  });
   return { quotes, error: null };
 }
 

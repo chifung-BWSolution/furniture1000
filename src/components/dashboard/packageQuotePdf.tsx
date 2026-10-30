@@ -1,4 +1,4 @@
-import { PACKAGE_PRICE_YEAR, areaTotals, formatPackageMoney, lineCents, totalCents, type PackageQuoteSnapshot } from '@/lib/packagePricingMath';
+import { areaTotals, formatPackageMoney, lineCents, totalCents, type PackageQuoteSnapshot } from '@/lib/packagePricingMath';
 
 let fontsReady: Promise<void> | null = null;
 
@@ -54,7 +54,7 @@ export async function buildPackageQuotePdf(snapshot: PackageQuoteSnapshot, qrDat
     <Document title={snapshot.title || '套餐參考報價'}>
       <Page size="A4" orientation="landscape" style={styles.page}>
         <Text style={styles.title}>{snapshot.title || '套餐參考報價'}</Text>
-        <Text style={styles.note}>{`${PACKAGE_PRICE_YEAR} 年工作表。${snapshot.note}`}</Text>
+        <Text style={styles.note}>{snapshot.note.replace(/2026\s*/g, '')}</Text>
         {areas.map((area) => (
           <View key={area.area}>
             <Text style={styles.area}>{area.area}</Text>
