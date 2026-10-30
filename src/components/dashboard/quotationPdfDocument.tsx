@@ -341,7 +341,6 @@ function buildHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: JSX.El
 
   const rightFields = build([
     [labels.company, data.companyInfo?.name],
-    [labels.address, data.companyInfo?.address],
     [labels.tel, data.companyInfo?.phone],
     [labels.email, data.companyInfo?.email],
     [labels.website, data.companyInfo?.website],
