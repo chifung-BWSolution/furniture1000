@@ -1356,6 +1356,15 @@ function QuoteProductItemCard({
               </SelectContent>
             </Select>
           </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.unit === "Unit" ? "Category shown in PDF" : "PDF 顯示類別"}>
+            <input
+              type="text"
+              value={item.category || ""}
+              placeholder="—"
+              onChange={(e) => updateItem(item.id, "category", e.target.value)}
+              className={QUOTE_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
           <div className="min-w-0">
             <div className="mb-1 flex min-h-[22px] flex-wrap items-center gap-1.5 font-body text-xs font-medium text-muted-foreground">
               <span className="shrink-0 leading-normal">{labels.dimensionsMm}</span>
