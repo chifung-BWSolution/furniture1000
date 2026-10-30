@@ -2548,7 +2548,8 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
   return {
     id: item.id || generateId(),
     image: item.image || "",
-    name: item.name || "",
+    // Older furniture rows used category as their product label.
+    name: item.name?.trim() || (!item.isSectionTitle && !item.isCustomTerm ? item.category?.trim() : "") || "",
     costPrice,
     exchangeRate,
     hkdCostPrice:

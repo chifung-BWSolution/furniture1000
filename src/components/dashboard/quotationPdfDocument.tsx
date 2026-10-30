@@ -510,12 +510,14 @@ function buildTableHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: J
 function buildDescStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
   const strips: Strip[] = [];
 
-  const nameLines = plainLines(item.name || '', widthPt, PDF_TYPE.itemName.size, true);
+  const displayName = item.name?.trim() || item.category?.trim() || '';
+  const nameLines = plainLines(displayName, widthPt, PDF_TYPE.itemName.size, true);
   nameLines.forEach((line) =>
     strips.push(textStrip(line, { size: PDF_TYPE.itemName.size, linePt: PDF_TYPE.itemName.line, bold: true }, P)),
   );
 
-  const categoryLines = plainLines(item.category || '', widthPt, PDF_TYPE.descValue.size);
+  const category = item.category?.trim() || '';
+  const categoryLines = plainLines(category === displayName ? '' : category, widthPt, PDF_TYPE.descValue.size);
   if (categoryLines.length) {
     if (nameLines.length) strips.push(spacer(2));
     categoryLines.forEach((line) =>
