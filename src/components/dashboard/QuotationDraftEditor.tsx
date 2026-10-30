@@ -3154,20 +3154,20 @@ export function QuotationDraftEditor({
     // After 版本審核 a new uuid appears; never clobber in-session edits / current table.
     // A flag with no line content is not an edit — the table is still the unloaded placeholder.
     if (
-      (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent))
-      || itemsHydratedForUuidRef.current
+      itemsHydratedForUuidRef.current
     ) {
       itemsHydratedForUuidRef.current = quoteUuid;
       setItemsLoadedFromDb(true);
       return;
     }
     let cancelled = false;
+    setItemsLoadedFromDb(false);
     (async () => {
       try {
         const rows = await loadQuoteItems(quoteUuid);
         if (cancelled) return;
         if (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent)) {
-          itemsHydratedForUuidRef.current = quoteUuid;
+          toast.error("明細載入期間有修改，請重新開啟報價單後再保存。");
           return;
         }
         if (rows.length > 0) {
@@ -3176,16 +3176,19 @@ export function QuotationDraftEditor({
           );
           if (cancelled) return;
           if (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent)) {
-            itemsHydratedForUuidRef.current = quoteUuid;
+            toast.error("明細載入期間有修改，請重新開啟報價單後再保存。");
             return;
           }
           setItems(linked.map((item) => mapInputToQuotationItem(item)));
         }
         itemsHydratedForUuidRef.current = quoteUuid;
+        if (!cancelled) setItemsLoadedFromDb(true);
       } catch (err) {
         console.warn('[QuotationDraftEditor] loadQuoteItems failed', err);
-      } finally {
-        if (!cancelled) setItemsLoadedFromDb(true);
+        if (!cancelled) {
+          setItemsLoadedFromDb(false);
+          toast.error('報價明細載入失敗，已暫停保存。請重新開啟報價單後再試。');
+        }
       }
     })();
     return () => {

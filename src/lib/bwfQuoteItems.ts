@@ -31,6 +31,7 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
   dimensionLMm?: string | number | null;
   dimensionWMm?: string | number | null;
   dimensionHMm?: string | number | null;
+  dimensionMode?: 'lwh' | 'dh';
   deliveryTermName?: string;
   factoryName?: string;
   factoryFromCatalog?: boolean;
@@ -81,6 +82,7 @@ export type BwfQuoteItemRow = {
   dimension_l_mm: string | number | null;
   dimension_w_mm: string | number | null;
   dimension_h_mm: string | number | null;
+  dimension_mode?: 'lwh' | 'dh' | null;
   delivery_term_name: string | null;
   factory_name: string | null;
   factory_from_catalog: boolean | null;
@@ -135,6 +137,7 @@ export function mapRowToItem(row: BwfQuoteItemRow): BwfQuoteItemInput {
     dimensionLMm: dimTextOrNull(row.dimension_l_mm),
     dimensionWMm: dimTextOrNull(row.dimension_w_mm),
     dimensionHMm: dimTextOrNull(row.dimension_h_mm),
+    dimensionMode: row.dimension_mode === 'dh' ? 'dh' : 'lwh',
     deliveryTermName: row.delivery_term_name || undefined,
     factoryName: row.factory_name || undefined,
     factoryFromCatalog: Boolean(row.factory_from_catalog),
@@ -173,6 +176,7 @@ export function mapItemToRow(
     dimensionLMm,
     dimensionWMm,
     dimensionHMm,
+    dimensionMode,
     deliveryTermName,
     factoryName,
     factoryFromCatalog,
@@ -205,6 +209,7 @@ export function mapItemToRow(
     dimension_l_mm: dimTextOrNull(dimensionLMm),
     dimension_w_mm: dimTextOrNull(dimensionWMm),
     dimension_h_mm: dimTextOrNull(dimensionHMm),
+    dimension_mode: dimensionMode === 'dh' ? 'dh' : 'lwh',
     delivery_term_name: deliveryTermName || null,
     factory_name: factoryName || null,
     factory_from_catalog: Boolean(factoryFromCatalog),
@@ -239,7 +244,7 @@ export async function loadClientQuoteItems(
   const { data, error } = await supabase
     .from('bwf_quote_item')
     .select(
-      'id,client_item_id,name,image,reference_image,remarks_image,remarks,unit_price,quantity,unit,category,material,color,dimension_l_mm,dimension_w_mm,dimension_h_mm,delivery_term_name,is_custom_term,is_optional,hide_in_pdf,is_section_title,sort_order,quote_uuid',
+      'id,client_item_id,name,image,reference_image,remarks_image,remarks,unit_price,quantity,unit,category,material,color,dimension_l_mm,dimension_w_mm,dimension_h_mm,dimension_mode,delivery_term_name,is_custom_term,is_optional,hide_in_pdf,is_section_title,sort_order,quote_uuid',
     )
     .eq('quote_uuid', quoteUuid)
     .order('sort_order', { ascending: true });
