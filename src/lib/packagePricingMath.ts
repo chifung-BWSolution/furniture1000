@@ -6,11 +6,12 @@ export const PACKAGE_PRICE_YEAR = 2026;
 export const PACKAGE_MAX_QUANTITY = 100_000;
 
 export const PACKAGE_PRICE_NOTE =
-  '參考報價，不是正式報價單。小計 = 數量 × 2026 工作表的平均價。數量為 0 時小計是 0。標準價錢與高品質價錢只顯示區間，不計入總額。2026 工作表沒有運輸或安裝加成。';
+  '參考報價，不是正式報價單。小計 = 數量 × 參考價目表的平均價。數量為 0 時小計是 0。標準價錢與高品質價錢只顯示區間，不計入總額。參考價目表沒有運輸或安裝加成。';
 
 export interface PackageLine {
   id: string;
   templateId?: string;
+  selectedProduct?: { name: string; image: string; category?: string; productId?: string | null };
   sourcePitchingId?: string;
   /** PMS pitching code, kept for tracing the saved quote back to the project. */
   sourcePitchingCode?: string;
@@ -124,7 +125,7 @@ export function packageLineProblems(line: PackageLine): PackageLineProblem[] {
     problems.push({ lineId: line.id, field: 'quantity', message: `數量不可大於 ${PACKAGE_MAX_QUANTITY}` });
   }
   if (line.unitPrice == null) {
-    problems.push({ lineId: line.id, field: 'price', message: '這行沒有 2026 平均價' });
+    problems.push({ lineId: line.id, field: 'price', message: '這行沒有 參考平均價' });
   } else if (!Number.isFinite(line.unitPrice)) {
     problems.push({ lineId: line.id, field: 'price', message: '平均價不是有效數字' });
   } else if (line.unitPrice < 0) {
@@ -133,7 +134,7 @@ export function packageLineProblems(line: PackageLine): PackageLineProblem[] {
     problems.push({ lineId: line.id, field: 'price', message: '平均價超出合理範圍' });
   }
   if (!line.templateId && !line.itemName.trim()) {
-    problems.push({ lineId: line.id, field: 'match', message: '這行未匹配 2026 價目' });
+    problems.push({ lineId: line.id, field: 'match', message: '這行未匹配 參考價目' });
   }
   return problems;
 }

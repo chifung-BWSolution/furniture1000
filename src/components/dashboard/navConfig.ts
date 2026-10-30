@@ -80,6 +80,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Wallet,
     children: [
       { view: 'fds2-pm-budget', label: '報價預算', icon: CircleDollarSign },
+      { view: 'fds2-pm-quick', label: '報價預算', icon: Calculator, hidden: true },
       { view: 'fds2-pm-package', label: '快速報價', icon: Calculator },
       { view: 'fds2-pm-presentation', label: '簡報生成', icon: Presentation },
     ],
@@ -316,8 +317,18 @@ export function isPmBlockedQuoteView(view: ViewType): boolean {
   return view === 'fds2-quote-format';
 }
 
+/**
+ * 側欄項目同時代表的隱藏頁面。
+ * 「報價預算 > 新增預算／開啟舊單」開的是隱藏的 /fds/pm/quick（快速報價單表單），
+ * 屬於報價預算流程，所以側欄保持高亮「報價預算」，麵包屑也用同一個名稱。
+ */
+const NAV_ACTIVE_EQUIVALENTS: Partial<Record<ViewType, readonly ViewType[]>> = {
+  'fds2-pm-budget': ['fds2-pm-quick'],
+};
+
 export function navItemIsActive(itemView: ViewType, currentView: ViewType): boolean {
   if (itemView === currentView) return true;
+  if (NAV_ACTIVE_EQUIVALENTS[itemView]?.includes(currentView)) return true;
   const legacy = implementedPage(itemView);
   return legacy !== null && legacy === currentView;
 }

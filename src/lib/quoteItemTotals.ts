@@ -5,6 +5,7 @@ export type QuoteLineItem = {
   quantity?: number;
   isOptional?: boolean;
   isSectionTitle?: boolean;
+  referenceLineTotal?: number;
 };
 
 export type QuoteCostLineItem = {
@@ -17,7 +18,7 @@ export type QuoteCostLineItem = {
 /** Customer-facing HKD line subtotal — optional / section titles contribute 0. */
 export function quoteItemLineSubtotal(item: QuoteLineItem): number {
   if (item.isOptional || item.isSectionTitle) return 0;
-  return (item.unitPrice ?? 0) * (item.quantity ?? 0);
+  return item.referenceLineTotal ?? (item.unitPrice ?? 0) * (item.quantity ?? 0);
 }
 
 export function quoteBillableSubtotal(items: QuoteLineItem[]): number {

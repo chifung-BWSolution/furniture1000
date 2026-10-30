@@ -40,7 +40,7 @@ export function PackageQuoteSharePage() {
   return (
     <main className="mx-auto max-w-4xl space-y-4 p-6">
       <h1 className="text-xl font-semibold">{snapshot.title || '套餐參考報價'}</h1>
-      <p className="text-sm text-muted-foreground">{snapshot.note}</p>
+      <p className="text-sm text-muted-foreground">{snapshot.note.replace(/2026\s*/g, '')}</p>
       {areas.map((area) => (
         <section key={area.area}>
           <h2 className="font-medium">{area.area}</h2>

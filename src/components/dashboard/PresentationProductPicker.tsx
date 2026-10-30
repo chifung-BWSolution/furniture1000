@@ -113,6 +113,7 @@ export function PresentationProductPicker({
   productZone,
   onZoneChange,
   zoneDisabled = false,
+  fixedPagination = false,
 }: {
   selected: SearchProduct[];
   maxItems: number;
@@ -121,6 +122,7 @@ export function PresentationProductPicker({
   productZone: Record<string, string>;
   onZoneChange: (productId: string, zoneId: string) => void;
   zoneDisabled?: boolean;
+  fixedPagination?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [level1, setLevel1] = useState('');
@@ -259,7 +261,7 @@ export function PresentationProductPicker({
   };
 
   return (
-    <div className="grid h-full min-h-0 items-stretch gap-2 lg:grid-cols-[18rem_minmax(0,1fr)]">
+    <div className={cn("grid h-full min-h-0 items-stretch gap-2 lg:grid-cols-[18rem_minmax(0,1fr)]", fixedPagination && "grid-rows-[auto_minmax(0,1fr)] lg:grid-rows-1")}>
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white dark:border-border dark:bg-card">
         <div className="flex shrink-0 items-center justify-between gap-2 p-3 pb-0">
           <div className="flex min-w-0 items-center gap-3">
@@ -346,7 +348,8 @@ export function PresentationProductPicker({
         )}
       </div>
 
-      <div ref={pickerRef} className="min-h-0 min-w-0 space-y-3 overflow-y-auto rounded-2xl border border-border/80 bg-card p-3 shadow-sm">
+      <div ref={pickerRef} className={cn("min-h-0 min-w-0 rounded-2xl border border-border/80 bg-card p-3 shadow-sm", fixedPagination ? "flex flex-col overflow-hidden" : "overflow-y-auto")}>
+      <div className={cn("space-y-3", fixedPagination && "min-h-0 flex-1 overflow-y-auto")}>
         <div className="flex gap-3">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#efedff] text-[#5b4dff] dark:bg-indigo-950/60 dark:text-indigo-200">
             <Package className="h-5 w-5" strokeWidth={1.75} aria-hidden />
@@ -458,8 +461,9 @@ export function PresentationProductPicker({
         </ul>
       )}
 
+      </div>
       {pageCount > 1 ? (
-        <div className="flex items-center justify-center gap-2">
+        <div className={cn("flex items-center justify-center gap-2", fixedPagination ? "shrink-0 border-t border-border pt-2 mt-2" : "mt-3")}>
           <Button
             type="button"
             variant="outline"

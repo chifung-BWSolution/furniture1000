@@ -329,7 +329,7 @@ function buildHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: JSX.El
       .filter((entry) => entry.value.length > 0)
       .map((entry) => ({ label: entry.label, lines: plainLines(entry.value, valueWidth, infoSize) }));
 
-  const leftFields = build([
+  const leftFields = data.quickQuote ? build([['報價標題', data.referenceTitle]]) : build([
     [labels.customerCompanyName, data.clientInfo?.name],
     [labels.customerName, data.clientInfo?.contactName],
     [labels.customerPhone, data.clientInfo?.phone],
@@ -339,7 +339,7 @@ function buildHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: JSX.El
     [labels.projectInCharge, data.quoteMeta?.pmName],
   ]);
 
-  const rightFields = build([
+  const rightFields = data.quickQuote ? [] : build([
     [labels.company, data.companyInfo?.name],
     [labels.tel, data.companyInfo?.phone],
     [labels.email, data.companyInfo?.email],
@@ -543,6 +543,8 @@ function colorEntries(color: string | undefined, locale: PdfLocale) {
 
 /** 規格欄：尺寸別 + 尺寸數值 + 顏色。 */
 function buildSpecStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
+  if (item.referenceSpec) return plainLines(item.referenceSpec, widthPt, PDF_TYPE.descValue.size).map((line) =>
+    textStrip(line, { size: PDF_TYPE.descValue.size, linePt: PDF_TYPE.descValue.line }, P));
   const values = item.dimensionMode === 'dh'
     ? [['DIA', item.dimensionLMm], ['H', item.dimensionHMm]]
     : [['W', item.dimensionLMm], ['D', item.dimensionWMm], ['H', item.dimensionHMm]];
@@ -1659,14 +1661,16 @@ export function QuotationDocument({
   });
   if (!pushedUnzoned) pushUnzoned();
 
-  if (items.length) tableBlocks.push(buildInstallBlock(ctx));
+  if (items.length && !data.referenceTitle) tableBlocks.push(buildInstallBlock(ctx));
 
   blocks.push(...tableBlocks);
   blocks.push(buildTotalsBlock(ctx));
   blocks.push(...buildPhotoBlocks(ctx));
-  blocks.push(buildDeliveryBlock(ctx));
-  blocks.push(...buildTermsBlocks(ctx));
-  blocks.push(buildSignatureBlock(ctx));
+  if (!data.quickQuote) {
+    blocks.push(buildDeliveryBlock(ctx));
+    blocks.push(...buildTermsBlocks(ctx));
+    blocks.push(buildSignatureBlock(ctx));
+  }
 
   const header = buildHeader(ctx, { Text, View, Image });
   const compactHeader = buildCompactHeader(ctx, { Text, View, Image });

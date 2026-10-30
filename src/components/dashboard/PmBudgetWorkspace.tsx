@@ -1,30 +1,16 @@
 import { useSearchParams } from 'react-router-dom';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PmBudgetView } from './PmBudgetView';
 import { PackagePricingView } from './PackagePricingView';
 
+/**
+ * PM 報價兩個頁面共用這個外殼，但各自只有一種內容，不再顯示「快速報價試算／參考報價」切換 tab：
+ * - /fds/pm/package（側欄「快速報價」）＝套餐參考報價。
+ * - /fds/pm/budget（側欄「報價預算」）＝PM 快速報價單的預算試算。
+ * ?mode=reference／?quote= 仍直接開參考報價，舊連結與 PMS deep link 不會斷。
+ */
 export function PmBudgetWorkspace({ legacyPackage = false }: { legacyPackage?: boolean }) {
-  const [params, setParams] = useSearchParams();
-  const mode = legacyPackage || params.get('mode') === 'reference' || params.has('quote') ? 'reference' : 'quick';
+  const [params] = useSearchParams();
+  const showReference = legacyPackage || params.get('mode') === 'reference' || params.has('quote');
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Tabs value={mode} onValueChange={(value) => {
-        const next = new URLSearchParams(params);
-        if (value === 'reference') next.set('mode', 'reference');
-        else { next.delete('mode'); next.delete('quote'); }
-        if (legacyPackage) {
-          window.location.assign(`/fds/pm/budget${next.size ? `?${next}` : ''}`);
-        } else setParams(next);
-      }} className="px-4 pt-4 sm:px-6">
-        <TabsList>
-          <TabsTrigger value="quick">快速報價試算</TabsTrigger>
-          <TabsTrigger value="reference">參考報價</TabsTrigger>
-        </TabsList>
-      </Tabs>
-      <div className="min-h-0 flex-1">
-        {mode === 'reference' ? <PackagePricingView /> : <PmBudgetView />}
-      </div>
-    </div>
-  );
+  return showReference ? <PackagePricingView /> : <PmBudgetView />;
 }

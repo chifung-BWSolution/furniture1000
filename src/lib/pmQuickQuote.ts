@@ -20,6 +20,7 @@ export const PM_QUOTE_STATUS = '快速報價';
 export interface PmQuoteItem {
   id: string;
   sortOrder: number;
+  image?: string;
   name: string;
   spec: string;
   quantity: number;
@@ -45,6 +46,7 @@ export interface PmQuoteDetail extends PmQuoteSummary {
 }
 
 export interface PmQuoteDraftItem {
+  image?: string;
   name: string;
   spec: string;
   quantity: number;
@@ -92,6 +94,7 @@ function mapItemRow(row: Record<string, unknown>, index: number): PmQuoteItem {
   return {
     id: String(row.id || index),
     sortOrder: asNumber(row.sort_order) || index,
+    image: String(row.image || ''),
     name: String(row.name || ''),
     spec: String(row.remarks || ''),
     quantity: asNumber(row.quantity),
@@ -129,6 +132,7 @@ export async function savePmQuickQuote(input: {
   const lines = input.items
     .map((item, index) => ({
       sort_order: index,
+      image: item.image || '',
       name: item.name.trim(),
       remarks: item.spec.trim(),
       quantity: asNumber(item.quantity) || 0,
@@ -190,8 +194,6 @@ export async function savePmQuickQuote(input: {
         formData: { clientName: input.projectName.trim() },
         quickQuote: true,
       },
-      pitching_code: input.projectRef.trim() || quoteId,
-      pitching_name: input.projectName.trim(),
       ...bwaFields,
     });
     const { data: inserted, error } = await supabase
@@ -205,7 +207,7 @@ export async function savePmQuickQuote(input: {
       p_quote_uuid: inserted.id,
       p_items: lines,
     });
-    if (itemsError) throw itemsError;
+    if (itemsError) return { id: inserted.id, quoteId, error: itemsError };
     return { id: inserted.id, quoteId, error: null };
   } catch (error) {
     return { id: null, quoteId: null, error: error as PgError };
@@ -262,7 +264,7 @@ export async function getPmQuoteItems(
   if (quoteUuids.length === 0) return { itemsByQuote: {}, error: null };
   const { data, error } = await supabase
     .from('bwf_quote_item')
-    .select('id,quote_uuid,sort_order,name,remarks,quantity,unit,unit_price')
+    .select('id,quote_uuid,sort_order,name,remarks,quantity,unit,unit_price,image')
     .in('quote_uuid', quoteUuids)
     .order('sort_order', { ascending: true });
   if (error) return { itemsByQuote: {}, error };
