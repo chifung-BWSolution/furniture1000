@@ -1213,8 +1213,6 @@ function QuoteProductItemCard({
   onAssignZone?: (zoneTitleId: string) => void;
 }) {
   const dimensionMode = item.dimensionMode ?? 'lwh';
-  const registryLocked =
-    Boolean(item.productId?.trim()) && Boolean(item.productCategoryId?.trim());
   const level1Value = item.registryLevel1?.trim() || '';
   const level2Value = item.registryLevel2?.trim() || '';
   const level1Options = uniqueLevel1InOrder(categoryPairs);
@@ -1305,7 +1303,7 @@ function QuoteProductItemCard({
           <QuoteFieldBlock label={labels.level1Category}>
             <Select
               value={level1Value || "__none__"}
-              disabled={registryLocked || categoryPairsLoading}
+              disabled={categoryPairsLoading}
               onValueChange={(value) =>
                 onRegistryLevel1Change(
                   item.id,
@@ -1315,7 +1313,6 @@ function QuoteProductItemCard({
             >
               <SelectTrigger
                 className={registrySelectClass}
-                title={registryLocked ? labels.productCategoryLockedHint : undefined}
               >
                 <SelectValue />
               </SelectTrigger>
@@ -1333,7 +1330,6 @@ function QuoteProductItemCard({
             <Select
               value={level2Value || "__none__"}
               disabled={
-                registryLocked ||
                 categoryPairsLoading ||
                 !level1Value ||
                 level2Options.length === 0
@@ -1347,7 +1343,6 @@ function QuoteProductItemCard({
             >
               <SelectTrigger
                 className={registrySelectClass}
-                title={registryLocked ? labels.productCategoryLockedHint : undefined}
               >
                 <SelectValue />
               </SelectTrigger>
@@ -2176,16 +2171,6 @@ function parseDimensionInput(value: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-/** 類別 free-text defaults to 二級分類, else 一級分類. */
-function categoryLabelFromRegistry(
-  level1?: string | null,
-  level2?: string | null,
-): string {
-  const l2 = (level2 ?? "").trim();
-  const l1 = (level1 ?? "").trim();
-  return l2 || l1;
-}
-
 function enrichQuotationItemRegistry(
   item: QuotationItem,
   pairs: ProductCategoryPair[],
@@ -2196,7 +2181,6 @@ function enrichQuotationItemRegistry(
     ...item,
     registryLevel1: pair.level1,
     registryLevel2: pair.level2,
-    category: categoryLabelFromRegistry(pair.level1, pair.level2),
   };
 }
 
@@ -2548,8 +2532,7 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
   return {
     id: item.id || generateId(),
     image: item.image || "",
-    // Older furniture rows used category as their product label.
-    name: item.name?.trim() || (!item.isSectionTitle && !item.isCustomTerm ? item.category?.trim() : "") || "",
+    name: item.name || "",
     costPrice,
     exchangeRate,
     hkdCostPrice:
@@ -3435,8 +3418,8 @@ export function QuotationDraftEditor({
             ...item,
             registryLevel1: level1,
             registryLevel2: l2,
+            category: l2 || level1,
             productCategoryId,
-            category: categoryLabelFromRegistry(level1, l2),
           };
         }),
       );
@@ -3459,8 +3442,8 @@ export function QuotationDraftEditor({
           return {
             ...item,
             registryLevel2: level2,
+            category: level2 || l1,
             productCategoryId,
-            category: categoryLabelFromRegistry(l1, level2),
           };
         }),
       );
@@ -4761,10 +4744,7 @@ export function QuotationDraftEditor({
         quantity: 1,
         unit: "",
         sku: p.sku?.trim() || "",
-        category:
-          categoryLabelFromRegistry(pair?.level1, pair?.level2) ||
-          p.category?.trim() ||
-          "",
+        category: p.category?.trim() || "",
         material: p.material,
         color: p.color?.trim() || "",
         remarks: p.remarks,
@@ -6548,9 +6528,6 @@ export function QuotationDraftEditor({
                   productCategoryId,
                   registryLevel1,
                   registryLevel2,
-                  category:
-                    categoryLabelFromRegistry(registryLevel1, registryLevel2) ||
-                    item.category,
                 };
               }),
             );
