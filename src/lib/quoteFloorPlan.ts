@@ -86,26 +86,61 @@ function round1(value: number): number {
 function readNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
+    // Models often answer "12%" or "12px" even when asked for plain numbers.
+    const parsed = Number.parseFloat(value.replace(/[%\s]/g, '').replace(/px$/i, ''));
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
 }
 
-function rectParts(value: unknown): { x: number; y: number; w: number; h: number } | null {
-  if (Array.isArray(value) && value.length >= 4) {
-    const [x, y, w, h] = value.map(readNumber);
-    if (x == null || y == null || w == null || h == null) return null;
-    return { x, y, w, h };
+/** Box numbers exactly as the model wrote them, before deciding the scale. */
+type RawRect = { x: number; y: number; w: number; h: number };
+
+const NESTED_RECT_KEYS = ['rect', 'box', 'bbox', 'bounds', 'boundingBox', 'region', 'area'];
+
+function rectFromArray(value: unknown[]): RawRect | null {
+  const nums = value.slice(0, 4).map(readNumber);
+  if (nums.length < 4 || nums.some((part) => part == null)) return null;
+  const [a, b, c, d] = nums as number[];
+  // Corner pairs (x1, y1, x2, y2) show up when a model reuses its own box format.
+  if (c < a || d < b) {
+    return { x: Math.min(a, c), y: Math.min(b, d), w: Math.abs(c - a), h: Math.abs(d - b) };
   }
+  return { x: a, y: b, w: c, h: d };
+}
+
+/** Gemini writes detections as box_2d: [ymin, xmin, ymax, xmax]. */
+function rectFromBox2d(value: unknown[]): RawRect | null {
+  const nums = value.slice(0, 4).map(readNumber);
+  if (nums.length < 4 || nums.some((part) => part == null)) return null;
+  const [ymin, xmin, ymax, xmax] = nums as number[];
+  return {
+    x: Math.min(xmin, xmax),
+    y: Math.min(ymin, ymax),
+    w: Math.abs(xmax - xmin),
+    h: Math.abs(ymax - ymin),
+  };
+}
+
+function rectParts(value: unknown): RawRect | null {
+  if (Array.isArray(value)) return rectFromArray(value);
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;
-  const nested = row.rect && row.rect !== value ? rectParts(row.rect) : null;
-  if (nested) return nested;
-  const box = row.box ?? row.bbox ?? row.bounds;
-  if (box && box !== value) {
-    const fromBox = rectParts(box);
-    if (fromBox) return fromBox;
+  const box2d = row.box_2d ?? row.box2d ?? row.box2D;
+  if (Array.isArray(box2d)) return rectFromBox2d(box2d);
+  for (const key of NESTED_RECT_KEYS) {
+    const nested = row[key];
+    if (nested && nested !== value) {
+      const parts = rectParts(nested);
+      if (parts) return parts;
+    }
+  }
+  const x1 = readNumber(row.x1 ?? row.left ?? row.l);
+  const y1 = readNumber(row.y1 ?? row.top ?? row.t);
+  const x2 = readNumber(row.x2 ?? row.right);
+  const y2 = readNumber(row.y2 ?? row.bottom);
+  if (x1 != null && y1 != null && x2 != null && y2 != null) {
+    return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
   }
   const x = readNumber(row.x ?? row.left);
   const y = readNumber(row.y ?? row.top);
@@ -115,23 +150,54 @@ function rectParts(value: unknown): { x: number; y: number; w: number; h: number
   return { x, y, w, h };
 }
 
+function rectExtent(rect: RawRect): number {
+  return Math.max(rect.x + rect.w, rect.y + rect.h);
+}
+
+/** 0–1 fractions mean percentages when written as fractions. */
+function fractionScale(rect: RawRect): number {
+  const extent = rectExtent(rect);
+  return extent > 0 && extent <= 1.2 ? 100 : 1;
+}
+
+/**
+ * Percentages can arrive as 0–1 fractions or as Gemini's 0–1000 box convention.
+ * Decide once per response: a 0–1000 answer puts most boxes past 100, and scaling
+ * it is better than clamping every box away. A lone box that only slightly overshoots
+ * 100 is still read as percent, so one sloppy number cannot rescale the whole answer.
+ */
+function responseScale(rects: RawRect[]): number {
+  if (!rects.length) return 1;
+  const extent = Math.max(...rects.map(rectExtent));
+  if (extent > 0 && extent <= 1.2) return 100;
+  if (extent > 1000) return 1;
+  const over = rects.filter((rect) => rectExtent(rect) > 100.5).length;
+  if (over * 2 >= rects.length && (extent > 150 || rects.length > 1)) return 0.1;
+  return 1;
+}
+
 /** Keep a box inside the preview. Drop it when it is too small to use. */
-export function normalizeZoneRect(value: unknown, minSize = 2): QuoteZoneRect | null {
-  const parts = rectParts(value);
-  if (!parts) return null;
-  let { x, y, w, h } = parts;
-  if (w <= 1 && h <= 1) {
-    x *= 100;
-    y *= 100;
-    w *= 100;
-    h *= 100;
-  }
+function fitRect(parts: RawRect, scale: number, minSize: number): QuoteZoneRect | null {
+  let x = parts.x * scale;
+  let y = parts.y * scale;
+  let w = parts.w * scale;
+  let h = parts.h * scale;
+  if (![x, y, w, h].every((value) => Number.isFinite(value))) return null;
+  if (w < 0) { x += w; w = -w; }
+  if (h < 0) { y += h; h = -h; }
   x = Math.min(100, Math.max(0, x));
   y = Math.min(100, Math.max(0, y));
   w = Math.min(100 - x, Math.max(0, w));
   h = Math.min(100 - y, Math.max(0, h));
   if (w < minSize || h < minSize) return null;
   return { x: round1(x), y: round1(y), w: round1(w), h: round1(h) };
+}
+
+/** Keep a box inside the preview. Drop it when it is too small to use. */
+export function normalizeZoneRect(value: unknown, minSize = 2): QuoteZoneRect | null {
+  const parts = rectParts(value);
+  if (!parts) return null;
+  return fitRect(parts, fractionScale(parts), minSize);
 }
 
 export function parseQuoteZoneRegions(value: unknown): QuoteZoneRegion[] {
@@ -255,7 +321,19 @@ export async function imageBlobToJpegBase64(blob: Blob, maxDim = 1600): Promise<
   }
 }
 
-function zonesFromModelText(text: string): DetectedFloorZone[] {
+function readZoneName(entry: unknown): string {
+  if (typeof entry === 'string') return entry;
+  if (!entry || typeof entry !== 'object') return '';
+  const row = entry as Record<string, unknown>;
+  for (const key of ['name', 'label', 'room', 'title'] as const) {
+    const value = row[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return '';
+}
+
+/** Turn a model answer into zones. A name without a usable box stays name-only. */
+export function zonesFromDetectedText(text: string): DetectedFloorZone[] {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
@@ -269,52 +347,71 @@ function zonesFromModelText(text: string): DetectedFloorZone[] {
   } else {
     return [];
   }
+  const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
   const list = Array.isArray(raw)
     ? raw
-    : raw && typeof raw === 'object' && Array.isArray((raw as { zones?: unknown }).zones)
-      ? (raw as { zones: unknown[] }).zones
-      : [];
-  const zones: DetectedFloorZone[] = [];
+    : record && Array.isArray(record.zones)
+      ? (record.zones as unknown[])
+      : record && Array.isArray(record.rooms)
+        ? (record.rooms as unknown[])
+        : [];
+  const entries: { name: string; rect: RawRect | null }[] = [];
   const seen = new Set<string>();
   for (const entry of list) {
-    const name = (typeof entry === 'string'
-      ? entry
-      : entry && typeof entry === 'object' && typeof (entry as { name?: unknown }).name === 'string'
-        ? (entry as { name: string }).name
-        : ''
-    ).replace(/\s+/g, ' ').trim();
+    const name = readZoneName(entry).replace(/\s+/g, ' ').trim();
     if (!name || name.length > 40) continue;
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    const rect = typeof entry === 'string' ? null : normalizeZoneRect(entry);
-    zones.push({ name, rect });
-    if (zones.length >= MAX_FLOOR_PLAN_ZONES) break;
+    entries.push({ name, rect: rectParts(entry) });
+    if (entries.length >= MAX_FLOOR_PLAN_ZONES) break;
   }
-  return zones;
+  const scale = responseScale(entries.flatMap((entry) => (entry.rect ? [entry.rect] : [])));
+  return entries.map((entry) => ({
+    name: entry.name,
+    rect: entry.rect ? fitRect(entry.rect, scale, 2) : null,
+  }));
 }
 
-/** Read labeled rooms and their boxes off a floor-plan JPEG. Returns [] when nothing is labeled. */
-export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<DetectedFloorZone[]> {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('尚未設定資料庫連線，無法識別分區');
-  }
-  if (!jpegBase64.trim()) throw new Error('平面圖是空的');
+// ---- Gemini: prompts and network calls below this line ----
 
-  const prompt = [
-    '你是辦公室平面圖分區辨識助手。看附圖，只列出圖上已經標示的房間或功能分區名稱。',
+function zoneDetectPrompt(): string {
+  return [
+    '你是辦公室平面圖分區辨識助手。看附圖，找出圖上已標示名稱的房間或功能分區，並回報每個分區的位置。',
     '規則：',
     '- 用圖上的文字，不要翻譯、不要發明圖上沒有的房間',
     '- 去掉純尺寸、圖例、公司名、指北針、比例尺',
     '- 名稱保留房間名（例如 老闆房、會議室、開放辦公區）',
     '- 最多 24 個，由左至右、由上至下',
-    '- 每個區域加一個包住該房間的矩形：x、y 是左上角相對整張圖的百分比，w、h 是寬高百分比，範圍 0 到 100',
-    '- 看不清邊界就只留 name，不要猜一個框',
+    '- 每個分區都要有框：沿房間四周的牆線畫，開放式區域（例如開放辦公區）用包住整區座位的外框',
+    '- 框不用精準，使用者之後會自己調整，但不可以只給名稱不給框',
+    '- x、y 是框的左上角，w、h 是框的寬高，全部是相對整張圖的百分比，0 到 100，不要用像素',
     '- 完全看不出分區時 zones 為空陣列',
-    '只回 JSON：{"zones":[{"name":"老闆房","x":10,"y":20,"w":30,"h":25}]}',
+    '只回 JSON：{"zones":[{"name":"STORAGE","x":4,"y":30,"w":5,"h":12}]}',
   ].join('\n');
+}
+
+/** Second pass: the model listed these rooms but gave no usable box. */
+function zoneRectPrompt(names: string[]): string {
+  return [
+    '你是辦公室平面圖分區辨識助手。看附圖，下面這些房間已經有名字，但還沒有位置：',
+    ...names.map((name) => `- ${name}`),
+    '只為上面每一個名稱回一個包住該房間的框。',
+    '規則：',
+    '- 名稱照抄，不要新增、不要改名，也不要漏掉任何一個',
+    '- 沿房間四周的牆線畫；開放式區域用包住整區座位的外框',
+    '- x、y 是框的左上角，w、h 是框的寬高，相對整張圖的百分比，0 到 100，不要用像素',
+    '- 框不用精準，使用者之後會自己調整',
+    '只回 JSON：{"zones":[{"name":"STORAGE","x":4,"y":30,"w":5,"h":12}]}',
+  ].join('\n');
+}
+
+async function askGeminiForZones(prompt: string, jpegBase64: string): Promise<DetectedFloorZone[]> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('尚未設定資料庫連線，無法識別分區');
+  }
 
   const response = await fetch(`${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`, {
     method: 'POST',
@@ -346,10 +443,33 @@ export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<Det
   const text = String(data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
   if (!text) return [];
   try {
-    return zonesFromModelText(text);
+    return zonesFromDetectedText(text);
   } catch {
     return [];
   }
+}
+
+/**
+ * Read labeled rooms and their boxes off a floor-plan JPEG. Returns [] when nothing is labeled.
+ * Rooms the model named but could not box get one more focused pass, so the zone manager
+ * opens with ranges the user can drag instead of a bare list of names.
+ */
+export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<DetectedFloorZone[]> {
+  if (!jpegBase64.trim()) throw new Error('平面圖是空的');
+
+  const zones = await askGeminiForZones(zoneDetectPrompt(), jpegBase64);
+  const missing = zones.filter((zone) => !zone.rect).map((zone) => zone.name);
+  if (!zones.length || !missing.length) return zones;
+
+  const retry = await askGeminiForZones(zoneRectPrompt(missing.slice(0, MAX_FLOOR_PLAN_ZONES)), jpegBase64)
+    .catch(() => [] as DetectedFloorZone[]);
+  if (!retry.length) return zones;
+  const boxes = new Map<string, QuoteZoneRect>();
+  for (const zone of retry) {
+    const key = zone.name.trim().toLowerCase();
+    if (zone.rect && key && !boxes.has(key)) boxes.set(key, zone.rect);
+  }
+  return zones.map((zone) => (zone.rect ? zone : { ...zone, rect: boxes.get(zone.name.trim().toLowerCase()) ?? null }));
 }
 
 const ZONE_SCENE_STYLE =

@@ -9,9 +9,9 @@ import ts from 'typescript';
  */
 
 const source = fs.readFileSync('src/lib/quoteFloorPlan.ts', 'utf8');
-// Everything before the Gemini/fetch helpers is pure data logic (import.meta.env
-// cannot run inside a vm script, and those helpers are not under test here).
-const cut = source.indexOf('/** Read labeled rooms and their boxes off a floor-plan JPEG.');
+// Everything above the Gemini marker is pure data logic (import.meta.env cannot
+// run inside a vm script, and the network helpers are not under test here).
+const cut = source.indexOf('// ---- Gemini: prompts and network calls below this line ----');
 assert.ok(cut > 0, 'pure floor-plan helpers are present');
 const code = ts.transpileModule(source.slice(0, cut), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
@@ -89,6 +89,66 @@ const full = Array.from({ length: 24 }, (_, i) => ({
 }));
 const capped = M.applyDetectedZones(full, [{ name: '新房間', rect: { x: 1, y: 1, w: 5, h: 5 } }], () => 'x');
 assert.equal(capped.added, 0, 'never invents more than 24 rooms');
+
+// --- 模型輸出的框要收得下（名稱照收，框盡量收）----------------------
+const percentText = `\`\`\`json
+{"zones":[
+  {"name":"STORAGE","x":4,"y":30,"w":5,"h":12},
+  {"name":"MEETING RM 1","x":9,"y":30,"w":5,"h":12},
+  {"name":"WORKING AREA"}
+]}
+\`\`\``;
+const percentZones = M.zonesFromDetectedText(percentText);
+assert.deepEqual(Array.from(percentZones, (zone) => zone.name), ['STORAGE', 'MEETING RM 1', 'WORKING AREA']);
+assert.deepEqual(Object.assign({}, percentZones[0].rect), { x: 4, y: 30, w: 5, h: 12 });
+assert.equal(percentZones[2].rect, null, 'a name without a box stays name-only');
+
+// 0–1000（Gemini 的 box 慣例）不可以被夾成 0 寬而被丟掉
+const thousand = M.zonesFromDetectedText(JSON.stringify({
+  zones: [
+    { name: 'STORAGE', box_2d: [301, 39, 414, 93] },
+    { name: 'PANTRY', box_2d: [484, 68, 638, 157] },
+  ],
+}));
+assert.deepEqual(Object.assign({}, thousand[0].rect), { x: 3.9, y: 30.1, w: 5.4, h: 11.3 });
+assert.deepEqual(Object.assign({}, thousand[1].rect), { x: 6.8, y: 48.4, w: 8.9, h: 15.4 });
+
+// 同一份答案用 x/y/w/h 寫 0–1000 也要換算
+const thousandKeys = M.zonesFromDetectedText(JSON.stringify({
+  zones: [
+    { name: 'STORAGE', x: 40, y: 300, w: 50, h: 120 },
+    { name: 'PANTRY', x: 80, y: 500, w: 70, h: 140 },
+  ],
+}));
+assert.deepEqual(Object.assign({}, thousandKeys[0].rect), { x: 4, y: 30, w: 5, h: 12 });
+
+// 對角兩點、百分比字串、0–1 分數、label 與 rooms 都要認得
+const mixed = M.zonesFromDetectedText(JSON.stringify({
+  rooms: [
+    { label: 'STORAGE', x1: 10, y1: 20, x2: 30, y2: 40 },
+    { name: 'MEETING RM 2', x: '14%', 'y': '30%', w: '8%', h: '12%' },
+  ],
+}));
+assert.deepEqual(Object.assign({}, mixed[0].rect), { x: 10, y: 20, w: 20, h: 20 });
+assert.deepEqual(Object.assign({}, mixed[1].rect), { x: 14, y: 30, w: 8, h: 12 });
+
+const fractions = M.zonesFromDetectedText(JSON.stringify({
+  zones: [{ name: 'A', x: 0.1, y: 0.2, w: 0.3, h: 0.4 }],
+}));
+assert.deepEqual(Object.assign({}, fractions[0].rect), { x: 10, y: 20, w: 30, h: 40 });
+
+// 一個框都沒有時，名稱仍然保留（使用者可以在圖上補框）
+assert.deepEqual(
+  Array.from(M.zonesFromDetectedText('{"zones":[{"name":"SERVER"},{"name":"PANTRY"}]}'), (zone) => zone.rect),
+  [null, null],
+);
+assert.equal(M.zonesFromDetectedText('no json here').length, 0, 'unparsable answers yield no zones');
+
+// 單一個略為爆出 100 的百分比框，仍然當百分比處理
+const slightOverflow = M.zonesFromDetectedText(JSON.stringify({
+  zones: [{ name: 'PANTRY', x: 95, y: 60, w: 20, h: 25 }],
+}));
+assert.deepEqual(Object.assign({}, slightOverflow[0].rect), { x: 95, y: 60, w: 5, h: 25 });
 
 // --- 每區最多 8 張圖、只收 http(s)、去重 ---------------------------
 const images = M.parseQuoteZoneImages({

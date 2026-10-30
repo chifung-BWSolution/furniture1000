@@ -4023,6 +4023,8 @@ export function QuotationDraftEditor({
   };
 
   const zoneRecognitionActive = floorPlanBusy || recognizingZones;
+  /** Rooms the user still has to draw on the plan before they can be cropped. */
+  const unboxedZoneCount = zoneManagerDraft.filter((zone) => !zone.rect).length;
 
   useEffect(() => {
     if (!zoneRecognitionActive) {
@@ -4081,6 +4083,12 @@ export function QuotationDraftEditor({
         ? zoneManagerDraftRef.current
         : zoneRowsFromItems(itemsRef.current, priorRegions);
       const { rows, added } = applyDetectedZones(base, detected, generateId);
+      const unboxed = detected.filter((zone) => !zone.rect).length;
+      const unboxedNote = unboxed
+        ? quoteLocale === "en"
+          ? ` ${unboxed} of them came back without an area — drag a box over those on the plan.`
+          : `，其中 ${unboxed} 個未能自動框選，可在圖上補框`
+        : "";
       setZoneManagerDraft(rows);
       setActiveZoneId(added > 0 ? rows[0]?.id ?? null : null);
       setZoneManagerOpen(true);
@@ -4093,14 +4101,14 @@ export function QuotationDraftEditor({
       } else if (!added) {
         toast.message(
           quoteLocale === "en"
-            ? "These rooms are already on the quote. Adjust the areas, then confirm."
-            : "這些房間已經在報價裡，可以調整範圍後再確認",
+            ? `These rooms are already on the quote. Adjust the areas, then confirm.${unboxedNote}`
+            : `這些房間已經在報價裡，可以調整範圍後再確認${unboxedNote}`,
         );
       } else {
         toast.success(
           quoteLocale === "en"
-            ? `Found ${added} room${added === 1 ? "" : "s"}. Adjust the areas, then confirm.`
-            : `已找到 ${added} 個房間，可以調整範圍後再確認加入`,
+            ? `Found ${added} room${added === 1 ? "" : "s"}. Adjust the areas, then confirm.${unboxedNote}`
+            : `已找到 ${added} 個房間，可以調整範圍後再確認加入${unboxedNote}`,
         );
       }
     } catch (error) {
@@ -6672,6 +6680,11 @@ export function QuotationDraftEditor({
           {floorPlan?.regions.some((region) => !region.confirmed) ? (
             <p className="font-body text-xs text-amber-700">{t.floorPlanReconfirmHint}</p>
           ) : null}
+          {hasFloorPlanPreview && unboxedZoneCount > 0 ? (
+            <p className="font-body text-xs text-amber-700">
+              {t.zoneUnboxedHint.replace("{n}", String(unboxedZoneCount))}
+            </p>
+          ) : null}
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
             <div className="space-y-2">
               <div
@@ -6791,23 +6804,31 @@ export function QuotationDraftEditor({
                       <GripVertical className="h-4 w-4" />
                     </button>
                     <span
-                      className="flex h-6 w-6 items-center justify-center rounded font-mono-data text-xs text-white"
+                      className={`flex h-6 w-6 items-center justify-center rounded font-mono-data text-xs text-white ${zone.rect ? "" : "ring-2 ring-amber-400 ring-offset-1"}`}
                       style={{ background: floorPlanZoneColor(index) }}
+                      title={zone.rect ? t.zoneBoxed : t.zoneUnboxed}
                     >
                       {index + 1}
                     </span>
-                    <Input
-                      value={zone.name}
-                      aria-label={t.zoneSpaceName}
-                      placeholder={t.zoneSpaceNamePlaceholder}
-                      onFocus={() => setActiveZoneId(zone.id)}
-                      onChange={(e) =>
-                        setZoneManagerDraft((prev) =>
-                          prev.map((row) => (row.id === zone.id ? { ...row, name: e.target.value } : row)),
-                        )
-                      }
-                      className="h-10 rounded-xl border-slate-200 bg-white shadow-none"
-                    />
+                    <div className="relative min-w-0">
+                      <Input
+                        value={zone.name}
+                        aria-label={t.zoneSpaceName}
+                        placeholder={t.zoneSpaceNamePlaceholder}
+                        onFocus={() => setActiveZoneId(zone.id)}
+                        onChange={(e) =>
+                          setZoneManagerDraft((prev) =>
+                            prev.map((row) => (row.id === zone.id ? { ...row, name: e.target.value } : row)),
+                          )
+                        }
+                        className={`h-10 rounded-xl border-slate-200 bg-white shadow-none ${zone.rect ? "" : "border-amber-300 bg-amber-50/60"}`}
+                      />
+                      {zone.rect ? null : (
+                        <span className="pointer-events-none absolute -top-2 right-2 rounded-full bg-amber-500 px-1.5 py-px font-body text-[10px] font-medium leading-4 text-white">
+                          {t.zoneUnboxed}
+                        </span>
+                      )}
+                    </div>
                     <Input
                       value={zone.spaceType}
                       aria-label={t.zoneSpaceType}
