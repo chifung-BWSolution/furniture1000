@@ -143,7 +143,7 @@ export function ProductCategoryView() {
     })));
     setDirty(true);
     setPendingImport(null);
-    toast.success(`已導入 ${pendingImport.length} 筆分類`, { description: '請按「儲存」寫入資料庫' });
+    toast.success(`已導入 ${pendingImport.length} 筆分類`, { description: '請按「儲存」套用變更' });
   };
 
   // Persist incrementally: delete removed rows, update existing rows, insert new
@@ -365,7 +365,7 @@ export function ProductCategoryView() {
       <div className="flex items-center gap-2 border-b border-border bg-indigo-500/5 px-4 md:px-6 py-1.5">
         <FolderTree className="h-3 w-3 text-indigo-500" />
         <span className="text-[11px] text-indigo-500 font-body">
-          記錄目前產品分類。可直接編輯文字、新增/刪除分類，或由 Excel 導入（第一欄一級分類、第二欄二級分類）。儲存後寫入 Supabase product_category 表，並同步更新 products 及 ready_to_shopify.product_type。
+          記錄目前產品分類。可直接編輯文字、新增/刪除分類，或由 Excel 導入（第一欄一級分類、第二欄二級分類）。按「儲存」後，分類及相關產品的分類會一併更新。
         </span>
       </div>
 
@@ -452,7 +452,7 @@ export function ProductCategoryView() {
             已從 Excel 解析出{' '}
             <span className="font-bold text-primary">{pendingImport?.length ?? 0}</span> 筆二級分類。導入會
             <span className="font-semibold text-rose-500">取代</span>
-            目前畫面上的所有分類（儲存後才寫入資料庫）。
+            目前畫面上的所有分類；編輯後請按「儲存」套用變更。
           </>
         }
         footer={

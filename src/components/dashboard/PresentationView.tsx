@@ -106,7 +106,7 @@ const WIZARD_STEPS = [
   {
     title: '選擇產品',
     subtitle: '把家具分到分區',
-    hint: '從產品資料庫選擇家具，並指定所屬分區。',
+    hint: '選擇家具，並指定所屬分區。',
   },
   {
     title: '即將生成的大綱',

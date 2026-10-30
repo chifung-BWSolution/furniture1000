@@ -2369,7 +2369,7 @@ export function PublishedProductsView({
               type="button"
               onClick={() => pushToShopify()}
               disabled={isSyncing}
-              title="將已勾選產品的 Supabase 資料推送至 Shopify，更新現有產品（標題、描述、SEO、價格、Metafields 等）"
+              title="將所選產品的最新資料同步至 Shopify，更新標題、描述、價格等內容"
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 text-xs font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -2379,7 +2379,7 @@ export function PublishedProductsView({
               type="button"
               onClick={handleOpenImportDialog}
               disabled={isFetchingPreview}
-              title="從 Shopify 導入產品資料至 Supabase，更新本頁列表（標題、描述、價格、Metafields 等）。不會推送至 Shopify。"
+              title="從 Shopify 取得最新產品資料並更新本頁列表，不會更改 Shopify 商品。"
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isFetchingPreview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}

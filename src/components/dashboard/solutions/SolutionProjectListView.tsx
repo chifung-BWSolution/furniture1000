@@ -340,7 +340,7 @@ export function SolutionProjectListView() {
 
       project.meta = nextMeta;
       setProjects((prev) => [project, ...prev]);
-      toast.success('已建立專案並儲存至資料庫', {
+      toast.success('專案已建立', {
         description: `${projectTypeLabel(form.projectType)} · ${createdZones.map((z) => z.code || z.name).join('、') || project.name}`,
       });
       setShowCreate(false);
@@ -521,7 +521,7 @@ export function SolutionProjectListView() {
         size="3xl"
         icon={<FolderPlus className="h-6 w-6" />}
         title="建立新專案"
-        description="上傳平面圖（PDF/JPG）後，系統會自動產生分區建議（如 B1 老闆區、M1 會議室）。所有資料會儲存至資料庫。"
+        description="上傳平面圖（PDF/JPG）後，系統會自動產生分區建議（如 B1 老闆區、M1 會議室）。"
         footer={
           <>
             <ModalButton

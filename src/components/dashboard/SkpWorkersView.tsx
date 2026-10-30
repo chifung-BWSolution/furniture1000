@@ -30,14 +30,14 @@ function statusLabel(status: string) {
   switch (status) {
     case 'pending': return '等待批准';
     case 'approved': return '已批准，等待安裝程式領取';
-    case 'claimed': return '已領取';
+    case 'claimed': return '已完成配對';
     case 'rejected': return '已拒絕';
     case 'expired': return '已過期';
     case 'cancelled': return '已取消';
     case 'active': return '已授權';
     case 'suspended': return '已暫停';
     case 'revoked': return '已撤銷';
-    default: return status;
+    default: return '狀態待確認';
   }
 }
 
@@ -105,7 +105,7 @@ export function SkpWorkersView() {
   const revoke = async (row: SkpDeviceRow) => {
     const ok = await confirm({
       title: `撤銷 ${row.computerName}？`,
-      description: '這台電腦會立即停止領取及提交 SKP 任務。本機需要重新授權才能再加入。',
+      description: '這台電腦將無法繼續處理模型生成任務。再次使用前需要重新授權。',
       confirmLabel: '撤銷',
       destructive: true,
     });
@@ -138,7 +138,7 @@ export function SkpWorkersView() {
             SKP Worker
           </h1>
           <p className="fds-page-description">
-            授權一台公司電腦加入這個環境的 SKP 任務池。登入本身不會授權。被授權的電腦可以取得派發任務的產品資料及模型檔，只應授權公司信任的電腦。
+            管理協助生成 SKP 模型的電腦。請先核對電腦名稱及配對碼，再授權你信任的公司電腦存取相關產品資料及模型。
           </p>
         </section>
 
@@ -175,7 +175,7 @@ export function SkpWorkersView() {
                     <Button variant="outline" disabled={deciding} onClick={() => void decide(false)}>拒絕</Button>
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">{statusLabel(pairing.status)}。若安裝程式仍在等待，請它重新開始。</p>
+                  <p className="text-sm text-muted-foreground">{statusLabel(pairing.status)}。若安裝程式仍在等待，請在安裝程式重新開始配對。</p>
                 )}
               </>
             )}
@@ -201,7 +201,7 @@ export function SkpWorkersView() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h3 className="font-semibold">{row.computerName}</h3>
-                        <p className="font-mono text-xs text-muted-foreground">{row.id}</p>
+
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {row.status === 'suspended' && (
@@ -218,10 +218,10 @@ export function SkpWorkersView() {
                       <div><dt className="text-muted-foreground">版本</dt><dd>{row.workerVersion || '—'}{row.workerVersion && row.workerVersion !== CURRENT_SKP_WORKER_VERSION && <span className="ml-1.5 text-amber-600">需更新（重新執行最新安裝程式）</span>}</dd></div>
                       <div><dt className="text-muted-foreground">授權者</dt><dd>{row.approverEmail || '—'}</dd></div>
                       <div><dt className="text-muted-foreground">批准時間</dt><dd>{when(row.approvedAt)}</dd></div>
-                      <div><dt className="text-muted-foreground">憑證到期</dt><dd>{when(row.expiresAt)}</dd></div>
-                      <div><dt className="text-muted-foreground">最後心跳</dt><dd>{when(row.lastHeartbeatAt)}</dd></div>
-                      <div><dt className="text-muted-foreground">依賴</dt><dd>{row.ready ? '就緒' : '未就緒或離線'}</dd></div>
-                      <div><dt className="text-muted-foreground">目前任務</dt><dd>{row.currentJobType || '—'}</dd></div>
+                      <div><dt className="text-muted-foreground">授權有效期至</dt><dd>{when(row.expiresAt)}</dd></div>
+                      <div><dt className="text-muted-foreground">最後連線時間</dt><dd>{when(row.lastHeartbeatAt)}</dd></div>
+                      <div><dt className="text-muted-foreground">模型生成</dt><dd>{row.ready ? '就緒' : '未就緒或離線'}</dd></div>
+                      <div><dt className="text-muted-foreground">目前任務</dt><dd>{row.currentJobType === 'generate_skp' ? '生成模型' : row.currentJobType === 'preview_skp' ? '製作預覽' : row.currentJobType ? '處理中' : '暫無任務'}</dd></div>
                     </dl>
                   </article>
                 ))}

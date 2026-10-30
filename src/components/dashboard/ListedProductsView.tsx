@@ -725,7 +725,7 @@ export function ListedProductsView({
 
       if (prodErr) {
         console.error('[ProductCatalog] Fetch error:', prodErr);
-        setFetchError(prodErr.message || '無法連接到資料庫，請稍後重試');
+        setFetchError(prodErr.message || '暫時無法載入產品，請稍後重試');
         if (!append) {
           productsRef.current = [];
           nextOffsetRef.current = 0;
@@ -845,7 +845,7 @@ export function ListedProductsView({
       return;
     } catch (err) {
       console.error('[ProductCatalog] Unexpected error:', err);
-      setFetchError('連線逾時或發生未預期的錯誤，請檢查資料庫狀態');
+      setFetchError('載入產品失敗，請檢查網絡連線後重試');
       if (!append) {
         productsRef.current = [];
         nextOffsetRef.current = 0;
@@ -1019,7 +1019,7 @@ export function ListedProductsView({
     setShowDeleteConfirm(false);
 
     const toastId = toast.loading(`正在刪除 ${productsToDelete.length} 件產品...`, {
-      description: '正在從本地資料庫移除產品。',
+      description: '正在刪除所選產品，請稍候。',
     });
 
     try {
@@ -1042,7 +1042,7 @@ export function ListedProductsView({
 
       if (productDelErr) {
         console.error('[DeleteProducts] Local product delete error:', productDelErr);
-        toast.error('本地資料庫刪除失敗', {
+        toast.error('產品刪除失敗', {
           id: toastId,
           description: productDelErr.message,
           duration: 8000,
@@ -1058,7 +1058,7 @@ export function ListedProductsView({
 
       toast.success(`已成功刪除 ${localIds.length} 件產品`, {
         id: toastId,
-        description: `已從本地資料庫移除 ${localIds.length} 件產品。`,
+        description: `已刪除 ${localIds.length} 件產品。`,
         duration: 5000,
       });
 
@@ -1371,7 +1371,7 @@ export function ListedProductsView({
       setProducts(prev => prev.map(p => updateMap.has(p.id) ? { ...p, salePrice: updateMap.get(p.id)! } : p));
       toast.success(`已為 ${updates.length} 件產品套用售價`, {
         id: toastId,
-        description: `定價倍數 ×${multiplier}，售價已同步至 Supabase。`,
+        description: `定價倍數 ×${multiplier}，售價已更新。`,
         duration: 5000,
       });
       setPricingMultiplier('');
@@ -1828,7 +1828,7 @@ export function ListedProductsView({
             <div className="flex flex-col items-center justify-center py-20">
               <AlertTriangle className="mb-3 h-8 w-8 text-rose-400" />
               <p className="font-display text-sm text-rose-400">
-                資料庫連線失敗
+                暫時無法載入產品
               </p>
               <p className="mt-1 text-xs text-muted-foreground/70 font-body max-w-md text-center">
                 {fetchError}
@@ -2518,7 +2518,7 @@ export function ListedProductsView({
               <span className="font-bold text-foreground">{selectedIds.size}</span> 件產品？
               <br />
               <span className="text-xs text-muted-foreground mt-2 block">
-                此操作將從本地資料庫永久移除所選產品。此操作無法撤銷。
+                所選產品將永久刪除，無法復原。
               </span>
             </>
           }
@@ -2547,7 +2547,7 @@ export function ListedProductsView({
               是否同意移除 <span className="font-bold text-foreground">1</span> 項的產品？
               <br />
               <span className="text-xs text-muted-foreground mt-2 block">
-                「{dismissTarget?.title}」將從「所有產品」頁面移除（產品資料保留於資料庫，可日後找回）。
+                「{dismissTarget?.title}」將從「所有產品」頁面移除（保留產品資料）。
               </span>
             </>
           }

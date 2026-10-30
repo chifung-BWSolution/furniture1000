@@ -353,7 +353,7 @@ export function PresentationProductPicker({
           </span>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-foreground">選擇產品</p>
-            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">從產品資料庫選擇家具，並指定所屬分區。</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">選擇家具，並指定所屬分區。</p>
           </div>
         </div>
 

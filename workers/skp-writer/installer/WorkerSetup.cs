@@ -106,7 +106,7 @@ internal static class WorkerSetup {
         if (!Uri.TryCreate((value ?? "").Trim(), UriKind.Absolute, out uri) || uri.Scheme != "https" ||
             !uri.IsDefaultPort || !uri.Host.EndsWith(".supabase.co", StringComparison.OrdinalIgnoreCase) ||
             uri.AbsolutePath != "/" || !String.IsNullOrEmpty(uri.Query) || !String.IsNullOrEmpty(uri.UserInfo) || !String.IsNullOrEmpty(uri.Fragment))
-            throw new Exception("請使用受信任的 Supabase HTTPS 專案網址。");
+            throw new Exception("連線設定不正確，請重新下載最新安裝程式。");
         return uri.GetLeftPart(UriPartial.Authority);
     }
 
@@ -140,7 +140,7 @@ internal static class WorkerSetup {
         if (json.IndexOf("service_role", StringComparison.OrdinalIgnoreCase) >= 0 ||
             json.IndexOf("\"Key\"", StringComparison.OrdinalIgnoreCase) >= 0 ||
             json.IndexOf("\"key\"", StringComparison.OrdinalIgnoreCase) >= 0)
-            throw new Exception("安裝設定不能包含 service role key。請使用瀏覽器授權。");
+            throw new Exception("此設定已不再支援，請使用瀏覽器重新授權。");
     }
 
     internal static WorkerConfig LoadConfig() {
@@ -221,7 +221,7 @@ internal static class WorkerSetup {
                         var parsed = Json.Deserialize<Dictionary<string, object>>(text);
                         if (parsed != null) return parsed;
                     } catch { }
-                    throw new Exception("授權服務回應異常（HTTP " + (int)http.StatusCode + "）。");
+                    throw new Exception("暫時無法完成授權，請稍後再試。");
                 }
                 last = ex;
             }
@@ -496,7 +496,7 @@ internal sealed class SetupForm : Form {
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         Controls.Add(grid);
         Add(grid, new Label { Text = "FDS SKP Worker", Font = new Font(Font.FontFamily, 24, FontStyle.Bold), AutoSize = true });
-        Add(grid, new Label { Text = "使用瀏覽器以 FDS 帳號授權這台電腦。不需要、也不應輸入 service role key。SketchUp 須自行安裝並完成授權登入。", AutoSize = true, MaximumSize = new Size(1080, 0), ForeColor = Color.FromArgb(91, 108, 133) });
+        Add(grid, new Label { Text = "使用 FDS 帳號登入並授權這台電腦，即可協助生成模型。請先安裝 SketchUp 並完成登入。", AutoSize = true, MaximumSize = new Size(1080, 0), ForeColor = Color.FromArgb(91, 108, 133) });
         var settings = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Margin = new Padding(0, 12, 0, 16) };
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
@@ -534,7 +534,7 @@ internal sealed class SetupForm : Form {
         AddAction("使用瀏覽器登入並授權", Authorize);
         AddAction("取消配對", CancelPairing);
         AddAction("檢查狀態", CheckStatus);
-        AddAction("停止 Worker", async () => { await Task.Run(() => WorkerSetup.StopWorker()); status.Text = "已停止。網站上的舊心跳最多 90 秒後失效。授權仍然保留。"; });
+        AddAction("停止 Worker", async () => { await Task.Run(() => WorkerSetup.StopWorker()); status.Text = "已停止生成服務，授權仍然保留。網站上的連線狀態可能需要約 90 秒才更新。"; });
         AddAction("解除連線", Disconnect);
         AddAction("開啟記錄", () => { if (File.Exists(WorkerSetup.LogFile)) Process.Start("notepad.exe", "\"" + WorkerSetup.LogFile + "\""); else status.Text = "尚未有記錄。"; return Task.FromResult(0); });
         var operations = Card("操作控制");
@@ -569,8 +569,8 @@ internal sealed class SetupForm : Form {
         computer.Text = "電腦名稱：" + Environment.MachineName + "（只供辨識，不用作登入）";
         ApplyTarget();
         DescribeSketchUp();
-        if (WorkerSetup.HasLegacyConfig()) status.Text = "這台電腦仍保存舊的 service role 設定。它不會被帶入新授權。請使用瀏覽器重新授權，成功後舊金鑰會從本機刪除。";
-        else if (File.Exists(WorkerSetup.ConfigFile)) status.Text = WorkerSetup.Running() ? "已授權。Worker 正在運行。請用「檢查狀態」分開確認連線與寫檔依賴。" : "已保存授權。Worker 目前未運行。";
+        if (WorkerSetup.HasLegacyConfig()) status.Text = "這台電腦需要更新授權。請按「使用瀏覽器登入並授權」重新連接。";
+        else if (File.Exists(WorkerSetup.ConfigFile)) status.Text = WorkerSetup.Running() ? "已授權。Worker 正在運行。請按「檢查狀態」確認是否可以開始生成模型。" : "已保存授權。Worker 目前未運行。";
         else status.Text = "尚未連接 FDS。預設是正式環境。按「使用瀏覽器登入並授權」。";
     }
 
@@ -679,7 +679,7 @@ internal sealed class SetupForm : Form {
     void DescribeSketchUp() {
         var path = sketchup.Text.Trim();
         var found = File.Exists(path) && String.Equals(Path.GetFileName(path), "SketchUp.exe", StringComparison.OrdinalIgnoreCase);
-        sketchupState.Text = found ? "本機已找到 SketchUp.exe。這不代表 SketchUp 已登入或已選模板。" : "尚未找到 SketchUp.exe。仍可先授權；生成前需要安裝 SketchUp 並登入。";
+        sketchupState.Text = found ? "已找到 SketchUp。首次使用前，請開啟 SketchUp、登入並選擇模板。" : "尚未找到 SketchUp。請先安裝並登入，或選擇已安裝的 SketchUp。";
     }
 
     TableLayoutPanel Card(string title) {
@@ -781,7 +781,7 @@ internal sealed class SetupForm : Form {
                 await Task.Delay(TimeSpan.FromSeconds(WorkerSetup.WaitSeconds(polled)), token);
                 continue;
             }
-            if (error != "") throw new Exception("配對失敗：" + error);
+            if (error != "") throw new Exception("配對失敗，請重新開始。");
             var pairStatus = WorkerSetup.Text(polled, "status");
             if (pairStatus == "pending") {
                 status.Text = "等待管理員批准。\r\n配對碼：" + state.Code + "\r\n環境：" + target.Name + "\r\n" + state.AuthorizeUrl;
@@ -800,7 +800,7 @@ internal sealed class SetupForm : Form {
                     });
                     WorkerSetup.Install(config, auto.Checked);
                 });
-                status.Text = "授權：已授權\r\n連線：正在啟動 Worker\r\n依賴：請按「檢查狀態」。授權成功尚未代表 SketchUp 寫檔已通過。";
+                status.Text = "授權：已授權\r\n連線：正在啟動 Worker\r\n模型生成：請按「檢查狀態」。開始生成前，請確認 SketchUp 已安裝及登入。";
                 return;
             }
         }
@@ -836,20 +836,20 @@ internal sealed class SetupForm : Form {
                 { "action", "status" },
             }));
         } catch (Exception ex) {
-            status.Text = "授權：本機已保存設定\r\n連線：失敗（" + ex.Message + "）\r\n依賴：尚未向網站確認";
+            status.Text = "暫時無法連接 FDS。請檢查網絡後，再按「檢查狀態」。";
             return;
         }
         var error = WorkerSetup.Text(result, "error");
         if (error == "unauthorized" || error == "revoked" || error == "expired" || error == "suspended") {
-            status.Text = "授權：已失效（" + error + "）。請重新授權。\r\n連線：伺服器已拒絕\r\n依賴：不適用";
+            status.Text = "這台電腦的授權已失效。請使用瀏覽器重新授權。";
             return;
         }
         if (error != "") throw new Exception(error);
         var ready = result.ContainsKey("ready") && Convert.ToBoolean(result["ready"]);
         var localSketchUp = File.Exists(config.SketchUp);
-        status.Text = "授權：已授權\r\n連線：已連線\r\n依賴：" + (ready ? "Worker 回報寫檔環境已就緒" : "Worker 尚未回報就緒，或缺少 SketchUp／腳本／SDK")
+        status.Text = "授權：已授權\r\n連線：已連線\r\n模型生成：" + (ready ? "已就緒" : "尚未就緒，請確認 SketchUp 已安裝及登入，再重新啟動 Worker")
             + "\r\n本機 SketchUp.exe：" + (localSketchUp ? "已找到" : "缺少")
-            + "\r\n以上沒有代替實際生成一個 SKP 並在 SketchUp 開啟。\r\n環境：" + (config.Environment == "branch" ? "測試環境" : "正式環境");
+            + "\r\n首次使用時，建議生成一個模型並用 SketchUp 開啟確認。\r\n環境：" + (config.Environment == "branch" ? "測試環境" : "正式環境");
     }
 
     async Task Disconnect() {
