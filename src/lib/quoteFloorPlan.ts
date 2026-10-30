@@ -45,7 +45,10 @@ export type ZoneManagerRow = {
   spaceType: string;
   /** 這個空間的數量 */
   quantity: number;
+  /** First area of this space; the canvas draws from `rects`. */
   rect: QuoteZoneRect | null;
+  /** One space can sit in several places on the plan (copied areas). */
+  rects?: QuoteZoneRect[];
 };
 
 export function blankZoneManagerRow(id: string, name = ''): ZoneManagerRow {
@@ -208,10 +211,13 @@ export function parseQuoteZoneRegions(value: unknown): QuoteZoneRegion[] {
     if (!entry || typeof entry !== 'object') continue;
     const row = entry as Record<string, unknown>;
     const zoneId = typeof row.zoneId === 'string' ? row.zoneId.trim() : '';
-    if (!zoneId || seen.has(zoneId)) continue;
+    if (!zoneId) continue;
     const rect = normalizeZoneRect(row.rect ?? row);
     if (!rect) continue;
-    seen.add(zoneId);
+    // A space may hold several areas; only an identical box is a duplicate.
+    const key = `${zoneId}|${rect.x},${rect.y},${rect.w},${rect.h}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     regions.push({ zoneId, rect, confirmed: row.confirmed === true });
     if (regions.length >= MAX_FLOOR_PLAN_ZONES) break;
   }
@@ -226,11 +232,15 @@ export function unconfirmZoneRegions(regions: QuoteZoneRegion[]): QuoteZoneRegio
 export function regionsFromZoneRows(rows: ZoneManagerRow[]): QuoteZoneRegion[] {
   const regions: QuoteZoneRegion[] = [];
   for (const row of rows) {
-    if (!row.rect) continue;
-    const rect = normalizeZoneRect(row.rect);
-    if (!rect) continue;
-    regions.push({ zoneId: row.id, rect, confirmed: true });
-    if (regions.length >= MAX_FLOOR_PLAN_ZONES) break;
+    const boxes = row.rects?.length ? row.rects : row.rect ? [row.rect] : [];
+    for (const box of boxes) {
+      const rect = normalizeZoneRect(box);
+      if (!rect) continue;
+      const key = `${row.id}|${rect.x},${rect.y},${rect.w},${rect.h}`;
+      if (regions.some((region) => `${region.zoneId}|${region.rect.x},${region.rect.y},${region.rect.w},${region.rect.h}` === key)) continue;
+      regions.push({ zoneId: row.id, rect, confirmed: true });
+      if (regions.length >= MAX_FLOOR_PLAN_ZONES) return regions;
+    }
   }
   return regions;
 }
@@ -244,6 +254,7 @@ export function applyDetectedZones(
   const rows = existing.map((row) => ({
     ...row,
     rect: row.rect ? { ...row.rect } : null,
+    rects: row.rects?.map((rect) => ({ ...rect })),
   }));
   const fresh: ZoneManagerRow[] = [];
   const seen = new Set<string>();
@@ -255,13 +266,45 @@ export function applyDetectedZones(
     const found = rows.find((row) => row.name.trim().toLowerCase() === key)
       ?? fresh.find((row) => row.name.trim().toLowerCase() === key);
     if (found) {
-      if (zone.rect) found.rect = zone.rect;
+      // A fresh box replaces the old areas of that space instead of leaving them behind.
+      if (zone.rect) {
+        found.rect = zone.rect;
+        found.rects = [zone.rect];
+      }
       continue;
     }
     if (rows.length + fresh.length >= MAX_FLOOR_PLAN_ZONES) continue;
-    fresh.push({ ...blankZoneManagerRow(createId(), name), rect: zone.rect });
+    fresh.push({ ...blankZoneManagerRow(createId(), name), rect: zone.rect, rects: zone.rect ? [zone.rect] : [] });
   }
   return { rows: [...fresh, ...rows], added: fresh.length };
+}
+
+/**
+ * Canvas rows carry `${zone.id}::${index}` so every copied area can be moved on its own
+ * while the list below still shows one row per space.
+ */
+export function zoneCanvasRows(rows: ZoneManagerRow[]): ZoneManagerRow[] {
+  return rows.flatMap((zone) => {
+    const rects = zone.rects?.length ? zone.rects : zone.rect ? [zone.rect] : [];
+    return (rects.length ? rects : [null]).map((rect, index) => ({ ...zone, id: `${zone.id}::${index}`, rect }));
+  });
+}
+
+/** Fold canvas edits back into the zone list. A space whose last area was deleted is dropped. */
+export function applyZoneCanvasChange(rows: ZoneManagerRow[], next: ZoneManagerRow[]): ZoneManagerRow[] {
+  const out: ZoneManagerRow[] = rows.flatMap((zone) => {
+    const rects = next
+      .filter((row) => row.id.startsWith(`${zone.id}::`) && row.rect)
+      .map((row) => row.rect as QuoteZoneRect);
+    if ((zone.rects?.length || zone.rect) && !rects.length) return [];
+    return [{ ...zone, rects, rect: rects[0] ?? null }];
+  });
+  for (const row of next) {
+    if (!row.id.includes('::')) {
+      out.push({ ...blankZoneManagerRow(row.id), ...row, rects: row.rect ? [row.rect] : [] });
+    }
+  }
+  return out;
 }
 
 export function parseQuoteZoneImages(value: unknown): QuoteZoneImageMap {

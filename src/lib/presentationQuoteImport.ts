@@ -383,11 +383,11 @@ function assignLineKeys(lines: FurnitureLine[]): FurnitureLine[] {
   }));
 }
 
-function zoneDraft(id: string, name: string, rect: QuoteZoneRect | null, imageUrl: string): PresentationZoneDraft {
+function zoneDraft(id: string, name: string, rects: QuoteZoneRect[], imageUrl: string): PresentationZoneDraft {
   return {
     id,
     name: name || '未命名分區',
-    ...(rect ? { rect } : {}),
+    ...(rects.length ? { rect: rects[0], rects } : {}),
     ...(imageUrl ? { imageUrl } : {}),
   };
 }
@@ -540,18 +540,23 @@ export async function loadPresentationQuote(
       const sourceId = text(item.id);
       const id = crypto.randomUUID();
       const name = text(item.name) || '未命名分區';
-      const region = floorPlan?.regions.find((entry) => entry.zoneId === sourceId)?.rect ?? null;
+      // A quote space can sit in several places; keep every copied area for the deck.
+      const regions = (floorPlan?.regions ?? [])
+        .filter((entry) => entry.zoneId === sourceId)
+        .map((entry) => entry.rect);
       const matched = designByName.get(name.toLowerCase());
-      const rect = region || (matched ? normalizeZoneRect(matched.bounds) : null);
+      const fallback = matched ? normalizeZoneRect(matched.bounds) : null;
+      const rects = regions.length ? regions : fallback ? [fallback] : [];
       const imageUrl = (zoneImages[sourceId] ?? []).find((url) => httpUrl(url)) || '';
-      zones.push(zoneDraft(id, name, rect, imageUrl));
+      zones.push(zoneDraft(id, name, rects, imageUrl));
       if (sourceId) zoneIdByKey.set(sourceId, id);
     }
   } else if (designZones.length) {
     for (const zone of designZones) {
       if (zones.length >= ZONE_CAP) break;
       const id = crypto.randomUUID();
-      zones.push(zoneDraft(id, zone.name || zone.code || '分區', normalizeZoneRect(zone.bounds), ''));
+      const rect = normalizeZoneRect(zone.bounds);
+      zones.push(zoneDraft(id, zone.name || zone.code || '分區', rect ? [rect] : [], ''));
       zoneIdByKey.set(zone.id, id);
     }
   }

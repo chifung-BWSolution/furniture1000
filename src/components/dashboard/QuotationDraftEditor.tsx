@@ -80,9 +80,11 @@ import {
 } from "@/lib/imageStorage";
 import {
   applyDetectedZones,
+  applyZoneCanvasChange,
   blankZoneManagerRow,
   detectZonesFromJpegBase64,
   imageBlobToJpegBase64,
+  MAX_FLOOR_PLAN_ZONES,
   MAX_ZONE_IMAGES,
   parseQuoteFloorPlan,
   parseQuoteZoneImages,
@@ -90,8 +92,10 @@ import {
   regionsFromZoneRows,
   unconfirmZoneRegions,
   UNZONED_QUOTE_IMAGE_KEY,
+  zoneCanvasRows,
   type QuoteFloorPlan,
   type QuoteZoneImageMap,
+  type QuoteZoneRect,
   type QuoteZoneRegion,
   type ZoneManagerRow,
 } from "@/lib/quoteFloorPlan";
@@ -2268,14 +2272,18 @@ function insertItemsAt(
 function zoneRowsFromItems(items: QuotationItem[], regions: QuoteZoneRegion[]): ZoneManagerRow[] {
   return items
     .filter((item) => item.isSectionTitle)
-    .map((item) => ({
-      id: item.id,
-      name: item.name || "",
-      nameEn: item.remarks || "",
-      spaceType: item.category || "",
-      quantity: item.quantity > 0 ? item.quantity : 1,
-      rect: regions.find((region) => region.zoneId === item.id)?.rect ?? null,
-    }));
+    .map((item) => {
+      const rects = regions.filter((region) => region.zoneId === item.id).map((region) => region.rect);
+      return {
+        id: item.id,
+        name: item.name || "",
+        nameEn: item.remarks || "",
+        spaceType: item.category || "",
+        quantity: item.quantity > 0 ? item.quantity : 1,
+        rect: rects[0] ?? null,
+        rects,
+      };
+    });
 }
 
 /** Rebuild the flat list from the zone-manager draft. Removed zones release their rows to 未分區. */
@@ -4025,6 +4033,29 @@ export function QuotationDraftEditor({
   const zoneRecognitionActive = floorPlanBusy || recognizingZones;
   /** Rooms the user still has to draw on the plan before they can be cropped. */
   const unboxedZoneCount = zoneManagerDraft.filter((zone) => !zone.rect).length;
+  // Synthetic canvas IDs keep each area independently editable while the list keeps one zone,
+  // so a space that sits in two places can be copied and dragged like in the presentation manager.
+  const canvasZoneRows = zoneCanvasRows(zoneManagerDraft);
+  const zoneCanvasId = (id: string) => id.split("::")[0];
+  const applyZoneCanvas = (rows: ZoneManagerRow[]) =>
+    setZoneManagerDraft((current) => applyZoneCanvasChange(current, rows));
+  const copyZoneArea = (id: string) => {
+    const [zoneId, rawIndex] = id.split("::");
+    setZoneManagerDraft((current) => current.map((zone) => {
+      if (zone.id !== zoneId) return zone;
+      const rects = zone.rects?.length ? zone.rects : zone.rect ? [zone.rect] : [];
+      const rect = rects[Number(rawIndex)];
+      if (!rect || rects.length >= MAX_FLOOR_PLAN_ZONES) return zone;
+      // Nudge the copy clear of the original: down-right, or up-left when it is already at the edge.
+      const copy = {
+        ...rect,
+        x: rect.x + 3 + rect.w <= 100 ? rect.x + 3 : Math.max(0, rect.x - 3),
+        y: rect.y + 3 + rect.h <= 100 ? rect.y + 3 : Math.max(0, rect.y - 3),
+      };
+      return { ...zone, rects: [...rects, copy], rect: rects[0] ?? copy };
+    }));
+    setActiveZoneId(zoneId);
+  };
 
   useEffect(() => {
     if (!zoneRecognitionActive) {
@@ -6712,13 +6743,18 @@ export function QuotationDraftEditor({
                 {hasFloorPlanPreview ? (
                   <FloorPlanZoneCanvas
                     src={(floorPlan?.previewUrl || floorPlan?.url) as string}
-                    zones={zoneManagerDraft}
-                    activeId={activeZoneId}
+                    zones={canvasZoneRows}
+                    activeId={activeZoneId ? `${activeZoneId}::0` : null}
                     createId={generateId}
                     disabled={zoneRecognitionActive}
                     deleteLabel={quoteLocale === "en" ? "Delete space" : "刪除空間"}
-                    onChange={setZoneManagerDraft}
-                    onActive={setActiveZoneId}
+                    onChange={applyZoneCanvas}
+                    onActive={(id) => setActiveZoneId(zoneCanvasId(id))}
+                    onCopyRegion={copyZoneArea}
+                    regionDisplay={(id, index) => {
+                      const zoneIndex = zoneManagerDraft.findIndex((zone) => zone.id === zoneCanvasId(id));
+                      return { colorIndex: zoneIndex < 0 ? index : zoneIndex, number: zoneIndex < 0 ? index + 1 : zoneIndex + 1 };
+                    }}
                   />
                 ) : (
                   <button
