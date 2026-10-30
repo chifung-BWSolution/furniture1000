@@ -389,7 +389,7 @@ export function ProductSelectorModal({
       title="圖冊"
       description={
         <>
-          從資料庫搜尋產品並加入報價單
+          搜尋產品並加入報價單
           {stockFilterActive ? (
             <span className="ml-1 text-primary">· 僅顯示現貨（3-7天）</span>
           ) : null}

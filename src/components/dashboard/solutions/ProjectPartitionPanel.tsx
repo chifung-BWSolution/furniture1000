@@ -648,7 +648,7 @@ export function ProjectPartitionPanel({
             </div>
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            點擊名稱可改名；可拖曳排序、刪除房間；按「儲存」後才寫入資料庫
+            點擊名稱可改名；可拖曳排序、刪除房間；修改後請按「儲存」套用變更
           </p>
         </div>
 

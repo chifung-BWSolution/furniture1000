@@ -1851,7 +1851,7 @@ export function DesignProjectsView() {
         furnitureSchemeGroups: schemeGroups,
       }).then((result) => {
         if (!result.ok) {
-          toast.error('劃分尚未寫入資料庫', {
+          toast.error('劃分尚未儲存', {
             description: result.error || '請再按一次「儲存方案」',
           });
         }
@@ -2255,7 +2255,7 @@ export function DesignProjectsView() {
     persistPlanningMeta(zoneAreasSqft, next);
     setDivisionModalZoneId(null);
     toast.success('已加入傢俬劃分', {
-      description: `${level1}${division.level2 ? ` > ${division.level2}` : ''} · ${qty} 件（劃分已寫入資料庫；改數量／備註後請按儲存方案）`,
+      description: `${level1}${division.level2 ? ` > ${division.level2}` : ''} · ${qty} 件（劃分已儲存；修改數量或備註後，請按「儲存方案」）`,
     });
   };
 
@@ -2834,7 +2834,7 @@ export function DesignProjectsView() {
       );
       setFurnitureDirty(false);
       toast.success('已儲存方案', {
-        description: `${result.data.snapshot.zoneCount} 個間隔 · ${result.data.snapshot.productCount} 件產品已寫入 Supabase`,
+        description: `${result.data.snapshot.zoneCount} 個間隔 · ${result.data.snapshot.productCount} 件產品已儲存`,
       });
     } finally {
       setSavingFurniture(false);

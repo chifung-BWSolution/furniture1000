@@ -3315,7 +3315,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               '',
               rowsToPersist.length > 0
                 ? `✅ 其餘 ${rowsToPersist.length} 個產品已成功寫入「待處理產品」並從列表移除。`
-                : '⚠️ 沒有任何產品寫入資料庫。',
+                : '⚠️ 尚未儲存任何產品，請檢查處理結果後重試。',
             ].join('\n');
             setAiError(errorMsg);
             if (rowsToPersist.length > 0) {

@@ -388,7 +388,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
         stage: 'product_info',
         action: 'save',
       });
-      toast.success('已儲存', { description: '產品資料已同步至資料庫' });
+      toast.success('已儲存', { description: '產品資料已儲存' });
     } catch (e) {
       toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {

@@ -666,7 +666,7 @@ export function ProductDetailModal({
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     const toastId = toast.loading('正在儲存產品資料...', {
-      description: '正在更新本地資料庫。',
+      description: '正在儲存產品資料，請稍候。',
     });
 
     try {
@@ -832,7 +832,7 @@ export function ProductDetailModal({
 
         if (localError) {
           console.error('[ProductDetail] Local update error:', localError);
-          toast.error('本地資料庫更新失敗', {
+          toast.error('產品資料儲存失敗', {
             id: toastId,
             description: localError.message,
             duration: 8000,
@@ -947,8 +947,8 @@ export function ProductDetailModal({
         toast.success('產品資料已儲存', {
           id: toastId,
           description: shopifySyncResult === 'ok'
-            ? '已同步更新本地資料庫及 Shopify 上的產品。'
-            : '已更新本地資料庫。',
+            ? '產品資料及 Shopify 商品已更新。'
+            : '產品資料已儲存。',
           duration: 4000,
         });
       }

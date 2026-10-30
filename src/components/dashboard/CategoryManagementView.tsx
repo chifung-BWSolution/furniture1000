@@ -241,7 +241,7 @@ export function CategoryManagementView() {
     const l2Count = pendingImport.reduce((s, g) => s + g.l2s.length, 0);
     const l3Count = pendingImport.reduce((s, g) => s + g.l2s.reduce((s2, l2) => s2 + l2.l3s.length, 0), 0);
     toast.success(`已導入 ${pendingImport.length} 個一級 · ${l2Count} 個二級 · ${l3Count} 個三級`, {
-      description: '請按「儲存」寫入資料庫',
+      description: '請按「儲存」套用變更',
     });
   };
 
@@ -546,7 +546,7 @@ export function CategoryManagementView() {
             </span>{' '}
             個三級分類。導入會
             <span className="font-semibold text-rose-500">取代</span>
-            目前所有分類（儲存後才寫入資料庫）。
+            目前所有分類；編輯後請按「儲存」套用變更。
           </>
         }
         footer={
