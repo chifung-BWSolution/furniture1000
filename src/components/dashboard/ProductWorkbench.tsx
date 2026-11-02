@@ -409,39 +409,43 @@ export function ProductWorkbench({
           <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <section className="min-w-0 p-4">
             <div ref={stageRef} className="fds-product-stage flex gap-3">
-              <div className="fds-stage-rail flex h-[420px] w-20 shrink-0 flex-col items-center gap-2 overflow-y-auto px-1 py-0.5">
-                {detail.images.map((src, index) => (
-                  <button
-                    key={src}
-                    type="button"
-                    className={cn(
-                      'h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-white shadow-sm',
-                      stage === 'image' && index === activeImage ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200',
-                    )}
-                    onClick={() => {
-                      setActiveImage(index);
-                      setStage('image');
-                    }}
-                  >
-                    <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" />
-                  </button>
-                ))}
+              <div className={cn('fds-stage-rail flex shrink-0 flex-col items-center', glb ? 'h-[calc(26.5rem+2px)]' : 'h-[calc(22rem+2px)]')}>
+                <div className="fds-stage-thumbs flex h-[calc(22rem+2px)] w-[calc(4rem+10px)] shrink-0 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto px-0.5 py-px [scrollbar-gutter:stable]">
+                  {detail.images.map((src, index) => (
+                    <button
+                      key={src}
+                      type="button"
+                      className={cn(
+                        'h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-white shadow-sm',
+                        stage === 'image' && index === activeImage ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200',
+                      )}
+                      onClick={() => {
+                        setActiveImage(index);
+                        setStage('image');
+                      }}
+                    >
+                      <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" />
+                    </button>
+                  ))}
+                </div>
                 {glb && (
-                  <button
-                    type="button"
-                    aria-label="3D 模型"
-                    className={cn(
-                      'flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border bg-white shadow-sm',
-                      stage === '3d' ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200 hover:border-slate-300',
-                    )}
-                    onClick={() => setStage('3d')}
-                  >
-                    <ModelThumbMark />
-                    <span className={cn('text-[10px] font-semibold leading-none tracking-wide', stage === '3d' ? 'text-[#5b4dff]' : 'text-slate-500')}>3D</span>
-                  </button>
+                  <div className="mt-2 flex h-16 w-[calc(4rem+10px)] shrink-0 items-center justify-center overflow-y-auto px-0.5 [scrollbar-gutter:stable]">
+                    <button
+                      type="button"
+                      aria-label="3D 模型"
+                      className={cn(
+                        'flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border bg-white shadow-sm',
+                        stage === '3d' ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200 hover:border-slate-300',
+                      )}
+                      onClick={() => setStage('3d')}
+                    >
+                      <ModelThumbMark />
+                      <span className={cn('text-[10px] font-semibold leading-none tracking-wide', stage === '3d' ? 'text-[#5b4dff]' : 'text-slate-500')}>3D</span>
+                    </button>
+                  </div>
                 )}
               </div>
-              <div className="fds-stage-view relative h-[420px] min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]">
+              <div className={cn('fds-stage-view relative min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]', glb ? 'h-[calc(26.5rem+2px)]' : 'h-[calc(22rem+2px)]')}>
                 {stage === '3d' && glbUrl && !glbError && (
                   <GlbViewport
                     url={glbUrl}
