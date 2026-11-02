@@ -139,3 +139,9 @@ export async function reapproveSkpDevice(id: string) {
   const row = (data ?? {}) as RpcRow;
   if (typeof row.error === 'string') throw new Error(row.error);
 }
+
+export async function listSkpPairings(): Promise<SkpPairing[]> {
+  const { data, error } = await supabase.rpc('fds_skp_device_pairings_list');
+  if (error) throw new Error(error.message.includes('permission_denied') ? 'permission_denied' : 'list_failed');
+  return (Array.isArray(data) ? data : []).map(pairingFrom);
+}

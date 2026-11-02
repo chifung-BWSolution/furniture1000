@@ -10,6 +10,7 @@ import {
   CURRENT_SKP_WORKER_VERSION,
   decideSkpPairing,
   listSkpDevices,
+  listSkpPairings,
   lookupSkpPairing,
   reapproveSkpDevice,
   revokeSkpDevice,
@@ -50,6 +51,7 @@ export function SkpWorkersView() {
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
   const [deciding, setDeciding] = useState(false);
+  const [pending, setPending] = useState<SkpPairing[]>([]);
   const [devices, setDevices] = useState<SkpDeviceRow[]>([]);
   const [devicesError, setDevicesError] = useState<string | null>(null);
   const [devicesLoading, setDevicesLoading] = useState(false);
@@ -76,7 +78,9 @@ export function SkpWorkersView() {
     if (!canAuthorize) return;
     setDevicesLoading(true);
     try {
-      setDevices(await listSkpDevices());
+      const [deviceRows, pairingRows] = await Promise.all([listSkpDevices(), listSkpPairings()]);
+      setDevices(deviceRows);
+      setPending(pairingRows);
       setDevicesError(null);
     } catch (err) {
       setDevicesError(skpDeviceError(err instanceof Error ? err.message : 'list_failed'));
@@ -88,10 +92,16 @@ export function SkpWorkersView() {
   useEffect(() => { void loadPairing(); }, [loadPairing]);
   useEffect(() => { void loadDevices(); }, [loadDevices]);
 
-  const decide = async (approve: boolean) => {
+  useEffect(() => {
+    if (!canAuthorize) return;
+    const timer = window.setInterval(() => { void loadDevices(); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [canAuthorize, loadDevices]);
+
+  const decide = async (approve: boolean, pairingCode = code) => {
     setDeciding(true);
     try {
-      await decideSkpPairing(code, approve);
+      await decideSkpPairing(pairingCode, approve);
       toast.success(approve ? '已授權這台電腦' : '已拒絕這次配對');
       await loadPairing();
       await loadDevices();
@@ -141,6 +151,23 @@ export function SkpWorkersView() {
             管理協助生成 SKP 模型的電腦。請先核對電腦名稱及配對碼，再授權你信任的公司電腦存取相關產品資料及模型。
           </p>
         </section>
+
+        {canAuthorize && (
+          <section className="space-y-3">
+            <h2 className="text-base font-semibold">待審核申請（{pending.length}）</h2>
+            {devicesError ? <p className="text-sm text-destructive">{devicesError}</p> : pending.length === 0 ? <p className="text-sm text-muted-foreground">{devicesLoading ? '正在讀取…' : '目前沒有待審核申請。'}</p> : pending.map((row) => (
+              <article key={row.code} className="space-y-3 rounded-xl border p-4">
+                <h3 className="font-semibold">{row.computerName}</h3>
+                <p className="text-sm">{skpEnvironmentLabel(row.environment)} · 配對碼：{row.code}</p>
+                <p className="text-sm text-muted-foreground">申請時間：{when(row.createdAt)} · 有效期至：{when(row.expiresAt)}</p>
+                <div className="flex gap-2">
+                  <Button disabled={deciding} onClick={() => void decide(true, row.code)}>授權這台電腦</Button>
+                  <Button variant="outline" disabled={deciding} onClick={() => void decide(false, row.code)}>拒絕</Button>
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
 
         {code && (
           <section className="space-y-4 rounded-xl border border-slate-200/70 bg-slate-50/80 p-4 sm:p-5">
