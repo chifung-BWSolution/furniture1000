@@ -461,6 +461,18 @@ internal static class WorkerSetup {
             }
             var check = Process.Start(new ProcessStartInfo(Path.Combine(temp, "node.exe"), "--check \"" + Path.Combine(temp, "worker.mjs") + "\"") { UseShellExecute = false, CreateNoWindow = true });
             check.WaitForExit(); if (check.ExitCode != 0) throw new Exception("Bundled worker syntax");
+            var steps = SetupForm.DescribeProgress(Json.Deserialize<Dictionary<string, object>>("{\"job_id\":\"abcdef123456\",\"revision\":1,\"stage\":\"export\",\"detail\":\"匯出\"}"), DateTime.Now);
+            if (!steps.Contains("✓ Codex 建模") || !steps.Contains("● 匯出 SKP") || !steps.Contains("○ 人工驗收") || !steps.Contains("第 1 次修正")) throw new Exception("Task steps: " + steps);
+            if (!SetupForm.DescribeProgress(Json.Deserialize<Dictionary<string, object>>("{\"stage\":\"failed\",\"detail\":\"boom\"}"), DateTime.Now).Contains("失敗：boom")) throw new Exception("Task failure");
+            if (SetupForm.ComposeFeedback(new[] { "尺寸不符", "缺少部件" }, " 扶手太高 ") != "問題類型：尺寸不符、缺少部件\n扶手太高") throw new Exception("Feedback types");
+            var job = Path.Combine(temp, "job");
+            Directory.CreateDirectory(Path.Combine(job, "outputs"));
+            File.WriteAllText(Path.Combine(job, "validation.json"), "{\"dimensions\":{\"width\":{\"source\":\"catalog\",\"expected_mm\":1200,\"actual_mm\":1201.04,\"ok\":true},\"height\":{\"source\":\"image\",\"actual_mm\":750,\"ok\":true}},\"checks\":[{\"name\":\"centered\",\"ok\":false,\"severity\":\"warning\",\"detail\":\"center = (9.0, 0.0) mm\"},{\"name\":\"floor_at_zero\",\"ok\":true}]}");
+            File.WriteAllText(Path.Combine(job, "outputs", "report.json"), "\uFEFF{\"orientation_review\":{\"passed\":true,\"checks\":[\"正面朝 -Y\"]},\"known_issues\":[\"椅背弧度較平\"],\"estimated_fields\":[]}");
+            var described = SetupForm.DescribeReview(job, Json.Deserialize<Dictionary<string, object>>("{\"product\":{\"model\":\"LF-1\",\"name\":\"Chair\"},\"revision\":2}"));
+            foreach (var expected in new[] { "LF-1 Chair", "第 2 次", "寬　目錄 1200 mm　實際 1201 mm　✓", "高　實際 750 mm　（沒有目錄值，按圖片推算）", "⚠ centered", "方向檢查（通過）", "椅背弧度較平" })
+                if (!described.Contains(expected)) throw new Exception("Review summary missing " + expected + ": " + described);
+            if (described.Contains("floor_at_zero") || described.Contains("估算部分")) throw new Exception("Review summary noise: " + described);
             File.WriteAllText(args.Last(), "PASS: payload extraction, bundled Node syntax, DPAPI encryption, Unicode config, HTTPS target and no service role in the worker.");
         } finally { Directory.Delete(temp, true); }
     }
@@ -477,7 +489,20 @@ internal sealed class SetupForm : Form {
     readonly System.Windows.Forms.Timer logTimer = new System.Windows.Forms.Timer { Interval = 2000 };
     readonly NotifyIcon reviewNotice = new NotifyIcon { Icon = SystemIcons.Information, Text = "FDS 模型驗收", Visible = true };
     readonly HashSet<string> notifiedReviews = new HashSet<string>();
+    readonly Label taskSteps = new Label { AutoSize = true, MaximumSize = new Size(1080, 0), Text = "目前沒有建模任務。" };
     string lastLogText = "";
+    string lastTaskText = "";
+    static readonly string[][] TaskSteps = {
+        new[] { "download", "下載參考圖" },
+        new[] { "wait_sketchup", "啟動專用 SketchUp" },
+        new[] { "codex", "Codex 建模及四視角檢查" },
+        new[] { "export", "匯出 SKP／FBX／GLB" },
+        new[] { "validate", "檢查尺寸、座標及格式" },
+        new[] { "review", "人工驗收" },
+        new[] { "upload", "上傳檔案" },
+        new[] { "publish", "發布模型" },
+    };
+    static readonly string[] IssueTypes = { "尺寸不符", "正面或方向錯誤", "缺少部件", "多出部件", "造型或比例不像", "材質或顏色不對" };
     readonly CheckBox auto = new CheckBox { Text = "登入 Windows 後自動啟動", Checked = true, AutoSize = true };
     readonly Label status = new Label { AutoSize = false, Height = 140, Dock = DockStyle.Fill };
     readonly FlowLayoutPanel actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
@@ -544,6 +569,9 @@ internal sealed class SetupForm : Form {
         status.Padding = new Padding(16);
         status.Height = 115;
         Add(operations, status);
+        var task = Card("目前任務");
+        Add(grid, task);
+        Add(task, taskSteps);
         var journal = Card("近期任務日誌 · 每 2 秒更新");
         Add(grid, journal);
         logs.Height = 220;
@@ -558,9 +586,10 @@ internal sealed class SetupForm : Form {
         reviewNotice.BalloonTipClicked += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); OpenReviews(); };
         reviewNotice.DoubleClick += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
         FormClosing += (s, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
-        logTimer.Tick += (s, e) => { RefreshLogs(); CheckReviews(); };
+        logTimer.Tick += (s, e) => { RefreshLogs(); RefreshTask(); CheckReviews(); };
         FormClosed += (s, e) => { logTimer.Stop(); logTimer.Dispose(); reviewNotice.Dispose(); };
         RefreshLogs();
+        RefreshTask();
         logTimer.Start();
         var download = new LinkLabel { Text = "下載 SketchUp 桌面版", AutoSize = true };
         download.LinkClicked += (s, e) => Process.Start("https://help.sketchup.com/en/downloading-sketchup");
@@ -609,13 +638,46 @@ internal sealed class SetupForm : Form {
     void OpenReviews() {
         var jobs = Path.Combine(WorkerSetup.Home, "jobs");
         if (!Directory.Exists(jobs)) return;
-        using (var dialog = new Form { Text = "待驗收模型", Size = new Size(740, 480), StartPosition = FormStartPosition.CenterParent }) {
-            var list = new ListBox { Dock = DockStyle.Fill };
+        using (var dialog = new Form { Text = "待驗收模型", Size = new Size(1180, 820), MinimumSize = new Size(900, 640), StartPosition = FormStartPosition.CenterParent, Font = Font }) {
+            var list = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false };
             var files = Directory.GetFiles(jobs, "review.json", SearchOption.AllDirectories).Where(file => {
                 try { return WorkerSetup.Text(new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(file)), "status") == "pending"; } catch { return false; }
             }).ToArray();
             foreach (var file in files) list.Items.Add(Path.GetFileName(Path.GetDirectoryName(file)));
-            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 90 };
+            var reference = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White };
+            var preview = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White };
+            var summary = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Color.White };
+            var images = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+            images.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            images.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            images.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            images.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            images.Controls.Add(new Label { Text = "原圖（第一張）", AutoSize = true }, 0, 0);
+            images.Controls.Add(new Label { Text = "模型預覽", AutoSize = true }, 1, 0);
+            images.Controls.Add(reference, 0, 1);
+            images.Controls.Add(preview, 1, 1);
+            var detail = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+            detail.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            detail.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            detail.Controls.Add(images, 0, 0);
+            detail.Controls.Add(summary, 0, 1);
+            var split = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1 };
+            dialog.Load += (s, e) => split.SplitterDistance = 260;
+            split.Panel1.Controls.Add(list);
+            split.Panel2.Controls.Add(detail);
+            list.SelectedIndexChanged += (s, e) => {
+                if (list.SelectedIndex < 0) return;
+                var dir = Path.GetDirectoryName(files[list.SelectedIndex]);
+                try {
+                    var r = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(files[list.SelectedIndex]));
+                    summary.Text = DescribeReview(dir, r);
+                    ShowImage(preview, WorkerSetup.Text(r, "preview_path"));
+                } catch (Exception ex) { summary.Text = "無法讀取驗收資料：" + ex.Message; ShowImage(preview, null); }
+                var refs = Path.Combine(dir, "references");
+                ShowImage(reference, Directory.Exists(refs) ? Directory.GetFiles(refs).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).FirstOrDefault() : null);
+            };
+            dialog.FormClosed += (s, e) => { ShowImage(reference, null); ShowImage(preview, null); };
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(8) };
             Action<string, Action<string, Dictionary<string, object>>> add = (label, action) => {
                 var button = new Button { Text = label, AutoSize = true };
                 button.Click += (s, e) => {
@@ -631,24 +693,149 @@ internal sealed class SetupForm : Form {
             add("SketchUp 開啟", (file, r) => Process.Start(WorkerSetup.Text(r, "model_path")));
             add("接受並上傳", (file, r) => { r["status"] = "accepted"; File.WriteAllText(file, new JavaScriptSerializer().Serialize(r)); dialog.Close(); });
             add("填寫問題後修正", (file, r) => {
-                using (var feedbackDialog = new Form { Text = "描述需要修正的細節", Size = new Size(540, 300), StartPosition = FormStartPosition.CenterParent }) {
+                using (var feedbackDialog = new Form { Text = "描述需要修正的細節", Size = new Size(640, 440), StartPosition = FormStartPosition.CenterParent, Font = Font }) {
+                    var types = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8) };
+                    var boxes = IssueTypes.Select(t => new CheckBox { Text = t, AutoSize = true }).ToArray();
+                    types.Controls.AddRange(boxes);
+                    var hint = new Label { Text = "勾選問題類型，再寫清楚是哪個部件、要改成怎樣（例如：右側扶手太高，應與座面平齊）。", Dock = DockStyle.Top, AutoSize = true, MaximumSize = new Size(600, 0), Padding = new Padding(8, 0, 8, 8) };
                     var feedback = new TextBox { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical };
                     var send = new Button { Text = "交給 Codex 修正", Dock = DockStyle.Bottom, Height = 42 };
                     send.Click += (s, e) => {
-                        if (String.IsNullOrWhiteSpace(feedback.Text)) return;
-                        r["feedback"] = feedback.Text.Trim(); r["status"] = "revise";
+                        if (String.IsNullOrWhiteSpace(feedback.Text)) { hint.ForeColor = Color.Firebrick; return; }
+                        r["feedback"] = ComposeFeedback(boxes.Where(b => b.Checked).Select(b => b.Text), feedback.Text); r["status"] = "revise";
                         File.WriteAllText(file, new JavaScriptSerializer().Serialize(r));
                         feedbackDialog.DialogResult = DialogResult.OK;
                     };
-                    feedbackDialog.Controls.Add(feedback); feedbackDialog.Controls.Add(send);
+                    feedbackDialog.Controls.Add(feedback); feedbackDialog.Controls.Add(hint); feedbackDialog.Controls.Add(types); feedbackDialog.Controls.Add(send);
                     if (feedbackDialog.ShowDialog(dialog) == DialogResult.OK) dialog.Close();
                 }
             });
             add("放棄草稿", (file, r) => { r["status"] = "discarded"; File.WriteAllText(file, new JavaScriptSerializer().Serialize(r)); dialog.Close(); });
-            dialog.Controls.Add(list); dialog.Controls.Add(buttons);
+            dialog.Controls.Add(split); dialog.Controls.Add(buttons);
             if (list.Items.Count > 0) list.SelectedIndex = 0;
+            else summary.Text = "目前沒有待驗收的模型。";
             dialog.ShowDialog(this);
         }
+    }
+
+    // Load through a copy so the job's preview and reference files stay unlocked.
+    static void ShowImage(PictureBox box, string path) {
+        var old = box.Image;
+        box.Image = null;
+        if (old != null) old.Dispose();
+        if (String.IsNullOrEmpty(path) || !File.Exists(path)) return;
+        try {
+            using (var stream = new MemoryStream(File.ReadAllBytes(path)))
+            using (var image = Image.FromStream(stream)) box.Image = new Bitmap(image);
+        } catch (ArgumentException) { } catch (IOException) { } catch (OutOfMemoryException) { }
+    }
+
+    internal static string ComposeFeedback(IEnumerable<string> types, string text) {
+        var picked = types.ToArray();
+        return (picked.Length > 0 ? "問題類型：" + String.Join("、", picked) + "\n" : "") + text.Trim();
+    }
+
+    void RefreshTask() {
+        var jobs = Path.Combine(WorkerSetup.Home, "jobs");
+        string text;
+        try {
+            var file = Directory.Exists(jobs)
+                ? new DirectoryInfo(jobs).GetFiles("progress.json", SearchOption.AllDirectories).OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault()
+                : null;
+            text = file == null ? "目前沒有建模任務。"
+                : DescribeProgress(new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(file.FullName)), file.LastWriteTime);
+        } catch (IOException) { return; } catch (UnauthorizedAccessException) { return; } catch (ArgumentException) { return; } catch (InvalidOperationException) { return; }
+        if (text == lastTaskText) return;
+        lastTaskText = text;
+        taskSteps.Text = text;
+    }
+
+    internal static string DescribeProgress(Dictionary<string, object> progress, DateTime at) {
+        var stage = WorkerSetup.Text(progress, "stage");
+        var detail = WorkerSetup.Text(progress, "detail");
+        var job = WorkerSetup.Text(progress, "job_id");
+        var revision = WorkerSetup.Text(progress, "revision");
+        var text = new StringBuilder();
+        text.Append("任務 ").Append(job.Length > 8 ? job.Substring(0, 8) : job);
+        if (revision != "" && revision != "0") text.Append("（第 ").Append(revision).Append(" 次修正）");
+        text.Append(" · 更新於 ").AppendLine(at.ToString("HH:mm:ss"));
+        if (stage == "failed" || stage == "discarded") {
+            text.Append(stage == "failed" ? "✗ 失敗：" : "— 已放棄：").Append(detail);
+            return text.ToString();
+        }
+        var current = stage == "done" ? TaskSteps.Length : Array.FindIndex(TaskSteps, s => s[0] == stage);
+        for (var i = 0; i < TaskSteps.Length; i++) {
+            text.Append(i < current ? "✓ " : i == current ? "● " : "○ ").Append(TaskSteps[i][1]);
+            if (i == current && detail != "" && detail != TaskSteps[i][1]) text.Append("　").Append(detail);
+            text.AppendLine();
+        }
+        if (stage == "done") text.Append("已發布。");
+        return text.ToString().TrimEnd();
+    }
+
+    static Dictionary<string, object> ReadJson(string path) {
+        try { return File.Exists(path) ? new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(path).TrimStart('\uFEFF')) : null; }
+        catch (ArgumentException) { return null; } catch (InvalidOperationException) { return null; } catch (IOException) { return null; }
+    }
+
+    static Dictionary<string, object> Child(Dictionary<string, object> row, string key) {
+        object value;
+        return row != null && row.TryGetValue(key, out value) ? value as Dictionary<string, object> : null;
+    }
+
+    static IEnumerable<object> Items(Dictionary<string, object> row, string key) {
+        object value;
+        if (row == null || !row.TryGetValue(key, out value) || value is string) return new object[0];
+        var list = value as System.Collections.IEnumerable;
+        return list == null ? new object[0] : list.Cast<object>();
+    }
+
+    static string Number(Dictionary<string, object> row, string key) {
+        object value;
+        if (row == null || !row.TryGetValue(key, out value) || value == null) return "?";
+        try { return Math.Round(Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture), 1).ToString(System.Globalization.CultureInfo.InvariantCulture); }
+        catch (FormatException) { return Convert.ToString(value); } catch (InvalidCastException) { return Convert.ToString(value); }
+    }
+
+    static void Section(StringBuilder text, string title, IEnumerable<string> lines) {
+        var rows = lines.Where(l => !String.IsNullOrWhiteSpace(l)).ToArray();
+        if (rows.Length == 0) return;
+        text.AppendLine().AppendLine("【" + title + "】");
+        foreach (var row in rows) text.AppendLine("・" + row.Trim());
+    }
+
+    internal static string DescribeReview(string dir, Dictionary<string, object> review) {
+        var text = new StringBuilder();
+        var product = Child(review, "product");
+        var name = String.Join(" ", new[] { WorkerSetup.Text(product, "model"), WorkerSetup.Text(product, "name") }.Where(s => s != ""));
+        text.AppendLine("產品：" + (name == "" ? "（未命名）" : name));
+        var revision = WorkerSetup.Text(review, "revision");
+        if (revision != "" && revision != "0") text.AppendLine("修正輪次：第 " + revision + " 次");
+        var validation = ReadJson(Path.Combine(dir, "validation.json"));
+        var report = ReadJson(Path.Combine(dir, "outputs", "report.json"));
+        var dimensions = Child(validation, "dimensions");
+        var axes = new[] { new[] { "width", "寬" }, new[] { "depth", "深" }, new[] { "height", "高" } };
+        Section(text, "尺寸核對", axes.Select(axis => {
+            var d = Child(dimensions, axis[0]);
+            if (d == null) return null;
+            var ok = d.ContainsKey("ok") && Convert.ToBoolean(d["ok"]) ? "✓" : "✗";
+            if (WorkerSetup.Text(d, "source") == "catalog")
+                return axis[1] + "　目錄 " + Number(d, "expected_mm") + " mm　實際 " + Number(d, "actual_mm") + " mm　" + ok;
+            return axis[1] + "　實際 " + Number(d, "actual_mm") + " mm　（沒有目錄值，" + (WorkerSetup.Text(d, "source") == "image" ? "按圖片推算" : "估算") + "）";
+        }));
+        Section(text, "未通過或需留意的檢查", Items(validation, "checks").OfType<Dictionary<string, object>>()
+            .Where(c => !(c.ContainsKey("ok") && Convert.ToBoolean(c["ok"])))
+            .Select(c => (WorkerSetup.Text(c, "severity") == "warning" ? "⚠ " : "✗ ") + WorkerSetup.Text(c, "name") + "：" + WorkerSetup.Text(c, "detail")));
+        var orientation = Child(report, "orientation_review");
+        if (orientation != null)
+            Section(text, "方向檢查（" + (orientation.ContainsKey("passed") && Convert.ToBoolean(orientation["passed"]) ? "通過" : "未通過") + "）",
+                Items(orientation, "checks").Select(o => Convert.ToString(o)));
+        Section(text, "已知問題", Items(report, "known_issues").Select(o => Convert.ToString(o)));
+        Section(text, "估算部分", Items(report, "estimated_fields").Select(o => Convert.ToString(o)));
+        Section(text, "目錄與圖片衝突", Items(report, "conflicts").Select(o => Convert.ToString(o)));
+        Section(text, "備註", new[] { WorkerSetup.Text(report, "notes") });
+        if (report == null) text.AppendLine().AppendLine("找不到 report.json。");
+        return text.ToString().TrimEnd();
     }
 
     void RefreshLogs() {

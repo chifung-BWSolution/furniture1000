@@ -151,9 +151,14 @@ export async function runCodexJob(job, deps) {
     }
     guard();
   };
-  const stage = (name, value, detail) => {
+  // progress.json is read by the installer's task panel; it never gates the job.
+  const track = (name, detail) => stamp('progress.json', {
+    job_id: job.id, revision: deps.revision ?? 0, stage: name, detail: detail ?? null, at: new Date().toISOString(),
+  }).catch(() => {});
+  const stage = async (name, value, detail) => {
     progress = value;
     log(`job ${job.id} stage ${name}${detail ? `: ${detail}` : ''}`);
+    await track(name, detail);
     return heartbeat({ stage: name, detail: detail ?? null });
   };
 
@@ -206,7 +211,9 @@ export async function runCodexJob(job, deps) {
       onWait: async (holder) => {
         if (Date.now() - lastWaitReport < 15_000) return guard();
         lastWaitReport = Date.now();
-        await heartbeat({ stage: 'wait_sketchup', detail: `等待本機另一個 SketchUp 任務完成（${holder?.kind ?? '未知'}）` });
+        const detail = `等待本機另一個 SketchUp 任務完成（${holder?.kind ?? '未知'}）`;
+        await track('wait_sketchup', detail);
+        await heartbeat({ stage: 'wait_sketchup', detail });
       },
     });
 
@@ -289,7 +296,9 @@ export async function runCodexJob(job, deps) {
       }
       if (Date.now() - lastDetail > 20_000) {
         lastDetail = Date.now();
-        heartbeat({ stage: 'codex', detail: `Codex 建模中（已執行 ${toolCalls} 次 SketchUp 操作）` }).catch(() => {});
+        const detail = `Codex 建模中（已執行 ${toolCalls} 次 SketchUp 操作）`;
+        track('codex', detail);
+        heartbeat({ stage: 'codex', detail }).catch(() => {});
       }
     });
     codex.stderr.pipe(errors);
@@ -435,6 +444,7 @@ export async function runCodexJob(job, deps) {
     const reviewFile = join(dir, 'review.json');
     if (!deps.resumeDir) await stamp('review.json', { status: 'pending', job_id: job.id, revision: deps.revision ?? 0, product: input.product, model_path: out.skp, preview_path: out.preview, created_at: new Date().toISOString() });
     log(`job ${job.id} [awaiting_review] 模型已生成，等待 Worker 人工驗收`);
+    await track('review', '模型已生成，等待人工驗收');
     await heartbeat({ stage: 'validate', detail: '模型已生成，等待本機 Worker 人工驗收' });
     for (;;) {
       guard();
@@ -452,6 +462,7 @@ export async function runCodexJob(job, deps) {
       }
       if (review.status === 'discarded') {
         await callAgent('fail', { lease_id: leaseId, error: 'review_discarded: 人工驗收已放棄草稿', retryable: false });
+        await track('discarded', '人工驗收已放棄草稿');
         return { discarded: true };
       }
       await sleep(2000);
@@ -518,10 +529,12 @@ export async function runCodexJob(job, deps) {
     await stamp('publish.json', { status: 'done', job_id: job.id, lease_id: leaseId, manifest_hash: manifestHash, result: published, at: new Date().toISOString() });
     const acceptedReview = JSON.parse(await readFile(reviewFile, 'utf8'));
     await stamp('review.json', { ...acceptedReview, status: 'published' });
+    await track('done', '已發布');
     log(`job ${job.id}: published ${JSON.stringify(published?.models ?? published)}`);
     return published;
   } catch (error) {
     await stamp('error.json', { error: error?.message ?? String(error), kind: error?.kind ?? null, at: new Date().toISOString() }).catch(() => {});
+    await track('failed', (stopError ?? error)?.message ?? String(error));
     throw stopError ?? error;
   } finally {
     clearInterval(pulse);
