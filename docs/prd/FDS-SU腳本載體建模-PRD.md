@@ -1,7 +1,7 @@
 # FDS SketchUp 腳本載體建模 PRD
 
 日期：2026-11-02（同日復查修訂）
-狀態：需求已寫明，尚未實作
+狀態：已實作（`codex/ruby-gate.mjs`、`mcp-server.mjs` 的 `write_job_file`、`job.mjs` 的腳本與報告檢查），已用真實 SketchUp 驗證
 前置：`docs/prd/FDS-本機Codex-SketchUp自動建模-PRD.md` 的 `codex_v1` 路徑
 依據：`docs/prd/FDS-建築學長SU建模對照-分析報告.md`
 

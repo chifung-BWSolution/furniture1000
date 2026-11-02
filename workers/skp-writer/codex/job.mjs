@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { createZip, inspectFbx, inspectGlb, inspectPng, looksLikeSkp, readZip, sha256 } from './artifacts.mjs';
 import { assertIdentity, bridgeCall, pickPort } from './bridge.mjs';
 import { codexEnv, assertNoSecrets, bridgeEnv } from './env.mjs';
@@ -50,6 +50,53 @@ function within(value, expected, abs, rel) {
   return Math.abs(value - expected) <= Math.max(abs, Math.abs(expected) * rel);
 }
 
+/** Report fields the script-carrier flow requires; returns human-readable gaps. */
+export function reportGaps(report) {
+  const gaps = [];
+  if (!Array.isArray(report?.batches) || !report.batches.length) gaps.push('report.batches 不可為空');
+  if (!Array.isArray(report?.parts) || !report.parts.length || report.parts.some((p) => !p?.name)) gaps.push('report.parts 要逐件列出部件名稱');
+  if (!Array.isArray(report?.known_issues)) gaps.push('report.known_issues 要是陣列');
+  if (!Array.isArray(report?.semantic_checks)) gaps.push('report.semantic_checks 要是陣列');
+  return gaps;
+}
+
+const center = (part, axis) => (part.bounds_mm.min[axis] + part.bounds_mm.max[axis]) / 2;
+
+/** Part-level and semantic checks against the exported parts list. */
+function checkParts(add, exportInfo, report) {
+  if (!Array.isArray(exportInfo.parts)) return;
+  const parts = exportInfo.parts;
+  add('product_root', !!exportInfo.product_root || parts.length > 0, exportInfo.product_root ? `root "${exportInfo.product_root}"` : 'no FdsKit root; using top-level groups', exportInfo.product_root ? 'error' : 'warning');
+  const empty = parts.filter((p) => !(p.faces > 0)).map((p) => p.name);
+  add('parts_not_empty', parts.length > 0 && !empty.length, empty.length ? `empty: ${empty.join(', ')}` : `${parts.length} parts with faces`);
+  const planned = Array.isArray(report?.parts) ? report.parts.filter((p) => p?.name) : [];
+  const names = new Set(parts.map((p) => p.name));
+  const missing = planned.map((p) => p.name).filter((n) => !names.has(n));
+  add('parts_match_report', !missing.length, missing.length ? `missing: ${missing.join(', ')}` : `${planned.length} reported parts found`);
+  const broken = planned.filter((p) => p.solid === true).map((p) => p.name).filter((n) => parts.find((x) => x.name === n)?.manifold === false);
+  add('parts_solid', !broken.length, broken.length ? `not closed: ${broken.join(', ')}` : 'expected solids are closed', 'warning');
+  const untagged = parts.filter((p) => !p.tag || /^(Layer0|Untagged)$/i.test(p.tag)).length;
+  add('parts_tagged', !untagged, `${untagged} of ${parts.length} parts without a tag`, 'warning');
+
+  const match = (text) => parts.filter((p) => String(p.name).includes(String(text ?? '')));
+  for (const [i, rule] of (Array.isArray(report?.semantic_checks) ? report.semantic_checks : []).entries()) {
+    const label = `semantic_${i + 1}`;
+    if (rule?.check === 'count') {
+      const found = match(rule.name_contains).length;
+      add(label, found === Number(rule.expected), `"${rule.name_contains}" parts: ${found}, expected ${rule.expected}`);
+    } else if (rule?.check === 'front_of' || rule?.check === 'above') {
+      const a = match(rule.a);
+      const b = match(rule.b);
+      if (!a.length || !b.length) { add(label, false, `${rule.check}: no part named like "${!a.length ? rule.a : rule.b}"`); continue; }
+      const avg = (list, axis) => list.reduce((s, p) => s + center(p, axis), 0) / list.length;
+      const ok = rule.check === 'front_of' ? avg(a, 1) < avg(b, 1) : avg(a, 2) > avg(b, 2);
+      add(label, ok, `"${rule.a}" ${rule.check === 'front_of' ? 'in front of (-Y)' : 'above'} "${rule.b}"`);
+    } else {
+      add(label, false, `unknown semantic check ${JSON.stringify(rule).slice(0, 120)}`, 'warning');
+    }
+  }
+}
+
 /** Pure checks over measured outputs; exported for tests. */
 export function validateOutputs({ snapshot, exportInfo, glb, fbx, png, skpBytes, report, bundleEntries = [] }) {
   const checks = [];
@@ -80,6 +127,7 @@ export function validateOutputs({ snapshot, exportInfo, glb, fbx, png, skpBytes,
     add('glb_textures', glb.images > 0, `${glb.images} images, ${glb.textures} textures embedded in GLB`);
     add('fbx_textures', bundleImages > 0, `${bundleImages} texture files in the FBX bundle`);
   }
+  checkParts(add, exportInfo, report);
 
   const dimensions = {};
   for (const axis of ['width', 'depth', 'height']) {
@@ -284,15 +332,23 @@ export async function runCodexJob(job, deps) {
       await stamp('ai-usage.json', { engine: 'jzxz', job_id: job.id, attempt: job.attempt, recorded_at: new Date().toISOString() });
     } else {
     await stage('codex', 0.2, 'Codex 建模中');
-    let prompt = buildPrompt({ snapshot: input, references: refs.saved, reportPath, maxReviewRounds: config.maxReviewRounds });
+    const scriptPath = join(dir, 'build_model.rb');
+    const previousScript = deps.revisionSeed ? join(dirname(dirname(deps.revisionSeed)), 'build_model.rb') : null;
+    const carried = !!previousScript && !existsSync(scriptPath) && existsSync(previousScript);
+    if (carried) await copyFile(previousScript, scriptPath);
+    let prompt = buildPrompt({ snapshot: input, references: refs.saved, reportPath, scriptPath, maxReviewRounds: config.maxReviewRounds });
     if (deps.feedback) prompt += `
 ## 人工修正要求
-目前場景已有上版模型。先讀取場景，在現有模型上修改，保留未要求變更的部件；不要重建或重複加入整件產品。本次原始「場景應為空」要求不適用。
+目前場景已有上版模型。本次原始「場景應為空」要求不適用。
+${existsSync(scriptPath)
+    ? '上一輪的 build_model.rb 已在本任務資料夾。先讀它，改 PARAMS 或對應批次，用 write_job_file 寫回整份檔案，再重新載入受影響的批次；同名部件會被取代，不會重複。不要另寫一份腳本。'
+    : '上一輪沒有 build_model.rb（舊版任務）。先寫只涵蓋要修改部件的 build_model.rb；舊幾何沒有部件標記，不會被腳本清掉，要在 known_issues 說明。'}
+保留未要求變更的部件。
 使用者要求：${JSON.stringify(deps.feedback)}
 修改後重新檢查四個視角並寫出新的完整報告。`;
     await stamp('prompt.md', prompt);
     const toolLog = join(paths.logs, 'mcp-tools.jsonl');
-    const mcpEnv = bridgeEnv({ port, jobId: job.id, nonce, screenDir: paths.screens, toolLog });
+    const mcpEnv = bridgeEnv({ port, jobId: job.id, nonce, screenDir: paths.screens, toolLog, jobDir: dir, script: scriptPath });
     const toml = (value) => JSON.stringify(value);
     const args = [
       'exec', '--ignore-user-config', '--skip-git-repo-check', '--ephemeral',
@@ -406,6 +462,11 @@ export async function runCodexJob(job, deps) {
         !topScreens.length || !toolEntries.some((entry) => entry.tool === 'screenshot' && entry.ok)) {
       throw new JobError('validation', 'orientation_review_required: 圖片分類、單元組合或頂視方向檢查未通過，模型保留在本機，未發布');
     }
+    const missing = reportGaps(report);
+    if (!existsSync(scriptPath) || !toolEntries.some((entry) => entry.tool === 'eval_ruby' && entry.ok && entry.script_load === true)) {
+      missing.unshift('build_model.rb 未經 FdsBuild.batch 載入');
+    }
+    if (missing.length) throw new JobError('validation', `script_report_required: ${missing.join('；')}；模型保留在本機，未發布`);
     await assertIdentity(port, job.id, nonce, { timeoutMs: 20_000 }).catch(() => {
       throw new JobError('modeling', 'SketchUp 模型識別不符，已停止匯出');
     });
@@ -419,7 +480,8 @@ export async function runCodexJob(job, deps) {
       glb: join(paths.outputs, `${base}.glb`),
       preview: join(paths.outputs, 'preview.png'),
     };
-    const exportInfo = await bridgeCall(port, 'export', out, { timeoutMs: 600_000 }).catch((error) => {
+    const product = { name: input.product?.name ?? '', model: input.product?.model ?? '', sku: input.product?.sku ?? '' };
+    const exportInfo = await bridgeCall(port, 'export', { ...out, product }, { timeoutMs: 600_000 }).catch((error) => {
       throw new JobError('export', `SketchUp 匯出失敗：${error.message}`);
     });
     await closeSketchUp();

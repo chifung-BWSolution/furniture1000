@@ -1,7 +1,7 @@
 # 建築學長 SU 建模邏輯 × FDS 對照分析
 
 日期：2026-11-02（同日復查修訂）
-狀態：分析結論，尚未改程式
+狀態：分析結論；第 7.3 節五項已實作（見 7.4）
 對象：FDS 本機 Codex 建模（`codex_v1`）與本機已安裝的建築學長電腦版（`D:\jzxz`，`Desktop.Shell` 1.1.28）
 
 第 1–6 節的依據是靜態觀察：建築學長的 `Settings\Skills\SketchUpMCP\`、它的 .NET 組件（以 REA 檢查），以及 FDS 的 `workers/skp-writer/`。
@@ -151,3 +151,13 @@ FDS：`%LOCALAPPDATA%\FDS\SkpWorker\jobs\80179101-…-a1`（LF-H34P 會議枱，
 5. **生成貼圖**：內建庫對不上的皮紋、絨布、特殊木紋，允許 Codex 在 job 目錄產生小尺寸貼圖 PNG 再套用。
 
 `trace_manifest` 的完整格式為房間 CAD 而設，單件傢俬只需要在報告的 `parts` 裡加「依據哪張圖、explicit／inferred」兩欄，不必照搬。
+
+### 7.4 實作狀態（2026-11-02）
+
+五項都已實作，並經真實 SketchUp 2026 端到端驗證（測試沙發 11 個部件、3 個批次、修正重載不重複；GLB 6 張圖、FBX 2 張貼圖；部件與語義檢查全過）。
+
+1. **網格載體＋柔化**：`fds_codex_session.rb` 新增 `FdsKit`。`FdsKit.mesh` 收頂點與面索引，固定用 `fill_from_mesh` 加柔化，自動修正面朝向；另有 `rounded_box`（圓角、坐墊鼓面）、`tube`（滾邊、管腳）、`box`。和原建議不同：網格直接在 `build_model.rb` 用 Ruby 算，不另讀 `geometry/*.json`，少一層檔案格式。
+2. **部件級與語義檢查**：匯出回傳每個部件的面數、`manifold?`、Tag、外框；`validateOutputs` 加 `product_root`、`parts_not_empty`、`parts_match_report`、`parts_solid`、`parts_tagged` 與 `semantic_N`（`count`／`front_of`／`above`）。缺 `batches`、`parts`、`semantic_checks`、`known_issues` 的報告直接退回。
+3. **預覽樣式與場景頁**：匯出固定設定淺底、無邊線、環境光遮蔽，建「01 透視／02 正面／03 俯視」三頁，另出 `preview-front.png`、`preview-top.png`。正面、俯視用平行投影，並按 4:3 輸出比例重新取景（之前寬視窗會裁掉兩側）。
+4. **Tag 與根組屬性**：`FdsKit.part` 必帶 Tag；匯出把名稱、型號、SKU、外框、正面方向（`-Y`）、job id 寫進 `fds_product` 屬性與模型描述。
+5. **生成貼圖**：`FdsKit.texture` 在 job 的 `textures/` 產生皮紋、布紋、木紋 PNG；`FdsKit.material(skm:)` 載入內建庫。

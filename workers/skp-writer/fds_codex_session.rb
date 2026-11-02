@@ -114,6 +114,7 @@ module FdsCodexSession
       'top_level_entities' => model.entities.length,
       'top_level_groups' => top,
       'counts' => counts,
+      'product' => FdsKit.audit,
       'materials' => model.materials.map { |m| { 'name' => m.display_name, 'color' => m.color.to_a.first(3), 'alpha' => m.alpha.round(3), 'texture' => !m.texture.nil? } }.first(60),
       'material_library' => material_library,
     }
@@ -172,8 +173,13 @@ module FdsCodexSession
     dir.normalize!
     eye = center.offset(dir, dist)
     up = view_name == 'top' ? Geom::Vector3d.new(0, 1, 0) : Geom::Vector3d.new(0, 0, 1)
-    view.camera = Sketchup::Camera.new(eye, center, up)
+    camera = Sketchup::Camera.new(eye, center, up)
+    camera.perspective = view_name == 'iso'
+    view.camera = camera
     view.zoom_extents
+    # zoom_extents fits the window; images are written at 4:3, so a wider window would crop the sides.
+    fit = (4.0 / 3) / (view.vpwidth.to_f / [view.vpheight, 1].max)
+    view.zoom(fit * 0.95) if fit < 1
     view
   end
 
@@ -199,6 +205,10 @@ module FdsCodexSession
     model.commit_operation rescue nil
     # Library materials loaded but never applied would count as textured without reaching FBX/GLB.
     model.materials.purge_unused
+    model.definitions.purge_unused
+    label_product(model, args['product'] || {})
+    style_preview(model)
+    add_pages(model)
     raise 'skp_save_failed' unless model.save(paths['skp'])
     fbx_ok = model.export(paths['fbx'], {
       triangulated_faces: true, doublesided_faces: true, texture_maps: true,
@@ -207,9 +217,16 @@ module FdsCodexSession
     raise 'fbx_export_failed' unless fbx_ok && File.exist?(paths['fbx'])
     glb_ok = model.export(paths['glb'], { show_summary: false })
     raise 'glb_export_failed' unless glb_ok && File.exist?(paths['glb'])
+    extra = {}
+    { 'front' => 'front', 'top' => 'top' }.each do |key, name|
+      path = File.join(File.dirname(paths['preview']), "preview-#{key}.png")
+      extra[key] = path if set_view(name).write_image(filename: path, width: 1600, height: 1200, antialias: true, transparent: false)
+    end
     view = set_view('iso')
     raise 'preview_failed' unless view.write_image(filename: paths['preview'], width: 1600, height: 1200, antialias: true, transparent: false)
+    model.pages.selected_page = model.pages[PAGES.first[0]] if model.pages[PAGES.first[0]]
     model.save(paths['skp'])
+    audit = FdsKit.audit
 
     counts = Hash.new(0)
     faces = 0
@@ -232,8 +249,52 @@ module FdsCodexSession
       'loose_geometry' => loose,
       'materials' => model.materials.length,
       'textured_materials' => model.materials.count { |m| !m.texture.nil? },
+      'product_root' => audit['root'],
+      'parts' => audit['parts'],
+      'tags' => model.layers.map(&:name).reject { |n| %w[Layer0 Untagged].include?(n) },
+      'pages' => model.pages.map(&:name),
+      'extra_previews' => extra,
       'saved_path' => model.path,
     }
+  end
+
+  PAGES = [['01 透視', 'iso'], ['02 正面', 'front'], ['03 俯視', 'top']].freeze
+
+  # Product identity on the root group (or the model when Codex built no root).
+  def self.label_product(model, product)
+    root = model.entities.grep(Sketchup::Group).find { |e| e.get_attribute(FdsKit::DICT, 'root') }
+    size = bounds_mm(model.bounds)['size']
+    info = {
+      'name' => product['name'].to_s, 'model' => product['model'].to_s, 'sku' => product['sku'].to_s,
+      'overall_mm' => size, 'front' => '-Y', 'job_id' => JOB_ID,
+    }
+    [model, root].compact.each { |target| info.each { |k, v| target.set_attribute('fds_product', k, v) } }
+    if root
+      label = [product['model'], product['name']].map(&:to_s).reject(&:empty?).join(' ')
+      root.name = label unless label.empty? || !root.name.to_s.empty?
+    end
+    model.description = "#{[product['model'], product['sku']].map(&:to_s).reject(&:empty?).join(' / ')} | #{size.map(&:round).join(' x ')} mm | FDS Codex model"
+  end
+
+  def self.style_preview(model)
+    options = {
+      'BackgroundColor' => Sketchup::Color.new(242, 241, 237), 'SkyColor' => Sketchup::Color.new(242, 241, 237),
+      'DrawGround' => false, 'DrawHorizon' => false, 'DrawSilhouettes' => false, 'DrawProfilesOnly' => false,
+      'EdgeDisplayMode' => 0, 'DrawHidden' => false, 'DisplayColorByLayer' => false, 'Texture' => true, 'RenderMode' => 2,
+      'AmbientOcclusion' => true, 'AmbientOcclusionDistance' => 160.mm, 'AmbientOcclusionIntensity' => 0.45,
+    }
+    ro = model.rendering_options
+    options.each { |k, v| ro[k] = v rescue nil }
+    shadow = model.shadow_info
+    { 'DisplayShadows' => false, 'UseSunForAllShading' => true, 'Light' => 78, 'Dark' => 27 }.each { |k, v| shadow[k] = v rescue nil }
+  end
+
+  def self.add_pages(model)
+    PAGES.each do |name, view_name|
+      set_view(view_name)
+      page = model.pages[name]
+      page ? page.update : model.pages.add(name)
+    end
   end
 
   def self.dispatch(req)
@@ -335,6 +396,237 @@ module FdsCodexSession
     write_json(READY_FILE, identity)
   rescue StandardError => e
     fail_start("#{e.class}: #{e.message}")
+  end
+end
+
+# Helpers for the job's build_model.rb. Every part is a named Group under one product root;
+# re-running a batch replaces parts with the same name instead of adding duplicates.
+# Lengths are millimetres (plain numbers); Ruby/SketchUp lengths are converted here.
+module FdsKit
+  DICT = 'fds_build'.freeze
+
+  def self.model = Sketchup.active_model
+
+  def self.root(name = nil)
+    g = model.entities.grep(Sketchup::Group).find { |e| e.get_attribute(DICT, 'root') }
+    unless g
+      g = model.entities.add_group
+      g.set_attribute(DICT, 'root', true)
+    end
+    g.name = name.to_s if name && !name.to_s.empty?
+    g
+  end
+
+  def self.tag(name)
+    return nil if name.nil? || name.to_s.empty?
+    model.layers[name.to_s] || model.layers.add(name.to_s)
+  end
+
+  # Yields the new part's entities; existing parts with the same name are erased first.
+  def self.part(name, tag: nil, material: nil, parent: nil)
+    parent ||= root
+    parent.entities.grep(Sketchup::Group).select { |g| g.name == name.to_s }.each(&:erase!)
+    g = parent.entities.add_group
+    g.name = name.to_s
+    layer = self.tag(tag)
+    g.layer = layer if layer
+    g.set_attribute(DICT, 'part', true)
+    yield g.entities, g if block_given?
+    paint(g, material) if material
+    raise "part #{name} is empty" if g.entities.length.zero?
+    summary(g)
+  end
+
+  def self.paint(group, material)
+    mat = material.is_a?(Sketchup::Material) ? material : model.materials[material.to_s]
+    raise "material #{material} not found; create it with FdsKit.material first" unless mat
+    group.material = mat
+    group.entities.grep(Sketchup::Face).each { |f| f.material = mat; f.back_material = mat }
+  end
+
+  def self.pt(v) = Geom::Point3d.new(v[0].to_f.mm, v[1].to_f.mm, v[2].to_f.mm)
+
+  # vertices: [[x,y,z] mm], faces: [[i,j,k(,l)]] zero-based. Closed meshes are turned outward.
+  def self.mesh(name, vertices:, faces:, tag: nil, material: nil, smooth: true, closed: true, parent: nil)
+    polys = faces.flat_map { |f| f.length > 3 ? (1...(f.length - 1)).map { |i| [f[0], f[i], f[i + 1]] } : [f] }
+    polys = polys.map { |f| f.map(&:to_i) }.select { |f| f.uniq.length == 3 }
+    if closed
+      volume = polys.sum do |a, b, c|
+        p, q, r = vertices[a], vertices[b], vertices[c]
+        p[0] * (q[1] * r[2] - q[2] * r[1]) - p[1] * (q[0] * r[2] - q[2] * r[0]) + p[2] * (q[0] * r[1] - q[1] * r[0])
+      end
+      polys = polys.map(&:reverse) if volume < 0
+    end
+    part(name, tag: tag, material: material, parent: parent) do |ents|
+      pm = Geom::PolygonMesh.new(vertices.length, polys.length)
+      index = vertices.map { |v| pm.add_point(pt(v)) }
+      polys.each { |f| ids = f.map { |i| index[i] }; pm.add_polygon(ids) if ids.uniq.length == 3 }
+      flags = smooth ? (Geom::PolygonMesh::AUTO_SOFTEN | Geom::PolygonMesh::SMOOTH_SOFT_EDGES) : Geom::PolygonMesh::NO_SMOOTH_OR_HIDE
+      ents.fill_from_mesh(pm, true, flags)
+    end
+  end
+
+  # Axis-aligned box from its minimum corner; size [w, d, h] mm.
+  def self.box(name, origin:, size:, tag: nil, material: nil, parent: nil)
+    x, y, z = origin.map(&:to_f)
+    w, d, h = size.map(&:to_f)
+    part(name, tag: tag, material: material, parent: parent) do |ents|
+      face = ents.add_face(pt([x, y, z]), pt([x + w, y, z]), pt([x + w, y + d, z]), pt([x, y + d, z]))
+      face.reverse! if face.normal.z < 0
+      face.pushpull(h.mm)
+    end
+  end
+
+  # Rounded box (cushions, tops, panels): radius rounds every edge, crown bulges the top face.
+  def self.rounded_box(name, size:, center: [0, 0, 0], radius: 10, steps: 6, crown: 0, tag: nil, material: nil, smooth: true, parent: nil)
+    h = size.map { |v| v.to_f / 2 }
+    r = [radius.to_f, *h].min * 0.999
+    ticks = h.map do |half|
+      edge = (0..steps).map { |i| -half + r * (1 - Math.cos(Math::PI / 2 * i / steps)) }
+      mid = [((2 * half - 2 * r) / 120.0).ceil, crown.to_f.zero? ? 1 : 6].max
+      middle = (1...mid).map { |i| -half + r + (2 * half - 2 * r) * i / mid }
+      (edge + middle + edge.reverse.map(&:-@)).uniq { |v| v.round(4) }
+    end
+    shape = lambda do |q|
+      inner = q.each_with_index.map { |v, i| v.clamp(-h[i] + r, h[i] - r) }
+      d = q.zip(inner).map { |a, b| a - b }
+      len = Math.sqrt(d.sum { |v| v * v })
+      p = len > 1e-9 ? inner.zip(d).map { |a, b| a + b / len * r } : q.dup
+      if crown.to_f != 0 && p[2] > 0
+        fx = 1 - (p[0] / h[0])**2
+        fy = 1 - (p[1] / h[1])**2
+        p[2] += crown.to_f * [fx, 0].max * [fy, 0].max * (p[2] / h[2])
+      end
+      p.each_with_index.map { |v, i| v + center[i].to_f }
+    end
+    verts = []
+    seen = {}
+    vid = ->(p) { seen[p.map { |v| v.round(3) }] ||= (verts << p; verts.length - 1) }
+    faces = []
+    [0, 1, 2].each do |a|
+      u, v = [0, 1, 2] - [a]
+      [-1, 1].each do |s|
+        grid = ticks[u].map do |tu|
+          ticks[v].map do |tv|
+            q = [0.0, 0.0, 0.0]
+            q[a] = s * h[a]
+            q[u] = tu
+            q[v] = tv
+            vid.(shape.(q))
+          end
+        end
+        flip = (a == 1 ? -1 : 1) != s
+        (0...ticks[u].length - 1).each do |i|
+          (0...ticks[v].length - 1).each do |j|
+            quad = [grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]]
+            quad.reverse! if flip
+            faces << quad
+          end
+        end
+      end
+    end
+    mesh(name, vertices: verts, faces: faces, tag: tag, material: material, smooth: smooth, parent: parent)
+  end
+
+  # Round tube along a polyline (piping, rails, tube legs); ends capped.
+  def self.tube(name, path:, radius:, sides: 12, tag: nil, material: nil, parent: nil)
+    pts = path.map { |p| Geom::Vector3d.new(*p.map(&:to_f)) }
+    raise 'tube needs at least 2 points' if pts.length < 2
+    verts = []
+    faces = []
+    rings = pts.each_with_index.map do |p, i|
+      t = (pts[[i + 1, pts.length - 1].min] - pts[[i - 1, 0].max]).normalize
+      ref = t.parallel?(Z_AXIS) ? X_AXIS : Z_AXIS
+      n = (ref * t).normalize
+      b = (t * n).normalize
+      (0...sides).map do |k|
+        ang = 2 * Math::PI * k / sides
+        q = p + Geom::Vector3d.linear_combination(radius * Math.cos(ang), n, radius * Math.sin(ang), b)
+        verts << q.to_a
+        verts.length - 1
+      end
+    end
+    rings.each_cons(2) { |r1, r2| sides.times { |k| faces << [r1[k], r1[(k + 1) % sides], r2[(k + 1) % sides], r2[k]] } }
+    [[rings.first, pts.first], [rings.last, pts.last]].each_with_index do |(ring, center), e|
+      verts << center.to_a
+      c = verts.length - 1
+      sides.times { |k| faces << (e.zero? ? [c, ring[(k + 1) % sides], ring[k]] : [c, ring[k], ring[(k + 1) % sides]]) }
+    end
+    mesh(name, vertices: verts, faces: faces, tag: tag, material: material, smooth: true, parent: parent)
+  end
+
+  # rgb tints the material (and colourises a texture); skm loads a bundled library material;
+  # texture is a PNG/JPG path (e.g. from FdsKit.texture); texture_mm is the real tile size.
+  def self.material(name, rgb: nil, skm: nil, texture: nil, texture_mm: nil, alpha: nil)
+    mat = model.materials[name.to_s]
+    if skm && mat.nil?
+      mat = model.materials.load(skm.to_s)
+      mat.name = name.to_s rescue nil
+    end
+    mat ||= model.materials.add(name.to_s)
+    mat.texture = texture.to_s if texture
+    mat.color = Sketchup::Color.new(*rgb.first(3).map(&:to_i)) if rgb
+    mat.texture.size = texture_mm.to_f.mm if texture_mm && mat.texture
+    mat.alpha = alpha.to_f if alpha
+    mat
+  end
+
+  # Writes a seamless-ish 256 px PNG into <job>/textures; kind: leather, fabric, wood, plain.
+  def self.texture(name, rgb:, kind: 'leather', px: 256, seed: 1)
+    require 'zlib'
+    dir = File.join(File.dirname(FdsCodexSession::OUTPUT_DIR), 'textures')
+    FileUtils.mkdir_p(dir)
+    path = File.join(dir, "#{name.to_s.gsub(/[^\w\-]+/, '_')}.png")
+    rng = Random.new(seed.to_i)
+    noise = -> { rng.rand + rng.rand + rng.rand - 1.5 }
+    px = px.to_i.clamp(32, 1024)
+    raw = ''.b
+    px.times do |y|
+      raw << 0.chr
+      px.times do |x|
+        g = case kind.to_s
+            when 'fabric' then (((x / 2) + (y / 2)).even? ? 5 : -5) + noise.() * 4
+            when 'wood' then Math.sin((y + 7 * Math.sin(x * 2 * Math::PI / px * 3 + seed)) * 0.45) * 9 + Math.sin(y * 2 * Math::PI / px * 2) * 6 + noise.() * 3
+            when 'plain' then noise.() * 2
+            else noise.() * 5 + 2.5 * Math.sin(x * 1.5 + Math.sin(y * 0.8))
+            end
+        raw << rgb.first(3).map { |c| (c.to_f + g).round.clamp(0, 255) }.pack('C*')
+      end
+    end
+    chunk = ->(type, data) { [data.bytesize].pack('N') + type + data + [Zlib.crc32(type + data)].pack('N') }
+    png = "\x89PNG\r\n\x1a\n".b + chunk.('IHDR', [px, px, 8, 2, 0, 0, 0].pack('NNCCCCC')) +
+          chunk.('IDAT', Zlib::Deflate.deflate(raw)) + chunk.('IEND', '')
+    File.binwrite(path, png)
+    path.tr('\\', '/')
+  end
+
+  def self.face_count(entities)
+    entities.sum do |e|
+      if e.is_a?(Sketchup::Face) then 1
+      elsif e.is_a?(Sketchup::Group) then face_count(e.entities)
+      elsif e.is_a?(Sketchup::ComponentInstance) then face_count(e.definition.entities)
+      else 0
+      end
+    end
+  end
+
+  def self.summary(e)
+    ents = e.respond_to?(:definition) ? e.definition.entities : e.entities
+    name = e.name.to_s.empty? && e.respond_to?(:definition) ? e.definition.name : e.name
+    {
+      'name' => name,
+      'faces' => face_count(ents),
+      'manifold' => (e.manifold? rescue false),
+      'tag' => e.layer.name,
+      'bounds_mm' => FdsCodexSession.bounds_mm(e.bounds),
+    }
+  end
+
+  # Parts directly under the product root; without a root, the top-level groups/components.
+  def self.audit
+    r = model.entities.grep(Sketchup::Group).find { |e| e.get_attribute(DICT, 'root') }
+    list = (r ? r.entities : model.entities).select { |e| e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance) }
+    { 'root' => r ? r.name : nil, 'parts' => list.first(200).map { |e| summary(e) } }
   end
 end
 

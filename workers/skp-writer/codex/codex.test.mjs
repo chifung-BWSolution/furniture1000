@@ -6,8 +6,9 @@ import { createZip, inspectFbx, inspectGlb, inspectPng, readZip } from './artifa
 import { assertNoSecrets, codexEnv } from './env.mjs';
 import { assertPublicUrl, fetchImage, isPrivateAddress } from './images.mjs';
 import { acquireSketchUpLock } from './lock.mjs';
-import { validateOutputs } from './job.mjs';
+import { reportGaps, validateOutputs } from './job.mjs';
 import { buildPrompt } from './prompt.mjs';
+import { checkRubyCall, jobFilePath } from './ruby-gate.mjs';
 
 function glb(json, bin = Buffer.alloc(0)) {
   let text = Buffer.from(JSON.stringify(json));
@@ -147,8 +148,64 @@ const lostTextures = validateOutputs({ ...base, exportInfo: texturedInfo, glb: {
 assert.deepEqual(lostTextures.failed.sort(), ['fbx_textures', 'glb_textures']);
 const keptTextures = validateOutputs({ ...base, exportInfo: texturedInfo, glb: { ...info, images: 2, textures: 2 }, bundleEntries: ['model.fbx', 'model/Wood_Oak.jpg'] });
 assert.equal(keptTextures.ok, true, JSON.stringify(keptTextures.failed));
-assert.match(prompt, /materials\.load/);
+assert.match(prompt, /material_library/);
+assert.match(prompt, /FdsKit\.texture/);
 assert.doesNotMatch(prompt, /不必用貼圖/);
+assert.doesNotMatch(prompt, /File\.write/);
+
+// ── Script carrier: only the fixed load form may create geometry.
+const script = 'C:\\w\\job-a1\\build_model.rb';
+const load = (code) => checkRubyCall(code, script);
+assert.deepEqual(load("load 'C:/w/job-a1/build_model.rb'; FdsBuild.batch('01_框架')"), { allowed: true, script_load: true, batch: '01_框架' });
+assert.equal(load('load "c:\\\\w\\\\job-a1\\\\build_model.rb"\nFdsBuild.batch("02_軟包")').script_load, true);
+assert.match(load("load 'C:/other/build_model.rb'; FdsBuild.batch('01')").reason, /^script_path/);
+assert.match(load("load 'C:/w/job-a1/build_model.rb'; FdsBuild.batch('01'); FdsBuild.batch('02')").reason, /^dynamic_forbidden/);
+for (const code of [
+  'Sketchup.active_model.entities.add_face(a, b, c)',
+  'g = ents.add_group; f.pushpull(10.mm)',
+  "FdsKit.rounded_box('坐墊', size: [1, 2, 3])",
+  'm.definitions.add("Leg")',
+]) assert.match(load(code).reason, /^script_required/, code);
+assert.match(load("m.start_operation('x')").reason, /^operation_forbidden/);
+for (const code of ["Kernel.send(:eval, 'x')", "require 'json'", "eval('1')", 'obj.instance_eval { 1 }']) assert.equal(load(code).allowed, false, code);
+for (const code of [
+  'Sketchup.active_model.materials.load("C:/ProgramData/x.skm")',
+  'FdsKit.audit',
+  "g = Sketchup.active_model.entities.grep(Sketchup::Group).first; g.material = 'Oak'; g.name = 'loaded part'",
+  'e.erase!',
+]) assert.deepEqual(load(code), { allowed: true, script_load: false }, code);
+assert.equal(checkRubyCall("load 'C:/w/build_model.rb'; FdsBuild.batch('01')", '').allowed, false);
+assert.equal(jobFilePath('C:\\w\\job', 'build_model.rb'), 'C:\\w\\job\\build_model.rb');
+assert.equal(jobFilePath('C:\\w\\job', 'outputs\\report.json'), 'C:\\w\\job\\outputs\\report.json');
+for (const bad of ['../x.rb', 'C:/w/job/build_model.rb', 'outputs/evil.json', 'build_model.rb.bak']) assert.throws(() => jobFilePath('C:\\w\\job', bad), /只能寫/);
+const scripted = buildPrompt({ snapshot, references: [], reportPath: 'C:\\w\\job-a1\\outputs\\report.json', scriptPath: script });
+assert.match(scripted, /load 'C:\/w\/job-a1\/build_model\.rb'; FdsBuild\.batch\('01_框架'\)/);
+
+// ── Report gaps and part / semantic checks.
+assert.deepEqual(reportGaps({ batches: ['01'], parts: [{ name: '坐墊' }], known_issues: [], semantic_checks: [] }), []);
+assert.equal(reportGaps({}).length, 4);
+const box = (name, min, max, extra = {}) => ({ name, faces: 12, manifold: true, tag: '01_框架', bounds_mm: { min, max }, ...extra });
+const sofa = [
+  box('坐墊', [-400, -400, 300], [400, 200, 450]),
+  box('靠背', [-400, 200, 400], [400, 400, 800]),
+  ...['左前腳', '右前腳', '左後腳', '右後腳'].map((n, i) => box(n, [i * 10, 0, 0], [i * 10 + 5, 5, 160])),
+  box('拉扣', [0, 300, 600], [5, 305, 605], { manifold: false, tag: 'Untagged' }),
+];
+const sofaReport = {
+  parts: [{ name: '坐墊', solid: true }, { name: '靠背', solid: true }, { name: '拉扣', solid: false }],
+  semantic_checks: [{ check: 'count', name_contains: '腳', expected: 4 }, { check: 'front_of', a: '坐墊', b: '靠背' }, { check: 'above', a: '靠背', b: '腳' }],
+};
+const sofaInfo = { ...exportInfo, product_root: 'JSSF010', parts: sofa };
+const sofaOk = validateOutputs({ ...base, exportInfo: sofaInfo, report: sofaReport });
+assert.equal(sofaOk.ok, true, JSON.stringify(sofaOk.failed));
+assert.equal(sofaOk.checks.find((c) => c.name === 'parts_tagged').ok, false);
+const sofaBad = validateOutputs({
+  ...base,
+  exportInfo: { ...sofaInfo, parts: [...sofa.filter((p) => p.name !== '右後腳'), box('空部件', [0, 0, 0], [0, 0, 0], { faces: 0 })] },
+  report: { ...sofaReport, parts: [...sofaReport.parts, { name: '扶手' }], semantic_checks: [...sofaReport.semantic_checks, { check: 'front_of', a: '靠背', b: '坐墊' }] },
+});
+assert.deepEqual(sofaBad.failed.sort(), ['parts_match_report', 'parts_not_empty', 'semantic_1', 'semantic_4'].sort());
+assert.equal(validateOutputs({ ...base, exportInfo: { ...exportInfo, parts: [] } }).failed.includes('parts_not_empty'), true);
 
 // ── Lock: a second holder waits; a stale holder (dead pid) is taken over.
 const dir = await mkdtemp(join(tmpdir(), 'fds-lock-'));
