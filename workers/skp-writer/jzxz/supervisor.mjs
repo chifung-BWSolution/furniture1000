@@ -95,9 +95,12 @@ function loadTasks() {
     .filter((id) => /^[A-Za-z0-9_-]{1,64}$/.test(id) && existsSync(join(TASK_ROOT, id, 'task.json')))
     .map((id) => {
       const dir = join(TASK_ROOT, id);
+      const task = readJson(join(dir, 'task.json'));
+      if (task?.driver === 'worker') return null;
       const state = readJson(join(dir, 'supervisor.json')) ?? { state: 'queued', queued_at: statSync(join(dir, 'task.json')).mtimeMs };
       return { id, dir, state, result: readJson(join(dir, 'result.json')) };
     })
+    .filter(Boolean)
     .sort((a, b) => (a.state.queued_at ?? 0) - (b.state.queued_at ?? 0));
 }
 

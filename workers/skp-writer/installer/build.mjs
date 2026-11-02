@@ -35,6 +35,7 @@ await copyFile(join(installer, 'licenses/su-mcp-bridge-LICENSE.txt'), join(licen
 await copyFile(join(installer, '../skp_build.rb'), join(output, 'skp_build.rb'));
 await copyFile(join(installer, '../skp_seed.rb'), join(output, 'skp_seed.rb'));
 await copyFile(join(installer, '../skp_preview.rb'), join(output, 'skp_preview.rb'));
+await copyFile(join(installer, '../jzxz/ui.ps1'), join(output, 'ui.ps1'));
 const response = await fetch(`https://raw.githubusercontent.com/nodejs/node/${process.version}/LICENSE`);
 if (!response.ok) throw new Error(`Cannot fetch matching Node.js license: ${response.status}`);
 await writeFile(join(licenses, 'Node-LICENSE.txt'), await response.text());

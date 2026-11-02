@@ -25,6 +25,7 @@ import { looksLikeSkp } from './codex/artifacts.mjs';
 import { codexStatus, loadCodexConfig } from './codex/config.mjs';
 import { CODEX_JOB_VERSION, cleanupWorkRoot, resumePendingPublishes, runCodexJob } from './codex/job.mjs';
 import { acquireSketchUpLock } from './codex/lock.mjs';
+import { jzxzChecks, jzxzPaths, loadEngine } from './engine.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CODEX = loadCodexConfig(here);
@@ -431,6 +432,8 @@ async function processCodexJob(job, resumeDir) {
   activeLease = job.lease_id;
   try {
     const status = await codexStatus(CODEX);
+    const engine = loadEngine();
+    const jzxz = jzxzPaths(here);
     await runCodexJob(job, {
       callAgent,
       resumeDir,
@@ -440,6 +443,10 @@ async function processCodexJob(job, resumeDir) {
       sketchupExe: SKETCHUP,
       seedPath: SEED,
       codexVersion: status.codex_version,
+      engine,
+      uiScript: jzxz.ui,
+      taskRoot: jzxz.taskRoot,
+      jzxzDir: jzxz.dir,
       secrets: [creds.access, creds.refresh, creds.pendingRefresh, process.env.SUPABASE_ACCESS_TOKEN],
     });
   } finally {
@@ -505,13 +512,16 @@ async function reportReadiness() {
   const canGenerate = (checks.writer && checks.api_dll && checks.preferences_dll) || (checks.sketchup && checks.ruby_script);
   const canPreview = checks.sketchup && checks.preview_ruby;
   const codex = await codexChecks(checks);
+  const engine = loadEngine();
+  const jzxz = jzxzChecks(here);
   const capabilities = [
     ...(canGenerate ? ['parametric'] : []),
     ...(canPreview ? ['preview'] : []),
-    ...(codex.codex_ready === 'true' ? ['codex_v1'] : []),
+    ...(engine === 'codex' && codex.codex_ready === 'true' ? ['codex_v1'] : []),
+    ...(engine === 'jzxz' && jzxz.jzxz_ready === 'true' ? ['jzxz_v1'] : []),
   ];
-  const ready = canGenerate || canPreview || codex.codex_ready === 'true';
-  await callAgent('ready', { ready, checks: { ...checks, ...codex, capabilities }, version: `device-auth-3+${CODEX_JOB_VERSION}` });
+  const ready = canGenerate || canPreview || (engine === 'codex' && codex.codex_ready === 'true') || jzxz.jzxz_ready === 'true';
+  await callAgent('ready', { ready, checks: { ...checks, ...codex, ...jzxz, capabilities }, version: `device-auth-3+${CODEX_JOB_VERSION}` });
   return ready;
 }
 

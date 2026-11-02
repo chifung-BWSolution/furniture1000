@@ -56,6 +56,7 @@ internal static class WorkerSetup {
     internal static readonly string InstallationFile = Path.Combine(Home, "installation.id");
     internal static readonly string InstalledExe = Path.Combine(Home, "FdsSkpWorker.exe");
     internal static readonly string LogFile = Path.Combine(Home, "worker.log");
+    internal static readonly string EngineFile = Path.Combine(Home, "engine.json");
     static readonly string StartupFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "FDS SKP Worker.lnk");
     static readonly string DesktopFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "FDS SKP Worker.lnk");
     static readonly string UserId = System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
@@ -248,6 +249,18 @@ internal static class WorkerSetup {
         catch (WaitHandleCannotBeOpenedException) { return false; }
     }
 
+    internal static string LoadEngine() {
+        try {
+            var row = Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(EngineFile));
+            return Pick(row, "engine") == "jzxz" ? "jzxz" : "codex";
+        } catch { return "codex"; }
+    }
+
+    internal static void SaveEngine(string engine) {
+        Directory.CreateDirectory(Home);
+        File.WriteAllText(EngineFile, Json.Serialize(new Dictionary<string, object> { { "engine", engine == "jzxz" ? "jzxz" : "codex" } }));
+    }
+
     internal static void StopWorker() {
         try { using (var signal = EventWaitHandle.OpenExisting(StopName)) signal.Set(); }
         catch (WaitHandleCannotBeOpenedException) { }
@@ -436,7 +449,7 @@ internal static class WorkerSetup {
         Directory.CreateDirectory(temp);
         try {
             Extract(temp);
-            foreach (var file in new [] { "node.exe", "worker.mjs", "skp_build.rb", "skp_seed.rb", "skp_preview.rb", "codex-mcp.mjs", "fds_codex_session.rb", "licenses/Node-LICENSE.txt" })
+            foreach (var file in new [] { "node.exe", "worker.mjs", "skp_build.rb", "skp_seed.rb", "skp_preview.rb", "codex-mcp.mjs", "fds_codex_session.rb", "ui.ps1", "licenses/Node-LICENSE.txt" })
                 if (!File.Exists(Path.Combine(temp, file))) throw new Exception("Missing " + file);
             var workerSource = File.ReadAllText(Path.Combine(temp, "worker.mjs"));
             if (workerSource.Contains("SUPABASE_SERVICE_ROLE_KEY") || workerSource.Contains("service_role"))
@@ -485,6 +498,7 @@ internal sealed class SetupForm : Form {
     readonly Label computer = new Label { AutoSize = true };
     readonly Label sketchupState = new Label { AutoSize = true };
     readonly TextBox sketchup = new TextBox();
+    readonly ComboBox engine = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
     readonly TextBox logs = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Height = 180, Dock = DockStyle.Fill };
     readonly System.Windows.Forms.Timer logTimer = new System.Windows.Forms.Timer { Interval = 2000 };
     readonly NotifyIcon reviewNotice = new NotifyIcon { Icon = SystemIcons.Information, Text = "FDS 模型驗收", Visible = true };
@@ -555,6 +569,17 @@ internal sealed class SetupForm : Form {
         Add(sketchupCard, browseRow);
         sketchupState.MaximumSize = new Size(420, 0);
         Add(sketchupCard, sketchupState);
+        Add(sketchupCard, new Label { Text = "建模方式", AutoSize = true });
+        engine.Items.AddRange(new object[] { "Codex", "建築學長" });
+        var loadingEngine = true;
+        engine.SelectedIndex = WorkerSetup.LoadEngine() == "jzxz" ? 1 : 0;
+        loadingEngine = false;
+        engine.SelectedIndexChanged += (s, e) => {
+            if (loadingEngine || engine.SelectedIndex < 0) return;
+            WorkerSetup.SaveEngine(engine.SelectedIndex == 1 ? "jzxz" : "codex");
+            status.Text = "建模方式已改為" + engine.Text + "。正在運行的 Worker 約 30 秒內會用這個方式處理下一個任務。";
+        };
+        Add(sketchupCard, engine);
         Add(startupCard, auto);
         AddAction("使用瀏覽器登入並授權", Authorize);
         AddAction("取消配對", CancelPairing);
