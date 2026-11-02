@@ -141,6 +141,14 @@ assert.equal(estimated.dimensions.height.source, 'estimated');
 assert.equal(estimated.ok, true);
 const flat = validateOutputs({ ...base, exportInfo: { ...exportInfo, top_level_groups: 0 } });
 assert.deepEqual(flat.failed, ['editable_parts']);
+assert.equal(passed.checks.find((c) => c.name === 'textures').severity, 'warning');
+const texturedInfo = { ...exportInfo, textured_materials: 2 };
+const lostTextures = validateOutputs({ ...base, exportInfo: texturedInfo, glb: { ...info, images: 0, textures: 0 }, bundleEntries: ['model.fbx'] });
+assert.deepEqual(lostTextures.failed.sort(), ['fbx_textures', 'glb_textures']);
+const keptTextures = validateOutputs({ ...base, exportInfo: texturedInfo, glb: { ...info, images: 2, textures: 2 }, bundleEntries: ['model.fbx', 'model/Wood_Oak.jpg'] });
+assert.equal(keptTextures.ok, true, JSON.stringify(keptTextures.failed));
+assert.match(prompt, /materials\.load/);
+assert.doesNotMatch(prompt, /不必用貼圖/);
 
 // ── Lock: a second holder waits; a stale holder (dead pid) is taken over.
 const dir = await mkdtemp(join(tmpdir(), 'fds-lock-'));

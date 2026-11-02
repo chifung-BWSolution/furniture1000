@@ -114,7 +114,24 @@ module FdsCodexSession
       'top_level_groups' => top,
       'counts' => counts,
       'materials' => model.materials.map { |m| { 'name' => m.display_name, 'color' => m.color.to_a.first(3), 'alpha' => m.alpha.round(3), 'texture' => !m.texture.nil? } }.first(60),
+      'material_library' => material_library,
     }
+  end
+
+  LIBRARY_CATEGORIES = %w[Wood Fabric Stone Metal Glass Plastic Tile Plaster].freeze
+
+  # SketchUp's bundled textured .skm files, for materials.load.
+  def self.material_library
+    roots = [Sketchup.find_support_file('Materials')]
+    roots += Dir.glob(File.join(ENV['ProgramData'].to_s.tr('\\', '/'), 'SketchUp', 'SketchUp*', 'SketchUp', 'Materials'))
+    root = roots.compact.find { |r| LIBRARY_CATEGORIES.any? { |c| File.directory?(File.join(r, c)) } }
+    return {} unless root
+    LIBRARY_CATEGORIES.each_with_object({}) do |category, out|
+      files = Dir.glob(File.join(root.tr('\\', '/'), category, '*.skm')).sort.first(20)
+      out[category] = files unless files.empty?
+    end
+  rescue StandardError
+    {}
   end
 
   def self.selection_info
@@ -179,6 +196,8 @@ module FdsCodexSession
     paths = %w[skp fbx glb preview].map { |k| [k, args[k].to_s] }.to_h
     paths.each_value { |p| raise 'export_path_invalid' unless inside_output?(p) }
     model.commit_operation rescue nil
+    # Library materials loaded but never applied would count as textured without reaching FBX/GLB.
+    model.materials.purge_unused
     raise 'skp_save_failed' unless model.save(paths['skp'])
     fbx_ok = model.export(paths['fbx'], {
       triangulated_faces: true, doublesided_faces: true, texture_maps: true,

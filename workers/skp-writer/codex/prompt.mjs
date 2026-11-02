@@ -59,7 +59,11 @@ ${refs || '（無）'}
 1. 先用 get_scene_info 確認場景是空的，再開始。每次 eval_ruby 後若不確定結果，先查詢場景，不要重複加入幾何。
 2. 先建立整體與主要部件，再補細節與材質。每個主要部件是具名的 Group 或 ComponentInstance（英文或中文名稱皆可，例如 "Table top"、"Leg"）；重複部件共用同一 ComponentDefinition。不要留下散落在頂層的面或邊。
 3. 只建模產品本身。不要建模圖片中的房間、地板、人物、裝飾或其他傢俬。成套產品（例如一桌多椅）由你判斷範圍，在報告說明。
-4. 面朝外，不要有反面朝外或互相穿插的明顯錯誤。為主要部件建立接近圖片顏色的材質（可用顏色，不必用貼圖）。
+4. 面朝外，不要有反面朝外或互相穿插的明顯錯誤。
+   木材、木紋板、布、皮革、石材、編織等有紋理的表面必須用帶貼圖的材質，不要只塗純色；烤漆、塑膠、鍍鉻等均勻表面才用純色。
+   貼圖用 get_scene_info 回傳的 \`material_library\`（SketchUp 內建 .skm）：\`mat = Sketchup.active_model.materials.load(路徑)\`，
+   再用 \`mat.color = Sketchup::Color.new(r, g, b)\` 把色調調到接近原圖，\`mat.texture.size = 數字.mm\` 設成真實紋理大小（木紋約 600–1200 mm）。
+   材質要上到部件內的面（Group 內的面也要上），不要只放進材質清單。\`material_library\` 是空的時改用純色，並在 notes 說明。
    材質及表面處理以產品明確資料為準。白色烤漆必須使用白色、不透明、非金屬的塗層外觀，不能因底材是鋼就改成銀灰鍍鋅或裸金屬；保留原圖中真正不同顏色的腳墊、端蓋。頂視及等角截圖需核對顏色，不要把灰色模型視為白色烤漆已完成。
 5. 完成主體後必須用 screenshot（top、iso、front、side）對照原始參考圖，逐一核對基本單元的旋轉、左右款、凹口、屏風、比例、缺件及材質。頂視圖用於方向與拼接檢查。最多修正 ${maxReviewRounds} 輪；仍不能確認方向時不要標記通過。
 
@@ -79,7 +83,7 @@ ${refs || '（無）'}
   "dimension_source": { "width": "catalog|image|estimated", "depth": "...", "height": "..." },
   "estimated_fields": ["以估算得出的尺寸或結構，附依據"],
   "conflicts": ["目錄與圖片的衝突及你的處理方式"],
-  "materials": ["主要材質與顏色"],
+  "materials": ["部件：材質、顏色、貼圖來源（.skm 檔名或純色）"],
   "review_rounds": 0,
   "front": "-Y",
   "notes": "其他需要人工留意的地方"

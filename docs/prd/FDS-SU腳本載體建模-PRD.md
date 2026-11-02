@@ -88,6 +88,7 @@ Codex 在 FDS 專用 SketchUp 裡新建幾何時，必須先把邏輯寫進本�
 - 動態執行：`load`、`require`、`eval`、`instance_eval`、`class_eval`、`module_eval`、`send`、`public_send`、`__send__`。
 
 比對用識別字邊界的正規式（例如 `\bsend\b`、`\beval\b`），避免 `loaded`、`retrieval` 這類普通字被誤擋；`definitions.add` 這類帶點號的照字面比對。
+`load`／`require` 只擋獨立呼叫（前面不是 `.`，例如 `(?<![.\w])load\b`）：`model.materials.load(路徑)` 是載入貼圖材質，必須放行。
 
 不在上述清單的查詢、命名、材質、移動、刪除照常放行，日誌記 `script_load: false`。
 

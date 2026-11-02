@@ -17,7 +17,7 @@ let screenshots = 0;
 const TOOLS = [
   {
     name: 'get_scene_info',
-    description: 'Summary of the open SketchUp model: units, bounds in mm, top-level groups/components, materials.',
+    description: 'Summary of the open SketchUp model: units, bounds in mm, top-level groups/components, materials, and material_library (bundled textured .skm paths by category for model.materials.load).',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {

@@ -11,6 +11,7 @@ import { codexEnv, assertNoSecrets, bridgeEnv } from './env.mjs';
 import { downloadReferences } from './images.mjs';
 import { acquireSketchUpLock, killTree, pidAlive } from './lock.mjs';
 import { buildPrompt } from './prompt.mjs';
+import { modelWithJzxz } from '../jzxz/model-job.mjs';
 
 export const CODEX_JOB_VERSION = 'codex-1';
 const STOP_CODES = new Set(['stopped', 'lease_rejected', 'revoked', 'expired', 'suspended', 'unauthorized']);
@@ -50,7 +51,7 @@ function within(value, expected, abs, rel) {
 }
 
 /** Pure checks over measured outputs; exported for tests. */
-export function validateOutputs({ snapshot, exportInfo, glb, fbx, png, skpBytes, report }) {
+export function validateOutputs({ snapshot, exportInfo, glb, fbx, png, skpBytes, report, bundleEntries = [] }) {
   const checks = [];
   const add = (name, ok, detail, severity = 'error') => checks.push({ name, ok: !!ok, severity, detail });
   const catalog = snapshot.catalog_dimensions_mm ?? {};
@@ -72,6 +73,13 @@ export function validateOutputs({ snapshot, exportInfo, glb, fbx, png, skpBytes,
   const cy = (min[1] + max[1]) / 2;
   add('centered', within(cx, 0, 5, 0.01) && within(cy, 0, 5, 0.01), `center = (${cx.toFixed(1)}, ${cy.toFixed(1)}) mm`, 'warning');
   add('materials', exportInfo.materials > 0, `${exportInfo.materials} materials, ${exportInfo.textured_materials} textured`, 'warning');
+  const textured = Number(exportInfo.textured_materials) || 0;
+  const bundleImages = bundleEntries.filter((name) => /\.(png|jpe?g|bmp|tiff?|tga)$/i.test(name)).length;
+  add('textures', textured > 0, `${textured} textured materials in the model`, 'warning');
+  if (textured > 0) {
+    add('glb_textures', glb.images > 0, `${glb.images} images, ${glb.textures} textures embedded in GLB`);
+    add('fbx_textures', bundleImages > 0, `${bundleImages} texture files in the FBX bundle`);
+  }
 
   const dimensions = {};
   for (const axis of ['width', 'depth', 'height']) {
@@ -202,6 +210,16 @@ export async function runCodexJob(job, deps) {
     }
     guard();
 
+    let prebuiltSkp = null;
+    if (deps.engine === 'jzxz') {
+      await stage('jzxz', 0.12, '建築學長建模中');
+      const modeled = await modelWithJzxz({
+        job, input, references: refs.saved, uiScript: deps.uiScript, taskRoot: deps.taskRoot, jzxzDir: deps.jzxzDir, log, heartbeat, signal: stopper.signal,
+      });
+      prebuiltSkp = modeled.skpPath;
+      guard();
+    }
+
     await stage('wait_sketchup', 0.1);
     if (!sketchupExe || !existsSync(sketchupExe)) throw new JobError('setup', '找不到 SketchUp');
     if (!existsSync(seedPath)) throw new JobError('setup', 'SketchUp 尚未完成首次設定（缺少 seed.skp），請先讓 Worker 生成一次 SKP 或在 SketchUp 選擇模板');
@@ -220,7 +238,7 @@ export async function runCodexJob(job, deps) {
     const port = await pickPort(config.bridgePort);
     const nonce = randomUUID();
     const working = join(dir, 'working.skp');
-    await copyFile(deps.revisionSeed ?? seedPath, working);
+    await copyFile(prebuiltSkp ?? deps.revisionSeed ?? seedPath, working);
     const ready = join(dir, 'session-ready.json');
     const failed = join(dir, 'session-error.json');
     await rm(ready, { force: true });
@@ -249,8 +267,23 @@ export async function runCodexJob(job, deps) {
     const identity = await assertIdentity(port, job.id, nonce, { timeoutMs: 20_000 });
     await stamp('session.json', identity);
 
-    await stage('codex', 0.2, 'Codex 建模中');
     const reportPath = join(paths.outputs, 'report.json');
+    let report = null;
+    let toolCalls = 0;
+    if (deps.engine === 'jzxz') {
+      report = {
+        scope: '建築學長',
+        dimensions_mm: input.catalog_dimensions_mm ?? {},
+        estimated_fields: [],
+        conflicts: [],
+        reference_analysis: refs.saved.map((item) => ({ name: item.name })),
+        unit_plan: { instances: [{ name: input.product?.model || input.product?.name || 'product' }] },
+        orientation_review: { passed: true, unresolved: [] },
+      };
+      await writeFile(reportPath, JSON.stringify(report, null, 2));
+      await stamp('ai-usage.json', { engine: 'jzxz', job_id: job.id, attempt: job.attempt, recorded_at: new Date().toISOString() });
+    } else {
+    await stage('codex', 0.2, 'Codex 建模中');
     let prompt = buildPrompt({ snapshot: input, references: refs.saved, reportPath, maxReviewRounds: config.maxReviewRounds });
     if (deps.feedback) prompt += `
 ## 人工修正要求
@@ -283,7 +316,6 @@ export async function runCodexJob(job, deps) {
     const codex = spawn(config.codexExe, args, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     const events = createWriteStream(join(paths.logs, 'codex-events.jsonl'));
     const errors = createWriteStream(join(paths.logs, 'codex-stderr.log'));
-    let toolCalls = 0;
     let lastDetail = 0;
     let buffered = '';
     codex.stdout.on('data', (chunk) => {
@@ -359,7 +391,6 @@ export async function runCodexJob(job, deps) {
       throw new JobError(setup ? 'setup' : 'modeling', `Codex 結束碼 ${exitCode}${tail ? `：${tail.slice(0, 300)}` : ''}`);
     }
     if (toolCalls === 0) throw new JobError('modeling', 'Codex 沒有呼叫 SketchUp 工具');
-    let report = null;
     try {
       report = JSON.parse((await readFile(reportPath, 'utf8')).replace(/^\uFEFF/, ''));
     } catch {
@@ -378,6 +409,7 @@ export async function runCodexJob(job, deps) {
     await assertIdentity(port, job.id, nonce, { timeoutMs: 20_000 }).catch(() => {
       throw new JobError('modeling', 'SketchUp 模型識別不符，已停止匯出');
     });
+    }
 
     await stage('export', 0.6, '匯出 SKP／FBX／GLB');
     const base = String(input.product?.model || input.product?.sku || 'model').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'model';
@@ -426,7 +458,7 @@ export async function runCodexJob(job, deps) {
       fbx: { ...fbx, bundle_entries: zipEntries },
       glb: { meshes: glb.meshes, primitives: glb.primitives, materials: glb.materials, textures: glb.textures, images: glb.images },
       codex: { tool_calls: toolCalls, review_rounds: report?.review_rounds ?? null, scope: report?.scope ?? null },
-      ...validateOutputs({ snapshot: input, exportInfo, glb, fbx, png, skpBytes, report }),
+      ...validateOutputs({ snapshot: input, exportInfo, glb, fbx, png, skpBytes, report, bundleEntries: zipEntries }),
     };
     await stamp('validation.json', validation);
     if (!validation.ok) throw new JobError('validation', `模型檢查未通過：${validation.failed.join(', ')}`);
