@@ -608,9 +608,14 @@ internal sealed class SetupForm : Form {
         AddAction("複製日誌", () => { if (logs.Text.Length > 0) Clipboard.SetText(logs.Text); return Task.FromResult(0); });
         AddAction("開啟任務資料夾", () => { var jobs = Path.Combine(WorkerSetup.Home, "jobs"); if (Directory.Exists(jobs)) Process.Start("explorer.exe", jobs); return Task.FromResult(0); });
         AddAction("待驗收模型", () => { OpenReviews(); return Task.FromResult(0); });
+        var exitRequested = false;
+        var trayMenu = new ContextMenuStrip();
+        trayMenu.Items.Add("開啟", null, (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
+        trayMenu.Items.Add("關閉", null, (s, e) => { exitRequested = true; reviewNotice.Visible = false; Close(); });
+        reviewNotice.ContextMenuStrip = trayMenu;
         reviewNotice.BalloonTipClicked += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); OpenReviews(); };
         reviewNotice.DoubleClick += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
-        FormClosing += (s, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
+        FormClosing += (s, e) => { if (!exitRequested && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
         logTimer.Tick += (s, e) => { RefreshLogs(); RefreshTask(); CheckReviews(); };
         FormClosed += (s, e) => { logTimer.Stop(); logTimer.Dispose(); reviewNotice.Dispose(); };
         RefreshLogs();
