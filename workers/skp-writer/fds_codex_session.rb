@@ -262,7 +262,7 @@ module FdsCodexSession
 
   # Product identity on the root group (or the model when Codex built no root).
   def self.label_product(model, product)
-    root = model.entities.grep(Sketchup::Group).find { |e| e.get_attribute(FdsKit::DICT, 'root') }
+    root = FdsKit.product_container
     size = bounds_mm(model.bounds)['size']
     info = {
       'name' => product['name'].to_s, 'model' => product['model'].to_s, 'sku' => product['sku'].to_s,
@@ -408,11 +408,12 @@ module FdsKit
   def self.model = Sketchup.active_model
 
   def self.root(name = nil)
-    g = model.entities.grep(Sketchup::Group).find { |e| e.get_attribute(DICT, 'root') }
+    g = product_container
     unless g
       g = model.entities.add_group
       g.set_attribute(DICT, 'root', true)
     end
+    g.set_attribute(DICT, 'root', true) unless g.get_attribute(DICT, 'root')
     g.name = name.to_s if name && !name.to_s.empty?
     g
   end
@@ -425,8 +426,9 @@ module FdsKit
   # Yields the new part's entities; existing parts with the same name are erased first.
   def self.part(name, tag: nil, material: nil, parent: nil)
     parent ||= root
-    parent.entities.grep(Sketchup::Group).select { |g| g.name == name.to_s }.each(&:erase!)
-    g = parent.entities.add_group
+    ents = contents(parent)
+    ents.grep(Sketchup::Group).select { |g| g.name == name.to_s }.each(&:erase!)
+    g = ents.add_group
     g.name = name.to_s
     layer = self.tag(tag)
     g.layer = layer if layer
@@ -610,23 +612,60 @@ module FdsKit
     end
   end
 
-  def self.summary(e)
-    ents = e.respond_to?(:definition) ? e.definition.entities : e.entities
-    name = e.name.to_s.empty? && e.respond_to?(:definition) ? e.definition.name : e.name
+  def self.container?(e)
+    e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+  end
+
+  def self.contents(e)
+    e.is_a?(Sketchup::ComponentInstance) ? e.definition.entities : e.entities
+  end
+
+  def self.entity_name(e)
+    name = e.name.to_s
+    name = e.definition.name.to_s if name.empty? && e.respond_to?(:definition)
+    name
+  end
+
+  # One product container: a marked FdsKit root, or the only top-level group/component
+  # that itself holds named parts. to_component turns the root into a ComponentInstance,
+  # which grep(Group) used to miss, so the audit saw the wrapper instead of the parts.
+  def self.product_container
+    tops = model.entities.select { |e| container?(e) }
+    marked = tops.find { |e| e.get_attribute(DICT, 'root') }
+    return marked if marked
+    return nil unless tops.length == 1 && contents(tops[0]).any? { |e| container?(e) }
+    tops[0]
+  end
+
+  def self.world_bounds(e, parent)
+    bb = e.bounds
+    return bb unless parent.respond_to?(:transformation)
+    t = parent.transformation
+    return bb if t.identity?
+    world = Geom::BoundingBox.new
+    [bb.min.x, bb.max.x].each do |x|
+      [bb.min.y, bb.max.y].each do |y|
+        [bb.min.z, bb.max.z].each { |z| world.add(Geom::Point3d.new(x, y, z).transform(t)) }
+      end
+    end
+    world
+  end
+
+  def self.summary(e, parent = nil)
     {
-      'name' => name,
-      'faces' => face_count(ents),
+      'name' => entity_name(e),
+      'faces' => face_count(contents(e)),
       'manifold' => (e.manifold? rescue false),
       'tag' => e.layer.name,
-      'bounds_mm' => FdsCodexSession.bounds_mm(e.bounds),
+      'bounds_mm' => FdsCodexSession.bounds_mm(parent ? world_bounds(e, parent) : e.bounds),
     }
   end
 
-  # Parts directly under the product root; without a root, the top-level groups/components.
+  # Parts directly under the product container. Their bounds are in model space.
   def self.audit
-    r = model.entities.grep(Sketchup::Group).find { |e| e.get_attribute(DICT, 'root') }
-    list = (r ? r.entities : model.entities).select { |e| e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance) }
-    { 'root' => r ? r.name : nil, 'parts' => list.first(200).map { |e| summary(e) } }
+    r = product_container
+    list = (r ? contents(r) : model.entities).select { |e| container?(e) }
+    { 'root' => r ? entity_name(r) : nil, 'parts' => list.first(200).map { |e| summary(e, r) } }
   end
 end
 
