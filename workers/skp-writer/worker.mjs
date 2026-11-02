@@ -572,11 +572,13 @@ const recoveredJobs = new Set();
 for (const name of (await readdir(CODEX.workRoot).catch(() => [])).sort((a,b) => b.localeCompare(a, undefined, { numeric: true }))) {
   const dir = join(CODEX.workRoot, name);
   try {
-    const review = JSON.parse(await readFile(join(dir, 'review.json'), 'utf8'));
+    const review = existsSync(join(dir, 'review.json'))
+      ? JSON.parse(await readFile(join(dir, 'review.json'), 'utf8'))
+      : { ...JSON.parse(await readFile(join(dir, 'recovery.json'), 'utf8')), status: 'pending' };
     if (recoveredJobs.has(review.job_id)) continue;
     recoveredJobs.add(review.job_id);
     if (!['pending', 'accepted', 'revise', 'revising'].includes(review.status)) continue;
-    if (!existsSync(join(dir, 'job.json')) || !existsSync(join(dir, 'checkpoint.json'))) {
+    if (!existsSync(join(dir, 'job.json')) || (!existsSync(join(dir, 'checkpoint.json')) && !existsSync(join(dir, 'recovery.json')))) {
       console.error(`review recovery ${name}: legacy_checkpoint_missing; 舊版草稿保留在本機，請重新提交生成`);
       continue;
     }
@@ -589,7 +591,7 @@ for (const name of (await readdir(CODEX.workRoot).catch(() => [])).sort((a,b) =>
     if (error?.code) authStop(error);
     if (existsSync(join(dir, 'review.json'))) console.error(`review recovery ${name}: ${error.message}; 本機草稿已保留`);
     // A transient network error must not fall through to claim and supersede this lease.
-    if (existsSync(join(dir, 'review.json')) && !['lease_rejected','stopped','revoked','expired','suspended','unauthorized'].includes(error?.code ?? error?.message)) throw error;
+    if ((existsSync(join(dir, 'review.json')) || existsSync(join(dir, 'recovery.json'))) && !['lease_rejected','stopped','revoked','expired','suspended','unauthorized'].includes(error?.code ?? error?.message)) throw error;
   }
 }
 

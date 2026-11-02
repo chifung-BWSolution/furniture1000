@@ -13,7 +13,7 @@ import { acquireSketchUpLock, killTree, pidAlive } from './lock.mjs';
 import { buildPrompt } from './prompt.mjs';
 import { modelWithJzxz } from '../jzxz/model-job.mjs';
 
-export const CODEX_JOB_VERSION = 'codex-1';
+export const CODEX_JOB_VERSION = 'codex-2';
 const STOP_CODES = new Set(['stopped', 'lease_rejected', 'revoked', 'expired', 'suspended', 'unauthorized']);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -21,8 +21,31 @@ export class JobError extends Error {
   constructor(kind, detail, { retryable } = {}) {
     super(`${kind}: ${detail}`);
     this.kind = kind;
-    this.retryable = retryable ?? !['setup', 'input', 'cancelled'].includes(kind);
+    this.retryable = retryable ?? !['setup', 'input', 'cancelled', 'validation', 'export', 'modeling'].includes(kind);
   }
+}
+
+/** Validation retries repair the exported draft, never restart from the seed template. */
+export function validationRepair(validation, seed, round = 0) {
+  if (round >= 2) return null;
+  const failures = validation.checks.filter((c) => !c.ok && c.severity === 'error');
+  return {
+    seed,
+    round: round + 1,
+    feedback: `自動驗證修補第 ${round + 1}/2 輪。現有模型已載入，禁止清空模型或整體重建。先用 FdsKit.audit 核對實際部件與層級，只修正以下問題，保留已通過的結構。報告必須反映實際模型，不可刪除有效檢查或虛報通過。\n${failures.map((c) => `${c.name}: ${c.detail}`).join('\n')}`,
+  };
+}
+
+/** Fail closed: a recovery marker must never silently fall back to a blank seed. */
+export async function loadRecovery(dir, jobId) {
+  const file = join(dir, 'recovery.json');
+  if (!existsSync(file)) return null;
+  const state = JSON.parse(await readFile(file, 'utf8'));
+  if (state.job_id !== jobId || !['modeling', 'export'].includes(state.stage)) throw new JobError('validation', 'recovery_identity_mismatch');
+  const bytes = await readFile(join(dir, 'working.skp'));
+  if (!looksLikeSkp(bytes)) throw new JobError('validation', 'recovery_skp_invalid');
+  if (state.stage === 'export' && !state.report) throw new JobError('validation', 'recovery_report_missing');
+  return state;
 }
 
 const CONTENT_TYPES = {
@@ -172,7 +195,7 @@ export async function runCodexJob(job, deps) {
   const { callAgent, uploadSigned, downloadSigned, config, sketchupExe, seedPath, codexVersion, secrets = [], log = console.log } = deps;
   const input = job.input ?? {};
   const leaseId = job.lease_id;
-  const dir = deps.resumeDir ?? deps.revisionDir ?? join(config.workRoot, `${job.id}-a${job.attempt}`);
+  const dir = deps.resumeDir ?? deps.recoveryDir ?? deps.revisionDir ?? join(config.workRoot, `${job.id}-a${job.attempt}`);
   const paths = {
     refs: join(dir, 'references'),
     outputs: join(dir, 'outputs'),
@@ -233,10 +256,11 @@ export async function runCodexJob(job, deps) {
   try {
     pulse = setInterval(() => heartbeat({}).catch(() => {}), 15_000);
     await stamp('product.json', input);
+    await stamp('job.json', job);
 
     const checkpointPath = join(dir, 'checkpoint.json');
     let generated;
-    if (deps.resumeDir) {
+    if (deps.resumeDir && existsSync(checkpointPath)) {
       generated = JSON.parse(await readFile(checkpointPath, 'utf8'));
       for (const item of generated.files) {
         const bytes = await readFile(join(dir, item.path));
@@ -244,8 +268,16 @@ export async function runCodexJob(job, deps) {
       }
     } else {
       generated = await (async () => {
+    const recovery = await loadRecovery(dir, job.id);
+    if (recovery?.stage === 'modeling' && deps.engine === 'jzxz') throw new JobError('validation', 'jzxz_interrupted: 現有模型已保留，需確認後接續');
     await stage('download', 0.05, `下載 ${(input.references ?? []).length} 張參考圖`);
-    const refs = await downloadReferences(input.references ?? [], paths.refs);
+    const cachedReferences = recovery
+      ? join(dir, 'references.json')
+      : deps.revisionSeed ? join(dirname(dirname(deps.revisionSeed)), 'references.json') : null;
+    const cached = cachedReferences && existsSync(cachedReferences)
+      ? JSON.parse(await readFile(cachedReferences, 'utf8')) : null;
+    const refs = cached?.saved?.length && cached.saved.every((ref) => existsSync(ref.path))
+      ? cached : await downloadReferences(input.references ?? [], paths.refs);
     await stamp('references.json', refs);
     for (const failure of refs.failed) {
       let host = 'invalid-url';
@@ -259,7 +291,7 @@ export async function runCodexJob(job, deps) {
     guard();
 
     let prebuiltSkp = null;
-    if (deps.engine === 'jzxz') {
+    if (!recovery && deps.engine === 'jzxz') {
       await stage('jzxz', 0.12, '建築學長建模中');
       const modeled = await modelWithJzxz({
         job, input, references: refs.saved, uiScript: deps.uiScript, taskRoot: deps.taskRoot, jzxzDir: deps.jzxzDir, log, heartbeat, signal: stopper.signal,
@@ -286,7 +318,7 @@ export async function runCodexJob(job, deps) {
     const port = await pickPort(config.bridgePort);
     const nonce = randomUUID();
     const working = join(dir, 'working.skp');
-    await copyFile(prebuiltSkp ?? deps.revisionSeed ?? seedPath, working);
+    if (!recovery) await copyFile(prebuiltSkp ?? deps.revisionSeed ?? seedPath, working);
     const ready = join(dir, 'session-ready.json');
     const failed = join(dir, 'session-error.json');
     await rm(ready, { force: true });
@@ -316,8 +348,13 @@ export async function runCodexJob(job, deps) {
     await stamp('session.json', identity);
 
     const reportPath = join(paths.outputs, 'report.json');
-    let report = null;
-    let toolCalls = 0;
+    let report = recovery?.report ?? null;
+    let toolCalls = recovery?.toolCalls ?? 0;
+    if (recovery?.stage === 'export') {
+      await writeFile(reportPath, JSON.stringify(report, null, 2));
+    } else {
+    if (recovery) deps = { ...deps, feedback: [deps.feedback ?? recovery.feedback, '程式中斷後接續：現有模型已載入，先檢查模型及腳本，只完成未完成的部件，禁止清空或整體重建。'].filter(Boolean).join('\n') };
+    await stamp('recovery.json', { job_id: job.id, stage: 'modeling', report: null, toolCalls: 0, validationRepairRound: deps.validationRepairRound ?? recovery?.validationRepairRound ?? 0, feedback: deps.feedback ?? recovery?.feedback ?? null });
     if (deps.engine === 'jzxz') {
       report = {
         scope: '建築學長',
@@ -337,7 +374,7 @@ export async function runCodexJob(job, deps) {
     const carried = !!previousScript && !existsSync(scriptPath) && existsSync(previousScript);
     if (carried) await copyFile(previousScript, scriptPath);
     let prompt = buildPrompt({ snapshot: input, references: refs.saved, reportPath, scriptPath, maxReviewRounds: config.maxReviewRounds });
-    if (deps.feedback) prompt += `
+    if (deps.feedback || recovery?.stage === 'modeling') prompt += `
 ## 人工修正要求
 目前場景已有上版模型。本次原始「場景應為空」要求不適用。
 ${existsSync(scriptPath)
@@ -472,6 +509,10 @@ ${existsSync(scriptPath)
     });
     }
 
+    }
+    // Save independently of format export, so bridge/export failures cannot discard the draft.
+    await bridgeCall(port, 'save_checkpoint', {}, { timeoutMs: 60_000 });
+    await stamp('recovery.json', { job_id: job.id, stage: 'export', report, toolCalls, reuse_preview: recovery?.reuse_preview === true, validationRepairRound: deps.validationRepairRound ?? recovery?.validationRepairRound ?? 0 });
     await stage('export', 0.6, '匯出 SKP／FBX／GLB');
     const base = String(input.product?.model || input.product?.sku || 'model').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'model';
     const out = {
@@ -481,7 +522,7 @@ ${existsSync(scriptPath)
       preview: join(paths.outputs, 'preview.png'),
     };
     const product = { name: input.product?.name ?? '', model: input.product?.model ?? '', sku: input.product?.sku ?? '' };
-    const exportInfo = await bridgeCall(port, 'export', { ...out, product }, { timeoutMs: 600_000 }).catch((error) => {
+    const exportInfo = await bridgeCall(port, 'export', { ...out, product, reuse_preview: recovery?.reuse_preview === true }, { timeoutMs: 600_000 }).catch((error) => {
       throw new JobError('export', `SketchUp 匯出失敗：${error.message}`);
     });
     await closeSketchUp();
@@ -523,7 +564,14 @@ ${existsSync(scriptPath)
       ...validateOutputs({ snapshot: input, exportInfo, glb, fbx, png, skpBytes, report, bundleEntries: zipEntries }),
     };
     await stamp('validation.json', validation);
-    if (!validation.ok) throw new JobError('validation', `模型檢查未通過：${validation.failed.join(', ')}`);
+    if (!validation.ok) {
+      const failures = validation.checks.filter((c) => !c.ok && c.severity === 'error');
+      const detail = failures.map((c) => `${c.name}: ${c.detail}`).join('；');
+      log(`job ${job.id} validation failed: ${detail}`);
+      const error = new JobError('validation', `模型檢查未通過：${detail}`);
+      if (deps.engine !== 'jzxz') error.repair = validationRepair(validation, out.skp, deps.validationRepairRound ?? recovery?.validationRepairRound ?? 0);
+      throw error;
+    }
         await writeFile(join(paths.outputs, 'fbx-bundle.zip'), zip);
         const files = await Promise.all([out.skp, out.fbx, out.glb, out.preview, reportPath, join(dir, 'validation.json'), join(paths.outputs, 'fbx-bundle.zip')].map(async (path) => ({ path: relative(dir, path), hash: sha256(await readFile(path)) })));
         return { out, validation, report, base, zipEntries, files };
@@ -536,7 +584,7 @@ ${existsSync(scriptPath)
     const glbBytes = await readFile(out.glb), pngBytes = await readFile(out.preview);
     const zip = await readFile(join(paths.outputs, 'fbx-bundle.zip'));
     const reviewFile = join(dir, 'review.json');
-    if (!deps.resumeDir) await stamp('review.json', { status: 'pending', job_id: job.id, revision: deps.revision ?? 0, product: input.product, model_path: out.skp, preview_path: out.preview, created_at: new Date().toISOString() });
+    if (!deps.resumeDir || !existsSync(reviewFile)) await stamp('review.json', { status: 'pending', job_id: job.id, revision: deps.revision ?? 0, product: input.product, model_path: out.skp, preview_path: out.preview, created_at: new Date().toISOString() });
     log(`job ${job.id} [awaiting_review] 模型已生成，等待 Worker 人工驗收`);
     await track('review', '模型已生成，等待人工驗收');
     await heartbeat({ stage: 'validate', detail: '模型已生成，等待本機 Worker 人工驗收' });
@@ -552,7 +600,7 @@ ${existsSync(scriptPath)
         const revision = review.status === 'revising' ? Number(review.revision) : Number(review.revision ?? 0) + 1;
         await stamp('review.json', { ...review, status: 'revising', revision });
         const nextDir = join(config.workRoot, `${job.id}-a${job.attempt}-r${revision}`);
-        return await runCodexJob(job, { ...deps, resumeDir: undefined, revisionDir: nextDir, revisionSeed: out.skp, feedback: review.feedback, revision });
+        return await runCodexJob(job, { ...deps, resumeDir: undefined, recoveryDir: undefined, revisionDir: nextDir, revisionSeed: out.skp, feedback: review.feedback, revision });
       }
       if (review.status === 'discarded') {
         await callAgent('fail', { lease_id: leaseId, error: 'review_discarded: 人工驗收已放棄草稿', retryable: false });
@@ -627,6 +675,30 @@ ${existsSync(scriptPath)
     log(`job ${job.id}: published ${JSON.stringify(published?.models ?? published)}`);
     return published;
   } catch (error) {
+    if (!stopError && error.kind === 'export' && (deps.exportRetryRound ?? 0) < 2) {
+      await closeSketchUp();
+      await lock?.release();
+      lock = null;
+      clearInterval(pulse);
+      return await runCodexJob(job, { ...deps, resumeDir: undefined, recoveryDir: dir, exportRetryRound: (deps.exportRetryRound ?? 0) + 1 });
+    }
+    if (!stopError && error.repair) {
+      const repair = error.repair;
+      await stage('validate', 0.7, `保留現有模型，修補驗證問題（${repair.round}/2）`);
+      await closeSketchUp();
+      await lock?.release();
+      lock = null;
+      clearInterval(pulse);
+      return await runCodexJob(job, {
+        ...deps,
+        resumeDir: undefined,
+        recoveryDir: undefined,
+        revisionDir: `${dir}-repair${repair.round}`,
+        revisionSeed: repair.seed,
+        validationRepairRound: repair.round,
+        feedback: [deps.feedback, repair.feedback].filter(Boolean).join('\n'),
+      });
+    }
     await stamp('error.json', { error: error?.message ?? String(error), kind: error?.kind ?? null, at: new Date().toISOString() }).catch(() => {});
     await track('failed', (stopError ?? error)?.message ?? String(error));
     throw stopError ?? error;
@@ -676,6 +748,7 @@ export async function cleanupWorkRoot(config) {
   for (const name of dirs) {
     const full = join(config.workRoot, name);
     const info = await stat(full).catch(() => null);
+    if (existsSync(join(full, 'recovery.json')) && !existsSync(join(full, 'publish.json'))) continue;
     if (existsSync(join(full, 'review.json')) && !existsSync(join(full, 'publish.json'))) continue;
     if (info?.isDirectory() && info.mtimeMs < cutoff) await rm(full, { recursive: true, force: true }).catch(() => {});
   }

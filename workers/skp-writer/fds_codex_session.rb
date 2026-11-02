@@ -102,6 +102,7 @@ module FdsCodexSession
 
   def self.scene_info
     model = Sketchup.active_model
+    trace.call('measure')
     counts = Hash.new(0)
     walk(model.entities) { |e, _| counts[e.typename] += 1 }
     top = model.entities.select { |e| e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance) }.first(60).map do |e|
@@ -149,6 +150,8 @@ module FdsCodexSession
     begin
       result = eval(code, TOPLEVEL_BINDING)
       model.commit_operation
+      # Persist each completed modeling operation for process/crash recovery.
+      raise 'checkpoint_save_failed' unless model.save
       out = result.to_s
       out.length > MAX_RESULT ? out[0, MAX_RESULT] + "\n…(truncated)" : out
     rescue StandardError, ScriptError
@@ -202,6 +205,8 @@ module FdsCodexSession
     raise 'model_empty' if model.entities.length.zero?
     paths = %w[skp fbx glb preview].map { |k| [k, args[k].to_s] }.to_h
     paths.each_value { |p| raise 'export_path_invalid' unless inside_output?(p) }
+    trace = ->(step) { File.write(File.join(File.dirname(paths['preview']), 'export-stage.json'), JSON.generate({ 'stage' => step, 'at' => Time.now.to_s })) }
+    trace.call('prepare')
     model.commit_operation rescue nil
     # Library materials loaded but never applied would count as textured without reaching FBX/GLB.
     model.materials.purge_unused
@@ -210,22 +215,32 @@ module FdsCodexSession
     style_preview(model)
     add_pages(model)
     raise 'skp_save_failed' unless model.save(paths['skp'])
+    trace.call('fbx')
     fbx_ok = model.export(paths['fbx'], {
       triangulated_faces: true, doublesided_faces: true, texture_maps: true,
       swap_yz: true, units: 'mm', show_summary: false,
     })
     raise 'fbx_export_failed' unless fbx_ok && File.exist?(paths['fbx'])
+    trace.call('glb')
     glb_ok = model.export(paths['glb'], { show_summary: false })
     raise 'glb_export_failed' unless glb_ok && File.exist?(paths['glb'])
+    trace.call('preview')
     extra = {}
+    if args['reuse_preview'] && File.exist?(paths['preview'])
+      extra = { 'front' => File.join(File.dirname(paths['preview']), 'preview-front.png'), 'top' => File.join(File.dirname(paths['preview']), 'preview-top.png') }
+    else
     { 'front' => 'front', 'top' => 'top' }.each do |key, name|
       path = File.join(File.dirname(paths['preview']), "preview-#{key}.png")
       extra[key] = path if set_view(name).write_image(filename: path, width: 1600, height: 1200, antialias: true, transparent: false)
     end
     view = set_view('iso')
     raise 'preview_failed' unless view.write_image(filename: paths['preview'], width: 1600, height: 1200, antialias: true, transparent: false)
+    end
+    trace.call('select_page')
     model.pages.selected_page = model.pages[PAGES.first[0]] if model.pages[PAGES.first[0]]
+    trace.call('save_final')
     model.save(paths['skp'])
+    trace.call('audit')
     audit = FdsKit.audit
 
     counts = Hash.new(0)
@@ -305,6 +320,9 @@ module FdsCodexSession
     when 'scene_info' then scene_info
     when 'selection' then selection_info
     when 'screenshot' then screenshot(args)
+    when 'save_checkpoint'
+      raise 'checkpoint_save_failed' unless Sketchup.active_model.save
+      { 'saved_path' => Sketchup.active_model.path }
     when 'export' then export(args)
     when 'quit'
       @quitting = true
@@ -330,7 +348,19 @@ module FdsCodexSession
 
     private
 
+    # Native exporters pump UI events. Do not re-enter and expire the request
+    # whose dispatch is still exporting on SketchUp's main thread.
     def tick
+      return if @dispatching
+      @dispatching = true
+      begin
+        process_tick
+      ensure
+        @dispatching = false
+      end
+    end
+
+    def process_tick
       now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       4.times do
         client = @server.accept_nonblock(exception: false)
