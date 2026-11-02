@@ -212,7 +212,7 @@ export async function fetchSkpStatus(furnitureModelId: string): Promise<SkpStatu
   return data as SkpStatus;
 }
 
-export type CodexCheckKey = 'sketchup' | 'codex_cli' | 'codex_login' | 'mcp_bridge' | 'session_ruby' | 'seed';
+export type CodexCheckKey = 'sketchup' | 'codex_cli' | 'codex_login' | 'mcp_bridge' | 'session_ruby' | 'seed' | 'fds_mcp';
 
 export interface SkpRequirements {
   ready: boolean;
@@ -268,7 +268,41 @@ export type ProductSkpJob =
       started_at?: string;
       finished_at?: string;
       already_queued?: boolean;
+      /** Jobs the worker will finish before this one, including the one it is running now. */
+      queue_ahead?: number;
+      /** Ready Codex / 建築學長 workers seen in the last 90 seconds. */
+      queue_workers?: number;
+      /** Rough wait until this job starts. Absent when no worker is online. */
+      queue_eta_minutes?: number;
+      /** True when there are not enough finished jobs, so each job is counted as 30 minutes. */
+      queue_eta_assumed?: boolean;
     };
+
+function queueWaitLabel(minutes: number): string {
+  if (minutes <= 0) return '';
+  if (minutes < 60) return `大約 ${minutes} 分鐘`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `大約 ${hours} 小時` : `大約 ${hours} 小時 ${rest} 分鐘`;
+}
+
+/** Queued product-SKP copy: how many jobs are in front, and when this one is likely to start. */
+export function productSkpQueueText(job: Exclude<ProductSkpJob, { status: 'none' }>): string {
+  if (job.status === 'running') return '正在生成這個任務。';
+  if (job.status !== 'queued' || job.queue_ahead == null) return '已提交 Worker 排隊，等待完成即可。';
+  const ahead = job.queue_ahead;
+  const workers = job.queue_workers ?? 0;
+  if (workers <= 0) {
+    return ahead === 0
+      ? '已排隊。目前沒有 Worker 在線，接上後就會開始。'
+      : `前面還有 ${ahead} 個任務。目前沒有 Worker 在線，接上後才會開始。`;
+  }
+  if (ahead === 0) return '下一個就是這個任務，Worker 空出來就會開始。';
+  const wait = queueWaitLabel(job.queue_eta_minutes ?? 0);
+  if (!wait) return `前面還有 ${ahead} 個任務，暫時無法估計輪到時間。`;
+  const basis = job.queue_eta_assumed ? '（尚無足夠完成紀錄，每個任務先按 30 分鐘估算）' : '（按最近完成的任務估算）';
+  return `前面還有 ${ahead} 個任務，${wait}後輪到這個${basis}。`;
+}
 
 export function productSkpActive(job: ProductSkpJob | null | undefined): boolean {
   return !!job && (job.status === 'queued' || job.status === 'running');

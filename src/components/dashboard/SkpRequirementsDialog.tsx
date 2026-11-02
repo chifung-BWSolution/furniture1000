@@ -13,7 +13,8 @@ const CODEX_CHECKS: [CodexCheckKey, string, string][] = [
   ['seed', 'SketchUp 種子模型', '首次安裝時開啟 SketchUp 選擇模板後產生'],
   ['codex_cli', 'Codex CLI', '安裝 Codex 桌面版或 CLI'],
   ['codex_login', 'Codex 登入', '在 Worker 電腦用該帳號登入 Codex（Worker 不收集密碼）'],
-  ['mcp_bridge', 'SketchUp MCP 橋接', '隨最新版 SKP Worker 安裝'],
+  ['mcp_bridge', 'Codex 專用橋接', '隨 SKP Worker 安裝，只給任務裡另開的 SketchUp 用'],
+  ['fds_mcp', 'FDS SketchUp MCP（埠 9878）', '與建築學長的 9876 同時開。未安裝可下載後自行複製到 Plugins'],
   ['session_ruby', 'SketchUp 專用工作階段腳本', '隨最新版 SKP Worker 安裝'],
 ];
 
@@ -105,6 +106,11 @@ export function useSkpRequirements() {
                     <span className="min-w-0 font-medium text-slate-700">{label}</span>
                     {status(result.codex_checks?.[key])}
                     <span className="w-full text-xs">{hint}</span>
+                    {key === 'fds_mcp' && result.codex_checks?.fds_mcp !== true && (
+                      <a href="/assets/downloads/FDS-SketchUp-MCP.zip" download className="inline-flex items-center gap-1 text-xs font-semibold text-[#5146ff] underline underline-offset-4">
+                        <Download className="h-3.5 w-3.5" />下載 FDS SketchUp MCP
+                      </a>
+                    )}
                   </li>
                 ))}
               </ul>

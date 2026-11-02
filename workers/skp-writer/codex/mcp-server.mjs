@@ -1,23 +1,27 @@
 // Minimal MCP (stdio, JSON-RPC per line) server that lets Codex drive the job's dedicated SketchUp.
 // Every call first checks that the bridge on FDS_CODEX_PORT is this job's session and model.
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { relative, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { assertIdentity, bridgeCall } from './bridge.mjs';
+import { checkRubyCall, jobFilePath } from './ruby-gate.mjs';
 
 const PORT = Number(process.env.FDS_CODEX_PORT);
 const JOB_ID = process.env.FDS_CODEX_JOB_ID ?? '';
 const NONCE = process.env.FDS_CODEX_NONCE ?? '';
 const SCREEN_DIR = process.env.FDS_CODEX_SCREEN_DIR ?? '';
 const TOOL_LOG = process.env.FDS_CODEX_TOOL_LOG ?? '';
+const JOB_DIR = process.env.FDS_CODEX_JOB_DIR ?? '';
+const SCRIPT = process.env.FDS_CODEX_SCRIPT ?? '';
 const MAX_SCREENSHOTS = 12;
+const MAX_FILE_CHARS = 1_000_000;
 let screenshots = 0;
 
 const TOOLS = [
   {
     name: 'get_scene_info',
-    description: 'Summary of the open SketchUp model: units, bounds in mm, top-level groups/components, materials.',
+    description: 'Summary of the open SketchUp model: units, bounds in mm, top-level groups/components, product parts (FdsKit.audit), materials, and material_library (bundled textured .skm paths by category).',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -27,7 +31,7 @@ const TOOLS = [
   },
   {
     name: 'eval_ruby',
-    description: 'Run Ruby inside SketchUp (wrapped in one undoable operation; rolled back on error). Returns the last expression as a string. Use .mm for lengths.',
+    description: "Run Ruby inside SketchUp (wrapped in one undoable operation; rolled back on error). Returns the last expression as a string. Use .mm for lengths. New geometry is rejected unless the code is exactly `load '<build_model.rb>'; FdsBuild.batch('<name>')`.",
     inputSchema: {
       type: 'object',
       properties: { code: { type: 'string', description: 'Ruby source to evaluate.' } },
@@ -44,6 +48,19 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'write_job_file',
+    description: 'Write a UTF-8 text file in this job folder (replaces the whole file). Only build_model.rb and outputs/report.json.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', enum: ['build_model.rb', 'outputs/report.json'] },
+        content: { type: 'string' },
+      },
+      required: ['path', 'content'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 function log(entry) {
@@ -57,13 +74,26 @@ function log(entry) {
 
 const text = (value) => ({ content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] });
 
-async function callTool(name, args) {
+async function callTool(name, args, meta) {
+  if (name === 'write_job_file') {
+    const path = jobFilePath(JOB_DIR, args?.path);
+    if (typeof args?.content !== 'string') throw new Error('content is required');
+    if (args.content.length > MAX_FILE_CHARS) throw new Error('content too long');
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, args.content, 'utf8');
+    meta.file = args.path;
+    return text(`wrote ${args.path} (${args.content.length} chars)`);
+  }
   await assertIdentity(PORT, JOB_ID, NONCE, { timeoutMs: 15_000 });
   if (name === 'get_scene_info') return text(await bridgeCall(PORT, 'scene_info', {}, { timeoutMs: 60_000 }));
   if (name === 'get_selection') return text(await bridgeCall(PORT, 'selection', {}, { timeoutMs: 60_000 }));
   if (name === 'eval_ruby') {
     if (typeof args?.code !== 'string' || !args.code.trim()) throw new Error('code is required');
     if (args.code.length > 200_000) throw new Error('code too long');
+    const gate = checkRubyCall(args.code, SCRIPT);
+    if (!gate.allowed) throw new Error(gate.reason);
+    meta.script_load = gate.script_load;
+    if (gate.batch) meta.batch = gate.batch;
     return text(String(await bridgeCall(PORT, 'eval', { code: args.code }, { timeoutMs: 170_000 })));
   }
   if (name === 'screenshot') {
@@ -105,13 +135,14 @@ async function handle(message) {
     const started = Date.now();
     const name = params?.name;
     const code = typeof params?.arguments?.code === 'string' ? params.arguments.code : null;
+    const meta = {};
     try {
-      const result = await callTool(name, params?.arguments ?? {});
-      log({ tool: name, ok: true, ms: Date.now() - started, code_sha256: code ? createHash('sha256').update(code).digest('hex') : undefined, code_chars: code?.length });
+      const result = await callTool(name, params?.arguments ?? {}, meta);
+      log({ tool: name, ok: true, ms: Date.now() - started, code_sha256: code ? createHash('sha256').update(code).digest('hex') : undefined, code_chars: code?.length, ...meta });
       return send({ jsonrpc: '2.0', id, result });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      log({ tool: name, ok: false, ms: Date.now() - started, error: reason.slice(0, 500), code_chars: code?.length });
+      log({ tool: name, ok: false, ms: Date.now() - started, error: reason.slice(0, 500), code_chars: code?.length, ...meta });
       return send({ jsonrpc: '2.0', id, result: { ...text(`Error: ${reason}`), isError: true } });
     }
   }

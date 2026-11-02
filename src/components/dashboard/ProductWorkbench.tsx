@@ -409,30 +409,34 @@ export function ProductWorkbench({
           <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <section className="min-w-0 p-4">
             <div ref={stageRef} className="fds-product-stage flex gap-3">
-              <div className="fds-stage-rail flex h-[420px] w-20 shrink-0 flex-col items-center gap-2 overflow-y-auto px-1 py-0.5">
-                {detail.images.map((src, index) => (
-                  <button
-                    key={src}
-                    type="button"
-                    className={cn(
-                      'h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-white shadow-sm',
-                      stage === 'image' && index === activeImage ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200',
-                    )}
-                    onClick={() => {
-                      setActiveImage(index);
-                      setStage('image');
-                    }}
-                  >
-                    <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" />
-                  </button>
-                ))}
+              <div className={cn('fds-stage-rail flex w-[calc(4rem+10px)] shrink-0 flex-col items-start', glb ? 'h-[calc(26.5rem+4px)]' : 'h-[calc(22rem+4px)]')}>
+                <div className="fds-stage-thumbs h-[calc(22rem+4px)] w-full overflow-x-hidden overflow-y-auto px-0.5 py-0.5">
+                  <div className="flex w-16 flex-col gap-2">
+                    {detail.images.map((src, index) => (
+                      <button
+                        key={src}
+                        type="button"
+                        className={cn(
+                          'h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-white shadow-sm',
+                          stage === 'image' && index === activeImage ? 'border-2 border-[#5b4dff]' : 'border-slate-200',
+                        )}
+                        onClick={() => {
+                          setActiveImage(index);
+                          setStage('image');
+                        }}
+                      >
+                        <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {glb && (
                   <button
                     type="button"
                     aria-label="3D 模型"
                     className={cn(
-                      'flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border bg-white shadow-sm',
-                      stage === '3d' ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200 hover:border-slate-300',
+                      'ml-0.5 mt-2 flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border bg-white shadow-sm',
+                      stage === '3d' ? 'border-2 border-[#5b4dff]' : 'border-slate-200 hover:border-slate-300',
                     )}
                     onClick={() => setStage('3d')}
                   >
@@ -441,7 +445,7 @@ export function ProductWorkbench({
                   </button>
                 )}
               </div>
-              <div className="fds-stage-view relative h-[420px] min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]">
+              <div className={cn('fds-stage-view relative min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]', glb ? 'h-[calc(26.5rem+4px)]' : 'h-[calc(22rem+4px)]')}>
                 {stage === '3d' && glbUrl && !glbError && (
                   <GlbViewport
                     url={glbUrl}

@@ -116,6 +116,7 @@ import {
   fetchSkpStatus,
   productSkpActive,
   productSkpErrorText,
+  productSkpQueueText,
   registerGeneratedFile,
   requestProductSkp,
   requestSkp,
@@ -1708,7 +1709,7 @@ function ProductModelsSection({
       setCodexChoice(false);
       setExtraPhotos([]);
       toast.success(job.status !== 'none' && job.already_queued ? '此產品已有生成中的任務' : '已提交 Worker 排隊', {
-        description: 'Worker 會調用 Codex 建模，等待完成即可；可以離開此頁。',
+        description: job.status === 'none' ? '可以離開此頁。' : `${productSkpQueueText(job)}可以離開此頁。`,
       });
     } catch (err) {
       toast.error('未能開始生成', { description: errorText(err) });
@@ -3065,9 +3066,7 @@ function ProductModelsSection({
           {codexActive ? (
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {codexJob.status === 'queued'
-                ? '已提交 Worker 排隊，等待完成即可。'
-                : 'Worker 已領取任務並處理中，等待完成即可。'}
+              {productSkpQueueText(codexJob)}
               <button type="button" className="text-primary hover:underline" onClick={() => void cancelCodex()}>停止</button>
             </>
           ) : (

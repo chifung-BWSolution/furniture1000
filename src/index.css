@@ -612,6 +612,13 @@ u {
   max-height: 100%;
 }
 
+.fds-product-stage:fullscreen .fds-stage-thumbs,
+.fds-product-stage:-webkit-full-screen .fds-stage-thumbs {
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 
 /* Shared dashboard page contract: full-width canvas, consistent gutters and headings.
    Explicit classes keep dialogs, print layouts and editor panels independent. */

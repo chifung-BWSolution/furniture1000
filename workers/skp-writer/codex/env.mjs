@@ -21,13 +21,15 @@ export function codexEnv(source = process.env, extra = {}) {
 }
 
 /** Variables the MCP bridge needs; it reads nothing else from the environment. */
-export function bridgeEnv({ port, jobId, nonce, screenDir, toolLog }) {
+export function bridgeEnv({ port, jobId, nonce, screenDir, toolLog, jobDir, script }) {
   return {
     FDS_CODEX_PORT: String(port),
     FDS_CODEX_JOB_ID: jobId,
     FDS_CODEX_NONCE: nonce,
     FDS_CODEX_SCREEN_DIR: screenDir,
     FDS_CODEX_TOOL_LOG: toolLog,
+    FDS_CODEX_JOB_DIR: jobDir,
+    FDS_CODEX_SCRIPT: script,
   };
 }
 

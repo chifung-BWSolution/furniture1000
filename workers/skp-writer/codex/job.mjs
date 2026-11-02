@@ -4,15 +4,16 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { createZip, inspectFbx, inspectGlb, inspectPng, looksLikeSkp, readZip, sha256 } from './artifacts.mjs';
 import { assertIdentity, bridgeCall, pickPort } from './bridge.mjs';
 import { codexEnv, assertNoSecrets, bridgeEnv } from './env.mjs';
 import { downloadReferences } from './images.mjs';
 import { acquireSketchUpLock, killTree, pidAlive } from './lock.mjs';
 import { buildPrompt } from './prompt.mjs';
+import { modelWithJzxz } from '../jzxz/model-job.mjs';
 
-export const CODEX_JOB_VERSION = 'codex-1';
+export const CODEX_JOB_VERSION = 'codex-2';
 const STOP_CODES = new Set(['stopped', 'lease_rejected', 'revoked', 'expired', 'suspended', 'unauthorized']);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -20,8 +21,31 @@ export class JobError extends Error {
   constructor(kind, detail, { retryable } = {}) {
     super(`${kind}: ${detail}`);
     this.kind = kind;
-    this.retryable = retryable ?? !['setup', 'input', 'cancelled'].includes(kind);
+    this.retryable = retryable ?? !['setup', 'input', 'cancelled', 'validation', 'export', 'modeling'].includes(kind);
   }
+}
+
+/** Validation retries repair the exported draft, never restart from the seed template. */
+export function validationRepair(validation, seed, round = 0) {
+  if (round >= 2) return null;
+  const failures = validation.checks.filter((c) => !c.ok && c.severity === 'error');
+  return {
+    seed,
+    round: round + 1,
+    feedback: `自動驗證修補第 ${round + 1}/2 輪。現有模型已載入，禁止清空模型或整體重建。先用 FdsKit.audit 核對實際部件與層級，只修正以下問題，保留已通過的結構。報告必須反映實際模型，不可刪除有效檢查或虛報通過。\n${failures.map((c) => `${c.name}: ${c.detail}`).join('\n')}`,
+  };
+}
+
+/** Fail closed: a recovery marker must never silently fall back to a blank seed. */
+export async function loadRecovery(dir, jobId) {
+  const file = join(dir, 'recovery.json');
+  if (!existsSync(file)) return null;
+  const state = JSON.parse(await readFile(file, 'utf8'));
+  if (state.job_id !== jobId || !['modeling', 'export'].includes(state.stage)) throw new JobError('validation', 'recovery_identity_mismatch');
+  const bytes = await readFile(join(dir, 'working.skp'));
+  if (!looksLikeSkp(bytes)) throw new JobError('validation', 'recovery_skp_invalid');
+  if (state.stage === 'export' && !state.report) throw new JobError('validation', 'recovery_report_missing');
+  return state;
 }
 
 const CONTENT_TYPES = {
@@ -49,8 +73,55 @@ function within(value, expected, abs, rel) {
   return Math.abs(value - expected) <= Math.max(abs, Math.abs(expected) * rel);
 }
 
+/** Report fields the script-carrier flow requires; returns human-readable gaps. */
+export function reportGaps(report) {
+  const gaps = [];
+  if (!Array.isArray(report?.batches) || !report.batches.length) gaps.push('report.batches 不可為空');
+  if (!Array.isArray(report?.parts) || !report.parts.length || report.parts.some((p) => !p?.name)) gaps.push('report.parts 要逐件列出部件名稱');
+  if (!Array.isArray(report?.known_issues)) gaps.push('report.known_issues 要是陣列');
+  if (!Array.isArray(report?.semantic_checks)) gaps.push('report.semantic_checks 要是陣列');
+  return gaps;
+}
+
+const center = (part, axis) => (part.bounds_mm.min[axis] + part.bounds_mm.max[axis]) / 2;
+
+/** Part-level and semantic checks against the exported parts list. */
+function checkParts(add, exportInfo, report) {
+  if (!Array.isArray(exportInfo.parts)) return;
+  const parts = exportInfo.parts;
+  add('product_root', !!exportInfo.product_root || parts.length > 0, exportInfo.product_root ? `root "${exportInfo.product_root}"` : 'no FdsKit root; using top-level groups', exportInfo.product_root ? 'error' : 'warning');
+  const empty = parts.filter((p) => !(p.faces > 0)).map((p) => p.name);
+  add('parts_not_empty', parts.length > 0 && !empty.length, empty.length ? `empty: ${empty.join(', ')}` : `${parts.length} parts with faces`);
+  const planned = Array.isArray(report?.parts) ? report.parts.filter((p) => p?.name) : [];
+  const names = new Set(parts.map((p) => p.name));
+  const missing = planned.map((p) => p.name).filter((n) => !names.has(n));
+  add('parts_match_report', !missing.length, missing.length ? `missing: ${missing.join(', ')}` : `${planned.length} reported parts found`);
+  const broken = planned.filter((p) => p.solid === true).map((p) => p.name).filter((n) => parts.find((x) => x.name === n)?.manifold === false);
+  add('parts_solid', !broken.length, broken.length ? `not closed: ${broken.join(', ')}` : 'expected solids are closed', 'warning');
+  const untagged = parts.filter((p) => !p.tag || /^(Layer0|Untagged)$/i.test(p.tag)).length;
+  add('parts_tagged', !untagged, `${untagged} of ${parts.length} parts without a tag`, 'warning');
+
+  const match = (text) => parts.filter((p) => String(p.name).includes(String(text ?? '')));
+  for (const [i, rule] of (Array.isArray(report?.semantic_checks) ? report.semantic_checks : []).entries()) {
+    const label = `semantic_${i + 1}`;
+    if (rule?.check === 'count') {
+      const found = match(rule.name_contains).length;
+      add(label, found === Number(rule.expected), `"${rule.name_contains}" parts: ${found}, expected ${rule.expected}`);
+    } else if (rule?.check === 'front_of' || rule?.check === 'above') {
+      const a = match(rule.a);
+      const b = match(rule.b);
+      if (!a.length || !b.length) { add(label, false, `${rule.check}: no part named like "${!a.length ? rule.a : rule.b}"`); continue; }
+      const avg = (list, axis) => list.reduce((s, p) => s + center(p, axis), 0) / list.length;
+      const ok = rule.check === 'front_of' ? avg(a, 1) < avg(b, 1) : avg(a, 2) > avg(b, 2);
+      add(label, ok, `"${rule.a}" ${rule.check === 'front_of' ? 'in front of (-Y)' : 'above'} "${rule.b}"`);
+    } else {
+      add(label, false, `unknown semantic check ${JSON.stringify(rule).slice(0, 120)}`, 'warning');
+    }
+  }
+}
+
 /** Pure checks over measured outputs; exported for tests. */
-export function validateOutputs({ snapshot, exportInfo, glb, fbx, png, skpBytes, report }) {
+export function validateOutputs({ snapshot, exportInfo, glb, fbx, png, skpBytes, report, bundleEntries = [] }) {
   const checks = [];
   const add = (name, ok, detail, severity = 'error') => checks.push({ name, ok: !!ok, severity, detail });
   const catalog = snapshot.catalog_dimensions_mm ?? {};
@@ -72,6 +143,14 @@ export function validateOutputs({ snapshot, exportInfo, glb, fbx, png, skpBytes,
   const cy = (min[1] + max[1]) / 2;
   add('centered', within(cx, 0, 5, 0.01) && within(cy, 0, 5, 0.01), `center = (${cx.toFixed(1)}, ${cy.toFixed(1)}) mm`, 'warning');
   add('materials', exportInfo.materials > 0, `${exportInfo.materials} materials, ${exportInfo.textured_materials} textured`, 'warning');
+  const textured = Number(exportInfo.textured_materials) || 0;
+  const bundleImages = bundleEntries.filter((name) => /\.(png|jpe?g|bmp|tiff?|tga)$/i.test(name)).length;
+  add('textures', textured > 0, `${textured} textured materials in the model`, 'warning');
+  if (textured > 0) {
+    add('glb_textures', glb.images > 0, `${glb.images} images, ${glb.textures} textures embedded in GLB`);
+    add('fbx_textures', bundleImages > 0, `${bundleImages} texture files in the FBX bundle`);
+  }
+  checkParts(add, exportInfo, report);
 
   const dimensions = {};
   for (const axis of ['width', 'depth', 'height']) {
@@ -116,7 +195,7 @@ export async function runCodexJob(job, deps) {
   const { callAgent, uploadSigned, downloadSigned, config, sketchupExe, seedPath, codexVersion, secrets = [], log = console.log } = deps;
   const input = job.input ?? {};
   const leaseId = job.lease_id;
-  const dir = deps.resumeDir ?? deps.revisionDir ?? join(config.workRoot, `${job.id}-a${job.attempt}`);
+  const dir = deps.resumeDir ?? deps.recoveryDir ?? deps.revisionDir ?? join(config.workRoot, `${job.id}-a${job.attempt}`);
   const paths = {
     refs: join(dir, 'references'),
     outputs: join(dir, 'outputs'),
@@ -151,9 +230,14 @@ export async function runCodexJob(job, deps) {
     }
     guard();
   };
-  const stage = (name, value, detail) => {
+  // progress.json is read by the installer's task panel; it never gates the job.
+  const track = (name, detail) => stamp('progress.json', {
+    job_id: job.id, revision: deps.revision ?? 0, stage: name, detail: detail ?? null, at: new Date().toISOString(),
+  }).catch(() => {});
+  const stage = async (name, value, detail) => {
     progress = value;
     log(`job ${job.id} stage ${name}${detail ? `: ${detail}` : ''}`);
+    await track(name, detail);
     return heartbeat({ stage: name, detail: detail ?? null });
   };
 
@@ -172,10 +256,11 @@ export async function runCodexJob(job, deps) {
   try {
     pulse = setInterval(() => heartbeat({}).catch(() => {}), 15_000);
     await stamp('product.json', input);
+    await stamp('job.json', job);
 
     const checkpointPath = join(dir, 'checkpoint.json');
     let generated;
-    if (deps.resumeDir) {
+    if (deps.resumeDir && existsSync(checkpointPath)) {
       generated = JSON.parse(await readFile(checkpointPath, 'utf8'));
       for (const item of generated.files) {
         const bytes = await readFile(join(dir, item.path));
@@ -183,8 +268,16 @@ export async function runCodexJob(job, deps) {
       }
     } else {
       generated = await (async () => {
+    const recovery = await loadRecovery(dir, job.id);
+    if (recovery?.stage === 'modeling' && deps.engine === 'jzxz') throw new JobError('validation', 'jzxz_interrupted: 現有模型已保留，需確認後接續');
     await stage('download', 0.05, `下載 ${(input.references ?? []).length} 張參考圖`);
-    const refs = await downloadReferences(input.references ?? [], paths.refs);
+    const cachedReferences = recovery
+      ? join(dir, 'references.json')
+      : deps.revisionSeed ? join(dirname(dirname(deps.revisionSeed)), 'references.json') : null;
+    const cached = cachedReferences && existsSync(cachedReferences)
+      ? JSON.parse(await readFile(cachedReferences, 'utf8')) : null;
+    const refs = cached?.saved?.length && cached.saved.every((ref) => existsSync(ref.path))
+      ? cached : await downloadReferences(input.references ?? [], paths.refs);
     await stamp('references.json', refs);
     for (const failure of refs.failed) {
       let host = 'invalid-url';
@@ -197,6 +290,16 @@ export async function runCodexJob(job, deps) {
     }
     guard();
 
+    let prebuiltSkp = null;
+    if (!recovery && deps.engine === 'jzxz') {
+      await stage('jzxz', 0.12, '建築學長建模中');
+      const modeled = await modelWithJzxz({
+        job, input, references: refs.saved, uiScript: deps.uiScript, taskRoot: deps.taskRoot, jzxzDir: deps.jzxzDir, log, heartbeat, signal: stopper.signal,
+      });
+      prebuiltSkp = modeled.skpPath;
+      guard();
+    }
+
     await stage('wait_sketchup', 0.1);
     if (!sketchupExe || !existsSync(sketchupExe)) throw new JobError('setup', '找不到 SketchUp');
     if (!existsSync(seedPath)) throw new JobError('setup', 'SketchUp 尚未完成首次設定（缺少 seed.skp），請先讓 Worker 生成一次 SKP 或在 SketchUp 選擇模板');
@@ -206,14 +309,16 @@ export async function runCodexJob(job, deps) {
       onWait: async (holder) => {
         if (Date.now() - lastWaitReport < 15_000) return guard();
         lastWaitReport = Date.now();
-        await heartbeat({ stage: 'wait_sketchup', detail: `等待本機另一個 SketchUp 任務完成（${holder?.kind ?? '未知'}）` });
+        const detail = `等待本機另一個 SketchUp 任務完成（${holder?.kind ?? '未知'}）`;
+        await track('wait_sketchup', detail);
+        await heartbeat({ stage: 'wait_sketchup', detail });
       },
     });
 
     const port = await pickPort(config.bridgePort);
     const nonce = randomUUID();
     const working = join(dir, 'working.skp');
-    await copyFile(deps.revisionSeed ?? seedPath, working);
+    if (!recovery) await copyFile(prebuiltSkp ?? deps.revisionSeed ?? seedPath, working);
     const ready = join(dir, 'session-ready.json');
     const failed = join(dir, 'session-error.json');
     await rm(ready, { force: true });
@@ -242,17 +347,45 @@ export async function runCodexJob(job, deps) {
     const identity = await assertIdentity(port, job.id, nonce, { timeoutMs: 20_000 });
     await stamp('session.json', identity);
 
-    await stage('codex', 0.2, 'Codex 建模中');
     const reportPath = join(paths.outputs, 'report.json');
-    let prompt = buildPrompt({ snapshot: input, references: refs.saved, reportPath, maxReviewRounds: config.maxReviewRounds });
-    if (deps.feedback) prompt += `
+    let report = recovery?.report ?? null;
+    let toolCalls = recovery?.toolCalls ?? 0;
+    if (recovery?.stage === 'export') {
+      await writeFile(reportPath, JSON.stringify(report, null, 2));
+    } else {
+    if (recovery) deps = { ...deps, feedback: [deps.feedback ?? recovery.feedback, '程式中斷後接續：現有模型已載入，先檢查模型及腳本，只完成未完成的部件，禁止清空或整體重建。'].filter(Boolean).join('\n') };
+    await stamp('recovery.json', { job_id: job.id, stage: 'modeling', report: null, toolCalls: 0, validationRepairRound: deps.validationRepairRound ?? recovery?.validationRepairRound ?? 0, feedback: deps.feedback ?? recovery?.feedback ?? null });
+    if (deps.engine === 'jzxz') {
+      report = {
+        scope: '建築學長',
+        dimensions_mm: input.catalog_dimensions_mm ?? {},
+        estimated_fields: [],
+        conflicts: [],
+        reference_analysis: refs.saved.map((item) => ({ name: item.name })),
+        unit_plan: { instances: [{ name: input.product?.model || input.product?.name || 'product' }] },
+        orientation_review: { passed: true, unresolved: [] },
+      };
+      await writeFile(reportPath, JSON.stringify(report, null, 2));
+      await stamp('ai-usage.json', { engine: 'jzxz', job_id: job.id, attempt: job.attempt, recorded_at: new Date().toISOString() });
+    } else {
+    await stage('codex', 0.2, 'Codex 建模中');
+    const scriptPath = join(dir, 'build_model.rb');
+    const previousScript = deps.revisionSeed ? join(dirname(dirname(deps.revisionSeed)), 'build_model.rb') : null;
+    const carried = !!previousScript && !existsSync(scriptPath) && existsSync(previousScript);
+    if (carried) await copyFile(previousScript, scriptPath);
+    let prompt = buildPrompt({ snapshot: input, references: refs.saved, reportPath, scriptPath, maxReviewRounds: config.maxReviewRounds });
+    if (deps.feedback || recovery?.stage === 'modeling') prompt += `
 ## 人工修正要求
-目前場景已有上版模型。先讀取場景，在現有模型上修改，保留未要求變更的部件；不要重建或重複加入整件產品。本次原始「場景應為空」要求不適用。
+目前場景已有上版模型。本次原始「場景應為空」要求不適用。
+${existsSync(scriptPath)
+    ? '上一輪的 build_model.rb 已在本任務資料夾。先讀它，改 PARAMS 或對應批次，用 write_job_file 寫回整份檔案，再重新載入受影響的批次；同名部件會被取代，不會重複。不要另寫一份腳本。'
+    : '上一輪沒有 build_model.rb（舊版任務）。先寫只涵蓋要修改部件的 build_model.rb；舊幾何沒有部件標記，不會被腳本清掉，要在 known_issues 說明。'}
+保留未要求變更的部件。
 使用者要求：${JSON.stringify(deps.feedback)}
 修改後重新檢查四個視角並寫出新的完整報告。`;
     await stamp('prompt.md', prompt);
     const toolLog = join(paths.logs, 'mcp-tools.jsonl');
-    const mcpEnv = bridgeEnv({ port, jobId: job.id, nonce, screenDir: paths.screens, toolLog });
+    const mcpEnv = bridgeEnv({ port, jobId: job.id, nonce, screenDir: paths.screens, toolLog, jobDir: dir, script: scriptPath });
     const toml = (value) => JSON.stringify(value);
     const args = [
       'exec', '--ignore-user-config', '--skip-git-repo-check', '--ephemeral',
@@ -276,7 +409,6 @@ export async function runCodexJob(job, deps) {
     const codex = spawn(config.codexExe, args, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     const events = createWriteStream(join(paths.logs, 'codex-events.jsonl'));
     const errors = createWriteStream(join(paths.logs, 'codex-stderr.log'));
-    let toolCalls = 0;
     let lastDetail = 0;
     let buffered = '';
     codex.stdout.on('data', (chunk) => {
@@ -289,7 +421,9 @@ export async function runCodexJob(job, deps) {
       }
       if (Date.now() - lastDetail > 20_000) {
         lastDetail = Date.now();
-        heartbeat({ stage: 'codex', detail: `Codex 建模中（已執行 ${toolCalls} 次 SketchUp 操作）` }).catch(() => {});
+        const detail = `Codex 建模中（已執行 ${toolCalls} 次 SketchUp 操作）`;
+        track('codex', detail);
+        heartbeat({ stage: 'codex', detail }).catch(() => {});
       }
     });
     codex.stderr.pipe(errors);
@@ -350,7 +484,6 @@ export async function runCodexJob(job, deps) {
       throw new JobError(setup ? 'setup' : 'modeling', `Codex 結束碼 ${exitCode}${tail ? `：${tail.slice(0, 300)}` : ''}`);
     }
     if (toolCalls === 0) throw new JobError('modeling', 'Codex 沒有呼叫 SketchUp 工具');
-    let report = null;
     try {
       report = JSON.parse((await readFile(reportPath, 'utf8')).replace(/^\uFEFF/, ''));
     } catch {
@@ -366,10 +499,20 @@ export async function runCodexJob(job, deps) {
         !topScreens.length || !toolEntries.some((entry) => entry.tool === 'screenshot' && entry.ok)) {
       throw new JobError('validation', 'orientation_review_required: 圖片分類、單元組合或頂視方向檢查未通過，模型保留在本機，未發布');
     }
+    const missing = reportGaps(report);
+    if (!existsSync(scriptPath) || !toolEntries.some((entry) => entry.tool === 'eval_ruby' && entry.ok && entry.script_load === true)) {
+      missing.unshift('build_model.rb 未經 FdsBuild.batch 載入');
+    }
+    if (missing.length) throw new JobError('validation', `script_report_required: ${missing.join('；')}；模型保留在本機，未發布`);
     await assertIdentity(port, job.id, nonce, { timeoutMs: 20_000 }).catch(() => {
       throw new JobError('modeling', 'SketchUp 模型識別不符，已停止匯出');
     });
+    }
 
+    }
+    // Save independently of format export, so bridge/export failures cannot discard the draft.
+    await bridgeCall(port, 'save_checkpoint', {}, { timeoutMs: 60_000 });
+    await stamp('recovery.json', { job_id: job.id, stage: 'export', report, toolCalls, reuse_preview: recovery?.reuse_preview === true, validationRepairRound: deps.validationRepairRound ?? recovery?.validationRepairRound ?? 0 });
     await stage('export', 0.6, '匯出 SKP／FBX／GLB');
     const base = String(input.product?.model || input.product?.sku || 'model').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'model';
     const out = {
@@ -378,7 +521,8 @@ export async function runCodexJob(job, deps) {
       glb: join(paths.outputs, `${base}.glb`),
       preview: join(paths.outputs, 'preview.png'),
     };
-    const exportInfo = await bridgeCall(port, 'export', out, { timeoutMs: 600_000 }).catch((error) => {
+    const product = { name: input.product?.name ?? '', model: input.product?.model ?? '', sku: input.product?.sku ?? '' };
+    const exportInfo = await bridgeCall(port, 'export', { ...out, product, reuse_preview: recovery?.reuse_preview === true }, { timeoutMs: 600_000 }).catch((error) => {
       throw new JobError('export', `SketchUp 匯出失敗：${error.message}`);
     });
     await closeSketchUp();
@@ -417,10 +561,17 @@ export async function runCodexJob(job, deps) {
       fbx: { ...fbx, bundle_entries: zipEntries },
       glb: { meshes: glb.meshes, primitives: glb.primitives, materials: glb.materials, textures: glb.textures, images: glb.images },
       codex: { tool_calls: toolCalls, review_rounds: report?.review_rounds ?? null, scope: report?.scope ?? null },
-      ...validateOutputs({ snapshot: input, exportInfo, glb, fbx, png, skpBytes, report }),
+      ...validateOutputs({ snapshot: input, exportInfo, glb, fbx, png, skpBytes, report, bundleEntries: zipEntries }),
     };
     await stamp('validation.json', validation);
-    if (!validation.ok) throw new JobError('validation', `模型檢查未通過：${validation.failed.join(', ')}`);
+    if (!validation.ok) {
+      const failures = validation.checks.filter((c) => !c.ok && c.severity === 'error');
+      const detail = failures.map((c) => `${c.name}: ${c.detail}`).join('；');
+      log(`job ${job.id} validation failed: ${detail}`);
+      const error = new JobError('validation', `模型檢查未通過：${detail}`);
+      if (deps.engine !== 'jzxz') error.repair = validationRepair(validation, out.skp, deps.validationRepairRound ?? recovery?.validationRepairRound ?? 0);
+      throw error;
+    }
         await writeFile(join(paths.outputs, 'fbx-bundle.zip'), zip);
         const files = await Promise.all([out.skp, out.fbx, out.glb, out.preview, reportPath, join(dir, 'validation.json'), join(paths.outputs, 'fbx-bundle.zip')].map(async (path) => ({ path: relative(dir, path), hash: sha256(await readFile(path)) })));
         return { out, validation, report, base, zipEntries, files };
@@ -433,8 +584,9 @@ export async function runCodexJob(job, deps) {
     const glbBytes = await readFile(out.glb), pngBytes = await readFile(out.preview);
     const zip = await readFile(join(paths.outputs, 'fbx-bundle.zip'));
     const reviewFile = join(dir, 'review.json');
-    if (!deps.resumeDir) await stamp('review.json', { status: 'pending', job_id: job.id, revision: deps.revision ?? 0, product: input.product, model_path: out.skp, preview_path: out.preview, created_at: new Date().toISOString() });
+    if (!deps.resumeDir || !existsSync(reviewFile)) await stamp('review.json', { status: 'pending', job_id: job.id, revision: deps.revision ?? 0, product: input.product, model_path: out.skp, preview_path: out.preview, created_at: new Date().toISOString() });
     log(`job ${job.id} [awaiting_review] 模型已生成，等待 Worker 人工驗收`);
+    await track('review', '模型已生成，等待人工驗收');
     await heartbeat({ stage: 'validate', detail: '模型已生成，等待本機 Worker 人工驗收' });
     for (;;) {
       guard();
@@ -448,10 +600,11 @@ export async function runCodexJob(job, deps) {
         const revision = review.status === 'revising' ? Number(review.revision) : Number(review.revision ?? 0) + 1;
         await stamp('review.json', { ...review, status: 'revising', revision });
         const nextDir = join(config.workRoot, `${job.id}-a${job.attempt}-r${revision}`);
-        return await runCodexJob(job, { ...deps, resumeDir: undefined, revisionDir: nextDir, revisionSeed: out.skp, feedback: review.feedback, revision });
+        return await runCodexJob(job, { ...deps, resumeDir: undefined, recoveryDir: undefined, revisionDir: nextDir, revisionSeed: out.skp, feedback: review.feedback, revision });
       }
       if (review.status === 'discarded') {
         await callAgent('fail', { lease_id: leaseId, error: 'review_discarded: 人工驗收已放棄草稿', retryable: false });
+        await track('discarded', '人工驗收已放棄草稿');
         return { discarded: true };
       }
       await sleep(2000);
@@ -518,10 +671,36 @@ export async function runCodexJob(job, deps) {
     await stamp('publish.json', { status: 'done', job_id: job.id, lease_id: leaseId, manifest_hash: manifestHash, result: published, at: new Date().toISOString() });
     const acceptedReview = JSON.parse(await readFile(reviewFile, 'utf8'));
     await stamp('review.json', { ...acceptedReview, status: 'published' });
+    await track('done', '已發布');
     log(`job ${job.id}: published ${JSON.stringify(published?.models ?? published)}`);
     return published;
   } catch (error) {
+    if (!stopError && error.kind === 'export' && (deps.exportRetryRound ?? 0) < 2) {
+      await closeSketchUp();
+      await lock?.release();
+      lock = null;
+      clearInterval(pulse);
+      return await runCodexJob(job, { ...deps, resumeDir: undefined, recoveryDir: dir, exportRetryRound: (deps.exportRetryRound ?? 0) + 1 });
+    }
+    if (!stopError && error.repair) {
+      const repair = error.repair;
+      await stage('validate', 0.7, `保留現有模型，修補驗證問題（${repair.round}/2）`);
+      await closeSketchUp();
+      await lock?.release();
+      lock = null;
+      clearInterval(pulse);
+      return await runCodexJob(job, {
+        ...deps,
+        resumeDir: undefined,
+        recoveryDir: undefined,
+        revisionDir: `${dir}-repair${repair.round}`,
+        revisionSeed: repair.seed,
+        validationRepairRound: repair.round,
+        feedback: [deps.feedback, repair.feedback].filter(Boolean).join('\n'),
+      });
+    }
     await stamp('error.json', { error: error?.message ?? String(error), kind: error?.kind ?? null, at: new Date().toISOString() }).catch(() => {});
+    await track('failed', (stopError ?? error)?.message ?? String(error));
     throw stopError ?? error;
   } finally {
     clearInterval(pulse);
@@ -569,6 +748,7 @@ export async function cleanupWorkRoot(config) {
   for (const name of dirs) {
     const full = join(config.workRoot, name);
     const info = await stat(full).catch(() => null);
+    if (existsSync(join(full, 'recovery.json')) && !existsSync(join(full, 'publish.json'))) continue;
     if (existsSync(join(full, 'review.json')) && !existsSync(join(full, 'publish.json'))) continue;
     if (info?.isDirectory() && info.mtimeMs < cutoff) await rm(full, { recursive: true, force: true }).catch(() => {});
   }
