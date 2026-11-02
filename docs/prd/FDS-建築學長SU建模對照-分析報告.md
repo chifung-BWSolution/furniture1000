@@ -4,7 +4,8 @@
 狀態：分析結論，尚未改程式
 對象：FDS 本機 Codex 建模（`codex_v1`）與本機已安裝的建築學長電腦版（`D:\jzxz`，`Desktop.Shell` 1.1.28）
 
-依據只有靜態觀察：建築學長的 `Settings\Skills\SketchUpMCP\`、它的 .NET 組件（以 REA 檢查），以及 FDS 的 `workers/skp-writer/`。兩邊都沒有實際跑一次建模。
+第 1–6 節的依據是靜態觀察：建築學長的 `Settings\Skills\SketchUpMCP\`、它的 .NET 組件（以 REA 檢查），以及 FDS 的 `workers/skp-writer/`。
+第 7 節另外對照了兩邊各一次實際任務的資料夾。
 
 ## 1. 結論
 
@@ -104,3 +105,49 @@ FDS 的閘門要和建築學長不同：
 - **單次 170 秒。** 一次載入整支腳本可能超時；靠 `FdsBuild.batch(name)` 分批。
 - **舊修正輪。** 改版前生成、目錄裡沒有 `build_model.rb` 的 job，修正時沒有可複製的腳本。腳本只會刪除帶本 job 標記的幾何，舊幾何沒有標記，會留在場景裡，報告要說明。
 - `screenshot` 的 `view.write_image(filename: …)` 是 FDS 自己的 bridge，已經在用；建築學長「不能傳 Hash」的限制屬於它的橋接，不要套到 FDS。
+
+## 7. 實際任務資料夾對照（2026-11-02）
+
+建築學長：`Documents\jzxz_AIWorkSpace\雅緻格調單人沙發_JSSF010-1`（單人沙發，135,100 個面，22 個部件，SKP 6.9 MB）。
+FDS：`%LOCALAPPDATA%\FDS\SkpWorker\jobs\80179101-…-a1`（LF-H34P 會議枱，146 個面，SKP 220 KB）。
+
+### 7.1 建築學長怎麼做這張沙發
+
+1. `build_model.py` 開頭是一份 `PARAMS`：總尺寸、每個部件的尺寸／中心／圓角、拉扣位置、縫線半徑、材質 RGB、相機、`known_issues`。
+2. `--prepare`：在 Python 裡算出每個部件的三角網格（軟包隆起、拉扣凹陷、扶手輪廓、滾邊管、刀形腳），每件存成 `geometry\<部件>.json`，清單寫進 `mesh_manifest.json`（5 批、總外框、面數）。
+3. 同一步用 Python 生成皮紋貼圖 `暖灰褐西皮_細紋.png`：底色取自照片，256 px、紋理大小 55 mm。
+4. 建模：每批一次 `execute_ruby`，Ruby 只做 `Geom::PolygonMesh` → `fill_from_mesh(AUTO_SOFTEN | SMOOTH_SOFT_EDGES)`，邊全部柔化；每件是具名 Group，分 Tag（`01_底座`…`05_縫線與滾邊`），根組帶 `project_id`、`sku`、`overall_mm`、`facing` 屬性。重跑只刪自己同名的部件。每批結果寫 `NN_<批次>_result.json`（部件、entity id、面數）。
+5. `--validate`：部件數等於清單、每件面數 > 0、逐件 `manifold?`、外框誤差 < 2 mm、材質數／貼圖材質數，寫 `validation.json` 和 `model_state.json`。
+6. 驗收：清除未用材質與組件定義；存 SKP 後**重新開檔**再讀一次，做語義檢查（坐墊在靠背前面、拉扣 2 顆、金屬腳 4 支），寫 `final_audit.json`。
+7. 預覽：設背景色、關邊線與輪廓、開環境光遮蔽、開貼圖、固定相機與 FOV，輸出透視、正面、俯視三張；SKP 裡加場景頁 `01_透視`、`02_正面`、`03_俯視`。
+8. 每次修正前備份腳本和 SKP（`build_model_尺寸核驗修正前.py`、`…_柔化前備份.skp`），修正腳本本身也留在資料夾。
+9. `trace_manifest.json`：照片的每個區域（底座、坐靠墊、扶手、金屬腳、拉扣、攝影背景）對應到哪個部件、信心是 explicit 還是 inferred、哪些被排除及原因。
+
+### 7.2 FDS 現在少了哪些
+
+| 項目 | 建築學長 | FDS 現在 | 影響 |
+|---|---|---|---|
+| 參數化腳本 | `build_model.py` + `PARAMS`，改數字重跑 | 沒有，幾何散在多次 `eval_ruby` | 修正只能在場景上補；第 5 節 PRD 已處理 |
+| 曲面網格 | 外部算網格，`fill_from_mesh` + 自動柔化 | Codex 用 `add_face`／`pushpull` 拼方塊 | **沙發、軟包、圓角件明顯偏方**，這是外觀差距最大的一項 |
+| 邊線柔化 | 所有接縫 `soft`／`smooth` | 不處理 | 預覽和 FBX 看得到多邊形折線 |
+| 貼圖來源 | 依照片顏色生成貼圖 | 今天起改用 SketchUp 內建 `.skm` 再調色 | 內建庫每類只有 4–6 款（皮革只有 `Leather_06`、布 5 款），紋理粗細和色調只能靠調色貼近照片 |
+| 部件級檢查 | 部件數、每件面數、`manifold?` | 只檢查頂層組 > 0、沒有散落幾何 | 缺件或破面不會被擋 |
+| 語義檢查 | 重開檔後查坐墊／靠背前後、拉扣數、腳數 | 只靠 Codex 看截圖自評 | 方向或缺件錯誤只能靠人工驗收發現 |
+| 存檔回讀 | 存檔後重新開檔再量 | 量記憶體中的模型再匯出 | 存檔失真不會被發現（目前沒見過，屬低風險） |
+| 預覽樣式 | 去邊線、環境光遮蔽、固定相機，三張預覽 | 預設樣式等角一張，加 Codex 的檢查截圖 | 網站預覽較粗糙 |
+| SKP 場景頁 | 透視／正面／俯視三頁 | 沒有 | 設計師開檔要自己轉視角 |
+| Tag 與屬性 | 每部件分 Tag；根組有 sku、尺寸、正面方向 | 只有 job id 與 nonce | 設計師難以按類別隱藏部件，SKP 不帶產品身份 |
+| 清理 | 清未用材質與組件定義 | 今天起清未用材質；定義未清 | 檔案略大 |
+| 照片對應 | `trace_manifest`：區域 → 部件 → 信心 | `reference_analysis` 只到整張圖 | 報告看不出哪個部件是推算的 |
+| 修正備份 | 每次修正前備份腳本與 SKP | 修正輪開新目錄，上一輪 SKP 保留 | 已有等效機制，不用補 |
+| 開檔保護 | `previous_document.json` 防止覆蓋使用者模型 | 專用 SketchUp 實例 | 不需要 |
+
+### 7.3 建議順序
+
+1. **網格載體＋柔化**：把第 5 節 PRD 的 `build_model.rb` 擴充為「可以載入 Codex 在 job 目錄算好的 `geometry/*.json`」，Ruby 端固定用 `fill_from_mesh` 並柔化。網格計算可以由 Codex 用 Worker 自帶的 Node 寫腳本產生，不用另裝 Python。
+2. **部件級與語義檢查**：報告加 `parts`（名稱、數量、預期 manifold），匯出時由 `fds_codex_session.rb` 逐件量面數與 `manifold?`，`validateOutputs` 比對。
+3. **預覽樣式與場景頁**：在 `fds_codex_session.rb` 的匯出步驟固定設定（純 Worker 端改動，不靠提示詞）。
+4. **Tag 與根組屬性**：提示詞要求按部件類別分 Tag；匯出時由 Worker 寫入 sku、型號、外框、正面方向。
+5. **生成貼圖**：內建庫對不上的皮紋、絨布、特殊木紋，允許 Codex 在 job 目錄產生小尺寸貼圖 PNG 再套用。
+
+`trace_manifest` 的完整格式為房間 CAD 而設，單件傢俬只需要在報告的 `parts` 裡加「依據哪張圖、explicit／inferred」兩欄，不必照搬。
