@@ -637,35 +637,42 @@ module FdsKit
     tops[0]
   end
 
-  def self.world_bounds(e, parent)
+  def self.world_bounds(e, to_model)
     bb = e.bounds
-    return bb unless parent.respond_to?(:transformation)
-    t = parent.transformation
-    return bb if t.identity?
+    return bb if to_model.nil? || to_model.identity?
     world = Geom::BoundingBox.new
     [bb.min.x, bb.max.x].each do |x|
       [bb.min.y, bb.max.y].each do |y|
-        [bb.min.z, bb.max.z].each { |z| world.add(Geom::Point3d.new(x, y, z).transform(t)) }
+        [bb.min.z, bb.max.z].each { |z| world.add(Geom::Point3d.new(x, y, z).transform(to_model)) }
       end
     end
     world
   end
 
-  def self.summary(e, parent = nil)
+  def self.summary(e, to_model = nil)
     {
       'name' => entity_name(e),
       'faces' => face_count(contents(e)),
       'manifold' => (e.manifold? rescue false),
       'tag' => e.layer.name,
-      'bounds_mm' => FdsCodexSession.bounds_mm(parent ? world_bounds(e, parent) : e.bounds),
+      'bounds_mm' => FdsCodexSession.bounds_mm(world_bounds(e, to_model)),
     }
   end
 
-  # Parts directly under the product container. Their bounds are in model space.
+  # Skip a single assembly wrapper such as "單元1". Parts are the named groups inside it.
+  def self.listed_parts(container, to_model, depth = 0)
+    kids = contents(container).select { |e| container?(e) }
+    if depth < 6 && kids.length == 1 && contents(kids[0]).any? { |e| container?(e) }
+      return listed_parts(kids[0], to_model * kids[0].transformation, depth + 1)
+    end
+    kids.map { |e| summary(e, to_model) }
+  end
+
+  # Parts under the product container, after opening one assembly instance. Bounds are in model space.
   def self.audit
     r = product_container
-    list = (r ? contents(r) : model.entities).select { |e| container?(e) }
-    { 'root' => r ? entity_name(r) : nil, 'parts' => list.first(200).map { |e| summary(e, r) } }
+    list = r ? listed_parts(r, r.transformation) : model.entities.select { |e| container?(e) }.map { |e| summary(e) }
+    { 'root' => r ? entity_name(r) : nil, 'parts' => list.first(200) }
   end
 end
 
