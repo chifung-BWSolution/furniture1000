@@ -409,7 +409,7 @@ export function ProductWorkbench({
           <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <section className="min-w-0 p-4">
             <div ref={stageRef} className="fds-product-stage flex gap-3">
-              <div className={cn('fds-stage-rail flex w-[calc(4rem+10px)] shrink-0 flex-col items-start', glb ? 'h-[calc(26.5rem+4px)]' : 'h-[calc(22rem+4px)]')}>
+              <div className="fds-stage-rail flex h-[calc(26.5rem+4px)] w-[calc(4rem+10px)] shrink-0 flex-col items-start">
                 <div className="fds-stage-thumbs h-[calc(22rem+4px)] w-full overflow-x-hidden overflow-y-auto px-0.5 py-0.5">
                   <div className="flex w-16 flex-col gap-2">
                     {detail.images.map((src, index) => (
@@ -430,22 +430,24 @@ export function ProductWorkbench({
                     ))}
                   </div>
                 </div>
-                {glb && (
-                  <button
-                    type="button"
-                    aria-label="3D 模型"
-                    className={cn(
-                      'ml-0.5 mt-2 flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border bg-white shadow-sm',
-                      stage === '3d' ? 'border-2 border-[#5b4dff]' : 'border-slate-200 hover:border-slate-300',
-                    )}
-                    onClick={() => setStage('3d')}
-                  >
-                    <ModelThumbMark />
-                    <span className={cn('text-[10px] font-semibold leading-none tracking-wide', stage === '3d' ? 'text-[#5b4dff]' : 'text-slate-500')}>3D</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  aria-label={glb ? '3D 模型' : '暫無 3D 模型'}
+                  disabled={!glb}
+                  className={cn(
+                    'ml-0.5 mt-2 flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border bg-white shadow-sm',
+                    !glb && 'cursor-default border-slate-200 opacity-40',
+                    glb && (stage === '3d' ? 'border-2 border-[#5b4dff]' : 'border-slate-200 hover:border-slate-300'),
+                  )}
+                  onClick={() => {
+                    if (glb) setStage('3d');
+                  }}
+                >
+                  <ModelThumbMark />
+                  <span className={cn('text-[10px] font-semibold leading-none tracking-wide', stage === '3d' && glb ? 'text-[#5b4dff]' : 'text-slate-500')}>3D</span>
+                </button>
               </div>
-              <div className={cn('fds-stage-view relative min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]', glb ? 'h-[calc(26.5rem+4px)]' : 'h-[calc(22rem+4px)]')}>
+              <div className="fds-stage-view relative h-[calc(26.5rem+4px)] min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]">
                 {stage === '3d' && glbUrl && !glbError && (
                   <GlbViewport
                     url={glbUrl}
