@@ -228,6 +228,13 @@ async function callAgent(action, payload) {
   }
 }
 
+function fdsMcpInstalled() {
+  const appData = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
+  return ['2024', '2025', '2026', '2027'].some((year) => existsSync(join(
+    appData, 'SketchUp', `SketchUp ${year}`, 'SketchUp', 'Plugins', 'fds_skp_mcp.rb',
+  )));
+}
+
 function dependencyChecks() {
   return {
     sketchup: !!SKETCHUP && existsSync(SKETCHUP),
@@ -250,7 +257,7 @@ async function codexChecks(base) {
     seed: existsSync(SEED),
   };
   const ready = CODEX.enabled && base.sketchup && checks.codex_cli && checks.codex_login && checks.mcp_bridge && checks.session_ruby && checks.seed;
-  return { ...checks, codex_ready: ready ? 'true' : 'false' };
+  return { ...checks, fds_mcp: fdsMcpInstalled(), codex_ready: ready ? 'true' : 'false' };
 }
 
 /** Serialises every SketchUp run on this machine (parametric, preview and Codex jobs share one lock). */

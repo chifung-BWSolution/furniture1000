@@ -1,7 +1,8 @@
 # Dedicated SketchUp session for one FDS Codex job (launched with -RubyStartup by the Worker).
 # Serves the job's own port only, answers `identity` with the job id + nonce, and tags the model
 # so tools can refuse to touch any other model. The personal SUMCPBridge plugin is kept off here
-# so this instance never takes the user's port.
+# so this instance never takes 9876. FDS SketchUp MCP (port 9878) also stays off here
+# because FDS_CODEX_JOB_ID is set; the user's SketchUp keeps both servers.
 require 'sketchup'
 require 'json'
 require 'socket'

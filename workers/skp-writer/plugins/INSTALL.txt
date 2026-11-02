@@ -1,0 +1,12 @@
+FDS SketchUp MCP
+
+這個外掛聽 127.0.0.1:9878。建築學長的 SU MCP Server 繼續聽 9876。兩個都裝在同一個 SketchUp 裡，互不關閉。
+
+安裝：
+1. 關閉 SketchUp。
+2. 把 fds_skp_mcp.rb 和 fds_skp_mcp 資料夾複製到
+   %APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins
+   （2024、2025 就改成年份資料夾）。
+3. 重新開啟 SketchUp。擴充功能管理員裡應看到 FDS SketchUp MCP，並已啟用。
+
+Codex 任務會另外開啟一個 SketchUp，不會佔用 9876 或 9878。

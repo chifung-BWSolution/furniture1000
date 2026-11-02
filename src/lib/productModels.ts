@@ -212,7 +212,7 @@ export async function fetchSkpStatus(furnitureModelId: string): Promise<SkpStatu
   return data as SkpStatus;
 }
 
-export type CodexCheckKey = 'sketchup' | 'codex_cli' | 'codex_login' | 'mcp_bridge' | 'session_ruby' | 'seed';
+export type CodexCheckKey = 'sketchup' | 'codex_cli' | 'codex_login' | 'mcp_bridge' | 'session_ruby' | 'seed' | 'fds_mcp';
 
 export interface SkpRequirements {
   ready: boolean;

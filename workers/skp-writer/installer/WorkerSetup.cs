@@ -249,6 +249,14 @@ internal static class WorkerSetup {
         catch (WaitHandleCannotBeOpenedException) { return false; }
     }
 
+    internal static bool FdsMcpInstalled() {
+        var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        foreach (var year in new [] { "2024", "2025", "2026", "2027" }) {
+            if (File.Exists(Path.Combine(roaming, "SketchUp", "SketchUp " + year, "SketchUp", "Plugins", "fds_skp_mcp.rb"))) return true;
+        }
+        return false;
+    }
+
     internal static string LoadEngine() {
         try {
             var row = Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(EngineFile));
@@ -580,6 +588,11 @@ internal sealed class SetupForm : Form {
             status.Text = "建模方式已改為" + engine.Text + "。正在運行的 Worker 約 30 秒內會用這個方式處理下一個任務。";
         };
         Add(sketchupCard, engine);
+        var mcpHint = new Label { AutoSize = true, MaximumSize = new Size(420, 0), Text = WorkerSetup.FdsMcpInstalled() ? "FDS SketchUp MCP 已安裝（埠 9878）。建築學長的 MCP 繼續用 9876。" : "尚未安裝 FDS SketchUp MCP。下載後自行複製到 SketchUp Plugins，它使用埠 9878，不佔建築學長的 9876。" };
+        Add(sketchupCard, mcpHint);
+        var downloadMcp = new Button { Text = "下載 FDS SketchUp MCP", AutoSize = true };
+        downloadMcp.Click += (s, e) => DownloadMcp();
+        Add(sketchupCard, downloadMcp);
         Add(startupCard, auto);
         AddAction("使用瀏覽器登入並授權", Authorize);
         AddAction("取消配對", CancelPairing);
@@ -1042,6 +1055,21 @@ internal sealed class SetupForm : Form {
         }));
         WorkerSetup.ClearPairing();
         status.Text = "已取消配對，沒有產生授權。";
+    }
+
+    void DownloadMcp() {
+        var source = Path.Combine(WorkerSetup.Home, "plugins");
+        if (!File.Exists(Path.Combine(source, "fds_skp_mcp.rb"))) {
+            status.Text = "這份 Worker 還沒有附上 FDS SketchUp MCP。請更新 Worker 後再下載。";
+            return;
+        }
+        var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        Directory.CreateDirectory(downloads);
+        var zip = Path.Combine(downloads, "FDS-SketchUp-MCP.zip");
+        if (File.Exists(zip)) File.Delete(zip);
+        ZipFile.CreateFromDirectory(source, zip);
+        Process.Start("explorer.exe", "/select,\"" + zip + "\"");
+        status.Text = "已下載到「下載」資料夾。關閉 SketchUp 後，把 fds_skp_mcp.rb 和 fds_skp_mcp 資料夾複製到 %APPDATA%\\SketchUp\\SketchUp 2026\\SketchUp\\Plugins，再重開 SketchUp。建築學長的 MCP 仍用 9876，這個用 9878。";
     }
 
     async Task CheckStatus() {

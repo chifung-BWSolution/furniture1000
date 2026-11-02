@@ -26,6 +26,8 @@ EXE 不包含 service role key。不要把裝置憑證放進命令列、Git 或�
 - **Codex**：維持現有流程。Worker 回報 `codex_v1`，由本機 Codex 建模。
 - **建築學長**：Worker 回報 `jzxz_v1`。網站的「生成 SKP」仍建立同一個 `codex_v1` 任務；這台電腦領到後，把產品資料交給建築學長建模，再用原本的 SketchUp 匯出 SKP／FBX／GLB 並上傳。這台電腦要已安裝建築學長，桌面保持登入且不要同時手動操作它。
 
+同一個 SketchUp 可以同時開兩個 MCP：建築學長的 SU MCP Server 用 **9876**，FDS SketchUp MCP 用 **9878**。管理視窗的「下載 FDS SketchUp MCP」會把安裝包存到「下載」資料夾，關閉 SketchUp 後自行複製到 Plugins。Codex 任務另開的 SketchUp 不佔這兩個埠。
+
 正在運行的 Worker 約 30 秒內讀到新選項，下一個任務才切換。
 
 ## 本機 Codex 建模（`codex_v1`）

@@ -36,6 +36,10 @@ await copyFile(join(installer, '../skp_build.rb'), join(output, 'skp_build.rb'))
 await copyFile(join(installer, '../skp_seed.rb'), join(output, 'skp_seed.rb'));
 await copyFile(join(installer, '../skp_preview.rb'), join(output, 'skp_preview.rb'));
 await copyFile(join(installer, '../jzxz/ui.ps1'), join(output, 'ui.ps1'));
+await mkdir(join(output, 'plugins', 'fds_skp_mcp'), { recursive: true });
+await copyFile(join(installer, '../plugins/fds_skp_mcp.rb'), join(output, 'plugins', 'fds_skp_mcp.rb'));
+await copyFile(join(installer, '../plugins/fds_skp_mcp/main.rb'), join(output, 'plugins', 'fds_skp_mcp', 'main.rb'));
+await copyFile(join(installer, '../plugins/INSTALL.txt'), join(output, 'plugins', 'INSTALL.txt'));
 const response = await fetch(`https://raw.githubusercontent.com/nodejs/node/${process.version}/LICENSE`);
 if (!response.ok) throw new Error(`Cannot fetch matching Node.js license: ${response.status}`);
 await writeFile(join(licenses, 'Node-LICENSE.txt'), await response.text());
