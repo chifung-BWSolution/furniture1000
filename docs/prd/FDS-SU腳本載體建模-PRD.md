@@ -1,7 +1,7 @@
 # FDS SketchUp 腳本載體建模 PRD
 
 日期：2026-11-02（同日復查修訂）
-狀態：需求已寫明，尚未實作；公差一項待決定
+狀態：需求已寫明，尚未實作
 前置：`docs/prd/FDS-本機Codex-SketchUp自動建模-PRD.md` 的 `codex_v1` 路徑
 依據：`docs/prd/FDS-建築學長SU建模對照-分析報告.md`
 
@@ -22,10 +22,7 @@ Codex 在 FDS 專用 SketchUp 裡新建幾何時，必須先把邏輯寫進本�
 - 不導入 CAD `trace_manifest`、房間布局審計、主從 Agent。
 - 產品頁不變：仍是「生成 SKP／重新生成」，沒有參數確認。
 - 字串閘門是避免習慣性內嵌建模的防呆，不是安全控制。
-
-待決定（實作前需產品端選定）：
-
-- **外框公差。** 現值：目錄軸 ±max(5 mm, 1%)。選項 A：維持現值（本 PRD 預設）。選項 B：目錄軸一律 ≤ 2 mm。B 會讓大件產品（例如 3200 mm 的桌子從容許 32 mm 變成 2 mm）更常停在驗證失敗。本 repo 的試驗技能寫的 2 mm 不是建築學長原有的標準。
+- 外框公差維持目錄軸 ±max(5 mm, 1%)（2026-11-02 產品端選定）；超出 2 mm 但在公差內的偏差寫進 `known_issues`，給人工驗收看。不採用一律 ≤ 2 mm：大件產品（例如 3200 mm 的桌子從容許 32 mm 變成 2 mm）會更常停在驗證失敗。本 repo 的試驗技能寫的 2 mm 不是建築學長原有的標準。
 
 ## 3. 現有契約（沿用，不改寫）
 
@@ -127,7 +124,7 @@ Codex 在 FDS 專用 SketchUp 裡新建幾何時，必須先把邏輯寫進本�
 
 不符合時用現有 `JobError('validation', …)`：模型留在本機、不匯出不發布，錯誤寫明缺哪一項。
 
-`validateOutputs` 的公差依第 2 節的決定：選 A 不改；選 B 時目錄軸改為 `|實際 - 目錄| ≤ 2` mm，錯誤寫明哪一軸、實際值、目錄值。沒有目錄值的軸維持「大於 0，`dimension_source` 標 image 或 estimated」。
+`validateOutputs` 的公差不改，維持目錄軸 ±max(5 mm, 1%)。沒有目錄值的軸維持「大於 0，`dimension_source` 標 image 或 estimated」。
 
 修正輪開始前，`job.mjs` 把上一輪目錄的 `build_model.rb` 複製到新目錄；沒有就不複製，並在提示詞走第 4 節的舊輪分支。
 
@@ -153,7 +150,7 @@ Codex 在 FDS 專用 SketchUp 裡新建幾何時，必須先把邏輯寫進本�
   - `send(:add_face)`、`eval(...)`、`start_operation` 被拒絕。
   - 只有 `Sketchup.active_model.entities.length` 這類查詢放行，`script_load: false`。
 - `buildPrompt`：含腳本路徑和載入形式；「完成時」不再出現 `File.write`；修正輪文字不再要求「不要重建整件產品」。
-- `validateOutputs`：若選 B，更新第 126 行的說明，並加入「目錄寬 1000，實際 1003 失敗、1001 通過」；沒有目錄高度時高度大於 0 即通過。若選 A，現有斷言不變。
+- `validateOutputs`：公差不改，現有斷言不變。
 - `job.mjs` 的報告檢查：缺 `script_load` 記錄、`known_issues` 不是陣列時丟 `validation`。
 
 ## 11. 驗收
@@ -162,7 +159,7 @@ Codex 在 FDS 專用 SketchUp 裡新建幾何時，必須先把邏輯寫進本�
 - AC-02：故意送內嵌 `add_face` 時，工具結果是拒絕說明，SketchUp 沒收到這段 Ruby。
 - AC-03：報告由檔案工具寫出；報告文字含 `pushpull` 一字也不會被閘門擋住。
 - AC-04：修正輪的新目錄內有上一輪複製來的 `build_model.rb`，修正寫在同一支腳本裡；重跑腳本得到的是修正後形狀。
-- AC-05：外框公差按第 2 節的決定執行；不合格的 job 留在本機，錯誤寫明軸與數值。
+- AC-05：外框公差仍是目錄軸 ±max(5 mm, 1%)；不合格的 job 留在本機，錯誤寫明軸與數值。
 - AC-06：缺尺寸的軸仍能發布，報告寫明估算依據；`known_issues` 出現在人工驗收裡。
 - AC-07：既有 AC 仍成立：使用者未存檔的 SketchUp 不被覆寫、舊 Worker 領不到 `codex_v1`、缺格式不發布、Codex 子程序沒有裝置憑證。
 - AC-08：第 10 節測試通過。本 PRD 不授權打開 `skp_codex_entry`。
@@ -171,5 +168,5 @@ Codex 在 FDS 專用 SketchUp 裡新建幾何時，必須先把邏輯寫進本�
 
 1. 新增 `ruby-gate.mjs` 與測試，接入 `mcp-server.mjs`，`bridgeEnv` 傳 `FDS_CODEX_SCRIPT`，日誌加 `script_load`。
 2. 改 `buildPrompt`（腳本流程、報告改檔案工具、修正輪文字）與測試。
-3. 改 `job.mjs`：修正輪複製腳本、發布前的腳本與報告檢查；依公差決定改或不改 `validateOutputs`。
+3. 改 `job.mjs`：修正輪複製腳本、發布前的腳本與報告檢查；`validateOutputs` 不改。
 4. 本機 Worker 用一件有目錄尺寸的產品跑首次生成和一次修正輪，留下工具日誌和報告，不發布到正式庫。
