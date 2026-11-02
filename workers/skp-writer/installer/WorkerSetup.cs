@@ -567,7 +567,7 @@ internal sealed class SetupForm : Form {
     readonly Label sketchupHint = new Label { AutoSize = true, MaximumSize = new Size(520, 0), ForeColor = WorkerUi.Muted };
     readonly TextBox sketchup = new TextBox();
     readonly ComboBox engine = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
-    readonly TextBox logs = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = false, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None };
+    readonly TextBox logs = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None };
     readonly Panel logDrawer = new Panel { Width = 0, Visible = false, BackColor = Color.White };
     readonly Button viewLog = WorkerUi.NativeButton("查看日誌");
     const int LogDrawerWidth = 420;
