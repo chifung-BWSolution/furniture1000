@@ -409,8 +409,8 @@ export function ProductWorkbench({
           <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <section className="min-w-0 p-4">
             <div ref={stageRef} className="fds-product-stage flex gap-3">
-              <div className={cn('fds-stage-rail flex shrink-0 flex-col items-center', glb ? 'h-[calc(26.5rem+2px)]' : 'h-[calc(22rem+2px)]')}>
-                <div className="fds-stage-thumbs flex h-[calc(22rem+2px)] w-[calc(4rem+10px)] shrink-0 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto px-0.5 py-px [scrollbar-gutter:stable]">
+              <div className={cn('fds-stage-rail flex shrink-0 flex-col items-center', glb ? 'h-[calc(26.5rem+4px)]' : 'h-[calc(22rem+4px)]')}>
+                <div className="fds-stage-thumbs flex h-[calc(22rem+4px)] w-[calc(4rem+16px)] shrink-0 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto p-0.5">
                   {detail.images.map((src, index) => (
                     <button
                       key={src}
@@ -429,12 +429,12 @@ export function ProductWorkbench({
                   ))}
                 </div>
                 {glb && (
-                  <div className="mt-2 flex h-16 w-[calc(4rem+10px)] shrink-0 items-center justify-center overflow-y-auto px-0.5 [scrollbar-gutter:stable]">
+                  <div className="mt-2 grid w-[calc(4rem+16px)] shrink-0 grid-cols-[minmax(0,1fr)_6px] px-0.5">
                     <button
                       type="button"
                       aria-label="3D 模型"
                       className={cn(
-                        'flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border bg-white shadow-sm',
+                        'flex h-16 w-16 justify-self-center flex-col items-center justify-center gap-1 rounded-xl border bg-white shadow-sm',
                         stage === '3d' ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200 hover:border-slate-300',
                       )}
                       onClick={() => setStage('3d')}
@@ -445,7 +445,7 @@ export function ProductWorkbench({
                   </div>
                 )}
               </div>
-              <div className={cn('fds-stage-view relative min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]', glb ? 'h-[calc(26.5rem+2px)]' : 'h-[calc(22rem+2px)]')}>
+              <div className={cn('fds-stage-view relative min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]', glb ? 'h-[calc(26.5rem+4px)]' : 'h-[calc(22rem+4px)]')}>
                 {stage === '3d' && glbUrl && !glbError && (
                   <GlbViewport
                     url={glbUrl}
