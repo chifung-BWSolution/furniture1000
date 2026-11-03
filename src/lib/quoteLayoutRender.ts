@@ -71,6 +71,8 @@ export async function productSheet(zones: LayoutZone[]): Promise<string> {
     ctx.drawImage(img, x + (400 - img.width * scale) / 2, y, img.width * scale, img.height * scale);
     ctx.fillStyle = '#111827'; ctx.font = '14px sans-serif';
     ctx.fillText(p.id, x + 8, y + 292, 384); ctx.fillText(p.name, x + 8, y + 316, 384);
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`L ${p.dimensionLMm || '?'} × W ${p.dimensionWMm || '?'} × H ${p.dimensionHMm || '?'} mm`, x + 8, y + 334, 384);
   }
   return uploadBase64Image(canvas.toDataURL('image/jpeg', 0.88), crypto.randomUUID(), 'quote-layout-products');
 }
@@ -112,7 +114,7 @@ export async function generateZoneLayoutImage(plan: QuoteFloorPlan, zone: Layout
     return count > 0 && assigned.slice(0, count).filter(id => id && positions.some(position => position.id === id && zoneRegions.some(rect => position.x >= rect.x && position.x <= rect.x + rect.w && position.y >= rect.y && position.y <= rect.y + rect.h))).length < count;
   });
   if (missing.length) throw new Error(`請先為以下產品選擇分區範圍內的全部擺放位置：${missing.map(product => product.name).join('、')}`);
-  const { automaticLayoutProducts } = await import('./quoteRenderProductImages');
+  const { automaticLayoutProducts, renderDimensionConstraints } = await import('./quoteRenderProductImages');
   const renderProducts = await automaticLayoutProducts(zone.products, quoteUuid);
   const response = await fetch(source);
   if (!response.ok) throw new Error('無法讀取平面圖，請稍後重試');
@@ -121,11 +123,11 @@ export async function generateZoneLayoutImage(plan: QuoteFloorPlan, zone: Layout
   if (!zoneImage) throw new Error('無法裁切分區平面圖，請稍後重試');
   const notes = plan.rendering?.notes[zone.id];
   const sheet = await productSheet([{ ...zone, products: renderProducts }]);
-  const localPositions = zone.products.map(product => ({
+  const localPositions = renderProducts.map(product => ({
     productId: product.id,
     name: product.name,
     quantity: Math.max(0, Math.floor(product.quantity)),
-    dimensionsMm: { length: product.dimensionLMm, width: product.dimensionWMm, height: product.dimensionHMm },
+    dimensionsMm: renderDimensionConstraints(product),
     material: product.material,
     color: product.color,
     positions: (plan.placements?.assignments[product.id] || []).slice(0, Math.max(0, Math.floor(product.quantity))).flatMap(id => {
@@ -153,6 +155,7 @@ export async function generateZoneLayoutImage(plan: QuoteFloorPlan, zone: Layout
     '每個positions實例只生成一次，不能新增清單外的實物。未分配位置必須保持空白，不能為對稱、美觀或常見會議室配置補椅子；桌端沒有椅子位置就保持無椅。不要把一張桌子當成包含配套椅子的套餐。',
     '第二張每格僅以標註id對應的單件產品為外觀參考。即使圖片是場景照，也只取該產品的輪廓、桌面、腳架、扶手、靠背等結構；圖內其他桌椅、裝飾、牆體、門窗、鏡頭和布局全部忽略。不得用場景中的其他傢俬替代指定產品。圖集及平面圖不可成為牆上掛畫。',
     '先依第一張圖辨認目標房間的真實門洞與相連空間，保留所在牆面、相對位置及開向。選擇能展示圖中已確認出入口及主要傢俬的斜向鏡頭；不可為拍攝方便移門、封門、新增門洞或移動傢俬。若透視遮擋，優先調整鏡頭，不改布局；圖中未能確認的門窗不可憑空補出。',
+    '尺寸約束：每件產品依dimensionsMm的length、width、height毫米及proportions比例建立體積。長寬是產品本身的平面軸，高度是由地面向上的軸，旋轉擺放不交換長寬高。不得為填滿圈選框、配合鏡頭或讓產品放得下而拉伸、壓扁、縮窄或任意縮放；圈選框僅作擺位參考，不能覆蓋實際尺寸。桌椅及櫃體之間按已知毫米尺寸保持相對尺度；透視只改投影，不能改產品幾何比例。若空間不足，調整鏡頭而不是改尺寸或移動傢俬。缺少尺寸的軸保持參考圖比例，不虛構數值。',
     'angle為null表示未確認朝向，並非0度；有清楚平面符號時沿用符號，否則不得宣稱朝向已確認。未知尺寸不可自行標成實測尺寸。保持產品結構及比例，不鏡像、不合併。',
     `全案裝修及照明風格（僅作用於非產品部分）：${plan.rendering?.style || DEFAULT_LAYOUT_STYLE}`,
     ...(notes?.trim() ? [`輔助識別文字，座標沿用原圖、不能用作本局部圖定位；若與上述清單或平面圖衝突則忽略：${notes}`] : []),
