@@ -107,13 +107,14 @@ export async function generateZoneLayoutImage(plan: QuoteFloorPlan, zone: Layout
   const marginY = Math.max(1, regionBounds.h * 0.12);
   const left = Math.max(0, regionBounds.x - marginX), top = Math.max(0, regionBounds.y - marginY);
   const bounds = { x: left, y: top, w: Math.min(100, regionBounds.x + regionBounds.w + marginX) - left, h: Math.min(100, regionBounds.y + regionBounds.h + marginY) - top };
-  const missing = zone.products.filter(product => {
+  const missing = zone.products.flatMap(product => {
     const count = Math.max(0, Math.floor(product.quantity));
     const assigned = plan.placements?.assignments[product.id] || [];
     const positions = plan.placements?.positions[zone.id] || [];
-    return count > 0 && assigned.slice(0, count).filter(id => id && positions.some(position => position.id === id && zoneRegions.some(rect => position.x >= rect.x && position.x <= rect.x + rect.w && position.y >= rect.y && position.y <= rect.y + rect.h))).length < count;
+    const selected = assigned.slice(0, count).filter(id => id && positions.some(position => position.id === id && zoneRegions.some(rect => position.x >= rect.x && position.x <= rect.x + rect.w && position.y >= rect.y && position.y <= rect.y + rect.h))).length;
+    return selected < count ? [`${product.name}：已選分區內位置 ${selected} 件／分區報價 ${count} 件，尚差 ${count - selected} 件`] : [];
   });
-  if (missing.length) throw new Error(`請先為以下產品選擇分區範圍內的全部擺放位置：${missing.map(product => product.name).join('、')}`);
+  if (missing.length) throw new Error(`擺放位置數量不符，請到平面圖為產品補選位置或修改分區報價數量：${missing.join('；')}`);
   const { automaticLayoutProducts, renderDimensionConstraints } = await import('./quoteRenderProductImages');
   const renderProducts = await automaticLayoutProducts(zone.products, quoteUuid);
   const response = await fetch(source);
