@@ -1,3 +1,4 @@
+import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Search,
@@ -6,7 +7,7 @@ import {
   ChevronRight,
   ChevronDown,
   Package,
-  Loader2,
+
   Check,
 } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
@@ -388,7 +389,8 @@ export function ProductSelectorModal({
       open
       onOpenChange={(next) => { if (!next) onClose(); }}
       size="5xl"
-      className="max-w-[1180px]"
+      className="h-[min(920px,92dvh)] max-w-[1180px]"
+      bodyClassName="flex min-h-0 flex-col overflow-hidden"
       icon={<Package className="h-6 w-6" />}
       title="圖冊"
       description={
@@ -608,13 +610,23 @@ export function ProductSelectorModal({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3">
           {isLoading ? (
-            <div className="flex h-48 items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <span className="ml-2 font-body text-sm text-muted-foreground">載入中...</span>
-            </div>
-          ) : products.length === 0 ? (
+            <div role="status" aria-label="載入產品中" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              <span className="sr-only">載入產品中...</span>
+              {Array.from({ length: 8 }, (_, index) => (
+                <div key={index} aria-hidden="true" className="overflow-hidden rounded-xl border border-border">
+                  <Skeleton className="aspect-[4/3] w-full rounded-none" />
+                  <div className="space-y-2 p-2.5">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
+                    <Skeleton className="h-3 w-2/3" />
+                    <Skeleton className="h-6 w-full" />
+                  </div>
+                </div>
+              ))}
+            </div>          ) : products.length === 0 ? (
             <CompactEmptyState
               icon={Package}
               title="找不到符合條件的產品"
@@ -763,7 +775,7 @@ export function ProductSelectorModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-border px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-t border-border px-6 py-4">
           <div className="flex items-center gap-2">
             <button
               type="button"

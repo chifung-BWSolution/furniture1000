@@ -150,4 +150,30 @@ const spreadMany = M.splitSpreadAttachments(
 );
 assert.equal(spreadMany.length, 24, 'splitting still obeys the 24-piece cap');
 
+// --- 圖冊附錄位置：插在封底之前 ---------------------------------------
+assert.equal(M.catalogAppendixInsertIndex(10, 1), 9, '有 1 張封底：附錄插在最後一頁之前');
+assert.equal(M.catalogAppendixInsertIndex(10, 2), 8, '有 2 張封底：附錄插在倒數第二頁之前');
+assert.equal(M.catalogAppendixInsertIndex(10, 0), 10, '沒有封底：附錄排到最後');
+assert.equal(M.catalogAppendixInsertIndex(1, 1), 1, '只有一頁時附錄接在後面');
+assert.equal(M.catalogAppendixInsertIndex(10, 99), 1, '封底數字不合理時不會插到封面之前');
+
+// --- 附錄快取鍵：同一組附件只下載／排版一次 ---------------------------
+const pageA = { documentId: 'doc-1', pageNo: 2, split: 'left' };
+const pageAAsCrop = { documentId: 'doc-1', pageNo: 2, crop: { x: 0, y: 0, width: 0.5, height: 1 } };
+assert.equal(
+  M.quoteCatalogAppendixKey([pageA]),
+  M.quoteCatalogAppendixKey([pageAAsCrop]),
+  '左半與等價的框選是同一份附錄（快取命中）',
+);
+assert.notEqual(
+  M.quoteCatalogAppendixKey([pageA]),
+  M.quoteCatalogAppendixKey([{ ...pageA, split: 'right' }]),
+  '不同裁切不可共用快取',
+);
+assert.notEqual(
+  M.quoteCatalogAppendixKey([{ documentId: 'doc-1', pageNo: 1 }, { documentId: 'doc-1', pageNo: 2 }]),
+  M.quoteCatalogAppendixKey([{ documentId: 'doc-1', pageNo: 2 }, { documentId: 'doc-1', pageNo: 1 }]),
+  '附件順序不同＝不同附錄',
+);
+
 console.log('PASS catalog crop boxes, spread split, 24-page cap and attachment labels');

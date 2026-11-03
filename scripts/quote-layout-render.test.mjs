@@ -10,10 +10,13 @@ function load(path, mocks = {}) {
   vm.runInNewContext(code, { exports, require: id => mocks[id] || {}, console, URL });
   return exports;
 }
-const { layoutZones, layoutDescription, detectedLayoutNotes } = load('../src/lib/quoteLayoutRender.ts');
+const { layoutZones, layoutDescription, detectedLayoutNotes, productSheet, groupZoneRects } = load('../src/lib/quoteLayoutRender.ts');
 const placement = load('../src/lib/quoteFurniturePlacement.ts');
 const { parseQuoteFloorPlan, zonesFromDetectedText } = load('../src/lib/quoteFloorPlan.ts', { './quoteFurniturePlacement': placement, '@/lib/imageStorage': { isHttpImageUrl: v => typeof v === 'string' && /^https?:/.test(v) } });
 const product = (id, extra = {}) => ({ id, name: id, image: '', quantity: 2, ...extra });
+test('rendering reports missing product images instead of silently omitting products', async () => {
+  await assert.rejects(productSheet([{ id: 'room', name: 'Room', products: [product('desk', { image: 'https://example.com/desk.jpg' }), product('chair')] }]), /chair/);
+});
 test('groups products by section and excludes unzoned, terms and optional alternatives', () => {
   const zones = layoutZones([product('unzoned'), product('room-a', { isSectionTitle: true }), product('desk'), product('option', { isOptional: true }), product('term', { isCustomTerm: true }), product('room-b', { isSectionTitle: true }), product('chair')]);
   assert.deepEqual(JSON.parse(JSON.stringify(zones.map(z => [z.id, z.products.map(p => p.id)]))), [['room-a', ['desk']], ['room-b', ['chair']]]);
@@ -49,6 +52,17 @@ test('legacy zone recognition remains compatible when furniture layout is missin
   assert.equal(detected[0].name, 'ROOM');
   assert.equal(Object.hasOwn(detected[0], 'furnitureLayout'), false);
   assert.equal(Object.keys(detectedLayoutNotes([{ id: 'a', name: 'ROOM' }], detected)).length, 0);
+});
+
+test('multi-area zones group touching rects into one room and keep separate rooms apart', () => {
+  const rect = (x, y, w, h) => ({ x, y, w, h });
+  // 4 間互不相連的 MANAGER ROOM：4 個候選區域，生成時只會抽其中一間。
+  assert.equal(groupZoneRects([rect(10, 10, 20, 20), rect(60, 10, 20, 20), rect(10, 40, 20, 20), rect(60, 40, 20, 20)]).length, 4);
+  // 同一間房被拆成兩個重疊或緊貼的框：仍算一間，不應該只生成半間。
+  assert.equal(groupZoneRects([rect(10, 10, 20, 20), rect(15, 15, 20, 20)]).length, 1);
+  assert.equal(groupZoneRects([rect(10, 10, 20, 20), rect(30, 10, 20, 20)]).length, 1);
+  // 中間有明顯空隙才當成不同區域。
+  assert.equal(groupZoneRects([rect(10, 10, 20, 20), rect(31, 10, 20, 20)]).length, 2);
 });
 
 test('automatic positions require a confident exact product match and respect quantity', () => {
@@ -124,4 +138,34 @@ test('manual selection rejects invalid boxes and unknown positions without modif
   const initial = { positions: {}, assignments: {} };
   assert.equal(placement.saveFurnitureSelection(initial, 'zone', ['desk'], 'desk', 0, { category: 'desk', angle: null, rect: { x: 95, y: 20, w: 10, h: 5 } }), initial);
   assert.equal(placement.saveFurnitureSelection(initial, 'zone', ['desk'], 'desk', 0, { category: 'desk', angle: null, positionId: 'missing' }), initial);
+});
+
+
+test('render references require explicit confirmation and replace scene images without changing quote products', () => {
+  const { confirmedLayoutProducts } = load('../src/lib/quoteLayoutRender.ts');
+  const zone = { id: 'room', products: [product('desk', { image: 'https://example.com/scene.jpg' })] };
+  assert.throws(() => confirmedLayoutProducts(zone), /desk/);
+  const chosen = confirmedLayoutProducts(zone, { desk: 'https://example.com/single.jpg' });
+  assert.equal(chosen[0].image, 'https://example.com/single.jpg');
+  assert.equal(zone.products[0].image, 'https://example.com/scene.jpg');
+});
+
+test('render product image choices survive reload and reject embedded image data', () => {
+  const result = parseQuoteFloorPlan({ url: 'https://example.com/plan.png', regions: [], rendering: { productImages: { desk: 'https://example.com/single.jpg', bad: 'data:image/png;base64,abc' } } });
+  assert.equal(result.rendering.productImages.desk, 'https://example.com/single.jpg');
+  assert.equal(result.rendering.productImages.bad, undefined);
+});
+
+test('render reference URLs list the main product image first, then the gallery', () => {
+  const { renderReferenceImages } = load('../src/lib/quoteRenderProductImages.ts', {
+    './supabase': { supabase: { auth: { getSession: async () => ({ data: {} }) } } },
+    './geminiModel': { DEFAULT_GEMINI_MODEL: 'test' },
+    './productSearch': { fetchProductDetail: async () => null },
+    './quoteFloorPlan': { imageBlobToJpegBase64: async () => '' },
+    './quotePhotoLibrary': { generateQuoteReferenceImage: async () => ({ url: '' }) },
+  });
+  const gallery = renderReferenceImages({ images: ['https://e/1.jpg', 'https://e/2.jpg'], image_urls: ['https://e/1.jpg', 'https://e/3.jpg'], image_url: 'https://e/1.jpg' }, { image: 'https://e/1.jpg' });
+  assert.deepEqual(JSON.parse(JSON.stringify(gallery)), ['https://e/1.jpg', 'https://e/2.jpg', 'https://e/3.jpg']);
+  const single = renderReferenceImages({ images: ['https://e/1.jpg'], image_url: 'https://e/1.jpg' }, { image: 'https://e/1.jpg' });
+  assert.deepEqual(JSON.parse(JSON.stringify(single)), ['https://e/1.jpg']);
 });

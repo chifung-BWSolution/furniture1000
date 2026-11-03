@@ -20,7 +20,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { QuotePhotoGenerateDialog } from '@/components/dashboard/QuotePhotoGenerateDialog';
 import {
   QUOTE_PHOTO_ACCEPT,
-  QUOTE_PHOTO_LIBRARY_LIMIT,
+  QUOTE_PHOTO_MANUAL_LIMIT,
   QUOTE_PHOTO_PLACEMENT_LABELS,
   canManageQuotePhotos,
   deleteQuotePhotoAsset,
@@ -97,6 +97,8 @@ export function QuotePhotoLibraryView() {
   const counts = useMemo(
     () => ({
       all: assets.length,
+      manual: assets.filter((asset) => !asset.isGenerated).length,
+      generated: assets.filter((asset) => asset.isGenerated).length,
       content: assets.filter((asset) => asset.placement === 'content').length,
       cover: assets.filter((asset) => asset.placement === 'cover').length,
       back: assets.filter((asset) => asset.placement === 'back').length,
@@ -170,16 +172,15 @@ export function QuotePhotoLibraryView() {
     let added = 0;
     let stoppedByLimit = false;
     try {
-      let count = assets.length;
       for (const file of files) {
-        if (count >= QUOTE_PHOTO_LIBRARY_LIMIT) {
+        // 只計手動上載的圖；AI 生成圖不佔配額。
+        if (counts.manual + added >= QUOTE_PHOTO_MANUAL_LIMIT) {
           stoppedByLimit = true;
           break;
         }
         try {
           const asset = await uploadQuotePhotoAsset(file);
           setAssets((prev) => [...prev, asset]);
-          count += 1;
           added += 1;
         } catch (uploadError) {
           toast.error(`${file.name}：${quotePhotoErrorText(uploadError)}`);
@@ -187,7 +188,7 @@ export function QuotePhotoLibraryView() {
       }
       if (added > 0) toast.success(`已加入 ${added} 張圖片`);
       if (stoppedByLimit) {
-        toast.error(`圖片庫最多 ${QUOTE_PHOTO_LIBRARY_LIMIT} 張圖片`);
+        toast.error(quotePhotoErrorText(new Error('quote_photo_library_limit')));
       }
       await reload();
     } finally {
@@ -284,9 +285,15 @@ export function QuotePhotoLibraryView() {
             <div>
               <p className="text-sm font-bold text-foreground">報價單圖片</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                共 {assets.length} / {QUOTE_PHOTO_LIBRARY_LIMIT} 張 · 封面 {counts.cover} 張、封底 {counts.back} 張 ·
+                共 {assets.length} 張（手動上載 {counts.manual} / {QUOTE_PHOTO_MANUAL_LIMIT}，AI 生成 {counts.generated} 張不計入）·
+                封面 {counts.cover} 張、封底 {counts.back} 張 ·
                 JPG、PNG 或 WebP，每張最多 15 MB
               </p>
+              {counts.manual >= QUOTE_PHOTO_MANUAL_LIMIT ? (
+                <p className="mt-1 text-xs font-medium text-amber-700">
+                  手動上載已達 {QUOTE_PHOTO_MANUAL_LIMIT} 張上限，刪除不再用的圖後可再上載；AI 生成不受此限。
+                </p>
+              ) : null}
             </div>
             {canManage ? (
               <>
@@ -303,7 +310,7 @@ export function QuotePhotoLibraryView() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={missingTable || assets.length >= QUOTE_PHOTO_LIBRARY_LIMIT}
+                    disabled={missingTable}
                     onClick={() => setGenerateOpen(true)}
                   >
                     <Sparkles className="mr-1.5 h-4 w-4" />
@@ -311,7 +318,7 @@ export function QuotePhotoLibraryView() {
                   </Button>
                   <Button
                     type="button"
-                    disabled={uploading || missingTable || assets.length >= QUOTE_PHOTO_LIBRARY_LIMIT}
+                    disabled={uploading || missingTable || counts.manual >= QUOTE_PHOTO_MANUAL_LIMIT}
                     onClick={() => inputRef.current?.click()}
                   >
                     {uploading ? (
@@ -582,7 +589,6 @@ export function QuotePhotoLibraryView() {
           onClose={() => setGenerateOpen(false)}
           /* 參考圖片只限產品圖；圖片庫頁沒有產品圖，只能按描述生成。 */
           choices={[]}
-          libraryCount={assets.length}
           onGenerated={(asset) =>
             setAssets((current) => (current.some((row) => row.id === asset.id) ? current : [...current, asset]))
           }

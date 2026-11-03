@@ -25,7 +25,6 @@ const corsHeaders = {
 };
 
 const BUCKET = "quote-photos";
-const LIBRARY_LIMIT = 60;
 const MAX_BYTES = 15 * 1024 * 1024;
 const PROMPT_MAX = 500;
 const PRESENTATION_PROMPT_MAX = 2000;
@@ -71,6 +70,9 @@ function isAllowedReferenceUrl(raw: string, supabaseUrl: string): boolean {
 
 /** xAI 圖像模型。可用 Edge secret XAI_IMAGE_MODEL 覆寫，不必重新部署。 */
 const DEFAULT_XAI_IMAGE_MODEL = "grok-imagine-image-2.0";
+/** Gemini 圖像模型（3.x）與 xAI 備援都要在 Edge gateway ~150s 內完成。 */
+const GEMINI_IMAGE_TIMEOUT_MS = 80_000;
+const XAI_IMAGE_TIMEOUT_MS = 65_000;
 /**
  * Gemini 圖像模型。Edge secret GEMINI_IMAGE_MODEL 優先；否則先試下面幾個已知 id，
  * 再退到 ListModels 找到的第一個 gemini 圖像模型。
@@ -156,7 +158,16 @@ function json(body: unknown, status = 200) {
 
 function fail(code: string, status = 400, detail?: string) {
   if (detail) console.error(`[generate-quote-reference-image] ${code}: ${detail}`);
-  return json({ error: code }, status);
+  return json({
+    error: code,
+    // 供應方的錯誤原文（不含金鑰）方便排查；前端只讀 error code。
+    ...(detail ? { detail: detail.slice(0, 300) } : {}),
+  }, status);
+}
+
+/** 帶供應方原文的錯誤，讓 fail() 可以把狀態碼和訊息帶回呼叫端。 */
+function providerError(code: string, detail?: string, status?: number) {
+  return Object.assign(new Error(code), { detail, status });
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -252,7 +263,7 @@ async function generateWithGrok(
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(XAI_IMAGE_TIMEOUT_MS),
     });
   } catch (error) {
     const timedOut = error instanceof Error && (error.name === "TimeoutError" || /timed out/i.test(error.message));
@@ -303,6 +314,7 @@ async function generateWithGemini(
   }
 
   let lastError = "quote_photo_generate_failed";
+  let lastDetail = "";
   for (const model of candidates) {
     // 3.x 用 imageConfig.aspectRatio；舊模型不認得就退回只帶 responseModalities。
     for (const withImageConfig of [true, false]) {
@@ -316,12 +328,15 @@ async function generateWithGemini(
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }),
-            signal: AbortSignal.timeout(120_000),
+            signal: AbortSignal.timeout(GEMINI_IMAGE_TIMEOUT_MS),
           },
         );
       } catch (error) {
         const timedOut = error instanceof Error && (error.name === "TimeoutError" || /timed out/i.test(error.message));
-        throw new Error(timedOut ? "quote_photo_generate_timeout" : "quote_photo_generate_failed");
+        throw providerError(
+          timedOut ? "quote_photo_generate_timeout" : "quote_photo_generate_failed",
+          `${model}${withImageConfig ? "+imageConfig" : ""}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
 
       if (!response.ok) {
@@ -334,14 +349,16 @@ async function generateWithGemini(
           : response.status === 404
             ? "quote_photo_generate_no_model"
             : "quote_photo_generate_failed";
+        lastDetail = `${model}${withImageConfig ? "+imageConfig" : ""} ${response.status}: ${text.replace(/\s+/g, " ").slice(0, 220)}`;
         if (withImageConfig && retryable) continue;
         if (retryable) break;
-        throw new Error("quote_photo_generate_failed");
+        throw providerError("quote_photo_generate_failed", lastDetail, response.status);
       }
 
       const body = await response.json().catch(() => null) as {
-        candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> } }>;
+        candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> }; finishReason?: string }>;
         usageMetadata?: { promptTokenCount?: unknown; candidatesTokenCount?: unknown; totalTokenCount?: unknown };
+        promptFeedback?: { blockReason?: string };
       } | null;
       // 用量記錄（best-effort；圖像模型不一定回 usageMetadata，沒有就記 0）
       if (body) {
@@ -360,10 +377,14 @@ async function generateWithGemini(
         if (inline?.data) return { bytes: decodeBase64(inline.data), model };
       }
       lastError = "quote_photo_generate_failed";
+      lastDetail = `${model} ${withImageConfig ? "+imageConfig" : ""}: no image (finish=${body?.candidates?.[0]?.finishReason ?? "?"}, block=${body?.promptFeedback?.blockReason ?? "none"})`;
       break;
     }
   }
-  throw new Error(lastError === "quote_photo_generate_config_retry" ? "quote_photo_generate_no_model" : lastError);
+  throw providerError(
+    lastError === "quote_photo_generate_config_retry" ? "quote_photo_generate_no_model" : lastError,
+    lastDetail,
+  );
 }
 
 Deno.serve(async (req: Request) => {
@@ -493,7 +514,7 @@ Deno.serve(async (req: Request) => {
     raw.purpose === "orthographic"
       ? `產品 ${productModel}。以下為 AI 根據產品圖及產品描述自動分析的繪圖依據，並非使用者確認的要求：${JSON.stringify(analysis)}。綜合全部2至3張同款產品參考圖。只繪製一件家具，移除場景、配件及其他家具。在白底同一張圖上，以相同比例繪製互相一致的正面、右側及俯視正投影，標示 FRONT、RIGHT、TOP，不使用透視。準確保留圖片可見的外形、支撐數量、折彎及通空處；材質及功能參考產品描述。未知或衝突細節不能變成確定結構，不得憑空新增板件、腳架、插座位置或裝飾。不虛構數字尺寸，宣傳內容不轉成幾何。圖上註明「AI 推測三視圖：隱藏結構及尺寸未核實」，不可宣稱為實測施工圖。`
       : raw.purpose === "quote_layout"
-      ? `第一張圖是布局依據的原始平面圖；第二張是帶產品編號的報價產品圖集；若有第三張則是整體效果圖，只供統一風格。不得把平面圖或圖集當成牆上掛畫。嚴格依照以下分區、數量、位置和朝向，產品外觀以圖集為準。不虛構未確認尺寸，無人無文字。${prompt}`
+      ? `第一張圖是布局依據的原始平面圖；第二張是帶產品編號的報價產品圖集；若有第三張，可能是整體效果圖或上一版效果圖，按後續說明只用於統一風格或按意見修正，不得把任何一張圖當成牆上掛畫或新增傢俬。嚴格依照以下分區、數量、位置和朝向，產品外觀以圖集為準。不虛構未確認尺寸，無人無文字。${prompt}`
       : raw.purpose === "presentation_product"
       ? `第一張圖是要突出的主體產品，保留其外觀、材質、顏色及比例。其他圖片按以下說明分辨為同房間搭配產品、房間場景或平面圖；搭配產品也須保持原樣並與主體同處一個一致的空間，不可當作牆上掛畫。${prompt}`
       : raw.purpose === "floor_plan"
@@ -521,18 +542,32 @@ Deno.serve(async (req: Request) => {
     } else {
       const apiKey = (Deno.env.get("GEMINI_API_KEY") ?? "").trim();
       if (!apiKey) return fail("quote_photo_generate_unavailable", 500, "GEMINI_API_KEY missing");
-      const result = await generateWithGemini(apiKey, composedPrompt, aspectRatio, referenceInline);
-      bytes = result.bytes;
-      modelLabel = result.model;
+      try {
+        const result = await generateWithGemini(apiKey, composedPrompt, aspectRatio, referenceInline);
+        bytes = result.bytes;
+        modelLabel = result.model;
+      } catch (geminiError) {
+        // Gemini 圖像模型 503／429／逾時：改用 xAI Grok 出圖，不讓使用者重試同一條死路。
+        const status = (geminiError as { status?: number } | null)?.status;
+        const timedOut = geminiError instanceof Error && geminiError.message === "quote_photo_generate_timeout";
+        const xaiKey = (Deno.env.get("XAI_API_KEY") ?? "").trim();
+        const unavailable = timedOut || (typeof status === "number" && [429, 500, 502, 503, 504].includes(status));
+        if (!xaiKey || !unavailable) throw geminiError;
+        const modelId = (Deno.env.get("XAI_IMAGE_MODEL") ?? "").trim() || DEFAULT_XAI_IMAGE_MODEL;
+        console.log(`[generate-quote-reference-image] Gemini unavailable (${status ?? "timeout"}); falling back to ${modelId}`);
+        bytes = await generateWithGrok(xaiKey, modelId, composedPrompt, aspectRatio, referenceUrls);
+        modelLabel = modelId;
+      }
     }
   } catch (error) {
     const code = error instanceof Error ? error.message : "quote_photo_generate_failed";
+    const detail = (error as { detail?: string } | null)?.detail || code;
     if (code === "quote_photo_generate_no_model" || code === "quote_photo_generate_config_retry") {
-      return fail("quote_photo_generate_unavailable", 502, code);
+      return fail("quote_photo_generate_unavailable", 502, detail);
     }
-    if (code === "quote_photo_generate_timeout") return fail(code, 504);
-    console.error("[generate-quote-reference-image] provider error", code);
-    return fail("quote_photo_generate_failed", 502, code);
+    if (code === "quote_photo_generate_timeout") return fail(code, 504, detail);
+    console.error("[generate-quote-reference-image] provider error", detail);
+    return fail("quote_photo_generate_failed", 502, detail);
   }
 
   if (bytes.byteLength <= 0 || bytes.byteLength > MAX_BYTES) {
@@ -542,11 +577,6 @@ Deno.serve(async (req: Request) => {
   if (!mimeType) return fail("quote_photo_generate_failed", 502, "unsupported image bytes");
 
   // 入庫：跟手動上載走同一個 bucket／表，RLS 一樣生效。
-  const { count } = await storageClient
-    .from("quote_photo_assets")
-    .select("id", { count: "exact", head: true }).not('object_path', 'like', 'orthographic/%');
-  if (raw.purpose !== 'orthographic' && typeof count === "number" && count >= LIBRARY_LIMIT) return fail("quote_photo_library_limit", 409);
-
   const objectPath = `${raw.purpose === 'orthographic' ? 'orthographic' : 'library'}/${crypto.randomUUID()}.${extensionFor(mimeType)}`;
   const { error: uploadError } = await storageClient.storage
     .from(BUCKET)

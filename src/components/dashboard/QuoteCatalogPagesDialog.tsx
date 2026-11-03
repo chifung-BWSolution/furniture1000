@@ -865,7 +865,7 @@ export function QuoteCatalogPagesDialog({
                     <p className="text-[11px] leading-relaxed text-muted-foreground">
                       {previewEditable
                         ? '在預覽上拖出範圍，再按「加入框選」；不拖就維持整頁。'
-                        : '這一張就是會加在報價 PDF 後面的樣子。'}
+                        : '這一張就是會加在封底之前的樣子。'}
                     </p>
                   </div>
                 ) : null}

@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   QUOTE_PHOTO_ACCEPT,
-  QUOTE_PHOTO_LIBRARY_LIMIT,
+  QUOTE_PHOTO_MANUAL_LIMIT,
   listQuotePhotoAssets,
   quotePhotoErrorText,
   quotePhotoObjectUrl,
@@ -809,8 +809,10 @@ export function QuotePhotoLayoutEditor({
     }
     setUploading(files.length);
     const added: string[] = [];
+    // 只計手動上載的圖；AI 生成圖不佔配額。
+    const manualInLibrary = library.filter((asset) => !asset.isGenerated).length;
     for (const file of files) {
-      if (library.length + added.length >= QUOTE_PHOTO_LIBRARY_LIMIT) {
+      if (manualInLibrary + added.length >= QUOTE_PHOTO_MANUAL_LIMIT) {
         toast.error(quotePhotoErrorText(new Error('quote_photo_library_limit')));
         break;
       }
@@ -1247,7 +1249,7 @@ export function QuotePhotoLayoutEditor({
                     type="button"
                     variant="outline"
                     className="h-8 px-2.5 text-xs"
-                    disabled={!canManage || library.length >= QUOTE_PHOTO_LIBRARY_LIMIT}
+                    disabled={!canManage}
                     title={canManage ? undefined : '只有管理員或上載員可以生成圖片'}
                     onClick={() => setGenerateOpen(true)}
                   >
@@ -1359,7 +1361,7 @@ export function QuotePhotoLayoutEditor({
             />
             <button
               type="button"
-              disabled={uploading > 0 || !canManage}
+              disabled={uploading > 0 || !canManage || library.filter((asset) => !asset.isGenerated).length >= QUOTE_PHOTO_MANUAL_LIMIT}
               onClick={() => fileRef.current?.click()}
               className={`${trayIds.length === 0 ? 'mt-auto' : 'mt-3'} flex h-32 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 text-center text-xs disabled:opacity-60 ${
                 trayDrop
@@ -1369,9 +1371,11 @@ export function QuotePhotoLayoutEditor({
             >
               {uploading > 0 ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden /> : <ImagePlus className="h-5 w-5" aria-hidden />}
               {canManage
-                ? trayIds.length === 0
-                  ? '點擊或拖放圖片到這裡上載，或從圖片庫加入。'
-                  : '點擊或拖放圖片到這裡上載'
+                ? library.filter((asset) => !asset.isGenerated).length >= QUOTE_PHOTO_MANUAL_LIMIT
+                  ? `手動上載已達 ${QUOTE_PHOTO_MANUAL_LIMIT} 張上限，刪除不再用的圖後可再上載`
+                  : trayIds.length === 0
+                    ? '點擊或拖放圖片到這裡上載，或從圖片庫加入。'
+                    : '點擊或拖放圖片到這裡上載'
                 : '只有管理員或上載員可以新增圖片'}
             </button>
           </section>
@@ -1527,7 +1531,6 @@ export function QuotePhotoLayoutEditor({
           choices={generateChoices}
           zones={photoZones}
           quoteUuid={quoteUuid}
-          libraryCount={library.length}
           onGenerated={onGenerated}
         />
       ) : null}

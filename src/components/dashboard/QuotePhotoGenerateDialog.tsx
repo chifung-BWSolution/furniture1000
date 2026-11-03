@@ -10,7 +10,6 @@ import { generateZoneScenePrompt, withReferenceImagePrompts, type ZoneSceneFurni
 import {
   QUOTE_PHOTO_GENERATE_MAX_REFERENCES,
   QUOTE_PHOTO_GENERATE_MODELS,
-  QUOTE_PHOTO_LIBRARY_LIMIT,
   QUOTE_PHOTO_PROMPT_MAX,
   generateQuoteReferenceImage,
   quotePhotoErrorText,
@@ -56,7 +55,6 @@ export function QuotePhotoGenerateDialog({
   choices,
   zones = [],
   quoteUuid = null,
-  libraryCount,
   onGenerated,
 }: {
   open: boolean;
@@ -67,8 +65,6 @@ export function QuotePhotoGenerateDialog({
   zones?: QuotePhotoZone[];
   /** FDS-13：所屬報價；有值時 Edge 會重查報價範圍。 */
   quoteUuid?: string | null;
-  /** 圖片庫現有張數，用來擋上限。 */
-  libraryCount: number;
   onGenerated: (asset: QuotePhotoAsset) => void;
 }) {
   const [prompt, setPrompt] = useState('');
@@ -82,9 +78,27 @@ export function QuotePhotoGenerateDialog({
   /** 已選參考圖的說明，鍵是 choice id，順序跟 refs 一致時寫進提示詞。 */
   const [refNotes, setRefNotes] = useState<Record<string, string>>({});
   const [generating, setGenerating] = useState(false);
+  const [generatingProgress, setGeneratingProgress] = useState(0);
   const [prompting, setPrompting] = useState(false);
   const [promptProgress, setPromptProgress] = useState(0);
   const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
+
+  /** 生圖是單一長請求，沒有後端進度，用時間估算推進，完成後才由 generate 收到結果。 */
+  useEffect(() => {
+    if (!generating) {
+      setGeneratingProgress(0);
+      return;
+    }
+    setGeneratingProgress((value) => (value > 0 ? value : 6));
+    const timer = window.setInterval(() => {
+      setGeneratingProgress((value) => {
+        if (value >= 93) return value;
+        const step = value < 50 ? 3 : 0.8;
+        return Math.min(93, Math.round((value + step) * 10) / 10);
+      });
+    }, 400);
+    return () => window.clearInterval(timer);
+  }, [generating]);
 
   useEffect(() => {
     if (!prompting) {
@@ -176,10 +190,6 @@ export function QuotePhotoGenerateDialog({
       toast.error(quotePhotoErrorText(new Error('quote_photo_generate_invalid')));
       return;
     }
-    if (libraryCount >= QUOTE_PHOTO_LIBRARY_LIMIT) {
-      toast.error(quotePhotoErrorText(new Error('quote_photo_library_limit')));
-      return;
-    }
     setGenerating(true);
     try {
       const referenceUrls = refs.flatMap((id) => {
@@ -230,6 +240,15 @@ export function QuotePhotoGenerateDialog({
       }
     >
       <div className="space-y-4">
+        {generating ? (
+          <div className="space-y-1.5 rounded-xl border border-border bg-muted/40 px-4 py-3" role="status" aria-live="polite">
+            <div className="flex items-center justify-between gap-3 text-xs text-foreground">
+              <span>AI 正在生成圖片，一般需 1–3 分鐘…</span>
+              <span className="font-mono-data tabular-nums">{Math.round(generatingProgress)}%</span>
+            </div>
+            <Progress value={generatingProgress} aria-label="AI 生成圖片進度" />
+          </div>
+        ) : null}
         <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
           <div>
             <p className="text-sm font-semibold text-foreground">模型</p>

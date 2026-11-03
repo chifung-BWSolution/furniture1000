@@ -97,7 +97,14 @@ function App() {
     <ErrorBoundary>
       <AuthProvider>
         <AppUpdateBanner />
-        <Toaster position="top-right" richColors closeButton />
+        <Toaster
+          position="top-right"
+          richColors
+          closeButton
+          // 通知位置降到主導覽列（56px）／桌面導覽列（68px）之下，避免擋住浮層右上角的關閉按鈕
+          offset={{ top: 80, right: 16 }}
+          mobileOffset={{ top: 68, right: 12 }}
+        />
         <Suspense
           fallback={
             <div className="flex h-screen w-screen items-center justify-center">

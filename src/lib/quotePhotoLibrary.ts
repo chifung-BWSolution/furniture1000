@@ -14,8 +14,8 @@ import { supabase } from '@/lib/supabase';
 export const QUOTE_PHOTO_BUCKET = 'quote-photos';
 export const QUOTE_PHOTO_ACCEPT = 'image/jpeg,image/png,image/webp';
 export const QUOTE_PHOTO_MAX_BYTES = 15 * 1024 * 1024;
-/** 圖片庫上限，跟 QMS 一致。 */
-export const QUOTE_PHOTO_LIBRARY_LIMIT = 60;
+/** 手動上載的圖片上限；AI 生成的圖（is_generated）不計入，也不受此限制。 */
+export const QUOTE_PHOTO_MANUAL_LIMIT = 100;
 /** 一張報價最多插 12 張圖。 */
 export const QUOTE_PHOTO_LIMIT = 12;
 /** 上載前縮到這個邊長，PDF 夠用又不會拉幾 MB 原圖。 */
@@ -37,8 +37,8 @@ export type QuoteCoverPage = QuotePhotoAsset & { placement: QuoteCoverPlacement 
 
 /** AI 生成參考圖可以切換的模型。第一個是打開對話框時的預設。 */
 export const QUOTE_PHOTO_GENERATE_MODELS = [
-  { id: 'gemini', label: 'Gemini 3.8', provider: 'Google' },
-  { id: 'grok', label: 'Grok 4.7', provider: 'xAI' },
+  { id: 'grok', label: 'Grok Imagine', provider: 'xAI' },
+  { id: 'gemini', label: 'Gemini', provider: 'Google' },
 ] as const;
 export type QuotePhotoGenerateModel = (typeof QUOTE_PHOTO_GENERATE_MODELS)[number]['id'];
 /** 一次生成最多帶 5 張參考圖（跟 Edge function 的上限一致）。 */
@@ -92,7 +92,7 @@ type AssetRow = {
 const photoErrorMessages: Record<string, string> = {
   quote_photo_type_invalid: '只接受 JPG、PNG 或 WebP 圖片。',
   quote_photo_too_large: '每張圖片不可超過 15 MB。',
-  quote_photo_library_limit: `圖片庫最多 ${QUOTE_PHOTO_LIBRARY_LIMIT} 張圖片，請先刪除不再用的圖。`,
+  quote_photo_library_limit: `手動上載的圖片最多 ${QUOTE_PHOTO_MANUAL_LIMIT} 張（AI 生成圖不計入），請先刪除不再用的圖。`,
   quote_photo_upload_failed: '圖片未能上載，請稍後再試。',
   quote_photo_record_failed: '圖片記錄未能保存，請稍後再試。',
   quote_photo_permission_denied: '只有管理員、上載員或 PM 可以修改圖片庫。',
@@ -230,12 +230,15 @@ export async function uploadQuotePhotoAsset(file: File): Promise<QuotePhotoAsset
   const sniffed = sniffQuotePhotoType(head);
   if (!sniffed) throw new Error('quote_photo_type_invalid');
 
-  const existing = await listQuotePhotoAssets();
-  if (existing.missingTable) throw new Error('quote_photo_library_unavailable');
-  if (existing.error) throw new Error('quote_photo_upload_failed');
-  if (existing.assets.length >= QUOTE_PHOTO_LIBRARY_LIMIT) {
-    throw new Error('quote_photo_library_limit');
+  // 只計手動上載的圖（is_generated = false）；AI 生成的圖不佔用這個配額。
+  const { count, error: countError } = await supabase
+    .from('quote_photo_assets')
+    .select('id', { count: 'exact', head: true })
+    .eq('is_generated', false);
+  if (countError) {
+    throw new Error(isMissingTable(countError) ? 'quote_photo_library_unavailable' : 'quote_photo_upload_failed');
   }
+  if ((count ?? 0) >= QUOTE_PHOTO_MANUAL_LIMIT) throw new Error('quote_photo_library_limit');
 
   const blob = await resizeImageToBlob(file, UPLOAD_MAX_DIM);
   const objectPath = `library/${crypto.randomUUID()}.jpg`;
@@ -268,6 +271,7 @@ export async function uploadQuotePhotoAsset(file: File): Promise<QuotePhotoAsset
 
   if (insertError || !inserted) {
     await supabase.storage.from(QUOTE_PHOTO_BUCKET).remove([objectPath]);
+    if (isMissingTable(insertError)) throw new Error('quote_photo_library_unavailable');
     throw new Error(permissionDenied(insertError) ? 'quote_photo_permission_denied' : 'quote_photo_record_failed');
   }
 
