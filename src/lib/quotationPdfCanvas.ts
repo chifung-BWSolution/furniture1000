@@ -103,13 +103,36 @@ export async function renderQuotePdfThumbnails(
   return thumbnails;
 }
 
+function onPageSafe(
+  callback: ((page: QuotePdfPreviewPage) => void) | undefined,
+  page: QuotePdfPreviewPage,
+): void {
+  try {
+    callback?.(page);
+  } catch {
+    // 顯示層出錯不應中斷其餘頁的繪製。
+  }
+}
+
+export interface QuotePdfPageRenderOptions {
+  /**
+   * 每畫好一頁就交出去，讓預覽可以先顯示第一頁，
+   * 不用等 20–30 張圖冊附錄頁全部畫完（加了圖冊附件後的等待主要就在這裡）。
+   */
+  onPage?: (page: QuotePdfPreviewPage) => void;
+  /** 關掉預覽時中止，避免舊的繪製在背景繼續搶 CPU。 */
+  signal?: AbortSignal;
+}
+
 /**
  * Render every page of a PDF into a JPEG data URL.
- * Throws when the PDF cannot be opened or a page cannot be painted.
+ * Throws when the PDF cannot be opened or a page cannot be painted,
+ * or with an `AbortError` when `options.signal` is aborted.
  */
 export async function renderQuotePdfPages(
   source: ArrayBuffer,
   onProgress?: (done: number, total: number) => void,
+  options: QuotePdfPageRenderOptions = {},
 ): Promise<QuotePdfPreviewPage[]> {
   const pdfjs = await getPdfjs();
   // Copy the buffer: pdf.js may detach it while transferring to the worker.
@@ -119,6 +142,7 @@ export async function renderQuotePdfPages(
 
   try {
     for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+      if (options.signal?.aborted) throw new DOMException('PDF 預覽已取消', 'AbortError');
       const page = await doc.getPage(pageNumber);
       const viewport = page.getViewport({ scale: PREVIEW_RENDER_SCALE });
 
@@ -138,12 +162,14 @@ export async function renderQuotePdfPages(
       // which would leave the preview stuck on「正在生成 PDF 預覽」forever.
       await page.render({ canvasContext: ctx, viewport, intent: 'print' }).promise;
 
-      pages.push({
+      const painted: QuotePdfPreviewPage = {
         pageNumber,
         dataUrl: canvas.toDataURL('image/jpeg', PREVIEW_JPEG_QUALITY),
         width: canvas.width,
         height: canvas.height,
-      });
+      };
+      pages.push(painted);
+      onPageSafe(options.onPage, painted);
 
       // Release the bitmap as soon as it is encoded.
       canvas.width = 0;

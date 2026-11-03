@@ -185,7 +185,7 @@ export function PresentationOutlineStep({
   const draftsRef = useRef(drafts);
   onDraftRef.current = onDraft;
   draftsRef.current = drafts;
-  const [sampleModel, setSampleModel] = useState<QuotePhotoGenerateModel>('gemini');
+  const [sampleModel, setSampleModel] = useState<QuotePhotoGenerateModel>('grok');
   const imageSelections = useRef<Record<string, string>>({});
 
   async function runCopy(product: SearchProduct, silent = false) {

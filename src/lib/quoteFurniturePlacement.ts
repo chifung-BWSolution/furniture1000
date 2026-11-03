@@ -9,6 +9,62 @@ export type QuoteFurniturePlacements = {
   positions: Record<string, FurniturePosition[]>;
   assignments: Record<string, string[]>;
 };
+
+export function furnitureKind(value: string): string {
+  const text = value.trim().toLowerCase();
+  if (/辦公椅|办公椅|辦公座椅|办公座椅|電腦椅|电脑椅|office chair|task chair/.test(text)) return 'office-chair';
+  if (/辦公桌|办公桌|辦公枱|办公枱|office desk|workstation/.test(text)) return 'office-desk';
+  if (/儲物櫃|储物柜|storage cabinet|\bcabinet\b/.test(text)) return 'cabinet';
+  if (/會議椅|会议椅|meeting chair|conference chair/.test(text)) return 'meeting-chair';
+  return text;
+}
+
+/** Match only unambiguous categories; preserve existing selections and never reuse a position. */
+export function matchFurniturePlacements(state: QuoteFurniturePlacements, zones: { id: string; products: { id: string; name: string; category?: string; quantity: number }[] }[], attempted: Set<string>): QuoteFurniturePlacements {
+  const assignments = { ...state.assignments };
+  const occupied = new Set(Object.values(assignments).flat().filter(Boolean));
+  let changed = false;
+  for (const zone of zones) {
+    const products = zone.products.filter(p => furnitureKind(`${p.category || ''} ${p.name}`));
+    for (const product of products) {
+      if (assignments[product.id]?.some(Boolean)) { attempted.add(product.id); continue; }
+      if (attempted.has(product.id)) continue;
+      const kind = furnitureKind(`${product.category || ''} ${product.name}`);
+      if (products.filter(p => furnitureKind(`${p.category || ''} ${p.name}`) === kind).length !== 1) continue;
+      const matches = (state.positions[zone.id] || []).filter(p => !occupied.has(p.id) && furnitureKind(p.category) === kind).slice(0, Math.max(0, Math.floor(product.quantity)));
+      if (!matches.length) continue;
+      attempted.add(product.id);
+      assignments[product.id] = matches.map(p => p.id);
+      matches.forEach(p => occupied.add(p.id));
+      changed = true;
+    }
+  }
+  return changed ? { ...state, assignments } : state;
+}
+
+/** Reassign positions whose centres fall inside a different confirmed draft area. */
+export function reassignFurnitureZones(state: QuoteFurniturePlacements, regions: { zoneId: string; rect: FurnitureBounds }[], productZones: { id: string; products: { id: string }[] }[]): QuoteFurniturePlacements {
+  const positions: Record<string, FurniturePosition[]> = Object.fromEntries(Object.entries(state.positions).map(([id, list]) => [id, [...list]]));
+  const assignments = Object.fromEntries(Object.entries(state.assignments).map(([id, values]) => [id, [...values]]));
+  const productZone = new Map(productZones.flatMap(zone => zone.products.map(product => [product.id, zone.id] as const)));
+  for (const [sourceId, list] of Object.entries(state.positions)) {
+    for (const position of list) {
+      const matches = regions.filter(({ rect }) => position.x >= rect.x && position.x <= rect.x + rect.w && position.y >= rect.y && position.y <= rect.y + rect.h);
+      if (!matches.length || matches.some(region => region.zoneId === sourceId)) continue;
+      matches.sort((a, b) => a.rect.w * a.rect.h - b.rect.w * b.rect.h);
+      const targetId = matches[0].zoneId;
+      const target = positions[targetId] || [];
+      const n = Math.max(0, ...target.map(p => Number(p.label.replace(/^P/, '')) || 0)) + 1;
+      const newId = `${targetId}:P${n}`;
+      positions[sourceId] = positions[sourceId].filter(p => p.id !== position.id);
+      positions[targetId] = [...target, { ...position, id: newId, label: `P${n}`, productId: undefined, confidence: undefined }];
+      for (const [productId, ids] of Object.entries(assignments)) {
+        assignments[productId] = ids.map(id => id === position.id ? (productZone.get(productId) === targetId ? newId : '') : id);
+      }
+    }
+  }
+  return { positions, assignments };
+}
 export function parseFurniturePositions(value: unknown): FurniturePosition[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();

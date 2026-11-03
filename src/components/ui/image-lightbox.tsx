@@ -4,7 +4,8 @@ import * as React from "react"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { toThumbUrl, originalImageUrl } from "@/lib/imageThumb"
+import { originalImageUrl } from "@/lib/imageThumb"
+import { LoadingImage } from "@/components/ui/loading-image"
 import { Modal } from "@/components/ui/modal"
 
 export interface ImageLightboxProps {
@@ -148,16 +149,12 @@ export function ImageLightbox({
                   )}
                   aria-label={`第 ${i + 1} 張`}
                 >
-                  <img
-                    src={thumbWidth ? toThumbUrl(url, { width: thumbWidth }) : originalImageUrl(url)}
-                    onError={(event) => {
-                      const original = originalImageUrl(url)
-                      if (event.currentTarget.src !== original) event.currentTarget.src = original
-                    }}
+                  <LoadingImage
+                    src={url}
+                    hd={!thumbWidth}
                     alt=""
-                    loading="lazy"
-                    decoding="async"
-                    className="h-full w-full object-cover"
+                    className="h-full w-full"
+                    imgClassName="object-cover"
                   />
                 </button>
               ))}

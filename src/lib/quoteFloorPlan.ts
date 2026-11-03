@@ -443,6 +443,7 @@ function zoneDetectPrompt(productContext = ''): string {
     '- 完全看不出分區時 zones 為空陣列',
     '同時識別每區所有可見傢俬：furnitureLayout 用文字逐件記錄類別、中心位置(x,y，相對整張圖百分比)、朝向(以圖上方為0度順時針)、數量；不能判斷的配對、角度或尺寸寫未知，不可發明。位置依原圖，之後會按報價產品配對。',
     '只識別傢俬（例如辦公椅、辦公卡位、枱、櫃、沙發），不要識別電視、顯示器、冰箱、電器、設備或建築設施。同一分區相同類型的傢俬使用一致的 category 名稱，保留每件的獨立位置及方向。',
+    '密集辦公卡位要逐個座位仔細辨認：每個可見的辦公桌及每張辦公椅各自獨立回傳一個 positions，桌與椅分開分類。即使桌子共用隔板、相連或同屬一組卡位，也不要把整排或多個座位合併成一個框；只在圖中無法分辨獨立桌椅時才以辦公卡位表示，不能猜測數量。',
     '另外每件可見傢俬在 positions 回傳 {category,x,y,angle,rect,productId,confidence}，x,y 為傢俬中心，rect={x,y,w,h} 為沿可見傢俬外緣的框；全部座標是整張圖百分比，不能辨識範圍時省略rect，不可補造框。angle 相對圖上方順時針，未知角度為null。productId 只可用下列報價同區產品id；不確定或沒有產品時為null，confidence 0到1。不要根據報價數量憑空新增圖上看不到的位置。',
     `報價產品資料：${productContext || '尚未有產品，只識別位置，不配對'}`,
     '只回 JSON：{"zones":[{"name":"STORAGE","x":4,"y":30,"w":5,"h":12,"furnitureLayout":"儲物櫃中心(6,35)，朝向90度；其餘未知","positions":[{"category":"儲物櫃","x":6,"y":35,"angle":90,"productId":null,"confidence":0}]}]}',
@@ -512,22 +513,72 @@ async function askGeminiForZones(prompt: string, jpegBase64: string): Promise<De
  * Rooms the model named but could not box get one more focused pass, so the zone manager
  * opens with ranges the user can drag instead of a bare list of names.
  */
-export async function detectZonesFromJpegBase64(jpegBase64: string, productContext = ''): Promise<DetectedFloorZone[]> {
+export async function detectZonesFromJpegBase64(jpegBase64: string, productContext = '', onTileFailure?: () => void): Promise<DetectedFloorZone[]> {
   if (!jpegBase64.trim()) throw new Error('平面圖是空的');
 
-  const zones = await askGeminiForZones(zoneDetectPrompt(productContext), jpegBase64);
+  let zones = await askGeminiForZones(zoneDetectPrompt(productContext), jpegBase64);
   const missing = zones.filter((zone) => !zone.rect).map((zone) => zone.name);
-  if (!zones.length || !missing.length) return zones;
-
-  const retry = await askGeminiForZones(zoneRectPrompt(missing.slice(0, MAX_FLOOR_PLAN_ZONES)), jpegBase64)
-    .catch(() => [] as DetectedFloorZone[]);
-  if (!retry.length) return zones;
-  const boxes = new Map<string, QuoteZoneRect>();
-  for (const zone of retry) {
-    const key = zone.name.trim().toLowerCase();
-    if (zone.rect && key && !boxes.has(key)) boxes.set(key, zone.rect);
+  if (missing.length) {
+    const retry = await askGeminiForZones(zoneRectPrompt(missing.slice(0, MAX_FLOOR_PLAN_ZONES)), jpegBase64)
+      .catch(() => [] as DetectedFloorZone[]);
+    const boxes = new Map<string, QuoteZoneRect>();
+    for (const zone of retry) {
+      const key = zone.name.trim().toLowerCase();
+      if (zone.rect && key && !boxes.has(key)) boxes.set(key, zone.rect);
+    }
+    zones = zones.map((zone) => (zone.rect ? zone : { ...zone, rect: boxes.get(zone.name.trim().toLowerCase()) ?? null }));
   }
-  return zones.map((zone) => (zone.rect ? zone : { ...zone, rect: boxes.get(zone.name.trim().toLowerCase()) ?? null }));
+  if (!zones.some(zone => zone.rect)) return zones;
+  return detectFurnitureInTiles(jpegBase64, zones, onTileFailure);
+}
+
+async function detectFurnitureInTiles(jpegBase64: string, zones: DetectedFloorZone[], onTileFailure?: () => void): Promise<DetectedFloorZone[]> {
+  const blob = await (await fetch(`data:image/jpeg;base64,${jpegBase64}`)).blob();
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const cols = 3, rows = 2;
+    const tiles = Array.from({ length: cols * rows }, (_, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const x = col * bitmap.width / cols, y = row * bitmap.height / rows;
+      const w = bitmap.width / cols, h = bitmap.height / rows;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * 2); canvas.height = Math.round(h * 2);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('無法讀取平面圖');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, x, y, w, h, 0, 0, canvas.width, canvas.height);
+      return { col, row, data: canvas.toDataURL('image/jpeg', 0.9).split(',')[1] };
+    });
+    const prompt = '識別此平面圖局部的每件可見傢俬。每張辦公桌和每張椅子分別記錄，不要把相鄰座位合併；忽略電視、電腦、顯示器和冰箱。座標 x,y 及 rect 為此局部圖片百分比，角度以上方為0度順時針；看不出方向填 null。只回 JSON：{"zones":[{"name":"tile","positions":[{"category":"辦公椅","x":30,"y":40,"angle":90,"rect":{"x":28,"y":38,"w":4,"h":4}}]}]}。只記錄可見傢俬，勿猜測。';
+    const results: DetectedFloorZone[][] = [];
+    for (const tile of tiles) {
+      try {
+        const result = await askGeminiForZones(prompt, tile.data);
+        if (!result.length) { onTileFailure?.(); return zones; }
+        results.push(result);
+      } catch {
+        onTileFailure?.();
+        return zones;
+      }
+    }
+    const collected = new Map<number, FurniturePosition[]>();
+    results.forEach((result, i) => {
+      const tile = tiles[i];
+      for (const position of result.flatMap(zone => zone.positions || [])) {
+        const x = (tile.col * 100 + position.x) / cols;
+        const y = (tile.row * 100 + position.y) / rows;
+        const candidates = zones.map((zone, index) => ({ zone, index })).filter(({ zone }) => zone.rect && x >= zone.rect.x && x <= zone.rect.x + zone.rect.w && y >= zone.rect.y && y <= zone.rect.y + zone.rect.h);
+        candidates.sort((a, b) => (a.zone.rect!.w * a.zone.rect!.h) - (b.zone.rect!.w * b.zone.rect!.h));
+        if (!candidates.length) continue;
+        const index = candidates[0].index;
+        const list = collected.get(index) || [];
+        const rect = position.rect ? { x: (tile.col * 100 + position.rect.x) / cols, y: (tile.row * 100 + position.rect.y) / rows, w: position.rect.w / cols, h: position.rect.h / rows } : undefined;
+        list.push({ ...position, x, y, ...(rect ? { rect } : {}), id: `P${list.length + 1}`, label: `P${list.length + 1}` });
+        collected.set(index, list);
+      }
+    });
+    return zones.map((zone, index) => (collected.get(index)?.length || 0) > (zone.positions?.length || 0) ? { ...zone, positions: collected.get(index) } : zone);
+  } finally { bitmap.close(); }
 }
 
 const ZONE_SCENE_STYLE =

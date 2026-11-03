@@ -319,6 +319,9 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
 - Edge 每次請求 CPU 很短：`parse_pdf` 每次只做一批（8 頁抽字／20 頁分類），用
   `fds_processing_job_checkpoint` 存斷點後自己觸發下一批。加新的重型步驟也要照這個分批模式，不要一次跑完整份 PDF。
 - 掃描頁 OCR 用 Grok（edge secret `XAI_API_KEY`，模型 `XAI_OCR_MODEL`）；頁面分類與分段用現有 `GEMINI_API_KEY`。
+- `gemini-proxy` 遇到 Gemini 429／5xx／逾時會自動改用 xAI Grok（`XAI_CHAT_MODEL`，預設 `grok-4.7`）完成同一個請求；回傳仍是 Gemini 的 `{ candidates, usageMetadata }` 形狀，呼叫端不用改，`ai_usage_logs.meta` 會標 `fallback: xai`。
+- `generate-quote-reference-image` 用 Gemini 出圖時，遇到 429／5xx／逾時同樣自動改用 xAI（`XAI_IMAGE_MODEL`，預設 `grok-imagine-image-2.0`）；成功與失敗的供應方原文會放在回應的 `detail`，前端只讀 `error` code。
+- 報價渲染的「有無白底」改為本地像素判斷（縮到 64×64，外框 ≥90% 近白或透明），不呼叫 AI：無費用、不受 503 影響。參考圖一律只用產品主圖（第一張），主圖是白底就直接用，不是白底才去背，去背後同樣用本地判斷驗收；不再由圖集第二張起挑圖。
 - `parse_pdf` 第三階段 `structure`：每次一個單元（同一分段最多 5 頁）交 Gemini（`responseSchema`）輸出產品 →
   `extraction_items.raw_json`（AI 原值，永不改寫）。人工修正只寫 `corrected_json`（只存與 AI 不同的欄位），
   經 `fds_extraction_item_review`／`_batch` RPC。重新解析只刪 `pending` 項，已審核的保留且同型號不再重複產生。

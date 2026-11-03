@@ -1,5 +1,27 @@
 # FDS V2.2 開發進度
 
+## 2026-11-03 — 圖冊附錄移到封底之前
+
+使用者指示：「圖冊應該在封底前面」。之前 `appendQuoteCatalogPages` 一律把附錄接在整份 PDF 之後，而 `QuotationDocument` 最後才放封底頁（`quoteCoverPages` 的 `placement: 'back'`），所以附錄一直落在封底後面。
+
+完成：新增 `catalogAppendixInsertIndex(pageCount, backCoverPages)`（附錄插在倒數第 `backCoverPages` 頁之前；沒有封底就排最後；數字不合理時最多退到第 2 頁起，不會插到封面之前），`appendQuoteCatalogPages` 改用 pdf-lib `insertPage` 插在那個位置。`QuotationPDFPreview` 由 `data.quoteCoverPages` 數出封底頁數傳入。預覽與下載用同一個 blob，兩邊都會是「正文 → 圖冊附錄 → 封底」。編輯器與圖冊對話框的提示文字由「加在報價 PDF 後面」改成「加在封底之前」。
+
+驗證：`node scripts/test-quote-catalog-pages.mjs` PASS（新增 0／1／2／超額封底頁的插入位置）；`tsc --noEmit` 通過；pdf-lib 離線實跑 10 頁正文／2 頁封底／2 張附錄，輸出次序為正文 8 頁 → 附錄 2 頁 → 封底 2 頁。
+
+## 2026-11-03 — 圖冊附件拖慢報價 PDF 預覽
+
+使用者回報：「加了圖冊附件後 生成 pdf 很慢」，截圖停在「字體與圖片已就緒，正在排版文件」。原因不是排版本身，而是加附件後預覽流程多了三段**串行**工作，而且要全部完成才顯示第一頁：①向 edge 抽頁（edge 每次都要下載並解析整本 70–120 MB 圖冊）②pdf-lib 逐頁 `embedPage`＋`save()` 合併附錄 ③pdf.js 把整份 PDF 逐頁以 scale 2 畫成 JPEG。二十幾張附錄頁時，第③段就要十幾秒。
+
+完成：
+- **並行**：`buildPreviewBlob` 一開始就 `prefetchQuoteCatalogAppendix`，react-pdf 排版與圖冊抽頁／裁切同時跑，等 blob 出來時附錄通常已就緒（`appendQuoteCatalogPages` 共用同一個 in-flight promise）。
+- **快取**（`src/lib/quoteCatalogPages.ts`）：`fetchQuoteCatalogPdf` 以「頁碼清單」為鍵快取抽取結果（40 MB 上限），附錄本體（已裁切／轉正）以 `quoteCatalogAppendixKey`（文件＋頁＋裁切／左右半＋順序）為鍵快取（56 MB 上限）；合併時改為 `copyPages` 一次，不再每次重新抽頁、重新 `embedPage`。切換「加入 CNY 總值」或關掉再開同一份草稿不再重下載圖冊。頁面尺寸與 `/Rotate` 已用 pdf-lib 實測保留（603.8 × 824.9、90°）。
+- **逐頁顯示**：`renderQuotePdfPages` 新增 `onPage`／`signal`；預覽每畫好一頁就插進畫面，不用等二十幾頁全部畫完，關閉預覽會 abort 舊的繪製。載入層改為顯示階段（排版／合併附錄／繪製第 N 頁）。
+- **重用**：同一份資料（連同 CNY 開關）的預覽 blob 與頁面圖只留一份（`previewCache`），關掉再開即時顯示；按「重試」或字體重新載入時清除。
+
+驗證：`tsc --noEmit` 通過；`node scripts/test-quote-catalog-pages.mjs` PASS（新增附錄快取鍵：左半＝等價框選、不同裁切／順序不共用）；用 pdf-lib 離線核對「附錄文件 → copyPages → 報價單」的頁面尺寸與 `/Rotate` 與舊「直接 embedPage 進報價單」一致。瀏覽器端仍需用真實圖冊驗收：第一次開啟應看到報價單頁先出、附錄頁陸續補上，第二次開啟即時。
+
+下一項（未做）：把抽取頁 PDF 像縮圖一樣預先存進 Storage，讓 edge 不必每次下載整本圖冊；需部署 edge（slug `quote-catalog-pages`）。
+
 ## 2026-10-28 — V2.2.1 圖片流程範圍修訂
 
 使用者確認：指定圖片自動放進 Canva 對應頁面移出本版開發及驗收清單。保留圖片選擇、示例圖、Storage 保存、Canva 素材庫上傳與對應清單；由使用者在 Canva 手動放入或替換圖片，交付前核對產品外觀。

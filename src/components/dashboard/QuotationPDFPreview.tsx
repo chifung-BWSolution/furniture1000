@@ -8,7 +8,7 @@ import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
 import { renderQuotePdfPages, type QuotePdfPreviewPage } from '@/lib/quotationPdfCanvas';
 import { createCanvasTextMeasure, preloadImageSizes, setPdfTextMeasure } from '@/lib/quotationPdfText';
 import { QuotationDocument, collectQuotationPdfImageUrls } from './quotationPdfDocument';
-import { appendQuoteCatalogPages } from '@/lib/quoteCatalogPages';
+import { appendQuoteCatalogPages, prefetchQuoteCatalogAppendix } from '@/lib/quoteCatalogPages';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -126,6 +126,26 @@ function fontErrorMessage(err: unknown): string {
 function renderFailureMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   return raw || 'PDF 預覽頁面繪製失敗';
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === 'AbortError')
+    || (err instanceof Error && err.name === 'AbortError')
+  );
+}
+
+/** 生成階段：讓「很慢」有進度可看，而不是一直停在同一句。 */
+type PdfBuildPhase = 'layout' | 'appendix' | 'pages';
+
+function buildPhaseLabel(
+  phase: PdfBuildPhase | null,
+  progress: { done: number; total: number } | null,
+): string {
+  if (progress) return `正在繪製預覽頁面 ${progress.done} / ${progress.total}`;
+  if (phase === 'appendix') return '正在合併圖冊附錄...';
+  if (phase === 'pages') return '正在準備預覽頁面...';
+  return '字體與圖片已就緒，正在排版文件';
 }
 
 async function fetchFontBlobUrl(url: string): Promise<string> {
@@ -276,6 +296,17 @@ function pdfSoftBreakNoHyphen(word: string): string[] {
   return parts.length ? parts : [word];
 }
 
+/**
+ * 同一份報價資料（連同 CNY 開關）的預覽結果。關掉再開、
+ * 或只是看同一份草稿時直接重用，不必重新排版、重新下載圖冊頁、重新畫二十幾頁。
+ */
+type PreviewCache = {
+  key: string;
+  blob: Blob;
+  pages: QuotePdfPreviewPage[];
+};
+let previewCache: PreviewCache | null = null;
+
 /** Clear failed/partial state so Retry can re-download and re-register fonts. */
 function resetPdfLoaderState(mod?: ReactPdfModule | null) {
   try {
@@ -287,6 +318,7 @@ function resetPdfLoaderState(mod?: ReactPdfModule | null) {
   cachedModule = null;
   loadPromise = null;
   measureFontPromise = null;
+  previewCache = null;
   setPdfTextMeasure(null);
 }
 
@@ -382,6 +414,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   const [previewPages, setPreviewPages] = useState<QuotePdfPreviewPage[]>([]);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
+  const [phase, setPhase] = useState<PdfBuildPhase | null>(null);
   const [pageProgress, setPageProgress] = useState<{ done: number; total: number } | null>(null);
   const [renderAttempt, setRenderAttempt] = useState(0);
   const [fontReloadToken, setFontReloadToken] = useState(0);
@@ -411,11 +444,16 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
     setRenderAttempt((n) => n + 1);
   }, []);
 
-  const buildPreviewBlob = useCallback(async () => {
+  const buildPreviewBlob = useCallback(async (onStage?: (stage: PdfBuildPhase) => void) => {
     const pdfData = dataRef.current;
     if (!pdfMod || !pdfData) return null;
     let timer: number | undefined;
     try {
+      onStage?.('layout');
+      // 圖冊附錄與報價單排版並行準備：抽頁＋裁切／轉正比 react-pdf 排版慢，
+      // 串行做的話預覽會多等好幾秒（加了圖冊附件後最明顯）。
+      const catalogPages = pdfData.catalogPages ?? [];
+      prefetchQuoteCatalogAppendix(catalogPages);
       // 先把圖片原始比例與字體量測準備好 —— 分頁與圖例排版都依賴它們。
       await ensureMeasureFont();
       await preloadImageSizes(collectQuotationPdfImageUrls(pdfData), { timeoutMs: 8000, concurrency: 4 });
@@ -430,9 +468,15 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
           );
         }),
       ]);
-      const pages = pdfData.catalogPages ?? [];
-      if (pages.length === 0) return blob;
-      const merged = await appendQuoteCatalogPages(await blob.arrayBuffer(), pages);
+      if (catalogPages.length === 0) return blob;
+      onStage?.('appendix');
+      // 圖冊附錄排在封底之前；封底頁是 react-pdf 文件最後那幾頁。
+      const backCoverPages = (pdfData.quoteCoverPages ?? []).filter(
+        (page) => page.placement === 'back',
+      ).length;
+      const merged = await appendQuoteCatalogPages(await blob.arrayBuffer(), catalogPages, {
+        backCoverPages,
+      });
       const bytes = new Uint8Array(merged);
       return new Blob([bytes.buffer], { type: 'application/pdf' });
     } finally {
@@ -444,24 +488,56 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
     if (!open || !pdfMod || !dataKey) return;
 
     let cancelled = false;
+    const controller = new AbortController();
+    const cacheKey = `${showCnyTotal ? 'cny' : 'hkd'}|${dataKey}`;
+
+    // 同一份資料再開一次預覽：直接重用上一次的 PDF 與頁面圖。
+    const cached = previewCache;
+    if (cached && cached.key === cacheKey) {
+      setRenderError(null);
+      setPageProgress(null);
+      setPhase(null);
+      setRendering(false);
+      setPreviewBlob(cached.blob);
+      setPreviewPages(cached.pages);
+      return () => {
+        cancelled = true;
+        controller.abort();
+      };
+    }
+
     setRendering(true);
     setRenderError(null);
     setPreviewPages([]);
     setPreviewBlob(null);
     setPageProgress(null);
+    setPhase('layout');
 
     (async () => {
       try {
-        const blob = await buildPreviewBlob();
+        const blob = await buildPreviewBlob((stage) => {
+          if (!cancelled) setPhase(stage);
+        });
         if (cancelled || !blob) return;
         setPreviewBlob(blob);
+        setPhase('pages');
         // Paint the pages ourselves — the browser PDF plugin shows an empty
         // dark panel when the document is embedded in the modal.
         let timer: number | undefined;
         const pages = await Promise.race([
-          renderQuotePdfPages(await blob.arrayBuffer(), (done, total) => {
-            if (!cancelled) setPageProgress({ done, total });
-          }),
+          renderQuotePdfPages(
+            await blob.arrayBuffer(),
+            (done, total) => {
+              if (!cancelled) setPageProgress({ done, total });
+            },
+            {
+              signal: controller.signal,
+              // 逐頁顯示：圖冊附錄可能有二十幾頁，等全部畫完才顯示會像卡住。
+              onPage: (page) => {
+                if (!cancelled) setPreviewPages((prev) => [...prev, page]);
+              },
+            },
+          ),
           new Promise<never>((_, reject) => {
             timer = window.setTimeout(
               () => reject(new Error('PDF 預覽頁面繪製逾時，請按「重試」重新產生。')),
@@ -473,19 +549,24 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
         });
         if (cancelled) return;
         setPreviewPages(pages);
+        previewCache = { key: cacheKey, blob, pages };
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && !isAbortError(err)) {
           setRenderError(renderFailureMessage(err));
         }
       } finally {
-        if (!cancelled) setRendering(false);
+        if (!cancelled) {
+          setRendering(false);
+          setPhase(null);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [open, pdfMod, dataKey, renderAttempt, buildPreviewBlob]);
+  }, [open, pdfMod, dataKey, renderAttempt, showCnyTotal, buildPreviewBlob]);
 
   useEffect(() => {
     if (!open) return;
@@ -495,6 +576,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
       setPageProgress(null);
       setRenderError(null);
       setRendering(false);
+      setPhase(null);
     };
   }, [open]);
 
@@ -607,20 +689,22 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
               </button>
             </div>
           )}
-          {rendering && !loading && !combinedError && (
+          {rendering && !loading && !combinedError && previewPages.length === 0 && (
             <div className="absolute inset-4 z-10 flex flex-col items-center justify-center rounded-lg bg-neutral-800/95 text-white gap-3">
               <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
               <p className="text-sm font-medium">正在生成 PDF 預覽...</p>
-              <p className="text-xs text-neutral-400">
-                {pageProgress
-                  ? `正在繪製預覽頁面 ${pageProgress.done} / ${pageProgress.total}`
-                  : '字體與圖片已就緒，正在排版文件'}
-              </p>
+              <p className="text-xs text-neutral-400">{buildPhaseLabel(phase, pageProgress)}</p>
             </div>
           )}
           {previewPages.length > 0 && !combinedError && (
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
               <div className="mx-auto flex w-full max-w-[980px] flex-col items-center gap-4 pb-4">
+                {rendering && (
+                  <div className="sticky top-0 z-10 flex w-full items-center justify-center gap-2 rounded-lg bg-neutral-800/90 px-3 py-2 text-xs text-neutral-300 backdrop-blur">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-400" />
+                    {buildPhaseLabel(phase, pageProgress)}
+                  </div>
+                )}
                 {previewPages.map((page) => (
                   <img
                     key={page.pageNumber}

@@ -20,6 +20,17 @@ export interface QuoteCatalogOption {
   page_count: number | null;
 }
 
+/**
+ * 圖冊附錄要插在封底之前（封底是報價單最後一頁）。
+ * `pageCount` 是報價單本身（含封面／封底）的頁數，`backCoverPages` 是最後那幾頁封底。
+ * 沒有封底就排到最後；數字不合理時最多退到第 2 頁起，不會插到封面之前。
+ */
+export function catalogAppendixInsertIndex(pageCount: number, backCoverPages: number): number {
+  const total = Math.max(0, Math.floor(Number.isFinite(pageCount) ? pageCount : 0));
+  const back = Math.max(0, Math.floor(Number.isFinite(backCoverPages) ? backCoverPages : 0));
+  return Math.max(1, total - Math.min(back, Math.max(0, total - 1)));
+}
+
 /** Top-left origin, each edge is a fraction of the page from 0 to 1. */
 export interface QuoteCatalogCrop {
   x: number;
@@ -134,6 +145,78 @@ export function parseCatalogCrop(value: unknown): QuoteCatalogCrop | null {
 }
 
 const SLUGS = ['supabase-functions-quote-catalog-pages', 'quote-catalog-pages'];
+
+/**
+ * 抽取頁快取：一頁 0.3–1.3 MB，同一組頁在同一個 session 只向 edge 拿一次。
+ * 預覽每次重開（或切換「加入 CNY 總值」）都要重排 PDF，沒有這層就要重新下載、
+ * 重新在 edge 解析整本圖冊，這正是加了圖冊附件後「生成很慢」的主因之一。
+ */
+const EXTRACTED_CACHE_MAX_BYTES = 40 * 1024 * 1024;
+const extractedCache = new Map<string, ArrayBuffer>();
+const extractedInFlight = new Map<string, Promise<ArrayBuffer>>();
+let extractedCacheBytes = 0;
+
+function extractionKey(pages: Pick<QuoteCatalogPage, 'documentId' | 'pageNo'>[]): string {
+  return pages.map((page) => catalogSourceKey(page)).join('|');
+}
+
+function rememberExtracted(key: string, bytes: ArrayBuffer): void {
+  if (bytes.byteLength > EXTRACTED_CACHE_MAX_BYTES) return;
+  const previous = extractedCache.get(key);
+  if (previous) {
+    extractedCacheBytes -= previous.byteLength;
+    extractedCache.delete(key);
+  }
+  extractedCache.set(key, bytes);
+  extractedCacheBytes += bytes.byteLength;
+  while (extractedCacheBytes > EXTRACTED_CACHE_MAX_BYTES) {
+    const oldestKey = extractedCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    const oldest = extractedCache.get(oldestKey);
+    extractedCache.delete(oldestKey);
+    extractedCacheBytes -= oldest?.byteLength ?? 0;
+  }
+}
+
+/**
+ * 附錄（只有圖冊頁，已裁切／轉正）的快取：附件沒改就不必再抽頁、再排版。
+ * 之後合併報價單時只做一次 pdf-lib copyPages，比每次重新 embedPage 快得多。
+ */
+const APPENDIX_CACHE_MAX_BYTES = 56 * 1024 * 1024;
+const appendixCache = new Map<string, Uint8Array>();
+const appendixInFlight = new Map<string, Promise<Uint8Array>>();
+let appendixCacheBytes = 0;
+
+/** 同一組附件（含裁切／左右半、順序）＝同一份附錄。 */
+export function quoteCatalogAppendixKey(pages: Omit<QuoteCatalogPage, 'id'>[]): string {
+  return pages
+    .map((page) => {
+      const crop = parseCatalogCrop(page.crop) ?? catalogSplitCrop(page.split);
+      const cropKey = crop
+        ? [crop.x, crop.y, crop.width, crop.height].map((value) => value.toFixed(4)).join(',')
+        : '-';
+      return `${page.documentId}#${page.pageNo}:${cropKey}`;
+    })
+    .join('|');
+}
+
+function rememberAppendix(key: string, bytes: Uint8Array): void {
+  if (bytes.byteLength > APPENDIX_CACHE_MAX_BYTES) return;
+  const previous = appendixCache.get(key);
+  if (previous) {
+    appendixCacheBytes -= previous.byteLength;
+    appendixCache.delete(key);
+  }
+  appendixCache.set(key, bytes);
+  appendixCacheBytes += bytes.byteLength;
+  while (appendixCacheBytes > APPENDIX_CACHE_MAX_BYTES) {
+    const oldestKey = appendixCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    const oldest = appendixCache.get(oldestKey);
+    appendixCache.delete(oldestKey);
+    appendixCacheBytes -= oldest?.byteLength ?? 0;
+  }
+}
 
 /**
  * 縮圖一次要打幾批 edge，每批都重新 `getUser()`＋`getSession()` 會拖慢而且容易在
@@ -284,7 +367,7 @@ export async function listQuoteCatalogs(query: string): Promise<QuoteCatalogOpti
   return (Array.isArray(data) ? data : []) as QuoteCatalogOption[];
 }
 
-export async function fetchQuoteCatalogPdf(
+async function requestQuoteCatalogPdf(
   pages: Pick<QuoteCatalogPage, 'documentId' | 'pageNo'>[],
 ): Promise<ArrayBuffer> {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
@@ -332,6 +415,29 @@ export async function fetchQuoteCatalogPdf(
     throw new Error('登入已過期，請重新整理再試');
   }
   throw new Error(first.error ?? '圖冊頁未能讀取');
+}
+
+export async function fetchQuoteCatalogPdf(
+  pages: Pick<QuoteCatalogPage, 'documentId' | 'pageNo'>[],
+): Promise<ArrayBuffer> {
+  const key = extractionKey(pages);
+  const cached = extractedCache.get(key);
+  if (cached) return cached.slice(0);
+  const pending = extractedInFlight.get(key);
+  if (pending) return (await pending).slice(0);
+
+  const startedAt = Date.now();
+  const request = requestQuoteCatalogPdf(pages)
+    .then((bytes) => {
+      rememberExtracted(key, bytes);
+      console.info(`[catalog-pdf] 抽取 ${pages.length} 頁 ${Date.now() - startedAt}ms`);
+      return bytes;
+    })
+    .finally(() => {
+      extractedInFlight.delete(key);
+    });
+  extractedInFlight.set(key, request);
+  return (await request).slice(0);
 }
 
 function catalogSourceKey(page: Pick<QuoteCatalogPage, 'documentId' | 'pageNo'>): string {
@@ -403,17 +509,65 @@ async function drawCatalogPieces(
   }
 }
 
-/** Quote PDF first, then the selected catalog pages, cropped and scaled to their own size. */
+/**
+ * Quote PDF first, then the selected catalog pages, cropped and scaled to their
+ * own size — inserted before the back cover so 封底 stays the last page.
+ */
 export async function appendQuoteCatalogPages(
   quotePdf: ArrayBuffer,
   pages: Omit<QuoteCatalogPage, 'id'>[],
+  options: { backCoverPages?: number } = {},
 ): Promise<Uint8Array> {
   const { PDFDocument } = await import('pdf-lib');
   const base = await PDFDocument.load(quotePdf);
   if (pages.length === 0) return base.save();
-  const sources = await loadCatalogSourcePages(pages);
-  await drawCatalogPieces(base, sources, pages as QuoteCatalogPage[]);
+  const appendix = await ensureCatalogAppendix(pages as QuoteCatalogPage[]);
+  const appendixDoc = await PDFDocument.load(appendix);
+  const copied = await base.copyPages(appendixDoc, appendixDoc.getPageIndices());
+  const insertAt = catalogAppendixInsertIndex(base.getPageCount(), options.backCoverPages ?? 0);
+  copied.forEach((page, index) => base.insertPage(insertAt + index, page));
   return base.save();
+}
+
+/** 附錄本體（只有圖冊頁）：同一組附件只抽一次頁、只排版一次。 */
+async function buildCatalogAppendix(pages: QuoteCatalogPage[]): Promise<Uint8Array> {
+  const { PDFDocument } = await import('pdf-lib');
+  const out = await PDFDocument.create();
+  const sources = await loadCatalogSourcePages(pages);
+  await drawCatalogPieces(out, sources, pages);
+  return out.save();
+}
+
+function ensureCatalogAppendix(pages: QuoteCatalogPage[]): Promise<Uint8Array> {
+  const key = quoteCatalogAppendixKey(pages);
+  const cached = appendixCache.get(key);
+  if (cached) return Promise.resolve(cached);
+  const pending = appendixInFlight.get(key);
+  if (pending) return pending;
+
+  const startedAt = Date.now();
+  const request = buildCatalogAppendix(pages)
+    .then((bytes) => {
+      rememberAppendix(key, bytes);
+      console.info(`[catalog-pdf] 附錄 ${pages.length} 項 ${Date.now() - startedAt}ms`);
+      return bytes;
+    })
+    .finally(() => {
+      appendixInFlight.delete(key);
+    });
+  appendixInFlight.set(key, request);
+  return request;
+}
+
+/**
+ * 與報價單排版並行先準備圖冊附錄（下載抽取頁＋裁切／轉正）。
+ * 等 react-pdf 出完 blob 時附錄通常已就緒，預覽不會卡在「合併附錄」這一步。
+ */
+export function prefetchQuoteCatalogAppendix(pages: Omit<QuoteCatalogPage, 'id'>[]): void {
+  if (pages.length === 0) return;
+  void ensureCatalogAppendix(pages as QuoteCatalogPage[]).catch(() => {
+    // 失敗留給 appendQuoteCatalogPages 顯示錯誤；下一次仍會重新嘗試。
+  });
 }
 
 /**

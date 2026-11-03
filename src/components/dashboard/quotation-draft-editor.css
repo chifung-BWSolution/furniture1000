@@ -51,7 +51,7 @@
 
 .quote-editor-workspace {
   display: grid;
-  grid-template-columns: 188px minmax(0, 1fr);
+  grid-template-columns: 236px minmax(0, 1fr);
   align-items: start;
   min-width: 0;
 }
@@ -91,6 +91,36 @@
 }
 .quote-editor-nav-step.is-active .quote-editor-nav-number { background: hsl(239 84% 67%); border-color: transparent; color: white; }
 .quote-editor-nav-step:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+/* 第 2 步「報價內容」的分區副步驟：對應內容區的每個區隔標題，可直接跳轉。 */
+.quote-editor-nav-group { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.quote-editor-nav-zones {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 0 2px 10px;
+  padding: 2px 0 2px 10px;
+  border-left: 1px dashed hsl(var(--border));
+  list-style: none;
+}
+.quote-editor-nav-zone {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  border-radius: 7px;
+  padding: 4px 6px;
+  color: hsl(var(--muted-foreground));
+  font-size: .75rem;
+  text-align: left;
+}
+.quote-editor-nav-zone:hover { background: hsl(240 30% 96%); color: hsl(var(--foreground)); }
+.quote-editor-nav-zone.is-active { background: hsl(239 55% 94%); color: hsl(239 62% 42%); font-weight: 600; }
+.quote-editor-nav-zone-serial { flex-shrink: 0; font-size: .6875rem; font-variant-numeric: tabular-nums; color: hsl(239 45% 55%); }
+.quote-editor-nav-zone.is-active .quote-editor-nav-zone-serial { color: inherit; }
+.quote-editor-nav-zone-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quote-editor-nav-zone-count { flex-shrink: 0; font-size: .625rem; font-variant-numeric: tabular-nums; opacity: .75; }
+.quote-editor-nav-zone:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .quote-editor-canvas { min-width: 0; padding: 16px 20px 24px 4px; }
 .quote-editor-canvas section[id^="quote-sec-"] { border-radius: 14px; padding: 18px; box-shadow: 0 1px 3px hsl(235 30% 20% / .04); }
 .quote-info-panel > div:first-child { padding: 12px 16px; }
@@ -221,8 +251,12 @@
 }
 .quote-fee-side-sec { min-width: 0; }
 
+@media (min-width: 768px) {
+  /* 分區多時步驟列可能超出視窗，讓它自己捲動，不要遮住下面的步驟。 */
+  .quote-editor-nav { max-height: calc(100vh - var(--quote-chrome, 0px) - 12px); overflow-y: auto; }
+}
 @media (max-width: 1199px) {
-  .quote-editor-workspace { grid-template-columns: 164px minmax(0, 1fr); }
+  .quote-editor-workspace { grid-template-columns: 200px minmax(0, 1fr); }
   .quote-editor-nav { padding: 12px 8px; }
   .quote-editor-metric { padding: 0 10px; }
   .quote-product-row-body { grid-template-columns: minmax(0, 1fr); }
@@ -234,6 +268,9 @@
   .quote-editor-workspace { display: block; }
   .quote-editor-nav { position: static; flex-direction: row; overflow-x: auto; padding: 10px 12px 0; }
   .quote-editor-nav-step { flex-shrink: 0; white-space: nowrap; }
+  .quote-editor-nav-group { flex-shrink: 0; }
+  /* 手機版步驟列是橫向捲動，分區副清單先收起。 */
+  .quote-editor-nav-zones { display: none; }
   .quote-editor-canvas { padding: 12px; }
   .quote-editor-canvas section[id^="quote-sec-"] { padding: 14px; }
   .quote-fee-body { grid-template-columns: minmax(0, 1fr); }
