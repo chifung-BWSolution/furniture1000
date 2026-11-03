@@ -4,7 +4,7 @@ import * as React from "react"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { toThumbUrl } from "@/lib/imageThumb"
+import { toThumbUrl, originalImageUrl } from "@/lib/imageThumb"
 import { Modal } from "@/components/ui/modal"
 
 export interface ImageLightboxProps {
@@ -107,7 +107,7 @@ export function ImageLightbox({
           )}
         >
           <img
-            src={current}
+            src={originalImageUrl(current)}
             alt={title ?? ""}
             className="max-h-full max-w-[92vw] rounded-xl object-contain shadow-2xl"
           />
@@ -149,7 +149,11 @@ export function ImageLightbox({
                   aria-label={`第 ${i + 1} 張`}
                 >
                   <img
-                    src={thumbWidth ? toThumbUrl(url, { width: thumbWidth }) : url}
+                    src={thumbWidth ? toThumbUrl(url, { width: thumbWidth }) : originalImageUrl(url)}
+                    onError={(event) => {
+                      const original = originalImageUrl(url)
+                      if (event.currentTarget.src !== original) event.currentTarget.src = original
+                    }}
                     alt=""
                     loading="lazy"
                     decoding="async"

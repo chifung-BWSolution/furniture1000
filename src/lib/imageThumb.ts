@@ -1,25 +1,15 @@
-/**
- * Product image thumbnails via Supabase Storage Image Transformations.
- *
- * Product images live in the public `product-images` bucket as
- * `/storage/v1/object/public/...`. Rewriting that to `/storage/v1/render/image/public/...`
- * with `width`/`quality`/`format=webp` returns a compressed, cached thumbnail
- * (typically ~20x smaller) without touching the DB or re-uploading.
- *
- * `LoadingImage` sends every public object URL through this helper.
- * A URL that is already `/render/image/` is left alone, so an explicit
- * `productThumbUrl(url, 640)` keeps its width. Lightbox-sized boxes use 1600px.
+/** Permanent 640px WebP variants in the same bucket, with original-image fallback.
+ * New uploads and scripts/backfill-permanent-thumbnails.mjs generate these files.
+ * Large previews use the original. No paid render/image endpoint is requested.
  */
-
 const SUPABASE_OBJECT_MARKER = '/storage/v1/object/public/';
 const SUPABASE_RENDER_MARKER = '/storage/v1/render/image/public/';
 
-export const THUMB_WIDTH = 320;
+export const THUMB_WIDTH = 640;
 export const THUMB_QUALITY = 65;
 
 /**
- * Kill-switch. Supabase Storage image transformations must be enabled on the
- * project. If an environment ever serves broken thumbnails, set
+ * Kill-switch. Persisted thumbnail display can be disabled per environment. If an environment ever serves broken thumbnails, set
  * `VITE_SUPABASE_IMAGE_TRANSFORMS=false` and every image falls back to its
  * original URL (no schema/code change needed).
  */
@@ -44,7 +34,7 @@ export type ThumbOptions = {
 };
 
 /**
- * Rewrite a Supabase Storage public object URL into a transformed thumbnail URL.
+ * Resolve a public object URL to its persisted thumbnail.
  * Non-Supabase URLs (external CDN, data-URLs, relative paths) are returned unchanged.
  */
 export function toThumbUrl(
@@ -53,30 +43,24 @@ export function toThumbUrl(
 ): string {
   const src = (url || '').trim();
   if (!src) return src;
-  if (!transformsEnabled()) return src;
+  if (!transformsEnabled()) return originalImageUrl(src);
   if (src.startsWith('data:') || src.startsWith('blob:')) return src;
   if (!src.startsWith('http://') && !src.startsWith('https://')) return src;
 
-  const hasRender = src.includes(SUPABASE_RENDER_MARKER);
-  const hasObject = src.includes(SUPABASE_OBJECT_MARKER);
-  if (!hasRender && !hasObject) return src;
-
-  const [base, existingQuery = ''] = src.split('?');
-  const renderBase = hasRender
-    ? base
-    : base.replace(SUPABASE_OBJECT_MARKER, SUPABASE_RENDER_MARKER);
-
-  const params = new URLSearchParams(existingQuery);
-  params.set('width', String(Math.round(options.width ?? THUMB_WIDTH)));
-  if (options.height) params.set('height', String(Math.round(options.height)));
-  params.set('quality', String(Math.round(options.quality ?? THUMB_QUALITY)));
-  params.set('format', options.format ?? 'webp');
-  // Supabase defaults to `cover` against the original height, so a width-only
-  // request returns e.g. 320x1024 for a 1024x1024 source; `contain` keeps the ratio.
-  if (options.resize) params.set('resize', options.resize);
-  else if (!options.height && !params.has('resize')) params.set('resize', 'contain');
-
-  return `${renderBase}?${params.toString()}`;
+  const original = originalImageUrl(src);
+  if (!original.includes(SUPABASE_OBJECT_MARKER)) return original;
+  if ((options.width ?? THUMB_WIDTH) > 640 || options.format === 'origin') return original;
+  const parsed = new URL(original);
+  const offset = parsed.pathname.indexOf(SUPABASE_OBJECT_MARKER) + SUPABASE_OBJECT_MARKER.length;
+  const slash = parsed.pathname.indexOf('/', offset);
+  const path = parsed.pathname.slice(slash + 1);
+  if (path.startsWith('catalog-thumbs/')) return original;
+  const ownBase = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+  if (parsed.origin === ownBase && parsed.pathname.slice(offset, slash) === 'product-images') {
+    return `/api/image-thumbnail?path=${encodeURIComponent(decodeURIComponent(path))}`;
+  }
+  parsed.pathname = parsed.pathname.slice(0, slash + 1) + '__thumbs/v1/' + path + '.webp';
+  return parsed.toString();
 }
 
 /** Convenience preset for product list/grid/table thumbnails. */
@@ -102,4 +86,18 @@ export function compressStorageDisplayUrl(
   if (!src.includes(SUPABASE_OBJECT_MARKER)) return src;
   const preview = /(?:^|\s)max-[hw]-/.test(` ${className || ''} `);
   return toThumbUrl(src, { width: preview ? PREVIEW_WIDTH : THUMB_WIDTH });
+}
+
+/** Undo a persisted thumbnail or legacy transform URL for lossless fallback. */
+export function originalImageUrl(url: string): string {
+  if (!url.includes(SUPABASE_OBJECT_MARKER) && !url.includes(SUPABASE_RENDER_MARKER)) return url;
+  const parsed = new URL(url.replace(SUPABASE_RENDER_MARKER, SUPABASE_OBJECT_MARKER));
+  const offset = parsed.pathname.indexOf(SUPABASE_OBJECT_MARKER) + SUPABASE_OBJECT_MARKER.length;
+  const slash = parsed.pathname.indexOf('/', offset);
+  const path = parsed.pathname.slice(slash + 1);
+  if (path.startsWith('__thumbs/v1/') && path.endsWith('.webp')) {
+    parsed.pathname = parsed.pathname.slice(0, slash + 1) + path.slice('__thumbs/v1/'.length, -5);
+  }
+  parsed.search = '';
+  return parsed.toString();
 }

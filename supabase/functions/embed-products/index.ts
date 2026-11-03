@@ -29,9 +29,14 @@ function thumbUrl(url: string): string {
   const marker = "/storage/v1/object/public/";
   const at = url.indexOf(marker);
   if (at < 0) return url;
-  const rewritten = `${url.slice(0, at)}/storage/v1/render/image/public/${url.slice(at + marker.length)}`;
-  const join = rewritten.includes("?") ? "&" : "?";
-  return `${rewritten}${join}width=512&quality=70`;
+  const parsed = new URL(url);
+  const start = parsed.pathname.indexOf(marker) + marker.length;
+  const slash = parsed.pathname.indexOf('/', start);
+  const path = parsed.pathname.slice(slash + 1);
+  if (path.startsWith('__thumbs/v1/')) return url;
+  parsed.pathname = parsed.pathname.slice(0, slash + 1) + '__thumbs/v1/' + path + '.webp';
+  parsed.search = '';
+  return parsed.toString();
 }
 
 async function embed(apiKey: string, parts: unknown[]): Promise<number[]> {

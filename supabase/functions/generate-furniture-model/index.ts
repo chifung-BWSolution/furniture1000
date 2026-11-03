@@ -703,8 +703,11 @@ function storagePreviewUrl(url: string): string | null {
     const marker = "/storage/v1/object/public/";
     const index = parsed.pathname.indexOf(marker);
     if (index < 0) return null;
-    const path = parsed.pathname.slice(index + marker.length);
-    return `${parsed.origin}/storage/v1/render/image/public/${path}?width=768&height=768&resize=contain&quality=80`;
+    const start = index + marker.length;
+    const slash = parsed.pathname.indexOf('/', start);
+    const path = parsed.pathname.slice(slash + 1);
+    if (path.startsWith('__thumbs/v1/')) return url;
+    return `${parsed.origin}${parsed.pathname.slice(0, slash + 1)}__thumbs/v1/${path}.webp`;
   } catch {
     return null;
   }

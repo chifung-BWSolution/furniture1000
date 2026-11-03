@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ImgHTMLAttributes, type MouseEvent, type ReactNode, type SyntheticEvent } from "react"
 import { ImageOff } from "lucide-react"
 
-import { compressStorageDisplayUrl } from "@/lib/imageThumb"
+import { compressStorageDisplayUrl, originalImageUrl } from "@/lib/imageThumb"
 import { cn } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -57,7 +57,7 @@ function LoadingImage({
   hd = false,
   ...props
 }: LoadingImageProps) {
-  const normalized = (src || "").trim()
+  const normalized = originalImageUrl((src || "").trim())
   const imgRef = useRef<HTMLImageElement>(null)
   const [loadedSrc, setLoadedSrc] = useState("")
   const [failedSrc, setFailedSrc] = useState("")

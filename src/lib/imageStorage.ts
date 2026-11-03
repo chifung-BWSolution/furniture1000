@@ -161,6 +161,29 @@ async function prepareImageBlobForUpload(
   return trimImageSolidEdgeBorders(resized);
 }
 
+/** Store a deterministic variant once; failure preserves the original upload. */
+async function uploadPermanentThumbnail(path: string, source: Blob): Promise<void> {
+  try {
+    const bitmap = await createImageBitmap(source);
+    try {
+      const scale = Math.min(1, 640 / bitmap.width, 640 / bitmap.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('canvas unavailable');
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const thumb = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+        b => b ? resolve(b) : reject(new Error('thumbnail encode failed')), 'image/webp', 0.65,
+      ));
+      const { error } = await supabase.storage.from(BUCKET).upload(`__thumbs/v1/${path}.webp`, thumb, {
+        contentType: thumb.type, cacheControl: '31536000', upsert: false,
+      });
+      if (error) console.warn('Thumbnail upload failed; original remains available', error.message);
+    } finally { bitmap.close(); }
+  } catch (error) { console.warn('Thumbnail generation failed; original remains available', error); }
+}
+
 /** Upload a File/Blob directly to Storage; returns public HTTP URL. */
 export async function uploadFileToStorage(
   file: File | Blob,
@@ -175,6 +198,7 @@ export async function uploadFileToStorage(
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const { error } = await uploadWithRetry(filePath, bytes, mimeType);
   if (error) throw new Error(error.message);
+  await uploadPermanentThumbnail(filePath, blob);
   return buildStoragePublicUrl(filePath);
 }
 
@@ -258,6 +282,7 @@ export async function uploadBlobToStorage(
   const bytes = new Uint8Array(await prepared.arrayBuffer());
   const { error } = await uploadWithRetry(filePath, bytes, mimeType);
   if (error) throw new Error(error.message);
+  await uploadPermanentThumbnail(filePath, prepared);
   return buildStoragePublicUrl(filePath);
 }
 

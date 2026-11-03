@@ -5,3 +5,5 @@
 其餘產品、資料與部署約束以 `CLAUDE.md` 為準。改 Edge Function 前先對照前端實際呼叫的 slug，部署到那個 slug。
 
 UI 一律用 `src/components/ui` 的共用元件，不要手寫：對話框用 `Modal`（整頁面用 `variant="fullscreen"`）、開關用 `Switch`、下拉用 `Select`、勾選用 `Checkbox`、確認用 `confirm()`（`@/components/ui/confirm-dialog`，由 `AppShell` 的 `ConfirmProvider` 掛載），不要用 `window.confirm/alert/prompt`。`npm run audit:ui` 會擋下手寫的 dialog shell 與 `role="switch"`，並列出仍未遷移的原生 select/checkbox。
+
+2026-11-03：圖片縮圖應一次生成並保存到 Storage，之後直接讀取固定檔案，不持續使用付費動態 Transform。原圖保留；舊圖缺縮圖時回退原圖。
