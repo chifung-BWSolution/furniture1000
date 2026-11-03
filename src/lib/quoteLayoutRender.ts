@@ -4,7 +4,7 @@ import { imageBlobToJpegBase64, type QuoteFloorPlan } from './quoteFloorPlan';
 import { uploadBase64Image } from './imageStorage';
 import { cropPresentationFloorPlan, presentationZoneBounds } from './presentationFloorPlan';
 
-export type LayoutProduct = { id: string; name: string; category?: string; sku?: string; image: string; quantity: number; material?: string; color?: string; dimensionLMm?: string | null; dimensionWMm?: string | null; dimensionHMm?: string | null; isSectionTitle?: boolean; isCustomTerm?: boolean; isOptional?: boolean };
+export type LayoutProduct = { productId?: string | null; id: string; name: string; category?: string; sku?: string; image: string; quantity: number; material?: string; color?: string; dimensionLMm?: string | null; dimensionWMm?: string | null; dimensionHMm?: string | null; isSectionTitle?: boolean; isCustomTerm?: boolean; isOptional?: boolean };
 export type LayoutZone = { id: string; name: string; products: LayoutProduct[] };
 export function layoutZones(items: LayoutProduct[]): LayoutZone[] {
   const zones: LayoutZone[] = [];
@@ -112,7 +112,8 @@ export async function generateZoneLayoutImage(plan: QuoteFloorPlan, zone: Layout
     return count > 0 && assigned.slice(0, count).filter(id => id && positions.some(position => position.id === id && zoneRegions.some(rect => position.x >= rect.x && position.x <= rect.x + rect.w && position.y >= rect.y && position.y <= rect.y + rect.h))).length < count;
   });
   if (missing.length) throw new Error(`請先為以下產品選擇分區範圍內的全部擺放位置：${missing.map(product => product.name).join('、')}`);
-  const renderProducts = confirmedLayoutProducts(zone, plan.rendering?.productImages);
+  const { automaticLayoutProducts } = await import('./quoteRenderProductImages');
+  const renderProducts = await automaticLayoutProducts(zone.products, quoteUuid);
   const response = await fetch(source);
   if (!response.ok) throw new Error('無法讀取平面圖，請稍後重試');
   const cropped = await cropPresentationFloorPlan(await response.blob(), [{ name: zone.name, rect: bounds }]);
