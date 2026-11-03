@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { DEFAULT_GEMINI_MODEL } from './geminiModel';
 import { imageBlobToJpegBase64, type QuoteFloorPlan } from './quoteFloorPlan';
 import { uploadBase64Image } from './imageStorage';
+import { cropPresentationFloorPlan, presentationZoneBounds } from './presentationFloorPlan';
 
 export type LayoutProduct = { id: string; name: string; category?: string; sku?: string; image: string; quantity: number; material?: string; color?: string; dimensionLMm?: string | null; dimensionWMm?: string | null; dimensionHMm?: string | null; isSectionTitle?: boolean; isCustomTerm?: boolean; isOptional?: boolean };
 export type LayoutZone = { id: string; name: string; products: LayoutProduct[] };
@@ -47,8 +48,10 @@ export async function recognizeLayout(plan: QuoteFloorPlan, zones: LayoutZone[])
   return notes;
 }
 export async function productSheet(zones: LayoutZone[]): Promise<string> {
-  const products = zones.flatMap(z => z.products).filter(p => p.image);
+  const products = zones.flatMap(z => z.products);
   if (!products.length) throw new Error('分區內沒有產品圖片');
+  const missing = products.filter(p => !p.image?.trim());
+  if (missing.length) throw new Error(`請先為以下產品加入產品圖片：${missing.map(p => p.name).join('、')}`);
   if (products.length > 48) throw new Error('產品超過48件，請先逐區生成');
   const canvas = document.createElement('canvas');
   canvas.width = 1600; canvas.height = Math.ceil(products.length / 4) * 340;
@@ -83,21 +86,77 @@ export function detectedLayoutNotes(rows: { id: string; name: string }[], detect
   }));
 }
 
+export function confirmedLayoutProducts(zone: LayoutZone, references: Record<string, string> = {}): LayoutProduct[] {
+  const unconfirmed = zone.products.filter(product => !references[product.id]);
+  if (unconfirmed.length) throw new Error(`請先到「渲染圖設置」確認單品圖：${unconfirmed.map(product => product.name).join('、')}`);
+  return zone.products.map(product => ({ ...product, image: references[product.id] }));
+}
+
 export async function generateZoneLayoutImage(plan: QuoteFloorPlan, zone: LayoutZone, quoteUuid: string | null) {
   const { generateQuoteReferenceImage } = await import('./quotePhotoLibrary');
   const source = plan.previewUrl || (plan.mimeType.startsWith('image/') ? plan.url : '');
   if (!source) throw new Error('請先上傳平面圖');
   if (!zone.products.length) throw new Error('此分區尚未有報價產品');
+  const zoneRegions = plan.regions.filter(region => region.zoneId === zone.id).map(region => region.rect);
+  const regionBounds = presentationZoneBounds(zoneRegions);
+  if (!regionBounds) throw new Error('此分區尚未框選平面圖範圍，請先到分區管理設定');
+  // Include walls and door swings just beyond a tightly drawn zone rectangle.
+  const marginX = Math.max(1, regionBounds.w * 0.12);
+  const marginY = Math.max(1, regionBounds.h * 0.12);
+  const left = Math.max(0, regionBounds.x - marginX), top = Math.max(0, regionBounds.y - marginY);
+  const bounds = { x: left, y: top, w: Math.min(100, regionBounds.x + regionBounds.w + marginX) - left, h: Math.min(100, regionBounds.y + regionBounds.h + marginY) - top };
+  const missing = zone.products.filter(product => {
+    const count = Math.max(0, Math.floor(product.quantity));
+    const assigned = plan.placements?.assignments[product.id] || [];
+    const positions = plan.placements?.positions[zone.id] || [];
+    return count > 0 && assigned.slice(0, count).filter(id => id && positions.some(position => position.id === id && zoneRegions.some(rect => position.x >= rect.x && position.x <= rect.x + rect.w && position.y >= rect.y && position.y <= rect.y + rect.h))).length < count;
+  });
+  if (missing.length) throw new Error(`請先為以下產品選擇分區範圍內的全部擺放位置：${missing.map(product => product.name).join('、')}`);
+  const renderProducts = confirmedLayoutProducts(zone, plan.rendering?.productImages);
+  const response = await fetch(source);
+  if (!response.ok) throw new Error('無法讀取平面圖，請稍後重試');
+  const cropped = await cropPresentationFloorPlan(await response.blob(), [{ name: zone.name, rect: bounds }]);
+  const zoneImage = cropped.zones[0]?.imageUrl;
+  if (!zoneImage) throw new Error('無法裁切分區平面圖，請稍後重試');
   const notes = plan.rendering?.notes[zone.id];
-  if (!notes?.trim()) throw new Error('此分區尚未識別位置與方向，請重新上傳平面圖或在平面圖渲染補充布局');
-  const sheet = await productSheet([zone]);
+  const sheet = await productSheet([{ ...zone, products: renderProducts }]);
+  const localPositions = zone.products.map(product => ({
+    productId: product.id,
+    name: product.name,
+    quantity: Math.max(0, Math.floor(product.quantity)),
+    dimensionsMm: { length: product.dimensionLMm, width: product.dimensionWMm, height: product.dimensionHMm },
+    material: product.material,
+    color: product.color,
+    positions: (plan.placements?.assignments[product.id] || []).slice(0, Math.max(0, Math.floor(product.quantity))).flatMap(id => {
+      const position = plan.placements?.positions[zone.id]?.find(item => item.id === id);
+      return position ? [{
+        instanceId: `${product.id}:${id}`,
+        x: (position.x - bounds.x) / bounds.w * 100,
+        y: (position.y - bounds.y) / bounds.h * 100,
+        angle: position.angle,
+        ...(position.rect ? { footprint: {
+          x: (position.rect.x - bounds.x) / bounds.w * 100,
+          y: (position.rect.y - bounds.y) / bounds.h * 100,
+          w: position.rect.w / bounds.w * 100,
+          h: position.rect.h / bounds.h * 100,
+        } } : {}),
+      }] : [];
+    }),
+  }));
+  const localRegions = zoneRegions.map(rect => ({ x: (rect.x - bounds.x) / bounds.w * 100, y: (rect.y - bounds.y) / bounds.h * 100, w: rect.w / bounds.w * 100, h: rect.h / bounds.h * 100 }));
   const prompt = [
-    `只生成分區「${zone.name}」的室內平視透視效果圖；按該區框還原房間、門窗、通道，保留原圖傢俬位置和朝向。`,
-    `全案統一風格：${plan.rendering?.style || DEFAULT_LAYOUT_STYLE}`,
-    layoutDescription([zone], plan), `上傳時識別的布局：${notes}`,
-    '產品資料中的 placements 為使用者指定或明確配對的位置，優先於文字布局，不可互換產品的位置。未指定位置的產品不可宣稱有確認擺位。將圖上傢俬類別與報價產品編號配對，數量、尺寸、材質以報價資料為準，外觀以產品圖集為準。圖上與報價有差異時按原有位置放置報價產品，不添加報價外傢俬。不推測未知尺寸，無人、無文字。',
+    `第一張圖是分區「${zone.name}」及周邊的局部平面圖，第二張是帶產品id的產品圖集。只生成此分區的一張室內平視透視圖。`,
+    '以下規則是本次生成的具體約束。優先順序：已確認產品清單和位置決定傢俬數量及布局；平面圖決定牆體、門窗及出入口；報價明確填寫的尺寸、材質和顏色優先於產品圖片；未填寫的外觀細節才參考對應產品圖。裝修風格不得改變產品或布局。',
+    `所有座標統一為第一張局部圖百分比，左上(0,0)、右下(100,100)，圖上方為0度，順時針。目標分區範圍：${JSON.stringify(localRegions)}。範圍外只供辨認牆體和門窗，不生成鄰區傢俬。`,
+    `唯一傢俬清單（dimensionsMm為長寬高毫米；footprint為平面佔地框；positions每筆代表一件實物）：${JSON.stringify(localPositions)}`,
+    '每個positions實例只生成一次，不能新增清單外的實物。未分配位置必須保持空白，不能為對稱、美觀或常見會議室配置補椅子；桌端沒有椅子位置就保持無椅。不要把一張桌子當成包含配套椅子的套餐。',
+    '第二張每格僅以標註id對應的單件產品為外觀參考。即使圖片是場景照，也只取該產品的輪廓、桌面、腳架、扶手、靠背等結構；圖內其他桌椅、裝飾、牆體、門窗、鏡頭和布局全部忽略。不得用場景中的其他傢俬替代指定產品。圖集及平面圖不可成為牆上掛畫。',
+    '先依第一張圖辨認目標房間的真實門洞與相連空間，保留所在牆面、相對位置及開向。選擇能展示圖中已確認出入口及主要傢俬的斜向鏡頭；不可為拍攝方便移門、封門、新增門洞或移動傢俬。若透視遮擋，優先調整鏡頭，不改布局；圖中未能確認的門窗不可憑空補出。',
+    'angle為null表示未確認朝向，並非0度；有清楚平面符號時沿用符號，否則不得宣稱朝向已確認。未知尺寸不可自行標成實測尺寸。保持產品結構及比例，不鏡像、不合併。',
+    `全案裝修及照明風格（僅作用於非產品部分）：${plan.rendering?.style || DEFAULT_LAYOUT_STYLE}`,
+    ...(notes?.trim() ? [`輔助識別文字，座標沿用原圖、不能用作本局部圖定位；若與上述清單或平面圖衝突則忽略：${notes}`] : []),
+    '輸出前核對各產品數量、桌端空位、產品款式及門洞位置。只輸出效果圖，無人、無文字。',
   ].join('\n');
   if (prompt.length > 16000) throw new Error('布局資料過長，請縮短分區描述');
-  const overview = plan.rendering?.images.overview;
-  return generateQuoteReferenceImage({ purpose: 'quote_layout', model: 'gemini', quoteUuid, aspectRatio: '16:9', prompt, referenceUrls: [source, sheet, ...(overview ? [overview] : [])] });
+  return generateQuoteReferenceImage({ purpose: 'quote_layout', model: 'gemini', quoteUuid, aspectRatio: '16:9', prompt, referenceUrls: [zoneImage, sheet] });
 }

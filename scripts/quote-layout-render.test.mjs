@@ -125,3 +125,19 @@ test('manual selection rejects invalid boxes and unknown positions without modif
   assert.equal(placement.saveFurnitureSelection(initial, 'zone', ['desk'], 'desk', 0, { category: 'desk', angle: null, rect: { x: 95, y: 20, w: 10, h: 5 } }), initial);
   assert.equal(placement.saveFurnitureSelection(initial, 'zone', ['desk'], 'desk', 0, { category: 'desk', angle: null, positionId: 'missing' }), initial);
 });
+
+
+test('render references require explicit confirmation and replace scene images without changing quote products', () => {
+  const { confirmedLayoutProducts } = load('../src/lib/quoteLayoutRender.ts');
+  const zone = { id: 'room', products: [product('desk', { image: 'https://example.com/scene.jpg' })] };
+  assert.throws(() => confirmedLayoutProducts(zone), /desk/);
+  const chosen = confirmedLayoutProducts(zone, { desk: 'https://example.com/single.jpg' });
+  assert.equal(chosen[0].image, 'https://example.com/single.jpg');
+  assert.equal(zone.products[0].image, 'https://example.com/scene.jpg');
+});
+
+test('render product image choices survive reload and reject embedded image data', () => {
+  const result = parseQuoteFloorPlan({ url: 'https://example.com/plan.png', regions: [], rendering: { productImages: { desk: 'https://example.com/single.jpg', bad: 'data:image/png;base64,abc' } } });
+  assert.equal(result.rendering.productImages.desk, 'https://example.com/single.jpg');
+  assert.equal(result.rendering.productImages.bad, undefined);
+});

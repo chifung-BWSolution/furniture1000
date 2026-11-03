@@ -65,7 +65,7 @@ export type QuoteFloorPlan = {
   previewUrl: string | null;
   regions: QuoteZoneRegion[];
   placements?: QuoteFurniturePlacements;
-  rendering?: { style: string; notes: Record<string, string>; images: Record<string, string> };
+  rendering?: { productImages?: Record<string, string>; style: string; notes: Record<string, string>; images: Record<string, string> };
 };
 
 export type QuoteZoneImageMap = Record<string, string[]>;
@@ -685,5 +685,5 @@ function parseRendering(value: object): NonNullable<QuoteFloorPlan['rendering']>
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
     return Object.fromEntries(Object.entries(value).filter(([, v]) => typeof v === 'string' && (!urls || isHttpImageUrl(v))));
   };
-  return { style: typeof row.style === 'string' ? row.style : '', notes: strings(row.notes), images: strings(row.images, true) };
+  return { style: typeof row.style === 'string' ? row.style : '', productImages: strings(row.productImages, true), notes: strings(row.notes), images: strings(row.images, true) };
 }

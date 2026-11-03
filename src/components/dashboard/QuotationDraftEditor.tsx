@@ -4014,7 +4014,7 @@ export function QuotationDraftEditor({
       setQuotePhotoAssets(prev => [...prev.filter(p => p.id !== asset.id), { id: asset.id, title: `${zone.name}渲染圖`, objectPath: asset.objectPath, isGenerated: true }]);
       setPhotoLibrary(prev => [...prev.filter(p => p.id !== asset.id), asset]);
       setZonePhotoLayouts(prev => ({ ...prev, [zoneId]: [...(prev[zoneId] || []), group] }));
-      setFloorPlan(current => current ? { ...current, rendering: { style: current.rendering?.style || DEFAULT_LAYOUT_STYLE, notes: current.rendering?.notes || {}, images: { ...current.rendering?.images, [zoneId]: asset.url } } } : current);
+      setFloorPlan(current => current ? { ...current, rendering: { ...current.rendering, style: current.rendering?.style || DEFAULT_LAYOUT_STYLE, notes: current.rendering?.notes || {}, images: { ...current.rendering?.images, [zoneId]: asset.url } } } : current);
       itemsUserEditedRef.current = true;
       toast.success('渲染圖已加入此分區產品下方');
     } catch (error) {
@@ -4205,7 +4205,7 @@ export function QuotationDraftEditor({
         : "";
       const notes = detectedLayoutNotes(rows, detected);
       const placements = autoFurniturePlacements(rows, detected, productZones);
-      setFloorPlan(current => current ? { ...current, placements, rendering: { style: current.rendering?.style || DEFAULT_LAYOUT_STYLE, notes, images: {} } } : current);
+      setFloorPlan(current => current ? { ...current, placements, rendering: { ...current.rendering, style: current.rendering?.style || DEFAULT_LAYOUT_STYLE, notes, images: {} } } : current);
       setZoneManagerDraft(rows);
       setActiveZoneId(added > 0 ? rows[0]?.id ?? null : null);
       setZoneManagerOpen(true);
@@ -6728,11 +6728,11 @@ export function QuotationDraftEditor({
         const zone = layoutZones(itemsRef.current).find(z => z.id === target.zoneId);
         const product = zone?.products.find(p => p.id === target.itemId);
         if (zone && product && target.index < product.quantity) {
-          setFloorPlan(current => current ? { ...current, placements: saveFurnitureSelection(current.placements || { positions: {}, assignments: {} }, target.zoneId, zone.products.map(p => p.id), target.itemId, target.index, { ...selection, category: product.name || product.category || '傢俬' }), rendering: { style: current.rendering?.style || DEFAULT_LAYOUT_STYLE, notes: { ...current.rendering?.notes, [target.zoneId]: current.rendering?.notes[target.zoneId] || '以報價產品資料中已確認的圈選位置、範圍及角度為準；未指定的項目位置未知。' }, images: {} } } : current);
+          setFloorPlan(current => current ? { ...current, placements: saveFurnitureSelection(current.placements || { positions: {}, assignments: {} }, target.zoneId, zone.products.map(p => p.id), target.itemId, target.index, { ...selection, category: product.name || product.category || '傢俬' }), rendering: { ...current.rendering, style: current.rendering?.style || DEFAULT_LAYOUT_STYLE, notes: { ...current.rendering?.notes, [target.zoneId]: current.rendering?.notes[target.zoneId] || '以報價產品資料中已確認的圈選位置、範圍及角度為準；未指定的項目位置未知。' }, images: {} } } : current);
         }
         setPickingPlacement(null);
       }} /> : null}
-      {layoutRenderOpen && floorPlan ? <QuoteLayoutRenderDialog title="渲染圖設置" plan={floorPlan} onChange={next => setFloorPlan(current => current ? { ...current, rendering: next.rendering } : current)} onClose={() => setLayoutRenderOpen(false)} /> : null}
+      {layoutRenderOpen && floorPlan ? <QuoteLayoutRenderDialog title="渲染圖設置" products={layoutZones(items).flatMap(zone => zone.products)} plan={floorPlan} onChange={next => setFloorPlan(current => current ? { ...current, rendering: next.rendering } : current)} onClose={() => setLayoutRenderOpen(false)} /> : null}
       {zoneLayoutEditor ? (
         <QuotePhotoLayoutEditor
           layouts={zonePhotoLayouts[zoneLayoutEditor.zoneId] ?? []}
