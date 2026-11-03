@@ -30,6 +30,54 @@ function escapeIlike(raw: string): string {
   return raw.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
+/** 分區名稱含傢俬／家具（含「家俬」異體）才算可帶入的傢俬明細。 */
+const FURNITURE_SECTION_NAME = /傢俬|傢私|家俬|家具|furniture/i;
+
+function isFurnitureSectionName(name: string | null | undefined): boolean {
+  return FURNITURE_SECTION_NAME.test(name || "");
+}
+
+/** 有至少一列傢俬分區明細的 QMS 報價 id。分區名稱先粗篩，再用同一規則確認。 */
+async function quotationIdsWithFurnitureItems(
+  pmsAdmin: ReturnType<typeof createClient>,
+): Promise<string[]> {
+  const orFilter = ["傢俬", "傢私", "家俬", "家具", "furniture"]
+    .map((term) => `name.ilike.%${term}%`)
+    .join(",");
+  const { data: sections, error } = await pmsAdmin
+    .from("quotation_sections")
+    .select("id,quotation_id,name")
+    .or(orFilter)
+    .limit(1000);
+  if (error) throw error;
+  const furniture = (sections || []).filter(
+    (section) => isFurnitureSectionName(section.name) && section.id && section.quotation_id,
+  );
+  if (!furniture.length) return [];
+  const withItems = new Set<string>();
+  const sectionIds = furniture.map((section) => section.id as string);
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data: items, error: itemError } = await pmsAdmin
+      .from("quotation_section_items")
+      .select("section_id")
+      .in("section_id", sectionIds)
+      .range(from, from + pageSize - 1);
+    if (itemError) throw itemError;
+    for (const item of items || []) {
+      if (item.section_id) withItems.add(item.section_id);
+    }
+    if (!items || items.length < pageSize) break;
+  }
+  return [
+    ...new Set(
+      furniture
+        .filter((section) => withItems.has(section.id as string))
+        .map((section) => section.quotation_id as string),
+    ),
+  ];
+}
+
 function remainingDaysFromEnquiry(enquiryDate: string | null): number | null {
   if (!enquiryDate) return null;
   const start = new Date(enquiryDate);
@@ -138,8 +186,14 @@ Deno.serve(async (req: Request) => {
       if (staffError) throw staffError;
       if (!staff || String(staff.status || "").trim().toLowerCase() !== "active" || !["super admin", "admin", "senior user", "user"].includes(String(staff.role || "").trim().toLowerCase())) return jsonResponse({ error: "PMS 職員帳號沒有查看報價的權限。" }, 403);
       if (body.action === "package_pitchings") {
+        const furnitureQuoteIds = await quotationIdsWithFurnitureItems(pmsAdmin);
+        if (!furnitureQuoteIds.length) return jsonResponse({ pitchings: [] });
+        const { data: linked, error: linkError } = await pmsAdmin.from("qms_active_quotations").select("pitching_id").in("id", furnitureQuoteIds);
+        if (linkError) throw linkError;
+        const pitchingIds = [...new Set((linked || []).map((row) => row.pitching_id).filter(Boolean))];
+        if (!pitchingIds.length) return jsonResponse({ pitchings: [] });
         const term = (body.search || "").trim().replace(/[,()]/g, " ").slice(0, 80);
-        let q = pmsAdmin.from("bwa_pitchings").select("id,pitching_code,real_customer_display_name,real_building_name").order("modified_date", { ascending: false, nullsFirst: false }).limit(50);
+        let q = pmsAdmin.from("bwa_pitchings").select("id,pitching_code,real_customer_display_name,real_building_name").in("id", pitchingIds).order("modified_date", { ascending: false, nullsFirst: false }).limit(50);
         if (term) { const pattern = `%${escapeIlike(term)}%`; q = q.or(["pitching_code", "real_customer_display_name", "real_building_name"].map(c => `${c}.ilike.${pattern}`).join(",")); }
         const { data, error } = await q;
         if (error) throw error;
@@ -148,7 +202,8 @@ Deno.serve(async (req: Request) => {
       if (body.action === "package_quotes" && body.pitching_id) {
         const { data, error } = await pmsAdmin.from("qms_active_quotations").select("id,quotation_no,name,status,modified_date,version_number").eq("pitching_id", body.pitching_id).order("modified_date", { ascending: false, nullsFirst: false }).limit(100);
         if (error) throw error;
-        return jsonResponse({ quotes: data });
+        const furnitureQuoteIds = new Set(await quotationIdsWithFurnitureItems(pmsAdmin));
+        return jsonResponse({ quotes: (data || []).filter((row) => furnitureQuoteIds.has(row.id)) });
       }
       if (body.action === "package_items" && body.pitching_id && body.quotation_id) {
         const { data: quote, error: quoteError } = await pmsAdmin.from("qms_active_quotations").select("id").eq("id", body.quotation_id).eq("pitching_id", body.pitching_id).maybeSingle();
@@ -156,7 +211,7 @@ Deno.serve(async (req: Request) => {
         if (!quote) return jsonResponse({ error: "報價與所選項目不符" }, 404);
         const { data: sections, error: sectionError } = await pmsAdmin.from("quotation_sections").select("id,name").eq("quotation_id", body.quotation_id).order("order");
         if (sectionError) throw sectionError;
-        const furniture = (sections || []).filter(s => /傢俬|傢私|家具|furniture/i.test(s.name || ""));
+        const furniture = (sections || []).filter((section) => isFurnitureSectionName(section.name));
         if (!furniture.length) return jsonResponse({ sections: [], items: [] });
         const { data: items, error: itemError } = await pmsAdmin.from("quotation_section_items").select("id,section_id,item,description,quantity,unit,order_number").eq("quote_id", body.quotation_id).in("section_id", furniture.map(s => s.id)).order("order_number");
         if (itemError) throw itemError;

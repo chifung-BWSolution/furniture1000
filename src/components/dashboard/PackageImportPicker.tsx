@@ -88,7 +88,7 @@ export function PackageImportPicker({ template, onImport, onStageChange }: { tem
   return <section className="rounded-xl border bg-card">
     <div className="border-b px-5 py-4">
       <h2 className="font-semibold">選擇來源報價</h2>
-      <p className="mt-1 text-sm text-muted-foreground">從項目報價帶入傢俬明細，再選擇傢俬並配對參考價目。</p>
+      <p className="mt-1 text-sm text-muted-foreground">只列出報價裡已有傢俬明細的項目，選定後再配對參考價目。</p>
     </div>
     <div className="space-y-4 p-5">
       {!pitching ? <div className="space-y-3">
@@ -97,7 +97,7 @@ export function PackageImportPicker({ template, onImport, onStageChange }: { tem
           <span className="font-medium">{row.pitching_code || row.id}</span>
           <span className="ml-3 text-muted-foreground">{[row.real_customer_display_name, row.real_building_name].filter(Boolean).join(' · ')}</span>
         </button>)}</div>
-        {!loading && !pitchings.length && !error ? <p className="py-4 text-sm text-muted-foreground">找不到項目，請嘗試其他關鍵字。</p> : null}
+        {!loading && !pitchings.length && !error ? <p className="py-4 text-sm text-muted-foreground">找不到有傢俬明細的項目，請嘗試其他關鍵字。</p> : null}
       </div> : <>
         <div className="grid items-end gap-4 lg:grid-cols-2">
           <div className="min-w-0">
@@ -105,11 +105,11 @@ export function PackageImportPicker({ template, onImport, onStageChange }: { tem
             <p className="text-sm font-semibold">{pitching.pitching_code || pitching.id}</p>
             <p className="mt-1 text-sm text-muted-foreground">{[pitching.real_customer_display_name, pitching.real_building_name].filter(Boolean).join(' · ')}</p>
           </div>
-          <div className="min-w-0"><p className="mb-2 text-sm text-muted-foreground">來源報價單</p>
-            <Select value={quote} onValueChange={setQuote}><SelectTrigger className="bg-background" aria-label="選擇項目報價"><SelectValue placeholder="選擇項目的報價" /></SelectTrigger><SelectContent>{quotes.map(q => <SelectItem key={q.id} value={q.id}>{[q.quotation_no || q.name || q.id, q.version_number != null ? `V${q.version_number}` : '', q.status, q.modified_date?.slice(0, 10)].filter(Boolean).join(' · ')}</SelectItem>)}</SelectContent></Select>
+          <div className="min-w-0"><p className="mb-2 text-sm text-muted-foreground">來源報價單（只列出有傢俬明細）</p>
+            <Select value={quote} onValueChange={setQuote}><SelectTrigger className="bg-background" aria-label="選擇項目報價"><SelectValue placeholder="選擇有傢俬明細的報價" /></SelectTrigger><SelectContent>{quotes.map(q => <SelectItem key={q.id} value={q.id}>{[q.quotation_no || q.name || q.id, q.version_number != null ? `V${q.version_number}` : '', q.status, q.modified_date?.slice(0, 10)].filter(Boolean).join(' · ')}</SelectItem>)}</SelectContent></Select>
           </div>
         </div>
-        {!loading && !quotes.length && !error ? <p className="text-sm text-muted-foreground">此項目沒有關聯報價，請更換項目。</p> : null}
+        {!loading && !quotes.length && !error ? <p className="text-sm text-muted-foreground">此項目沒有含傢俬明細的報價，請更換項目。</p> : null}
         {quote && !loading && !error && !sections.length ? <p className="text-sm text-muted-foreground">此報價沒有傢俬分區。</p> : null}
         {quote && !loading && !error && sections.length > 0 && !items.length ? <p className="text-sm text-muted-foreground">傢俬分區沒有明細。</p> : null}
       </>}
