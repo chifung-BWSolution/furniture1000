@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Copy, X } from 'lucide-react';
+import type { FurnitureBounds } from '@/lib/quoteFurniturePlacement';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { blankZoneManagerRow, MAX_FLOOR_PLAN_ZONES, normalizeZoneRect, type QuoteZoneRect, type ZoneManagerRow } from '@/lib/quoteFloorPlan';
 
@@ -16,6 +17,8 @@ type Drag =
   | { kind: 'resize'; id: string; corner: Corner; origin: QuoteZoneRect }
   | { kind: 'draw'; id: string; x0: number; y0: number };
 
+export type FloorPlanFurnitureMarker = { id: string; label: string; x: number; y: number; angle: number | null; description: string; color: string; rect?: FurnitureBounds };
+
 type FloorPlanZoneCanvasProps = {
   src: string;
   zones: ZoneManagerRow[];
@@ -27,7 +30,11 @@ type FloorPlanZoneCanvasProps = {
   deleteLabel?: string;
   className?: string;
   onCopyRegion?: (id: string) => void;
+  furnitureMarkers?: FloorPlanFurnitureMarker[];
+  showFurniture?: boolean;
+  activeFurnitureId?: string | null;
   regionDisplay?: (id: string, index: number) => { colorIndex: number; number: number };
+  panEnabled?: boolean;
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -99,9 +106,18 @@ export function FloorPlanZoneCanvas({
   className,
   onCopyRegion,
   regionDisplay,
+  furnitureMarkers = [],
+  showFurniture = false,
+  activeFurnitureId,
+  panEnabled = false,
 }: FloorPlanZoneCanvasProps) {
   const maskId = useId().replace(/:/g, '');
   const frameRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const zoomRef = useRef(1);
+  const [zoom, setZoom] = useState(1);
+  const [baseWidth, setBaseWidth] = useState<number | null>(null);
   const zonesRef = useRef(zones);
   zonesRef.current = zones;
   const dragRef = useRef<Drag | null>(null);
@@ -116,7 +132,45 @@ export function FloorPlanZoneCanvas({
 
   useEffect(() => {
     setReady(false);
+    const img = frameRef.current?.querySelector('img');
+    let cancelled = false;
+    const markReady = () => { if (!cancelled && img?.complete && img.naturalWidth > 0) setReady(true); };
+    markReady();
+    if (img && typeof img.decode === 'function') void img.decode().then(markReady, () => {});
+    setZoom(1);
+    zoomRef.current = 1;
+    setBaseWidth(null);
+    return () => { cancelled = true; };
   }, [src]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const onWheel = (event: WheelEvent) => {
+      const frame = frameRef.current;
+      if (!frame || !ready || dragRef.current) return;
+      event.preventDefault();
+      const oldZoom = zoomRef.current;
+      const nextZoom = clamp(oldZoom * Math.exp(-event.deltaY * 0.0015), 1, 4);
+      if (nextZoom === oldZoom) return;
+      const viewportBox = viewport.getBoundingClientRect();
+      const x = event.clientX - viewportBox.left;
+      const y = event.clientY - viewportBox.top;
+      const frameBox = frame.getBoundingClientRect();
+      const relativeX = (event.clientX - frameBox.left) / frameBox.width;
+      const relativeY = (event.clientY - frameBox.top) / frameBox.height;
+      if (baseWidth === null) setBaseWidth(frameBox.width / oldZoom);
+      zoomRef.current = nextZoom;
+      setZoom(nextZoom);
+      requestAnimationFrame(() => {
+        const nextBox = frame.getBoundingClientRect();
+        viewport.scrollLeft += nextBox.left + relativeX * nextBox.width - viewportBox.left - x;
+        viewport.scrollTop += nextBox.top + relativeY * nextBox.height - viewportBox.top - y;
+      });
+    };
+    viewport.addEventListener('wheel', onWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', onWheel);
+  }, [ready, baseWidth]);
 
   const commit = (id: string, rect: QuoteZoneRect, creating: boolean) => {
     const current = zonesRef.current;
@@ -136,7 +190,7 @@ export function FloorPlanZoneCanvas({
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (disabled || !ready || event.button !== 0) return;
+    if (showFurniture || disabled || !ready || event.button !== 0) return;
     if ((event.target as HTMLElement).closest('[data-zone-delete], [data-zone-copy]')) return;
     const frame = frameRef.current;
     if (!frame) return;
@@ -231,12 +285,28 @@ export function FloorPlanZoneCanvas({
   };
 
   return (
-    <div className={`flex h-full w-full items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/30 p-2 ${className ?? ''}`}>
+    <div ref={viewportRef} className={`flex h-full w-full overflow-auto rounded-lg border border-border bg-muted/30 p-2 ${panEnabled ? 'cursor-grab active:cursor-grabbing touch-none' : ''} ${className ?? ''}`}
+      onPointerDownCapture={event => {
+        if (!panEnabled || event.button !== 0) return;
+        const viewport = event.currentTarget;
+        panRef.current = { x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop };
+        viewport.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      }}
+      onPointerMove={event => {
+        const pan = panRef.current;
+        if (!pan) return;
+        event.currentTarget.scrollLeft = pan.left - (event.clientX - pan.x);
+        event.currentTarget.scrollTop = pan.top - (event.clientY - pan.y);
+      }}
+      onPointerUp={() => { panRef.current = null; }}
+      onPointerCancel={() => { panRef.current = null; }}>
       <div
         ref={frameRef}
         role="application"
         aria-label="Floor plan zones"
-        className={`relative inline-block max-w-full touch-none select-none ${disabled ? '' : 'cursor-crosshair'}`}
+        className={`relative m-auto inline-block shrink-0 touch-none select-none ${baseWidth === null ? 'max-w-full' : ''} ${disabled || showFurniture ? '' : 'cursor-crosshair'}`}
+        style={{ zoom, ...(baseWidth !== null ? { width: baseWidth } : {}) }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -245,7 +315,7 @@ export function FloorPlanZoneCanvas({
         <LoadingImage
           src={src}
           alt=""
-          className="max-h-[408px] max-w-full"
+          className="max-h-[464px] max-w-full"
           imgClassName="object-contain"
           draggable={false}
           onLoad={() => setReady(true)}
@@ -261,7 +331,7 @@ export function FloorPlanZoneCanvas({
               <defs>
                 <mask id={maskId}>
                   <rect x="0" y="0" width="100" height="100" fill="white" />
-                  {zones.map((zone) => zone.rect ? (
+                  {showFurniture ? furnitureMarkers.map(marker => marker.rect ? <rect key={marker.id} x={marker.rect.x} y={marker.rect.y} width={marker.rect.w} height={marker.rect.h} fill="black" /> : <circle key={marker.id} cx={marker.x} cy={marker.y} r="1.5" fill="black" />) : zones.map((zone) => zone.rect ? (
                     <rect key={zone.id} x={zone.rect.x} y={zone.rect.y} width={zone.rect.w} height={zone.rect.h} fill="black" />
                   ) : null)}
                   {draft ? (
@@ -271,7 +341,7 @@ export function FloorPlanZoneCanvas({
               </defs>
               <rect x="0" y="0" width="100" height="100" fill="rgba(15,23,42,0.38)" mask={`url(#${maskId})`} />
             </svg>
-            {zones.map((zone, index) => {
+            {!showFurniture ? zones.map((zone, index) => {
               if (!zone.rect) return null;
               const display = regionDisplay?.(zone.id, index) ?? { colorIndex: index, number: index + 1 };
               const color = floorPlanZoneColor(display.colorIndex);
@@ -306,13 +376,13 @@ export function FloorPlanZoneCanvas({
                       {zone.name}
                     </span>
                   ) : null}
-                  <span
+                  {!showFurniture ? <span
                     className="pointer-events-none absolute left-1/2 top-1/2 z-[1] flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full font-body text-xs font-semibold leading-none text-white shadow-sm"
                     style={{ background: color }}
                   >
                     {display.number}
-                  </span>
-                  {(['nw', 'ne', 'sw', 'se'] as Corner[]).map((corner) => (
+                  </span> : null}
+                  {!disabled && (['nw', 'ne', 'sw', 'se'] as Corner[]).map((corner) => (
                     <span
                       key={corner}
                       className={`absolute z-[3] h-2.5 w-2.5 border border-white ${corner === 'nw' || corner === 'se' ? 'cursor-nwse-resize' : 'cursor-nesw-resize'}`}
@@ -348,8 +418,19 @@ export function FloorPlanZoneCanvas({
                   )}
                 </div>
               );
-            })}
-            {draft ? (
+            }) : null}
+            {showFurniture ? furnitureMarkers.map(marker => (
+              <div key={marker.id} className="contents">
+              {marker.rect ? <div aria-hidden className="pointer-events-none absolute box-border" style={{ left: `${marker.rect.x}%`, top: `${marker.rect.y}%`, width: `${marker.rect.w}%`, height: `${marker.rect.h}%`, border: `${marker.id === activeFurnitureId ? 3 : 2}px solid ${marker.color}`, background: `${marker.color}26` }} /> : null}
+              <span key={marker.id} title={marker.description} aria-label={marker.description}
+                className={`absolute z-20 flex min-h-6 -translate-x-1/2 -translate-y-1/2 items-center gap-0.5 rounded-full border-2 border-white px-1.5 text-[10px] font-semibold text-white shadow-md ${marker.id === activeFurnitureId ? 'ring-2 ring-foreground ring-offset-2' : ''}`}
+                style={{ left: `${marker.x}%`, top: `${marker.y}%`, background: marker.color }}
+                onPointerDown={event => event.stopPropagation()}>
+                {marker.label}{marker.angle !== null ? <span aria-hidden style={{ display: 'inline-block', transform: `rotate(${marker.angle}deg)` }}>↑</span> : null}
+              </span>
+              </div>
+            )) : null}
+            {draft && !showFurniture ? (
               <div
                 className="pointer-events-none absolute box-border border-2 border-dashed border-violet-500 bg-violet-500/15"
                 style={{

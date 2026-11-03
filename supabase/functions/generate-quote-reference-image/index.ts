@@ -86,7 +86,7 @@ type ModelId = "grok" | "gemini";
 
 type GenerateBody = {
   /** Opt-in inferred drawing; existing scene generation remains the default. */
-  purpose?: "orthographic" | "floor_plan" | "presentation_product";
+  purpose?: "orthographic" | "floor_plan" | "presentation_product" | "quote_layout";
   productId?: string;
   /** FDS-13：分區示範圖所屬報價；有值時伺服器會重查報價範圍。 */
   quoteUuid?: string;
@@ -417,10 +417,10 @@ Deno.serve(async (req: Request) => {
     ? raw.referenceUrls.filter((url): url is string => typeof url === "string")
     : [];
 
-  const promptMax = raw.purpose === 'presentation_product' ? PRESENTATION_PROMPT_MAX : PROMPT_MAX;
+  const promptMax = raw.purpose === 'quote_layout' ? 16000 : raw.purpose === 'presentation_product' ? PRESENTATION_PROMPT_MAX : PROMPT_MAX;
   if ((raw.purpose !== 'orthographic' && !prompt) || prompt.length > promptMax) return fail("quote_photo_generate_invalid", 400, "prompt");
   if (!RATIOS.has(aspectRatio)) return fail("quote_photo_generate_invalid", 400, "ratio");
-  if (raw.purpose !== undefined && raw.purpose !== "orthographic" && raw.purpose !== "floor_plan" && raw.purpose !== "presentation_product") return fail("quote_photo_generate_invalid", 400, "purpose");
+  if (raw.purpose !== undefined && raw.purpose !== "orthographic" && raw.purpose !== "floor_plan" && raw.purpose !== "presentation_product" && raw.purpose !== "quote_layout") return fail("quote_photo_generate_invalid", 400, "purpose");
   if (referenceIds.length > MAX_REFERENCES || rawReferenceUrls.length > MAX_REFERENCES) {
     return fail("quote_photo_generate_reference_limit", 400);
   }
@@ -430,6 +430,7 @@ Deno.serve(async (req: Request) => {
 
   // 參考圖片：產品圖直接用公開 URL；舊參數就由圖片庫 object path 組 URL。
   // xAI 可以直接拉 URL；Gemini 需要 inline base64。
+  if (raw.purpose === "quote_layout" && (rawReferenceUrls.length < 2 || rawReferenceUrls.length > 3)) return fail("quote_photo_generate_invalid", 400, "layout requires plan, products and optional overview");
   if (raw.purpose === "floor_plan" && rawReferenceUrls.length !== 1) return fail("quote_photo_generate_invalid", 400, "referenceUrls");
   let referenceUrls: string[] = [];
   let referenceInline: Array<{ mimeType: string; data: string }> = [];
@@ -491,6 +492,8 @@ Deno.serve(async (req: Request) => {
   const composedPrompt =
     raw.purpose === "orthographic"
       ? `產品 ${productModel}。以下為 AI 根據產品圖及產品描述自動分析的繪圖依據，並非使用者確認的要求：${JSON.stringify(analysis)}。綜合全部2至3張同款產品參考圖。只繪製一件家具，移除場景、配件及其他家具。在白底同一張圖上，以相同比例繪製互相一致的正面、右側及俯視正投影，標示 FRONT、RIGHT、TOP，不使用透視。準確保留圖片可見的外形、支撐數量、折彎及通空處；材質及功能參考產品描述。未知或衝突細節不能變成確定結構，不得憑空新增板件、腳架、插座位置或裝飾。不虛構數字尺寸，宣傳內容不轉成幾何。圖上註明「AI 推測三視圖：隱藏結構及尺寸未核實」，不可宣稱為實測施工圖。`
+      : raw.purpose === "quote_layout"
+      ? `第一張圖是布局依據的原始平面圖；第二張是帶產品編號的報價產品圖集；若有第三張則是整體效果圖，只供統一風格。不得把平面圖或圖集當成牆上掛畫。嚴格依照以下分區、數量、位置和朝向，產品外觀以圖集為準。不虛構未確認尺寸，無人無文字。${prompt}`
       : raw.purpose === "presentation_product"
       ? `第一張圖是要突出的主體產品，保留其外觀、材質、顏色及比例。其他圖片按以下說明分辨為同房間搭配產品、房間場景或平面圖；搭配產品也須保持原樣並與主體同處一個一致的空間，不可當作牆上掛畫。${prompt}`
       : raw.purpose === "floor_plan"

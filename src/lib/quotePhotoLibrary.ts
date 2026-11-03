@@ -287,7 +287,7 @@ const GENERATE_SLUGS = [
  * 生成結果 isGenerated = true，介面與 PDF 都會標示「僅供設計參考」。
  */
 export async function generateQuoteReferenceImage(input: {
-  purpose?: 'orthographic' | 'floor_plan' | 'presentation_product';
+  purpose?: 'orthographic' | 'floor_plan' | 'presentation_product' | 'quote_layout';
   productId?: string;
   /** 分區示範圖所屬報價（FDS-13）；有值時 Edge 會重新檢查報價範圍與角色。 */
   quoteUuid?: string | null;

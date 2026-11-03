@@ -1,3 +1,4 @@
+import { parseFurniturePlacements, parseFurniturePositions, type FurniturePosition, type QuoteFurniturePlacements } from './quoteFurniturePlacement';
 /**
  * Quotation floor plan (平面圖) stored on bwf_quote.project_data.
  * Zone names are read from the drawing with the existing Gemini proxy;
@@ -32,6 +33,8 @@ export type QuoteZoneRegion = {
 
 export type DetectedFloorZone = {
   name: string;
+  furnitureLayout?: string;
+  positions?: FurniturePosition[];
   rect: QuoteZoneRect | null;
 };
 
@@ -61,6 +64,8 @@ export type QuoteFloorPlan = {
   fileName: string;
   previewUrl: string | null;
   regions: QuoteZoneRegion[];
+  placements?: QuoteFurniturePlacements;
+  rendering?: { style: string; notes: Record<string, string>; images: Record<string, string> };
 };
 
 export type QuoteZoneImageMap = Record<string, string[]>;
@@ -79,6 +84,8 @@ export function parseQuoteFloorPlan(value: unknown): QuoteFloorPlan | null {
     fileName: fileName || '平面圖',
     previewUrl: isHttpImageUrl(previewRaw) ? previewRaw : null,
     regions: parseQuoteZoneRegions(row.regions),
+    ...(row.placements ? { placements: parseFurniturePlacements(row.placements) } : {}),
+    ...(row.rendering && typeof row.rendering === 'object' ? { rendering: parseRendering(row.rendering) } : {}),
   };
 }
 
@@ -398,7 +405,7 @@ export function zonesFromDetectedText(text: string): DetectedFloorZone[] {
       : record && Array.isArray(record.rooms)
         ? (record.rooms as unknown[])
         : [];
-  const entries: { name: string; rect: RawRect | null }[] = [];
+  const entries: { name: string; rect: RawRect | null; furnitureLayout?: string; positions?: FurniturePosition[] }[] = [];
   const seen = new Set<string>();
   for (const entry of list) {
     const name = readZoneName(entry).replace(/\s+/g, ' ').trim();
@@ -406,19 +413,23 @@ export function zonesFromDetectedText(text: string): DetectedFloorZone[] {
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    entries.push({ name, rect: rectParts(entry) });
+    const layout = entry && typeof entry === 'object' ? (entry as Record<string, unknown>).furnitureLayout : undefined;
+    const positions = entry && typeof entry === 'object' ? parseFurniturePositions((entry as Record<string, unknown>).positions) : [];
+    entries.push({ name, ...(positions.length ? { positions } : {}), rect: rectParts(entry), ...(typeof layout === 'string' && layout.trim() ? { furnitureLayout: layout.trim().slice(0, 6000) } : {}) });
     if (entries.length >= MAX_FLOOR_PLAN_ZONES) break;
   }
   const scale = responseScale(entries.flatMap((entry) => (entry.rect ? [entry.rect] : [])));
   return entries.map((entry) => ({
     name: entry.name,
+    ...(entry.positions?.length ? { positions: entry.positions } : {}),
+    ...(entry.furnitureLayout ? { furnitureLayout: entry.furnitureLayout } : {}),
     rect: entry.rect ? fitRect(entry.rect, scale, 2) : null,
   }));
 }
 
 // ---- Gemini: prompts and network calls below this line ----
 
-function zoneDetectPrompt(): string {
+function zoneDetectPrompt(productContext = ''): string {
   return [
     '你是辦公室平面圖分區辨識助手。看附圖，找出圖上已標示名稱的房間或功能分區，並回報每個分區的位置。',
     '規則：',
@@ -430,7 +441,11 @@ function zoneDetectPrompt(): string {
     '- 框不用精準，使用者之後會自己調整，但不可以只給名稱不給框',
     '- x、y 是框的左上角，w、h 是框的寬高，全部是相對整張圖的百分比，0 到 100，不要用像素',
     '- 完全看不出分區時 zones 為空陣列',
-    '只回 JSON：{"zones":[{"name":"STORAGE","x":4,"y":30,"w":5,"h":12}]}',
+    '同時識別每區所有可見傢俬：furnitureLayout 用文字逐件記錄類別、中心位置(x,y，相對整張圖百分比)、朝向(以圖上方為0度順時針)、數量；不能判斷的配對、角度或尺寸寫未知，不可發明。位置依原圖，之後會按報價產品配對。',
+    '只識別傢俬（例如辦公椅、辦公卡位、枱、櫃、沙發），不要識別電視、顯示器、冰箱、電器、設備或建築設施。同一分區相同類型的傢俬使用一致的 category 名稱，保留每件的獨立位置及方向。',
+    '另外每件可見傢俬在 positions 回傳 {category,x,y,angle,rect,productId,confidence}，x,y 為傢俬中心，rect={x,y,w,h} 為沿可見傢俬外緣的框；全部座標是整張圖百分比，不能辨識範圍時省略rect，不可補造框。angle 相對圖上方順時針，未知角度為null。productId 只可用下列報價同區產品id；不確定或沒有產品時為null，confidence 0到1。不要根據報價數量憑空新增圖上看不到的位置。',
+    `報價產品資料：${productContext || '尚未有產品，只識別位置，不配對'}`,
+    '只回 JSON：{"zones":[{"name":"STORAGE","x":4,"y":30,"w":5,"h":12,"furnitureLayout":"儲物櫃中心(6,35)，朝向90度；其餘未知","positions":[{"category":"儲物櫃","x":6,"y":35,"angle":90,"productId":null,"confidence":0}]}]}',
   ].join('\n');
 }
 
@@ -497,10 +512,10 @@ async function askGeminiForZones(prompt: string, jpegBase64: string): Promise<De
  * Rooms the model named but could not box get one more focused pass, so the zone manager
  * opens with ranges the user can drag instead of a bare list of names.
  */
-export async function detectZonesFromJpegBase64(jpegBase64: string): Promise<DetectedFloorZone[]> {
+export async function detectZonesFromJpegBase64(jpegBase64: string, productContext = ''): Promise<DetectedFloorZone[]> {
   if (!jpegBase64.trim()) throw new Error('平面圖是空的');
 
-  const zones = await askGeminiForZones(zoneDetectPrompt(), jpegBase64);
+  const zones = await askGeminiForZones(zoneDetectPrompt(productContext), jpegBase64);
   const missing = zones.filter((zone) => !zone.rect).map((zone) => zone.name);
   if (!zones.length || !missing.length) return zones;
 
@@ -662,4 +677,13 @@ export async function generateZoneScenePrompt(
   } catch {
     return withReferenceImagePrompts(fallback, referenceFurniture);
   }
+}
+
+function parseRendering(value: object): NonNullable<QuoteFloorPlan['rendering']> {
+  const row = value as Record<string, unknown>;
+  const strings = (value: unknown, urls = false): Record<string, string> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter(([, v]) => typeof v === 'string' && (!urls || isHttpImageUrl(v))));
+  };
+  return { style: typeof row.style === 'string' ? row.style : '', notes: strings(row.notes), images: strings(row.images, true) };
 }

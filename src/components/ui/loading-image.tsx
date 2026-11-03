@@ -73,14 +73,27 @@ function LoadingImage({
   useEffect(() => {
     const img = imgRef.current
     if (!img || !requestSrc) return
-    if (!img.complete) return
-    if (img.naturalWidth > 0) setLoadedSrc(requestSrc)
-    else if (requestSrc !== normalized) setBypassSrc(normalized)
-    else setFailedSrc(requestSrc)
+    let cancelled = false
+    const settle = () => {
+      if (cancelled || !img.complete) return
+      if (img.naturalWidth > 0) {
+        setLoadedSrc(requestSrc)
+        setFailedSrc(current => current === requestSrc ? "" : current)
+      } else if (requestSrc !== normalized) setBypassSrc(normalized)
+      else setFailedSrc(requestSrc)
+    }
+    settle()
+    // Cached/blob images may finish before React receives their load event.
+    // decode also settles the state without another download or a polling timer.
+    if (typeof img.decode === "function") void img.decode().then(settle, () => {
+      if (img.complete) settle()
+    })
+    return () => { cancelled = true }
   }, [requestSrc, normalized])
 
   const handleLoad = (event: SyntheticEvent<HTMLImageElement>) => {
     setLoadedSrc(requestSrc)
+    setFailedSrc(current => current === requestSrc ? "" : current)
     onLoad?.(event)
   }
 
@@ -96,6 +109,7 @@ function LoadingImage({
   const image = requestSrc && !failed ? (
     <img
       {...props}
+      key={requestSrc}
       ref={imgRef}
       src={requestSrc}
       alt={alt}

@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
+import { autoFurniturePlacements, assignFurniturePosition, saveFurnitureSelection } from '@/lib/quoteFurniturePlacement';
+import { ProductPlacementPicker, FurniturePlacementDialog } from './QuoteFurniturePlacement';
+import { DEFAULT_LAYOUT_STYLE, detectedLayoutNotes, generateZoneLayoutImage, layoutZones } from '@/lib/quoteLayoutRender';
+import { Button } from '@/components/ui/button';
+import { confirm } from '@/components/ui/confirm-dialog';
+import { QuoteLayoutRenderDialog } from './QuoteLayoutRenderDialog';
+import { useState, useEffect, useCallback, useRef, useMemo, useId, type ReactNode } from "react";
 import QRCode from "qrcode";
 import "./quotation-draft-editor.css";
 import {
@@ -64,6 +70,8 @@ import {
 } from "@/components/dashboard/QuotePhotoGenerateDialog";
 import {
   groupGeometry,
+  newLayoutGroup,
+  defaultPlacement,
   parsePhotoLayouts,
   parseZonePhotoLayouts,
   pruneZonePhotoLayouts,
@@ -1143,6 +1151,7 @@ function QuoteProductItemCard({
   zonePrefix,
   aiChoices,
   photoZones,
+  placementField,
   draggingItemId,
   dropInsertIndex,
   cutItemId,
@@ -1173,6 +1182,7 @@ function QuoteProductItemCard({
   zoneOptions = [],
   onAssignZone,
 }: {
+  placementField?: ReactNode;
   item: QuotationItem;
   index: number;
   serialNumber: number;
@@ -1518,6 +1528,7 @@ function QuoteProductItemCard({
             onChange={(val) => updateItem(item.id, "remarks", val)}
             uploadImage={uploadRemarksImage}
           />
+          {placementField}
         </QuoteFieldBlock>
 
         <div className="col-start-2 grid grid-cols-1 gap-3 min-[650px]:grid-cols-2 min-[900px]:contents">
@@ -1876,6 +1887,9 @@ function QuoteSectionTitleCard({
   canMoveUp,
   canMoveDown,
   zoneImageUrls = [],
+  onGenerateZoneRender,
+  zoneRenderBusy = false,
+  zoneRenderDisabled = false,
   onUploadZoneImage,
   onRemoveZoneImage,
   onPreviewZoneImage,
@@ -1904,6 +1918,9 @@ function QuoteSectionTitleCard({
   canMoveUp: boolean;
   canMoveDown: boolean;
   zoneImageUrls?: string[];
+  onGenerateZoneRender?: () => void;
+  zoneRenderBusy?: boolean;
+  zoneRenderDisabled?: boolean;
   onUploadZoneImage?: () => void;
   onRemoveZoneImage?: (url: string) => void;
   onPreviewZoneImage?: (imageIndex: number) => void;
@@ -1967,6 +1984,10 @@ function QuoteSectionTitleCard({
           {labels.zoneItemCount.replace("{n}", String(itemCount))}
         </p>
         <div className="flex flex-wrap items-center gap-2">
+        {onGenerateZoneRender ? <Button type="button" variant="outline" size="sm" className={zoneAddBtn} disabled={zoneRenderDisabled || zoneRenderBusy} onClick={onGenerateZoneRender}>
+          {zoneRenderBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImagePlus className="h-3 w-3" />}
+          {zoneRenderBusy ? '生成中…' : '生成渲染圖'}
+        </Button> : null}
         <button
           type="button"
           onClick={onAddItemAbove}
@@ -2699,6 +2720,14 @@ export function QuotationDraftEditor({
   const [floorPlanDragOver, setFloorPlanDragOver] = useState(false);
   const [zoneSortId, setZoneSortId] = useState<string | null>(null);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
+  const [pickingPlacement, setPickingPlacement] = useState<{ zoneId: string; itemId: string; index: number } | null>(null);
+  const [renderingZoneId, setRenderingZoneId] = useState<string | null>(null);
+  const zoneRenderBusyRef = useRef(false);
+  const furnitureSwitchId = useId();
+  const [activeFurnitureMarkerId, setActiveFurnitureMarkerId] = useState<string | null>(null);
+  const [showRecognizedFurniture, setShowRecognizedFurniture] = useState(false);
+  const [zoneCanvasEditing, setZoneCanvasEditing] = useState(false);
+  const [layoutRenderOpen, setLayoutRenderOpen] = useState(false);
   const [zoneManagerOpen, setZoneManagerOpen] = useState(false);
   const [zoneManagerDraft, setZoneManagerDraft] = useState<ZoneManagerRow[]>([]);
   const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
@@ -3962,6 +3991,37 @@ export function QuotationDraftEditor({
     });
   };
 
+  const setProductPlacement = (zoneId: string, itemId: string, index: number, positionId: string) => {
+    const zone = layoutZones(itemsRef.current).find(z => z.id === zoneId);
+    if (!zone || index < 0 || index >= (zone.products.find(p => p.id === itemId)?.quantity || 0)) return;
+    setFloorPlan(current => current ? { ...current, placements: assignFurniturePosition(current.placements || { positions: {}, assignments: {} }, zoneId, zone.products.map(p => p.id), itemId, index, positionId), rendering: current.rendering ? { ...current.rendering, images: {} } : undefined } : current);
+  };
+
+  const generateZoneRender = async (zoneId: string) => {
+    if (zoneRenderBusyRef.current) return;
+    const plan = floorPlanRef.current;
+    const zone = layoutZones(itemsRef.current).find(z => z.id === zoneId);
+    if (!plan || !zone) { toast.error('請先上傳平面圖並確認分區'); return; }
+    zoneRenderBusyRef.current = true;
+    setRenderingZoneId(zoneId);
+    try {
+      const asset = await generateZoneLayoutImage(plan, zone, existingQuote?.quoteUuid ?? null);
+      if (floorPlanRef.current?.url !== plan.url || !itemsRef.current.some(i => i.id === zoneId && i.isSectionTitle)) {
+        toast.message('平面圖或分區已變更，生成圖已保留在圖片庫'); return;
+      }
+      const group = newLayoutGroup('L19');
+      group.placements = [defaultPlacement(groupGeometry(group).slots[0], asset.id)];
+      setQuotePhotoAssets(prev => [...prev.filter(p => p.id !== asset.id), { id: asset.id, title: `${zone.name}渲染圖`, objectPath: asset.objectPath, isGenerated: true }]);
+      setPhotoLibrary(prev => [...prev.filter(p => p.id !== asset.id), asset]);
+      setZonePhotoLayouts(prev => ({ ...prev, [zoneId]: [...(prev[zoneId] || []), group] }));
+      setFloorPlan(current => current ? { ...current, rendering: { style: current.rendering?.style || DEFAULT_LAYOUT_STYLE, notes: current.rendering?.notes || {}, images: { ...current.rendering?.images, [zoneId]: asset.url } } } : current);
+      itemsUserEditedRef.current = true;
+      toast.success('渲染圖已加入此分區產品下方');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '生成渲染圖失敗');
+    } finally { zoneRenderBusyRef.current = false; setRenderingZoneId(null); }
+  };
+
   const renderZonePhotoTail = (zoneId: string) => {
     const urls = zoneImages[zoneId] || [];
     const layouts = (zonePhotoLayouts[zoneId] || []).filter((group) => group.placements.length > 0);
@@ -4032,6 +4092,32 @@ export function QuotationDraftEditor({
   // Synthetic canvas IDs keep each area independently editable while the list keeps one zone,
   // so a space that sits in two places can be copied and dragged like in the presentation manager.
   const canvasZoneRows = zoneCanvasRows(zoneManagerDraft);
+  const recognizedFurnitureMarkers = zoneManagerDraft.flatMap((zone, index) =>
+    (floorPlan?.placements?.positions[zone.id] || []).map(position => ({
+      ...position,
+      zoneId: zone.id,
+      positionId: position.id,
+      id: `${zone.id}:${position.id}`,
+      label: `${index + 1}·${position.label}`,
+      color: floorPlanZoneColor(index),
+      zoneName: zone.name,
+      description: `${zone.name} · ${position.label} · ${position.category} · ${position.angle === null ? '方向未知' : `${position.angle}°`}`,
+    })),
+  );
+  const furnitureGroups = Object.values(recognizedFurnitureMarkers.reduce<Record<string, typeof recognizedFurnitureMarkers>>((groups, marker) => {
+    const key = `${marker.zoneId}:${marker.category.trim().toLowerCase()}`;
+    (groups[key] ||= []).push(marker);
+    return groups;
+  }, {}));
+  const editFurnitureMarker = (zoneId: string, positionId: string, remove: boolean) => {
+    setFloorPlan(current => {
+      if (!current?.placements) return current;
+      const placements = current.placements;
+      const positions = (placements.positions[zoneId] || []).flatMap(position => position.id !== positionId ? [position] : remove ? [] : [{ ...position, angle: ((position.angle ?? 0) + 90) % 360 }]);
+      const assignments = remove ? Object.fromEntries(Object.entries(placements.assignments).map(([id, ids]) => [id, ids.map(value => value === positionId ? '' : value)])) : placements.assignments;
+      return { ...current, placements: { positions: { ...placements.positions, [zoneId]: positions }, assignments } };
+    });
+  };
   const zoneCanvasId = (id: string) => id.split("::")[0];
   const applyZoneCanvas = (rows: ZoneManagerRow[]) =>
     setZoneManagerDraft((current) => applyZoneCanvasChange(current, rows));
@@ -4101,12 +4187,13 @@ export function QuotationDraftEditor({
     setZoneManagerOpen(false);
   };
 
-  const detectZonesFromBlob = async (blob: Blob, priorRegions: QuoteZoneRegion[]) => {
+  const detectZonesFromBlob = async (blob: Blob, priorRegions: QuoteZoneRegion[], replace = false) => {
     setRecognizingZones(true);
     try {
       const jpeg = await imageBlobToJpegBase64(blob);
-      const detected = await detectZonesFromJpegBase64(jpeg);
-      const base = zoneManagerOpenRef.current
+      const productZones = layoutZones(itemsRef.current);
+      const detected = await detectZonesFromJpegBase64(jpeg, JSON.stringify(productZones.map(z => ({ name: z.name, products: z.products.map(p => ({ id: p.id, name: p.name, category: p.category, quantity: p.quantity })) }))));
+      const base = replace ? [] : zoneManagerOpenRef.current
         ? zoneManagerDraftRef.current
         : zoneRowsFromItems(itemsRef.current, priorRegions);
       const { rows, added } = applyDetectedZones(base, detected, generateId);
@@ -4116,6 +4203,9 @@ export function QuotationDraftEditor({
           ? ` ${unboxed} of them came back without an area — drag a box over those on the plan.`
           : `，其中 ${unboxed} 個未能自動框選，可在圖上補框`
         : "";
+      const notes = detectedLayoutNotes(rows, detected);
+      const placements = autoFurniturePlacements(rows, detected, productZones);
+      setFloorPlan(current => current ? { ...current, placements, rendering: { style: current.rendering?.style || DEFAULT_LAYOUT_STYLE, notes, images: {} } } : current);
       setZoneManagerDraft(rows);
       setActiveZoneId(added > 0 ? rows[0]?.id ?? null : null);
       setZoneManagerOpen(true);
@@ -4144,6 +4234,28 @@ export function QuotationDraftEditor({
       });
     } finally {
       setRecognizingZones(false);
+    }
+  };
+
+  const redetectZones = async () => {
+    if (!floorPlan || zoneRecognitionActive) return;
+    const accepted = await confirm({
+      title: quoteLocale === 'en' ? 'Recognize again?' : '重新識別平面圖？',
+      description: quoteLocale === 'en' ? 'This will clear the existing zones and furniture recognition results.' : '重新識別會清空現有分區和傢俬識別結果，並重新識別平面圖。',
+      confirmLabel: quoteLocale === 'en' ? 'Recognize again' : '重新識別',
+      cancelLabel: t.cancel,
+      destructive: true,
+    });
+    if (!accepted) return;
+    setFloorPlanBusy(true);
+    try {
+      const response = await fetch(floorPlan.previewUrl || floorPlan.url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await detectZonesFromBlob(await response.blob(), [], true);
+    } catch (error) {
+      toast.error(quoteLocale === 'en' ? 'Could not load floor plan' : '無法讀取平面圖', { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setFloorPlanBusy(false);
     }
   };
 
@@ -4178,7 +4290,7 @@ export function QuotationDraftEditor({
         previewUrl,
         regions: unconfirmZoneRegions(priorRegions),
       });
-      toast.success(quoteLocale === "en" ? "Floor plan uploaded. Detecting zones…" : "已上傳平面圖，正在識別分區");
+      toast.success(quoteLocale === "en" ? "Floor plan uploaded. Detecting zones…" : "已上傳平面圖，正在識別分區、傢俬位置及方向");
       // Floor plan metadata is not a line-item edit. Marking items edited while
       // bwf_quote_item is still loading drops those rows on the way back.
       if (existingQuote?.quoteUuid && !itemsLoadedRef.current) {
@@ -5759,6 +5871,7 @@ export function QuotationDraftEditor({
                     return (
                     <div key={item.id} className="space-y-3">
                       {item.isSectionTitle ? (
+                        <>
                         <QuoteSectionTitleCard
                           item={item}
                           index={index}
@@ -5786,12 +5899,16 @@ export function QuotationDraftEditor({
                           onMoveDown={() => nudgeItem(item.id, 1)}
                           canMoveUp={canNudge(index, -1)}
                           canMoveDown={canNudge(index, 1)}
+                          onGenerateZoneRender={() => void generateZoneRender(item.id)}
+                          zoneRenderBusy={renderingZoneId === item.id}
+                          zoneRenderDisabled={!floorPlan || zoneRecognitionActive || renderingZoneId !== null || !floorPlan.rendering?.notes[item.id]}
                           onUploadZoneImage={() => openZoneImageUpload(item.id)}
                           onRemoveZoneImage={(url) => removeZoneImage(item.id, url)}
                           onPreviewZoneImage={(imageIndex) =>
                             setZoneLightbox({ urls: zoneImages[item.id] || [], index: imageIndex })
                           }
                         />
+                        </>
                       ) : item.isCustomTerm ? (
                         <QuoteCustomTermCard
                           item={item}
@@ -5826,6 +5943,7 @@ export function QuotationDraftEditor({
                           zonePrefix={zonePrefix}
                           aiChoices={quoteAiChoices}
                           photoZones={quotePhotoZones}
+                          placementField={<ProductPlacementPicker positions={floorPlan?.placements?.positions[zoneTitleIdAt(items, index) || ''] || []} values={floorPlan?.placements?.assignments[item.id] || []} quantity={item.quantity} canSelect={Boolean(floorPlan && floorPlan.regions.some(r => r.zoneId === zoneTitleIdAt(items, index)) && (floorPlan.previewUrl || floorPlan.mimeType.startsWith('image/')))} onChange={(positionIndex, positionId) => { const zoneId = zoneTitleIdAt(items, index); if (zoneId) setProductPlacement(zoneId, item.id, positionIndex, positionId); }} onPickOnPlan={positionIndex => { const zoneId = zoneTitleIdAt(items, index); if (!zoneId) return; setPickingPlacement({ zoneId, itemId: item.id, index: positionIndex }); }} />}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
                           cutItemId={cutItemId}
@@ -6605,6 +6723,16 @@ export function QuotationDraftEditor({
             </div>
       </Modal>
 
+      {pickingPlacement && floorPlan ? <FurniturePlacementDialog key={`${pickingPlacement.itemId}:${pickingPlacement.index}`} plan={floorPlan} zoneId={pickingPlacement.zoneId} zoneName={items.find(i => i.id === pickingPlacement.zoneId)?.name || '分區'} productName={items.find(i => i.id === pickingPlacement.itemId)?.name || items.find(i => i.id === pickingPlacement.itemId)?.category || '傢俬'} index={pickingPlacement.index} value={floorPlan.placements?.assignments[pickingPlacement.itemId]?.[pickingPlacement.index]} onClose={() => setPickingPlacement(null)} onSave={selection => {
+        const target = pickingPlacement;
+        const zone = layoutZones(itemsRef.current).find(z => z.id === target.zoneId);
+        const product = zone?.products.find(p => p.id === target.itemId);
+        if (zone && product && target.index < product.quantity) {
+          setFloorPlan(current => current ? { ...current, placements: saveFurnitureSelection(current.placements || { positions: {}, assignments: {} }, target.zoneId, zone.products.map(p => p.id), target.itemId, target.index, { ...selection, category: product.name || product.category || '傢俬' }), rendering: { style: current.rendering?.style || DEFAULT_LAYOUT_STYLE, notes: { ...current.rendering?.notes, [target.zoneId]: current.rendering?.notes[target.zoneId] || '以報價產品資料中已確認的圈選位置、範圍及角度為準；未指定的項目位置未知。' }, images: {} } } : current);
+        }
+        setPickingPlacement(null);
+      }} /> : null}
+      {layoutRenderOpen && floorPlan ? <QuoteLayoutRenderDialog title="渲染圖設置" plan={floorPlan} onChange={next => setFloorPlan(current => current ? { ...current, rendering: next.rendering } : current)} onClose={() => setLayoutRenderOpen(false)} /> : null}
       {zoneLayoutEditor ? (
         <QuotePhotoLayoutEditor
           layouts={zonePhotoLayouts[zoneLayoutEditor.zoneId] ?? []}
@@ -6681,15 +6809,23 @@ export function QuotationDraftEditor({
         description={zoneRecognitionActive ? t.recognizingZonesDetail : t.manageZonesHint}
         footer={
           <>
-            <ModalButton
+            <div className="flex flex-wrap items-center gap-3 sm:mr-auto">
+            <ModalButton variant="secondary" disabled={!hasFloorPlanPreview || zoneRecognitionActive} onClick={() => void redetectZones()}>
+              {quoteLocale === 'en' ? 'Recognize again' : '重新識別'}
+            </ModalButton>
+            {!showRecognizedFurniture && <ModalButton
               variant="secondary"
-              className="border-dashed sm:mr-auto"
+              className="border-dashed"
               disabled={zoneRecognitionActive}
               onClick={() => setZoneManagerDraft((prev) => [...prev, blankZoneManagerRow(generateId())])}
             >
               <Plus className="h-4 w-4" />
               {t.addZoneSpace}
+            </ModalButton>}
+            <ModalButton variant="secondary" disabled={!floorPlan || zoneRecognitionActive} onClick={() => setLayoutRenderOpen(true)}>
+              渲染圖設置
             </ModalButton>
+            </div>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
               {t.cancel}
             </ModalButton>
@@ -6710,7 +6846,7 @@ export function QuotationDraftEditor({
             <div className="space-y-2">
               <div
                 className={cn(
-                  "relative h-[440px] overflow-hidden rounded-lg",
+                  "relative h-[496px] overflow-hidden rounded-lg",
                   floorPlanDragOver && "ring-2 ring-violet-400",
                 )}
                 onDragOver={(event) => {
@@ -6730,13 +6866,27 @@ export function QuotationDraftEditor({
                   if (file) void handleFloorPlanFile(file);
                 }}
               >
+                <div className="absolute left-3 top-3 z-30 flex items-center gap-2 rounded-lg border border-border bg-background/95 px-3 py-2 shadow-sm">
+                  <span className={`text-xs ${!zoneCanvasEditing ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>查看模式</span>
+                  <Switch aria-label="切換查看模式與編輯模式" checked={zoneCanvasEditing} onCheckedChange={setZoneCanvasEditing} disabled={!hasFloorPlanPreview || zoneRecognitionActive} />
+                  <span className={`text-xs ${zoneCanvasEditing ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>編輯模式</span>
+                </div>
+                <div className="absolute right-3 top-3 z-30 flex items-center gap-2 rounded-lg border border-border bg-background/95 px-3 py-2 shadow-sm">
+                  <span className={`text-xs ${showRecognizedFurniture ? 'text-muted-foreground' : 'font-semibold text-foreground'}`}>平面識別</span>
+                  <Switch id={furnitureSwitchId} aria-label="切換平面識別與傢俬識別" checked={showRecognizedFurniture} onCheckedChange={setShowRecognizedFurniture} disabled={!hasFloorPlanPreview || zoneRecognitionActive} />
+                  <span className={`text-xs ${showRecognizedFurniture ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>傢俬識別</span>
+                </div>
                 {hasFloorPlanPreview ? (
                   <FloorPlanZoneCanvas
                     src={(floorPlan?.previewUrl || floorPlan?.url) as string}
                     zones={canvasZoneRows}
+                    showFurniture={showRecognizedFurniture}
+                    furnitureMarkers={recognizedFurnitureMarkers}
+                    activeFurnitureId={activeFurnitureMarkerId}
                     activeId={activeZoneId ? `${activeZoneId}::0` : null}
                     createId={generateId}
-                    disabled={zoneRecognitionActive}
+                    disabled={zoneRecognitionActive || !zoneCanvasEditing}
+                    panEnabled={!zoneCanvasEditing && !zoneRecognitionActive}
                     deleteLabel={quoteLocale === "en" ? "Delete space" : "刪除空間"}
                     onChange={applyZoneCanvas}
                     onActive={(id) => setActiveZoneId(zoneCanvasId(id))}
@@ -6768,10 +6918,25 @@ export function QuotationDraftEditor({
                   </div>
                 ) : null}
               </div>
-              <p className="font-body text-xs leading-5 text-muted-foreground">{t.floorPlanRecognizeHint}</p>
             </div>
           <div className="min-w-0 space-y-3">
-          {zoneManagerDraft.length === 0 ? (
+          {showRecognizedFurniture ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between"><p className="text-sm font-semibold">傢俬分區</p><span className="text-xs text-muted-foreground">共 {recognizedFurnitureMarkers.length} 件</span></div>
+              <p className="text-xs leading-5 text-muted-foreground">包含尚未配對報價的傢俬。有識別範圍時顯示框線，只有座標時顯示位置標記。</p>
+              <div className="max-h-[370px] space-y-2 overflow-y-auto" aria-live="polite">
+                {furnitureGroups.length ? furnitureGroups.map(group => <div key={`${group[0].zoneId}:${group[0].category}`} className="space-y-2 rounded-lg border p-3">
+                  <p className="text-sm font-medium">{group[0].zoneName} · {group[0].category}（{group.length}）</p>
+                  {group.map(marker => <div key={marker.id} className="flex items-center gap-2">
+                    <button type="button" onClick={() => setActiveFurnitureMarkerId(marker.id)} aria-pressed={activeFurnitureMarkerId === marker.id} className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-white" style={{ background: marker.color }}>{marker.label}</button>
+                    <span className="flex-1 text-xs text-muted-foreground">{marker.angle === null ? '方向未知' : `${marker.angle}°`}</span>
+                    <Button type="button" variant="outline" size="sm" disabled={!zoneCanvasEditing || zoneRecognitionActive} onClick={() => editFurnitureMarker(marker.zoneId, marker.positionId, false)}>轉向 90°</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={!zoneCanvasEditing || zoneRecognitionActive} aria-label={`刪除 ${marker.label}`} onClick={() => editFurnitureMarker(marker.zoneId, marker.positionId, true)}><Trash2 className="h-4 w-4" /></Button>
+                  </div>)}
+                </div>) : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">尚未有傢俬識別資料，請上傳平面圖進行識別。</p>}
+              </div>
+            </div>
+          ) : zoneManagerDraft.length === 0 ? (
             <Empty className="h-[440px] border border-border bg-muted/20">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
