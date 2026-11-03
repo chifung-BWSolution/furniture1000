@@ -47,15 +47,30 @@ async function inspectPhotos(photos: Photo[], product: LayoutProduct): Promise<V
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('請先登入');
-  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/supabase-functions-gemini-proxy`, {
+  const endpoint = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/supabase-functions-gemini-proxy`;
+  const request: RequestInit = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: import.meta.env.VITE_SUPABASE_ANON_KEY },
     body: JSON.stringify({ model: DEFAULT_GEMINI_MODEL, feature: 'quote_product_reference_selection', contents: [{ parts: [
       { text: `判斷各張圖片是否適合用作此產品的單品外觀參考。產品：${JSON.stringify({ name: product.name, sku: product.sku, material: product.material, color: product.color, dimensions: renderDimensionConstraints(product) })}。尺寸為毫米，長寬高為產品局部軸，不能交換軸或把透視縮短誤當尺寸變化。有明確尺寸標註與要求不符的型號或規格不能選；沒有標註時依可見結構及比例判斷，不可宣稱量測精確。圖片從0開始編號。matches只在確認款式與明確指定的顏色材質相符時為true；single只在圖片僅有一件目標傢俬、沒有配套桌椅或其他物件時為true；plain只在白底、透明底或無場景的純色背景時為true；complete只在傢俬完整可見、沒有截斷或遮擋時為true。房間場景圖即使牆壁是白色也不是plain。圖冊拼圖、多視角拼圖或多件產品不是single。不確定填false。每張必須回一筆，依適用程度排序。只回JSON：{"photos":[{"index":0,"matches":true,"single":true,"plain":true,"complete":true}]}` },
       ...photos.flatMap((photo, index) => [{ text: `圖片${index}` }, { inlineData: { mimeType: 'image/jpeg', data: photo.data } }]),
-    ] }] }), signal: AbortSignal.timeout(90000),
-  });
-  if (!response.ok) throw new Error('產品圖片自動判斷失敗，請重試');
+    ] }] }),
+  };
+  let response: Response;
+  try {
+    response = await fetch(endpoint, { ...request, signal: AbortSignal.timeout(145000) });
+    const timedOut = response.status === 500 && /timed?\s*out|timeout/i.test(await response.clone().text());
+    if (timedOut || [429, 502, 503, 504].includes(response.status)) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      response = await fetch(endpoint, { ...request, signal: AbortSignal.timeout(145000) });
+    }
+  } catch { throw new Error(`「${product.name}」圖片判斷服務連線失敗或逾時，請稍後重試`); }
+  if (!response.ok) {
+    if (response.status === 500 && /timed?\s*out|timeout/i.test(await response.clone().text())) throw new Error(`「${product.name}」圖片判斷服務逾時，請稍後重試`);
+    if (response.status === 429) throw new Error(`「${product.name}」圖片判斷服務繁忙（429），請稍後重試`);
+    if (response.status === 401 || response.status === 403) throw new Error(`「${product.name}」圖片判斷授權失敗（${response.status}），請重新登入`);
+    throw new Error(`「${product.name}」圖片判斷服務失敗（${response.status}），請稍後重試`);
+  }
   const body = await response.json();
   const raw = body?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('') || '';
   const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
