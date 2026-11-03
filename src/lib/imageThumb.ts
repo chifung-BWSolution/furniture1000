@@ -55,10 +55,6 @@ export function toThumbUrl(
   const slash = parsed.pathname.indexOf('/', offset);
   const path = parsed.pathname.slice(slash + 1);
   if (path.startsWith('catalog-thumbs/')) return original;
-  const ownBase = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-  if (parsed.origin === ownBase && parsed.pathname.slice(offset, slash) === 'product-images') {
-    return `/api/image-thumbnail?path=${encodeURIComponent(decodeURIComponent(path))}`;
-  }
   parsed.pathname = parsed.pathname.slice(0, slash + 1) + '__thumbs/v1/' + path + '.webp';
   return parsed.toString();
 }

@@ -20,10 +20,10 @@ test('legacy transform URLs no longer invoke transformations',()=>{
  assert.equal(originalImageUrl(legacy),original);assert.ok(!toThumbUrl(legacy).includes('/render/image/'));
 });
 
-test('own-project images use the materializing endpoint',async()=>{
+test('own-project images read persisted thumbnails directly',async()=>{
  const ownSource=fs.readFileSync('src/lib/imageThumb.ts','utf8').replaceAll('import.meta.env.VITE_SUPABASE_IMAGE_TRANSFORMS','undefined').replaceAll('import.meta.env.VITE_SUPABASE_URL',JSON.stringify('https://example.supabase.co'));
  const compiled=ts.transpileModule(ownSource,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2020}}).outputText;
  const own=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
- assert.equal(own.toThumbUrl(original),'/api/image-thumbnail?path=products%2Fa%20b.jpg');
+ assert.equal(own.toThumbUrl(original),original.replace('/products/', '/__thumbs/v1/products/')+'.webp');
  assert.equal(own.toThumbUrl(original,{width:1600}),original);
 });
