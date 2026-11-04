@@ -119,13 +119,73 @@ async function refreshAsanaToken(refreshToken: string): Promise<{ access_token?:
 }
 
 /**
- * 對齊 QMS：一般職員用自己 OAuth 連接的 token；cron（worker secret）沒有用戶身分，
- * 才用 edge secret 的 `ASANA_ACCESS_TOKEN` 作系統連線。Token 不會回傳前端。
+ * 對齊 QMS：一般職員用自己 OAuth 連接的 token。
+ * cron（worker secret）先用 edge secret `ASANA_ACCESS_TOKEN`（系統連線），
+ * 若它對某個 task 回 403（PAT 不屬於該專案）就自動改用資料庫裡最後連接的
+ * OAuth token（過期會 refresh）。逐個 task 試，任何一個 token 讀得到就繼續。
+ * Token 不會回傳前端。
  */
-async function resolveAsanaToken(req: Request, admin: SupabaseClient): Promise<{ token: string; source: string }> {
-  if (req.headers.get("x-worker-secret") !== null) {
-    return { token: (Deno.env.get("ASANA_ACCESS_TOKEN") ?? "").trim(), source: "pat_cron" };
+type TokenRecord = {
+  auth_user_id?: string;
+  access_token?: string | null;
+  refresh_token?: string | null;
+  expires_at?: string | null;
+  asana_user_gid?: string | null;
+  asana_user_name?: string | null;
+};
+
+const TOKEN_COLUMNS = "auth_user_id,access_token,refresh_token,expires_at,asana_user_gid,asana_user_name";
+
+async function resolveStoredToken(
+  admin: SupabaseClient,
+  record: TokenRecord | null,
+): Promise<{ token: string; source: string } | null> {
+  if (!record?.access_token) return null;
+  const expiring = record.expires_at ? new Date(record.expires_at).getTime() < Date.now() + 60_000 : false;
+  if (!expiring) return { token: record.access_token, source: "oauth" };
+  if (!record.refresh_token) return null;
+  const refreshed = await refreshAsanaToken(record.refresh_token);
+  if (!refreshed?.access_token) return null;
+  if (record.auth_user_id) {
+    await admin.rpc("fds_asana_oauth_save", {
+      p_auth_user_id: record.auth_user_id,
+      p_access_token: refreshed.access_token,
+      p_refresh_token: refreshed.refresh_token ?? record.refresh_token,
+      p_expires_at: refreshed.expires_in
+        ? new Date(Date.now() + Number(refreshed.expires_in) * 1000).toISOString()
+        : record.expires_at ?? null,
+      p_asana_user_gid: record.asana_user_gid ?? null,
+      p_asana_user_name: record.asana_user_name ?? null,
+    });
   }
+  return { token: refreshed.access_token, source: "oauth_refreshed" };
+}
+
+async function resolveAsanaToken(
+  req: Request,
+  admin: SupabaseClient,
+): Promise<{ token: string; source: string; fallbacks: string[] }> {
+  const pat = (Deno.env.get("ASANA_ACCESS_TOKEN") ?? "").trim();
+
+  if (req.headers.get("x-worker-secret") !== null) {
+    const candidates = pat ? [pat] : [];
+    let source = pat ? "pat_cron" : "";
+    const { data: rows } = await admin
+      .from("fds_asana_oauth_tokens")
+      .select(TOKEN_COLUMNS)
+      .not("access_token", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(5);
+    for (const record of (rows ?? []) as TokenRecord[]) {
+      const resolved = await resolveStoredToken(admin, record);
+      if (!resolved || candidates.includes(resolved.token)) continue;
+      candidates.push(resolved.token);
+      if (!source) source = `cron_${resolved.source}`;
+      break;
+    }
+    return { token: candidates[0] ?? "", source: source || "pat_cron", fallbacks: candidates.slice(1) };
+  }
+
   const jwt = (req.headers.get("Authorization") ?? "").match(/^Bearer\s+(\S+)$/i)?.[1]?.trim() ?? "";
   if (jwt) {
     const { data: userData } = await admin.auth.getUser(jwt);
@@ -133,39 +193,20 @@ async function resolveAsanaToken(req: Request, admin: SupabaseClient): Promise<{
     if (uid) {
       const { data: row } = await admin
         .from("fds_asana_oauth_tokens")
-        .select("access_token,refresh_token,expires_at,asana_user_gid,asana_user_name")
+        .select(TOKEN_COLUMNS)
         .eq("auth_user_id", uid)
         .maybeSingle();
-      const record = row as {
-        access_token?: string | null;
-        refresh_token?: string | null;
-        expires_at?: string | null;
-        asana_user_gid?: string | null;
-        asana_user_name?: string | null;
-      } | null;
-      if (record?.access_token) {
-        const expiring = record.expires_at ? new Date(record.expires_at).getTime() < Date.now() + 60_000 : false;
-        if (!expiring) return { token: record.access_token, source: "oauth" };
-        if (record.refresh_token) {
-          const refreshed = await refreshAsanaToken(record.refresh_token);
-          if (refreshed?.access_token) {
-            await admin.rpc("fds_asana_oauth_save", {
-              p_auth_user_id: uid,
-              p_access_token: refreshed.access_token,
-              p_refresh_token: refreshed.refresh_token ?? record.refresh_token,
-              p_expires_at: refreshed.expires_in
-                ? new Date(Date.now() + Number(refreshed.expires_in) * 1000).toISOString()
-                : record.expires_at ?? null,
-              p_asana_user_gid: record.asana_user_gid ?? null,
-              p_asana_user_name: record.asana_user_name ?? null,
-            });
-            return { token: refreshed.access_token, source: "oauth_refreshed" };
-          }
-        }
+      const resolved = await resolveStoredToken(admin, row as TokenRecord | null);
+      if (resolved) {
+        return {
+          token: resolved.token,
+          source: resolved.source,
+          fallbacks: pat && pat !== resolved.token ? [pat] : [],
+        };
       }
     }
   }
-  return { token: (Deno.env.get("ASANA_ACCESS_TOKEN") ?? "").trim(), source: "pat" };
+  return { token: pat, source: "pat", fallbacks: [] };
 }
 
 function parsePmsTaskGid(value: unknown): string | null {
@@ -228,8 +269,8 @@ async function handle(req: Request): Promise<Response> {
   if (denied) return denied;
 
   const resolved = await resolveAsanaToken(req, admin);
-  const token = resolved.token;
-  if (!token) return json({ error: "asana_not_configured" }, 503);
+  const tokens = Array.from(new Set([resolved.token, ...resolved.fallbacks])).filter((value) => value.length > 0);
+  if (tokens.length === 0) return json({ error: "asana_not_configured" }, 503);
 
   const pmsLinks = await reconcilePmsFactoryLinks(admin);
 
@@ -256,8 +297,16 @@ async function handle(req: Request): Promise<Response> {
 
   for (const link of (links ?? []) as LinkRow[]) {
     try {
-      const task = await asanaGet(token, `/tasks/${link.asana_task_gid}?opt_fields=notes,modified_at`);
-      if (!task.ok) throw new Error(`asana_task_${task.status}`);
+      // 逐個 token 試（PAT → OAuth）：403 通常係 PAT 唔在該 task 所屬專案，
+      // 換另一個授權就可以照讀，唔需要整條 link 標錯。
+      let token = tokens[0];
+      let task: { ok: boolean; status: number; body: unknown } | null = null;
+      for (const candidate of tokens) {
+        token = candidate;
+        task = await asanaGet(candidate, `/tasks/${link.asana_task_gid}?opt_fields=notes,modified_at`);
+        if (task.ok || (task.status !== 401 && task.status !== 403)) break;
+      }
+      if (!task?.ok) throw new Error(`asana_task_${task?.status ?? 0}`);
       const taskData = (task.body as { data?: { notes?: string; modified_at?: string } })?.data ?? {};
 
       // Stories are paginated; walk up to 5 pages of 100 so long comment threads still sync.
