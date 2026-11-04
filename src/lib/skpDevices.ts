@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 
 /** Same string the bundled worker reports (workers/skp-writer/worker.mjs); older ones drop colours and holes. */
-export const CURRENT_SKP_WORKER_VERSION = 'device-auth-2';
+export const CURRENT_SKP_WORKER_VERSION = 'device-auth-3+codex-4-blender-native';
 
 export interface SkpPairing {
   code: string;

@@ -17,6 +17,12 @@ const CODEX_CHECKS: [CodexCheckKey, string, string][] = [
   ['fds_mcp', 'FDS SketchUp MCP（埠 9878）', '與建築學長的 9876 同時開。未安裝可下載後自行複製到 Plugins'],
   ['session_ruby', 'SketchUp 專用工作階段腳本', '隨最新版 SKP Worker 安裝'],
 ];
+const BLENDER_CHECKS: [CodexCheckKey, string, string][] = [
+  ['blender_installed', 'Blender', '安裝 Blender；非標準位置可在 Worker 電腦設定 FDS_BLENDER_EXE'],
+  ['codex_cli', 'Codex CLI', '安裝 Codex 桌面版或 CLI'],
+  ['codex_login', 'Codex 登入', '在 Worker 電腦登入 Codex'],
+  ['mcp_bridge', 'Blender 操作橋接', '隨最新版 Worker 安裝'],
+];
 
 /** Shared by both SU entry points; failure stays in the dialog instead of a toast. */
 export function useSkpRequirements() {
@@ -101,7 +107,7 @@ export function useSkpRequirements() {
               <h3 className="text-base font-semibold text-slate-950 sm:text-lg">Worker 電腦上的本機建模環境</h3>
               {!result.codex_checks && <p>Worker 尚未回報 Codex 狀態（可能是舊版 Worker）。請更新 SKP Worker 後重新檢測。</p>}
               <ul className="space-y-2">
-                {CODEX_CHECKS.map(([key, label, hint]) => (
+                {(result.codex_checks?.engine === 'blender' ? BLENDER_CHECKS : CODEX_CHECKS).map(([key, label, hint]) => (
                   <li key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="min-w-0 font-medium text-slate-700">{label}</span>
                     {status(result.codex_checks?.[key])}

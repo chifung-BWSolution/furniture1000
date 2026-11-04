@@ -43,7 +43,7 @@ export const QUOTE_PHOTO_GENERATE_MODELS = [
 export type QuotePhotoGenerateModel = (typeof QUOTE_PHOTO_GENERATE_MODELS)[number]['id'];
 /** 一次生成最多帶 5 張參考圖（跟 Edge function 的上限一致）。 */
 export const QUOTE_PHOTO_GENERATE_MAX_REFERENCES = 5;
-export const QUOTE_PHOTO_PROMPT_MAX = 500;
+export const QUOTE_PHOTO_PROMPT_MAX = 2000;
 
 export type QuotePhotoAsset = {
   id: string;

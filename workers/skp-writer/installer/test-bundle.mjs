@@ -3,10 +3,13 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 const payload = process.argv[2];
 assert.ok(payload, 'payload directory required');
 const requests = [];
+const testRoot = await mkdtemp(join(tmpdir(), 'fds-bundle-test-'));
 const server = createServer(async (req, res) => {
   let raw = '';
   for await (const chunk of req) raw += chunk;
@@ -19,6 +22,8 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 try {
   const env = {
     ...process.env,
+    FDS_SKP_WORK_DIR: testRoot,
+    FDS_CODEX_ENABLED: 'false',
     SUPABASE_URL: `http://127.0.0.1:${server.address().port}`,
     FDS_SKP_ANON_KEY: 'fixture-anon',
     FDS_SKP_DEVICE_ID: '00000000-0000-4000-8000-000000000001',
@@ -58,4 +63,8 @@ try {
     assert.equal(output.includes('service_role'), false);
     console.log('PASS: bundled Node reports readiness and claims through the device proxy; no service role or refresh token is sent on those calls.');
   } finally { clearTimeout(timer); if (child.exitCode === null) child.kill(); }
-} finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
+} finally {
+  server.closeAllConnections();
+  await new Promise((resolve) => server.close(resolve));
+  await rm(testRoot, { recursive: true, force: true });
+}

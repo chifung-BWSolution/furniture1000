@@ -6,11 +6,11 @@ import { join } from 'node:path';
 export function loadEngine(home = join(process.env.LOCALAPPDATA ?? '', 'FDS', 'SkpWorker')) {
   try {
     const raw = JSON.parse(readFileSync(join(home, 'engine.json'), 'utf8').replace(/^\uFEFF/, ''));
-    if (raw.engine === 'jzxz' || raw.engine === 'codex') return raw.engine;
+    if (['jzxz', 'codex', 'blender'].includes(raw.engine)) return raw.engine;
   } catch {
     // Missing or unreadable file keeps the previous default.
   }
-  return process.env.FDS_SKP_ENGINE === 'jzxz' ? 'jzxz' : 'codex';
+  return ['jzxz', 'blender'].includes(process.env.FDS_SKP_ENGINE) ? process.env.FDS_SKP_ENGINE : 'codex';
 }
 
 export function jzxzPaths(workerDir) {
@@ -31,7 +31,7 @@ export function jzxzChecks(workerDir) {
   const bridge = existsSync(paths.ui);
   const selected = loadEngine() === 'jzxz';
   return {
-    engine: selected ? 'jzxz' : 'codex',
+    engine: loadEngine(),
     jzxz_installed: installed,
     jzxz_bridge: bridge,
     jzxz_ready: selected && installed && bridge ? 'true' : 'false',

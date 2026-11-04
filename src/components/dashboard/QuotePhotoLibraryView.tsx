@@ -35,6 +35,7 @@ import {
 } from '@/lib/quotePhotoLibrary';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { usePasteFiles } from '@/hooks/use-paste-files';
 
 const PAGE_SIZE = 20;
 
@@ -67,6 +68,16 @@ export function QuotePhotoLibraryView() {
   const [filter, setFilter] = useState<'all' | QuotePhotoPlacement>('all');
   const [generateOpen, setGenerateOpen] = useState(false);
   const [page, setPage] = useState(1);
+
+  /** Ctrl+V 貼上圖片：直接加入圖片庫，跟按上載一樣。 */
+  usePasteFiles({
+    enabled: canManage && !missingTable && !generateOpen && !renaming && !deleteTarget,
+    multiple: true,
+    accept: (file) => file.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(file.name),
+    onFiles: (files) => {
+      void onFiles(files);
+    },
+  });
 
   const reload = useCallback(async () => {
     const result = await listQuotePhotoAssets();
@@ -165,7 +176,7 @@ export function QuotePhotoLibraryView() {
     });
   }
 
-  async function onFiles(list: FileList | null) {
+  async function onFiles(list: FileList | File[] | null) {
     const files = Array.from(list ?? []);
     if (!files.length) return;
     setUploading(true);

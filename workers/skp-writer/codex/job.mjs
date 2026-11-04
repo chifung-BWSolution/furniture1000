@@ -12,8 +12,9 @@ import { downloadReferences } from './images.mjs';
 import { acquireSketchUpLock, killTree, pidAlive } from './lock.mjs';
 import { buildPrompt } from './prompt.mjs';
 import { modelWithJzxz } from '../jzxz/model-job.mjs';
+import { generateBlenderDraft } from '../blender/job.mjs';
 
-export const CODEX_JOB_VERSION = 'codex-2';
+export const CODEX_JOB_VERSION = 'codex-4-blender-native';
 const STOP_CODES = new Set(['stopped', 'lease_rejected', 'revoked', 'expired', 'suspended', 'unauthorized']);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -204,6 +205,11 @@ export async function runCodexJob(job, deps) {
     screens: join(dir, 'screens'),
   };
   for (const p of Object.values(paths)) await mkdir(p, { recursive: true });
+  // Recovery keeps the engine that created this model, even if the manager selection changes.
+  const engineFile = join(dir, 'engine.json');
+  if (existsSync(engineFile)) deps = { ...deps, engine: JSON.parse(await readFile(engineFile, 'utf8')).engine };
+  else await writeFile(engineFile, JSON.stringify({ engine: deps.engine ?? 'codex' }));
+  const blender = deps.engine === 'blender';
   const stopper = new AbortController();
   let stopError = null;
   let progress = 0;
@@ -232,7 +238,7 @@ export async function runCodexJob(job, deps) {
   };
   // progress.json is read by the installer's task panel; it never gates the job.
   const track = (name, detail) => stamp('progress.json', {
-    job_id: job.id, revision: deps.revision ?? 0, stage: name, detail: detail ?? null, at: new Date().toISOString(),
+    job_id: job.id, revision: deps.revision ?? 0, engine: deps.engine ?? 'codex', stage: name, detail: detail ?? null, at: new Date().toISOString(),
   }).catch(() => {});
   const stage = async (name, value, detail) => {
     progress = value;
@@ -268,6 +274,7 @@ export async function runCodexJob(job, deps) {
       }
     } else {
       generated = await (async () => {
+    if (blender) return generateBlenderDraft({job,deps,dir,paths,stage,signal:stopper.signal});
     const recovery = await loadRecovery(dir, job.id);
     if (recovery?.stage === 'modeling' && deps.engine === 'jzxz') throw new JobError('validation', 'jzxz_interrupted: 現有模型已保留，需確認後接續');
     await stage('download', 0.05, `下載 ${(input.references ?? []).length} 張參考圖`);
@@ -369,8 +376,9 @@ export async function runCodexJob(job, deps) {
       await stamp('ai-usage.json', { engine: 'jzxz', job_id: job.id, attempt: job.attempt, recorded_at: new Date().toISOString() });
     } else {
     await stage('codex', 0.2, 'Codex 建模中');
-    const scriptPath = join(dir, 'build_model.rb');
-    const previousScript = deps.revisionSeed ? join(dirname(dirname(deps.revisionSeed)), 'build_model.rb') : null;
+    const scriptName = 'build_model.rb';
+    const scriptPath = join(dir, scriptName);
+    const previousScript = deps.revisionSeed ? join(dirname(dirname(deps.revisionSeed)), scriptName) : null;
     const carried = !!previousScript && !existsSync(scriptPath) && existsSync(previousScript);
     if (carried) await copyFile(previousScript, scriptPath);
     let prompt = buildPrompt({ snapshot: input, references: refs.saved, reportPath, scriptPath, maxReviewRounds: config.maxReviewRounds });
@@ -421,7 +429,7 @@ ${existsSync(scriptPath)
       }
       if (Date.now() - lastDetail > 20_000) {
         lastDetail = Date.now();
-        const detail = `Codex 建模中（已執行 ${toolCalls} 次 SketchUp 操作）`;
+        const detail = `Codex SketchUp 建模中（已執行 ${toolCalls} 次操作）`;
         track('codex', detail);
         heartbeat({ stage: 'codex', detail }).catch(() => {});
       }
@@ -553,7 +561,7 @@ ${existsSync(scriptPath)
       job_id: job.id,
       attempt: job.attempt,
       product_id: input.product?.id ?? null,
-      tools: { codex: codexVersion ?? null, sketchup: exportInfo.sketchup_version, worker: CODEX_JOB_VERSION },
+      tools: { engine: deps.engine ?? 'codex', codex: codexVersion ?? null, sketchup: exportInfo.sketchup_version, worker: CODEX_JOB_VERSION },
       source_skp_sha256: sha256(skpBytes),
       references: refs.saved.map((r) => ({ name: r.name, source: r.source, size_bytes: r.size_bytes })),
       reference_failures: refs.failed.length,
@@ -580,11 +588,11 @@ ${existsSync(scriptPath)
       await stamp('job.json', job);
     }
     const { out, validation, report, base, zipEntries } = generated;
-    const skpBytes = await readFile(out.skp), fbxBytes = await readFile(out.fbx);
+    const skpBytes = out.skp ? await readFile(out.skp) : null, fbxBytes = await readFile(out.fbx);
     const glbBytes = await readFile(out.glb), pngBytes = await readFile(out.preview);
     const zip = await readFile(join(paths.outputs, 'fbx-bundle.zip'));
     const reviewFile = join(dir, 'review.json');
-    if (!deps.resumeDir || !existsSync(reviewFile)) await stamp('review.json', { status: 'pending', job_id: job.id, revision: deps.revision ?? 0, product: input.product, model_path: out.skp, preview_path: out.preview, created_at: new Date().toISOString() });
+    if (!deps.resumeDir || !existsSync(reviewFile)) await stamp('review.json', { status: 'pending', job_id: job.id, revision: deps.revision ?? 0, product: input.product, model_path: out.blend || out.skp, preview_path: out.preview, engine: deps.engine ?? 'codex', skp_status: validation.skp_status ?? 'ready', created_at: new Date().toISOString() });
     log(`job ${job.id} [awaiting_review] 模型已生成，等待 Worker 人工驗收`);
     await track('review', '模型已生成，等待人工驗收');
     await heartbeat({ stage: 'validate', detail: '模型已生成，等待本機 Worker 人工驗收' });
@@ -600,7 +608,7 @@ ${existsSync(scriptPath)
         const revision = review.status === 'revising' ? Number(review.revision) : Number(review.revision ?? 0) + 1;
         await stamp('review.json', { ...review, status: 'revising', revision });
         const nextDir = join(config.workRoot, `${job.id}-a${job.attempt}-r${revision}`);
-        return await runCodexJob(job, { ...deps, resumeDir: undefined, recoveryDir: undefined, revisionDir: nextDir, revisionSeed: out.skp, feedback: review.feedback, revision });
+        return await runCodexJob(job, { ...deps, resumeDir: undefined, recoveryDir: undefined, revisionDir: nextDir, revisionSeed: out.blend || out.skp, feedback: review.feedback, revision });
       }
       if (review.status === 'discarded') {
         await callAgent('fail', { lease_id: leaseId, error: 'review_discarded: 人工驗收已放棄草稿', retryable: false });
@@ -616,7 +624,7 @@ ${existsSync(scriptPath)
     const reportBytes = Buffer.from(JSON.stringify(report, null, 2));
     const validationBytes = Buffer.from(JSON.stringify(validation, null, 2));
     const artifacts = [
-      { role: 'skp', file: `${base}.skp`, format: 'skp', purpose: 'SketchUp 原生模型', bytes: skpBytes },
+      ...(skpBytes ? [{ role: 'skp', file: `${base}.skp`, format: 'skp', purpose: 'SketchUp 原生模型', bytes: skpBytes }] : []),
       { role: 'fbx', file: `${base}.fbx`, format: 'fbx', purpose: 'FBX（單檔，貼圖在 fbx_bundle）', bytes: fbxBytes },
       { role: 'fbx_bundle', file: `${base}-fbx.zip`, format: 'zip', purpose: 'FBX 與貼圖（保留相對目錄）', bytes: zip, depends_on: zipEntries },
       { role: 'glb', file: `${base}.glb`, format: 'glb', purpose: '網頁預覽（貼圖與 buffer 內嵌）', bytes: glbBytes },
@@ -633,6 +641,8 @@ ${existsSync(scriptPath)
       request_id: input.request_id ?? null,
       generated_at: new Date().toISOString(),
       mode: 'codex_v1',
+      engine: deps.engine ?? 'codex',
+      skp_status: validation.skp_status ?? 'ready',
       source_skp_sha256: validation.source_skp_sha256,
       files: artifacts.map((a) => ({
         role: a.role, file: a.file, format: a.format, purpose: a.purpose,
@@ -749,6 +759,7 @@ export async function cleanupWorkRoot(config) {
     const full = join(config.workRoot, name);
     const info = await stat(full).catch(() => null);
     if (existsSync(join(full, 'recovery.json')) && !existsSync(join(full, 'publish.json'))) continue;
+    if (existsSync(join(full, 'blender-recovery.json')) && !existsSync(join(full, 'publish.json'))) continue;
     if (existsSync(join(full, 'review.json')) && !existsSync(join(full, 'publish.json'))) continue;
     if (info?.isDirectory() && info.mtimeMs < cutoff) await rm(full, { recursive: true, force: true }).catch(() => {});
   }

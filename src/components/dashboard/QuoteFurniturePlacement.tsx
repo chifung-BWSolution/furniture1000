@@ -79,15 +79,18 @@ function PlacementRegion({ source, name, region, positions, editable, drawing, s
   </div>;
 }
 
-export function ProductPlacementPicker({ positions, values, canSelect, unavailableReason, onManageZones, onPickOnPlan }: {
+export function ProductPlacementPicker({ positions, values, canSelect, unavailableReason, onManageZones, onRequestZone, onPickOnPlan }: {
   positions: FurniturePosition[]; values: string[]; quantity: number; canSelect: boolean;
   unavailableReason?: 'no-plan' | 'no-zone' | 'no-region'; onManageZones?: () => void;
+  /** 尚未選分區時，按下按鈕把上面的分區下拉標紅。 */
+  onRequestZone?: () => void;
   onChange: (index: number, value: string) => void; onPickOnPlan: (index: number) => void;
 }) {
   const count = values.filter(id => positions.some(position => position.id === id)).length;
+  const needsZone = !canSelect && unavailableReason === 'no-zone';
   return <div className="mt-3 space-y-2"><span className="block text-xs font-medium text-muted-foreground">擺放位置</span>
-    <Button type="button" variant="outline" className="h-auto min-h-[34px] w-full justify-start px-2 py-1 text-left text-xs" disabled={!canSelect} onClick={() => onPickOnPlan(0)}>{count ? `已選 ${count} 個位置` : '選擇擺放位置'}</Button>
-    {!canSelect && <div className="text-xs text-muted-foreground"><p>{unavailableReason === 'no-zone' ? '此產品尚未分配到空間，請先為產品選擇分區。' : unavailableReason === 'no-region' ? '已有平面圖，但此產品所屬分區尚未框選範圍。' : '請先上傳可預覽的平面圖。'}</p>{unavailableReason === 'no-region' && onManageZones ? <Button type="button" variant="ghost" size="sm" className="mt-1 h-auto px-0 py-1" onClick={onManageZones}>開啟分區管理</Button> : null}</div>}
+    <Button type="button" variant="outline" className="h-auto min-h-[34px] w-full justify-start px-2 py-1 text-left text-xs" disabled={!canSelect && !needsZone} onClick={() => { if (needsZone) { onRequestZone?.(); return; } onPickOnPlan(0); }}>{count ? `已選 ${count} 個位置` : needsZone ? '先選擇分區' : '選擇擺放位置'}</Button>
+    {!canSelect && unavailableReason !== 'no-zone' && <div className="text-xs text-muted-foreground"><p>{unavailableReason === 'no-region' ? '已有平面圖，但此產品所屬分區尚未框選範圍。' : '請先上傳可預覽的平面圖。'}</p>{unavailableReason === 'no-region' && onManageZones ? <Button type="button" variant="ghost" size="sm" className="mt-1 h-auto px-0 py-1" onClick={onManageZones}>開啟分區管理</Button> : null}</div>}
   </div>;
 }
 

@@ -26,8 +26,9 @@ const corsHeaders = {
 
 const BUCKET = "quote-photos";
 const MAX_BYTES = 15 * 1024 * 1024;
-const PROMPT_MAX = 500;
-const PRESENTATION_PROMPT_MAX = 2000;
+const PROMPT_MAX = 2000;
+/** 報價排版的分區描述由系統組出，連風格、產品擺位和尺寸約束，需要更長的上限。 */
+const LAYOUT_PROMPT_MAX = 16000;
 const MAX_REFERENCES = 5;
 const MAX_REFERENCE_BYTES = 8 * 1024 * 1024;
 
@@ -438,7 +439,7 @@ Deno.serve(async (req: Request) => {
     ? raw.referenceUrls.filter((url): url is string => typeof url === "string")
     : [];
 
-  const promptMax = raw.purpose === 'quote_layout' ? 16000 : raw.purpose === 'presentation_product' ? PRESENTATION_PROMPT_MAX : PROMPT_MAX;
+  const promptMax = raw.purpose === 'quote_layout' ? LAYOUT_PROMPT_MAX : PROMPT_MAX;
   if ((raw.purpose !== 'orthographic' && !prompt) || prompt.length > promptMax) return fail("quote_photo_generate_invalid", 400, "prompt");
   if (!RATIOS.has(aspectRatio)) return fail("quote_photo_generate_invalid", 400, "ratio");
   if (raw.purpose !== undefined && raw.purpose !== "orthographic" && raw.purpose !== "floor_plan" && raw.purpose !== "presentation_product" && raw.purpose !== "quote_layout") return fail("quote_photo_generate_invalid", 400, "purpose");
