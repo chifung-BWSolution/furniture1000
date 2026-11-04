@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { syncDevelopModels } from "../_shared/modelSync.ts";
 import { createHash } from "node:crypto";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -141,6 +142,16 @@ Deno.serve(async (req) => {
   const action = String(body.action ?? "");
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
   const access = bearer(req);
+  // Internal develop-only queue drain. Device credentials and normal user JWTs cannot invoke it.
+  if (action === "sync-models") {
+    if (project.ref !== BRANCH_REF) return json({ error: "environment_mismatch" }, 403);
+    const syncKey = Deno.env.get("FDS_MODEL_SYNC_CRON_KEY") ?? "";
+    if (!syncKey || access !== syncKey) return json({ error: "forbidden" }, 403);
+    const productionKey = Deno.env.get("FDS_MODEL_SYNC_PRODUCTION_KEY") ?? "";
+    if (!productionKey) return json({ error: "model_sync_not_configured" }, 503);
+    const production = createClient(`https://${PRODUCTION_REF}.supabase.co`, productionKey, { auth: { persistSession: false } });
+    return json(await syncDevelopModels(admin, production, serviceKey, productionKey));
+  }
 
   const finish = async (name: string, args: Record<string, unknown>) => {
     const result = await rpc(admin, name, args);
