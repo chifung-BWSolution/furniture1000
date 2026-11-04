@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Link2, RefreshCw, Trash2 } from 'lucide-react';
+import { Loader2, Link2, RefreshCw, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Modal } from '@/components/ui/modal';
 import { Textarea } from '@/components/ui/textarea';
 import { confirm } from '@/components/ui/confirm-dialog';
 import { supabase } from '@/lib/supabase';
@@ -38,6 +39,35 @@ type CommentRow = {
 
 const TASK_GID = /^\d{6,25}$/;
 
+/**
+ * 接受整條 Asana task 連結或單純 gid：
+ *   https://app.asana.com/0/<project_gid>/<task_gid>[/f]
+ *   https://app.asana.com/1/<workspace_gid>/project/<project_gid>/task/<task_gid>
+ *   https://app.asana.com/0/0/<task_gid>/f
+ * 只要不是 task 連結（例如 project 看板）就回 null，避免綁錯。
+ */
+export function parseAsanaTaskGid(value: string): string | null {
+  const text = value.trim();
+  if (!text) return null;
+  if (TASK_GID.test(text)) return text;
+
+  const path = text.replace(/[?#].*$/, '');
+  // 由「我的任務」／搜尋開出的 task：https://app.asana.com/0/0/<task_gid>/f
+  const zeroProject = path.match(/\/0\/0\/(\d{6,25})(?:\/|$)/);
+  if (zeroProject) return zeroProject[1];
+
+  const segments = path.split('/').filter(Boolean);
+  const hasTaskSegment = segments.includes('task');
+  const gidSegments = segments.filter((segment) => TASK_GID.test(segment));
+  if (gidSegments.length === 0) return null;
+  if (hasTaskSegment || gidSegments.length >= 2) return gidSegments[gidSegments.length - 1];
+  return null;
+}
+
+function asanaTaskUrl(gid: string) {
+  return `https://app.asana.com/0/0/${gid}/f`;
+}
+
 export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: string; factoryName: string }) {
   const [link, setLink] = useState<LinkRow | null>(null);
   const [comments, setComments] = useState<CommentRow[]>([]);
@@ -50,7 +80,8 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
   const [oauthConnected, setOauthConnected] = useState<boolean | null>(null);
   const [oauthName, setOauthName] = useState('');
   const [connecting, setConnecting] = useState(false);
-  const [busy, setBusy] = useState<'save' | 'remove' | 'sync' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'sync' | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -64,6 +95,14 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     }
   }, []);
 
+  const loadComments = async (linkId: string) => {
+    const { data: commentRows } = await supabase.rpc('fds_asana_factory_comment_list', {
+      p_link_id: linkId,
+      p_limit: 50,
+    });
+    setComments(Array.isArray(commentRows) ? (commentRows as CommentRow[]) : []);
+  };
+
   const load = async () => {
     const { data, error: loadError } = await supabase.rpc('fds_asana_factory_link_list');
     if (loadError) {
@@ -76,11 +115,7 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     setTaskGid(found?.asana_task_gid ?? '');
     setError('');
     if (found) {
-      const { data: commentRows } = await supabase.rpc('fds_asana_factory_comment_list', {
-        p_link_id: found.id,
-        p_limit: 50,
-      });
-      setComments(Array.isArray(commentRows) ? (commentRows as CommentRow[]) : []);
+      await loadComments(found.id);
     } else {
       setComments([]);
     }
@@ -106,6 +141,38 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     // Reload only when a different factory is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factoryId]);
+
+  // 後端 cron 每 30 分鐘雙向同步留言；面板開著時每分鐘跟 DB 對一次，
+  // 新留言（Asana → FDS）與推送狀態（FDS → Asana）都會自動出現，毋須按「立即同步」。
+  const activeLinkId = link?.id ?? null;
+  useEffect(() => {
+    if (!activeLinkId) return;
+    let cancelled = false;
+    let timer = 0;
+
+    const refresh = async () => {
+      if (document.visibilityState === 'hidden') return;
+      const { data } = await supabase.rpc('fds_asana_factory_link_list');
+      if (cancelled) return;
+      const rows = Array.isArray(data) ? (data as LinkRow[]) : [];
+      const found = rows.find((row) => row.factory_id === factoryId) ?? null;
+      if (found) setLink(found);
+      await loadComments(activeLinkId);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+
+    timer = window.setInterval(() => void refresh(), 60_000);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLinkId, factoryId]);
 
   const connect = async () => {
     setConnecting(true);
@@ -142,9 +209,9 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
   };
 
   const save = async () => {
-    const gid = taskGid.trim();
-    if (!TASK_GID.test(gid)) {
-      setError('Asana task gid 應為數字（例如 1204466337313611）。');
+    const gid = parseAsanaTaskGid(taskGid);
+    if (!gid) {
+      setError('請貼上 Asana task 連結（例如 https://app.asana.com/0/1204466337313611/…）或 task gid。');
       return;
     }
     setBusy('save');
@@ -160,30 +227,8 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
       return;
     }
     await load();
+    setSettingsOpen(false);
     toast.success('已綁定 Asana 廠家 task');
-  };
-
-  const remove = async () => {
-    if (!link) return;
-    const ok = await confirm({
-      title: '移除 Asana 綁定？',
-      description: '移除後不會再同步這個廠家的 Asana Description／Comment；已同步的內容會一併刪除。',
-      confirmLabel: '移除綁定',
-      cancelLabel: '返回',
-      destructive: true,
-    });
-    if (!ok) return;
-    setBusy('remove');
-    setError('');
-    const { error: removeError } = await supabase.rpc('fds_asana_factory_link_remove', { p_id: link.id });
-    setBusy(null);
-    if (removeError) {
-      setError(removeError.message);
-      return;
-    }
-    setLink(null);
-    setTaskGid('');
-    toast.success('已移除 Asana 綁定');
   };
 
   const sync = async () => {
@@ -257,12 +302,17 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     setCommentBusy(false);
   };
 
+  const openSettings = () => {
+    setError('');
+    setTaskGid(link?.asana_task_gid ?? '');
+    setSettingsOpen(true);
+  };
+
   return (
     <section className="mt-4 rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Link2 className="h-4 w-4 text-muted-foreground" />
         <h3 className="text-sm font-semibold">Asana 廠家同步</h3>
-        <span className="text-xs text-muted-foreground">雙向：Asana → FDS；FDS 留言會追加到同一個 task</span>
       </div>
 
       {loading ? (
@@ -270,148 +320,221 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
           <Loader2 className="h-4 w-4 animate-spin" /> 正在讀取綁定
         </p>
       ) : (
-        <div className="mt-3 space-y-2">
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          {oauthConnected === false ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              <span>未連接 Asana。連接後才能用你的授權同步廠家。</span>
-              <Button type="button" size="sm" disabled={connecting} onClick={() => void connect()}>
-                {connecting ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                連接 Asana
-              </Button>
-            </div>
-          ) : oauthConnected ? (
-            <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              已連接 Asana{oauthName ? `：${oauthName}` : ''}
-              <button type="button" className="underline" disabled={connecting} onClick={() => void disconnect()}>
-                中斷連接
+        <div className="mt-3 space-y-3">
+          {error && !settingsOpen ? <p className="text-sm text-destructive">{error}</p> : null}
+
+          <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+            {oauthConnected ? (
+              `已連接 Asana${oauthName ? `：${oauthName}` : ''}`
+            ) : oauthConnected === false ? (
+              <>
+                未連接 Asana。
+                <button type="button" className="font-medium text-primary underline" onClick={openSettings}>
+                  連接 Asana
+                </button>
+              </>
+            ) : null}
+          </p>
+
+          {link ? (
+            <p className="text-xs text-muted-foreground">
+              已綁定 task{' '}
+              <a className="underline" href={asanaTaskUrl(link.asana_task_gid)} target="_blank" rel="noreferrer">
+                {link.asana_task_gid}
+              </a>{' '}
+              · {link.comment_count} 則 Comment
+              · 來源：{link.source === 'pms' ? 'PMS' : '手動'}
+              {link.last_synced_at
+                ? ` · 上次同步 ${new Date(link.last_synced_at).toLocaleString('zh-HK', { hour12: false })}`
+                : ' · 未同步'}
+              {link.last_error ? ` · 錯誤：${link.last_error}` : ''}
+            </p>
+          ) : (
+            <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              未有對應的 Asana task。
+              <button
+                type="button"
+                className="font-medium text-primary underline"
+                onClick={openSettings}
+              >
+                連接對應的 Asana
               </button>
             </p>
-          ) : null}
-          {oauthConnected ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  className="max-w-xs"
-                  value={taskGid}
-                  onChange={(event) => setTaskGid(event.target.value)}
-                  placeholder="Asana task gid，例如 1204466337313611"
-                  inputMode="numeric"
+          )}
+
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium">留言</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground"
+                title="Asana 設定"
+                aria-label="Asana 設定"
+                onClick={openSettings}
+              >
+                <Settings2 className="h-4 w-4" />
+              </Button>
+            </div>
+            {link ? (
+              <div className="space-y-2">
+                {comments.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {link.last_error ? `未能讀取 Asana 留言（${link.last_error}），請檢查 Asana 權限。` : '還沒有留言。'}
+                  </p>
+                ) : (
+                  <ul className="max-h-60 space-y-1 overflow-auto text-sm">
+                    {comments.map((comment) => (
+                      <li key={comment.id} className="rounded border px-2 py-1">
+                        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          <span>{comment.source === 'fds' ? 'FDS' : 'Asana'} · {comment.author_name || '—'}</span>
+                          <span>
+                            {new Date(comment.created_at_remote || comment.fetched_at).toLocaleString('zh-HK', { hour12: false })}
+                          </span>
+                          {comment.source === 'fds' ? (
+                            <span className={comment.asana_gid ? 'text-emerald-700' : comment.push_error ? 'text-destructive' : 'text-amber-700'}>
+                              {comment.asana_gid ? '已推送' : comment.push_error ? `推送失敗：${comment.push_error}` : '待推送'}
+                            </span>
+                          ) : null}
+                        </div>
+                        {editingId === comment.id ? (
+                          <div className="mt-1 space-y-1">
+                            <Textarea
+                              rows={2}
+                              value={editingBody}
+                              maxLength={2000}
+                              onChange={(event) => setEditingBody(event.target.value)}
+                            />
+                            <div className="flex gap-2">
+                              <Button type="button" size="sm" disabled={commentBusy || !editingBody.trim()} onClick={() => void saveEdit()}>
+                                儲存
+                              </Button>
+                              <Button type="button" size="sm" variant="ghost" disabled={commentBusy} onClick={() => setEditingId(null)}>
+                                取消
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="whitespace-pre-wrap">{comment.body}</p>
+                            {comment.source === 'fds' ? (
+                              <div className="mt-1 flex gap-3 text-xs">
+                                <button
+                                  type="button"
+                                  className="underline"
+                                  onClick={() => {
+                                    setEditingId(comment.id);
+                                    setEditingBody(comment.body);
+                                  }}
+                                >
+                                  編輯
+                                </button>
+                                <button type="button" className="underline text-destructive" onClick={() => void deleteComment(comment)}>
+                                  刪除
+                                </button>
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <Textarea
+                  rows={3}
+                  value={commentBody}
+                  maxLength={2000}
+                  onChange={(event) => setCommentBody(event.target.value)}
+                  placeholder="新增留言"
                 />
-                <Button type="button" size="sm" disabled={Boolean(busy)} onClick={() => void save()}>
-                  {busy === 'save' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                  {link ? '更新綁定' : '綁定'}
-                </Button>
-                {link ? (
-                  <>
-                    <Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void sync()}>
-                      {busy === 'sync' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
-                      立即同步
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => void remove()}>
-                      {busy === 'remove' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1 h-3.5 w-3.5" />}
-                      移除
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-              {link ? (
-                <p className="text-xs text-muted-foreground">
-                  已綁定 task {link.asana_task_gid} · {link.comment_count} 則 Comment
-                  · 來源：{link.source === 'pms' ? 'PMS' : '手動'}
-                  {link.last_synced_at ? ` · 上次同步 ${link.last_synced_at.slice(0, 16).replace('T', ' ')}` : ' · 未同步'}
-                  {link.last_error ? ` · 錯誤：${link.last_error}` : ''}
-                </p>
-              ) : (
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-xs text-muted-foreground">未綁定。貼上 Asana task gid，或先從 PMS 讀取廠家已設定嘅 Asana 連結。</p>
-                  <Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void sync()}>
-                    {busy === 'sync' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
-                    從 PMS 讀取綁定
+                  <Button type="button" size="sm" disabled={commentBusy || !commentBody.trim()} onClick={() => void addComment()}>
+                    {commentBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                    送出並同步
                   </Button>
                 </div>
-              )}
-              {link ? (
-                <div className="space-y-2 border-t pt-3">
-                  <p className="text-xs font-medium">留言（Asana ↔ FDS）</p>
-                  {comments.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">還沒有留言。</p>
-                  ) : (
-                    <ul className="max-h-60 space-y-1 overflow-auto text-sm">
-                      {comments.map((comment) => (
-                        <li key={comment.id} className="rounded border px-2 py-1">
-                          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            <span>{comment.source === 'fds' ? 'FDS' : 'Asana'} · {comment.author_name || '—'}</span>
-                            <span>{(comment.created_at_remote || comment.fetched_at).slice(0, 16).replace('T', ' ')}</span>
-                            {comment.source === 'fds' ? (
-                              <span className={comment.asana_gid ? 'text-emerald-700' : comment.push_error ? 'text-destructive' : 'text-amber-700'}>
-                                {comment.asana_gid ? '已推送' : comment.push_error ? `推送失敗：${comment.push_error}` : '待推送'}
-                              </span>
-                            ) : null}
-                          </div>
-                          {editingId === comment.id ? (
-                            <div className="mt-1 space-y-1">
-                              <Textarea
-                                rows={2}
-                                value={editingBody}
-                                maxLength={2000}
-                                onChange={(event) => setEditingBody(event.target.value)}
-                              />
-                              <div className="flex gap-2">
-                                <Button type="button" size="sm" disabled={commentBusy || !editingBody.trim()} onClick={() => void saveEdit()}>
-                                  儲存
-                                </Button>
-                                <Button type="button" size="sm" variant="ghost" disabled={commentBusy} onClick={() => setEditingId(null)}>
-                                  取消
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <p className="whitespace-pre-wrap">{comment.body}</p>
-                              {comment.source === 'fds' ? (
-                                <div className="mt-1 flex gap-3 text-xs">
-                                  <button
-                                    type="button"
-                                    className="underline"
-                                    onClick={() => {
-                                      setEditingId(comment.id);
-                                      setEditingBody(comment.body);
-                                    }}
-                                  >
-                                    編輯
-                                  </button>
-                                  <button type="button" className="underline text-destructive" onClick={() => void deleteComment(comment)}>
-                                    刪除
-                                  </button>
-                                </div>
-                              ) : null}
-                            </>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <Textarea
-                    rows={3}
-                    value={commentBody}
-                    maxLength={2000}
-                    onChange={(event) => setCommentBody(event.target.value)}
-                    placeholder="新增留言；送出後會追加到 Asana 同一個 task"
-                  />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" size="sm" disabled={commentBusy || !commentBody.trim()} onClick={() => void addComment()}>
-                      {commentBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                      送出並同步
-                    </Button>
-                    <span className="text-xs text-muted-foreground">只追加，不會改寫 Asana 既有留言。</span>
-                  </div>
-                </div>
-              ) : null}
-            </>
-          ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
+
+      <Modal
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        size="lg"
+        icon={<Link2 className="h-6 w-6" />}
+        title="Asana 設定"
+        description={`綁定「${factoryName}」對應的 Asana task。`}
+        footer={
+          <>
+            {link ? (
+              <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => void sync()}>
+                {busy === 'sync' ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
+                立即同步
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" onClick={() => setSettingsOpen(false)}>
+              取消
+            </Button>
+            <Button type="button" disabled={Boolean(busy)} onClick={() => void save()}>
+              {busy === 'save' ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              {link ? '更新綁定' : '綁定'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {error ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p>
+          ) : null}
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-foreground">Asana 帳號</p>
+            {oauthConnected ? (
+              <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                已連接 Asana{oauthName ? `：${oauthName}` : ''}
+                <button type="button" className="text-xs underline" disabled={connecting} onClick={() => void disconnect()}>
+                  中斷連接
+                </button>
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                未連接 Asana。
+                <Button type="button" size="sm" disabled={connecting} onClick={() => void connect()}>
+                  {connecting ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                  連接 Asana
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-foreground" htmlFor="asana-task-link">
+              Asana task 連結
+            </label>
+            <Input
+              id="asana-task-link"
+              className="w-full"
+              value={taskGid}
+              onChange={(event) => setTaskGid(event.target.value)}
+              placeholder="貼上 Asana task 連結"
+            />
+          </div>
+
+          {link ? (
+            <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              已綁定 task {link.asana_task_gid} · {link.comment_count} 則 Comment · 來源：
+              {link.source === 'pms' ? 'PMS' : '手動'}
+              {link.last_synced_at
+                ? ` · 上次同步 ${new Date(link.last_synced_at).toLocaleString('zh-HK', { hour12: false })}`
+                : ' · 未同步'}
+              {link.last_error ? ` · 錯誤：${link.last_error}` : ''}
+            </p>
+          ) : null}
+        </div>
+      </Modal>
     </section>
   );
 }
