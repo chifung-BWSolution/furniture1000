@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, useRef, lazy, Suspense, useSyncExternalStore } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { inkEase, ViewEnter } from "@/components/motion/NavInk";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -84,6 +84,11 @@ import { resolveSelectedPublishProducts } from "@/lib/readyToPublishRow";
 import type { Product } from "@/types/product";
 import { hasPmsQuotePrefillParams } from "@/lib/pmsQuotePrefill";
 import { canManageSupplierDocuments } from "@/lib/supplierDocuments";
+import {
+  quoteOpenRequestVersion,
+  subscribeQuoteOpenRequests,
+  takeQuoteOpenRequest,
+} from "@/lib/quoteOpenRequests";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const ListedProductsView = lazy(() =>
@@ -633,6 +638,21 @@ function AppShellContent() {
     },
     [navigate, user?.email, store, setEditingQuoteId],
   );
+
+  /**
+   * 其他頁面（例如「查看並匯入」toast）要求打開某張報價單：
+   * 走 openQuoteForEdit 才會校正 uuid／版本並清走舊草稿，不會沿用上一張單的快照。
+   */
+  const quoteOpenRequestTick = useSyncExternalStore(
+    subscribeQuoteOpenRequests,
+    quoteOpenRequestVersion,
+    quoteOpenRequestVersion,
+  );
+  useEffect(() => {
+    const request = takeQuoteOpenRequest();
+    if (!request) return;
+    void openQuoteForEdit(request.quoteId);
+  }, [quoteOpenRequestTick, openQuoteForEdit]);
 
   /** After 版本審核, pin AppShell to the new version row so reload effects cannot stale-fetch. */
   const handleEditingQuotePersisted = useCallback(

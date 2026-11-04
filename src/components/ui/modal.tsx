@@ -292,6 +292,7 @@ const ModalContent = React.forwardRef<
         <ModalOverlay className={overlayClassName} />
         <DialogPrimitive.Content
           ref={ref}
+          data-modal-content=""
           className={cn(
             fullscreen
               ? "fixed inset-0 z-50 flex flex-col bg-transparent text-white outline-none"

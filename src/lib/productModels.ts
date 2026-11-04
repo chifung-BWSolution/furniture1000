@@ -75,7 +75,7 @@ function modelError(message: string): string {
   if (message.includes('storage_object_missing')) return '檔案未上載成功';
   if (message.includes('storage_path_invalid')) return '模型路徑不正確';
   if (message.includes('codex_entry_disabled')) return '本機 Codex 建模尚未開放';
-  if (message.includes('codex_worker_unavailable')) return '沒有可用的 Codex SKP Worker：請確認 Worker 電腦已安裝最新版、Codex 已登入、SketchUp 可用並已上線。';
+  if (message.includes('codex_worker_unavailable')) return '沒有可用的建模 Worker：請確認已安裝最新版、所選建模工具已就緒、Codex 已登入並已連線。Blender 模式不需要 SketchUp。';
   if (message.includes('reference_images_required')) return '請至少選擇一張產品圖片或補充照片';
   if (message.includes('reference_image_not_product')) return '所選圖片不屬於此產品';
   if (message.includes('reference_image_missing')) return '補充照片未上載成功，請重新選擇';
@@ -212,7 +212,7 @@ export async function fetchSkpStatus(furnitureModelId: string): Promise<SkpStatu
   return data as SkpStatus;
 }
 
-export type CodexCheckKey = 'sketchup' | 'codex_cli' | 'codex_login' | 'mcp_bridge' | 'session_ruby' | 'seed' | 'fds_mcp';
+export type CodexCheckKey = 'sketchup' | 'codex_cli' | 'codex_login' | 'mcp_bridge' | 'session_ruby' | 'seed' | 'fds_mcp' | 'blender_installed';
 
 export interface SkpRequirements {
   ready: boolean;
@@ -224,7 +224,7 @@ export interface SkpRequirements {
   codex_entry?: boolean;
   codex_ready?: boolean;
   codex_connected?: boolean;
-  codex_checks?: (Partial<Record<CodexCheckKey, boolean>> & { codex_version?: string | null }) | null;
+  codex_checks?: (Partial<Record<CodexCheckKey, boolean>> & { codex_version?: string | null; engine?: 'codex' | 'jzxz' | 'blender' }) | null;
 }
 
 // ── 本機 Codex 直接建模（codex_v1）────────────────────────────────────────

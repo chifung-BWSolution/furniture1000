@@ -6,6 +6,9 @@ import { dirname, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { assertIdentity, bridgeCall } from './bridge.mjs';
 import { checkRubyCall, jobFilePath } from './ruby-gate.mjs';
+import { runBlender } from '../blender/driver.mjs';
+import { join } from 'node:path';
+import { readdir, rm } from 'node:fs/promises';
 
 const PORT = Number(process.env.FDS_CODEX_PORT);
 const JOB_ID = process.env.FDS_CODEX_JOB_ID ?? '';
@@ -14,6 +17,7 @@ const SCREEN_DIR = process.env.FDS_CODEX_SCREEN_DIR ?? '';
 const TOOL_LOG = process.env.FDS_CODEX_TOOL_LOG ?? '';
 const JOB_DIR = process.env.FDS_CODEX_JOB_DIR ?? '';
 const SCRIPT = process.env.FDS_CODEX_SCRIPT ?? '';
+const BLENDER = process.env.FDS_BLENDER_EXE ?? '';
 const MAX_SCREENSHOTS = 12;
 const MAX_FILE_CHARS = 1_000_000;
 let screenshots = 0;
@@ -62,6 +66,17 @@ const TOOLS = [
     },
   },
 ];
+if (BLENDER) TOOLS.push(
+  { name: 'write_blender_file', description: 'Write the complete Blender Python build script or report in this job.', inputSchema: { type: 'object', properties: { path: { type: 'string', enum: ['build_model.py', 'outputs/report.json'] }, content: { type: 'string' } }, required: ['path', 'content'], additionalProperties: false } },
+  { name: 'run_blender', description: 'Execute build_model.py in dedicated background Blender, save model.blend, directly export FBX/GLB and render four views. No SketchUp is started. Use screenshot to inspect Blender renders.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+);
+if (BLENDER) {
+  for (let i = TOOLS.length - 1; i >= 0; i--) {
+    if (['eval_ruby', 'write_job_file', 'get_selection'].includes(TOOLS[i].name)) TOOLS.splice(i, 1);
+    else if (TOOLS[i].name === 'get_scene_info') TOOLS[i].description = 'Measured Blender mesh parts, bounds in mm, material counts, and Blender version.';
+    else if (TOOLS[i].name === 'screenshot') TOOLS[i].description = 'Return a Blender render: iso, front, side or top. Run Blender again after changing the build script.';
+  }
+}
 
 function log(entry) {
   if (!TOOL_LOG) return;
@@ -75,6 +90,35 @@ function log(entry) {
 const text = (value) => ({ content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] });
 
 async function callTool(name, args, meta) {
+  if (BLENDER && ['eval_ruby', 'write_job_file'].includes(name)) throw new Error('Blender jobs must use the Blender tools');
+  if (name === 'write_blender_file' && BLENDER) {
+    if (!['build_model.py', 'outputs/report.json'].includes(args.path) || typeof args.content !== 'string' || args.content.length > MAX_FILE_CHARS) throw new Error('invalid Blender file');
+    const path = join(JOB_DIR, args.path);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, args.content, 'utf8');
+    return text(`wrote ${args.path}`);
+  }
+  if (name === 'run_blender' && BLENDER) {
+    const scriptHash = createHash('sha256').update(readFileSync(join(JOB_DIR, 'build_model.py'))).digest('hex');
+    await runBlender(BLENDER, JOB_DIR);
+    if (createHash('sha256').update(readFileSync(join(JOB_DIR, 'build_model.py'))).digest('hex') !== scriptHash) throw new Error('Blender script changed during execution; run again');
+    meta.script_sha256 = scriptHash;
+    for (const name of await readdir(SCREEN_DIR)) {
+      if (/^shot-\d+-(iso|front|side|top|current)\.png$/.test(name)) await rm(join(SCREEN_DIR, name));
+    }
+    return text(JSON.parse(readFileSync(join(JOB_DIR, 'outputs', 'scene-info.json'), 'utf8')));
+  }
+  if (BLENDER && name === 'get_scene_info') return text(JSON.parse(readFileSync(join(JOB_DIR, 'outputs', 'scene-info.json'), 'utf8')));
+  if (BLENDER && name === 'screenshot') {
+    const view = args?.view === 'current' || !args?.view ? 'iso' : args.view;
+    if (!['iso', 'front', 'side', 'top'].includes(view)) throw new Error('invalid Blender view');
+    if (screenshots >= MAX_SCREENSHOTS) throw new Error('screenshot limit reached');
+    const data = readFileSync(join(JOB_DIR, 'outputs', `view-${view}.png`));
+    screenshots++;
+    writeFileSync(join(SCREEN_DIR, `shot-${screenshots}-${view}.png`), data);
+    meta.view = view;
+    return { content: [{ type: 'image', data: data.toString('base64'), mimeType: 'image/png' }, { type: 'text', text: `Blender ${view}` }] };
+  }
   if (name === 'write_job_file') {
     const path = jobFilePath(JOB_DIR, args?.path);
     if (typeof args?.content !== 'string') throw new Error('content is required');
@@ -125,7 +169,7 @@ async function handle(message) {
       result: {
         protocolVersion: params?.protocolVersion ?? '2025-06-18',
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'fds-sketchup', version: '1.0.0' },
+        serverInfo: { name: BLENDER ? 'fds-blender' : 'fds-sketchup', version: '1.0.0' },
       },
     });
   }
@@ -151,7 +195,7 @@ async function handle(message) {
   }
 }
 
-if (!Number.isInteger(PORT) || PORT <= 0 || !JOB_ID || !NONCE) {
+if ((!BLENDER && (!Number.isInteger(PORT) || PORT <= 0 || !NONCE)) || !JOB_ID || !JOB_DIR) {
   process.stderr.write('fds-sketchup MCP: missing job configuration\n');
   process.exit(2);
 }

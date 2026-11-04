@@ -1674,7 +1674,9 @@ function ProductModelsSection({
           if (job.status === 'none' || productSkpActive(job) || codexSettledRef.current === job.job_id) return;
           codexSettledRef.current = job.job_id;
           if (job.status === 'succeeded') {
-            toast.success('SKP／FBX／GLB 已生成', { description: 'AI 草稿，未經人工驗收；請檢查後再交付。' });
+            const formats = (['skp', 'fbx', 'glb'] as const).filter((format) => job.models?.[format]).map((format) => format.toUpperCase());
+            const missingSkp = !!job.models?.fbx && !!job.models?.glb && !job.models?.skp;
+            toast.success(formats.length ? `${formats.join('／')} 已生成` : '模型已生成', { description: missingSkp ? 'FBX／GLB 已完成；SKP 尚未轉換，既有 SKP 已保留。請檢查模型後再交付。' : 'AI 模型草稿；請檢查後再交付。' });
             setReload((n) => n + 1);
             onChanged();
           } else if (job.status === 'failed') {
@@ -1722,7 +1724,7 @@ function ProductModelsSection({
     if (!codexJob || codexJob.status === 'none') return;
     const ok = await confirm({
       title: '停止生成？',
-      description: 'Worker 會在下一次心跳時停止 Codex 和專用 SketchUp，已存在的模型檔不受影響。',
+      description: 'Worker 會在下一次心跳時停止本次建模及轉換程序，已存在的模型檔不受影響。',
       confirmLabel: '停止生成',
       destructive: true,
     });
@@ -2731,7 +2733,7 @@ function ProductModelsSection({
         minImages={1}
         busy={codexSubmitting}
         title="生成 SKP／FBX／GLB"
-        description="勾選同一款家具的參考圖片（1–6 張）。本機 Codex 會依產品資料與圖片直接在 SketchUp 建模，不需確認參數。"
+        description="勾選同一款家具的參考圖片（1–6 張）。Worker 會依所選方式建模；Blender 模式直接檢查並匯出 FBX／GLB，SKP 另行轉換。"
         confirmLabel={codexSubmitting ? '提交中…' : '開始生成'}
         note="有目錄尺寸時以目錄為準；缺少的尺寸由 Codex 估算並寫進報告。結果是 AI 草稿，未經人工驗收。"
         onCancel={() => setCodexChoice(false)}
@@ -2829,7 +2831,7 @@ function ProductModelsSection({
       {!workbench && (
         <p className="text-xs text-muted-foreground">
           {codexEntry
-            ? '選擇同一款式的參考圖片後，由本機 Codex 在 SketchUp 直接建模，一次產生 SKP、FBX（含貼圖 ZIP）及 GLB。'
+            ? '選擇同一款式的參考圖片後，由 Worker 依所選方式建模。Blender 直接產生 FBX（含貼圖 ZIP）及 GLB；SKP 轉換失敗不阻擋其他格式。'
             : '先選擇同一款式的參考圖片，辨認結構並確認尺寸後生成。SU 是 SKP，完成後可下載；3D 會同時寫出 GLB 和 FBX。'}
         </p>
       )}

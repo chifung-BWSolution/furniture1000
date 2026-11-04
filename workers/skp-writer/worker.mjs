@@ -26,6 +26,7 @@ import { codexStatus, loadCodexConfig } from './codex/config.mjs';
 import { CODEX_JOB_VERSION, cleanupWorkRoot, resumePendingPublishes, runCodexJob } from './codex/job.mjs';
 import { acquireSketchUpLock } from './codex/lock.mjs';
 import { jzxzChecks, jzxzPaths, loadEngine } from './engine.mjs';
+import { findBlender } from './blender/config.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CODEX = loadCodexConfig(here);
@@ -54,6 +55,7 @@ const creds = {
   pendingRotation: process.env.FDS_SKP_PENDING_ROTATION || '',
 };
 let activeLease = '';
+let activeGenerationEngine = null;
 let authorizationError = null;
 
 function skpFailureRetryable(message) {
@@ -439,7 +441,10 @@ async function processCodexJob(job, resumeDir) {
   activeLease = job.lease_id;
   try {
     const status = await codexStatus(CODEX);
-    const engine = loadEngine();
+    const savedEngine = resumeDir && existsSync(join(resumeDir,'engine.json')) ? JSON.parse(await readFile(join(resumeDir,'engine.json'),'utf8')).engine : null;
+    const engine = savedEngine || loadEngine();
+    activeGenerationEngine = engine;
+    await reportReadiness();
     const jzxz = jzxzPaths(here);
     await runCodexJob(job, {
       callAgent,
@@ -451,6 +456,7 @@ async function processCodexJob(job, resumeDir) {
       seedPath: SEED,
       codexVersion: status.codex_version,
       engine,
+      blenderExe: findBlender(),
       uiScript: jzxz.ui,
       taskRoot: jzxz.taskRoot,
       jzxzDir: jzxz.dir,
@@ -458,6 +464,7 @@ async function processCodexJob(job, resumeDir) {
     });
   } finally {
     activeLease = '';
+    activeGenerationEngine = null;
     await cleanupWorkRoot(CODEX).catch(() => undefined);
   }
 }
@@ -519,16 +526,18 @@ async function reportReadiness() {
   const canGenerate = (checks.writer && checks.api_dll && checks.preferences_dll) || (checks.sketchup && checks.ruby_script);
   const canPreview = checks.sketchup && checks.preview_ruby;
   const codex = await codexChecks(checks);
-  const engine = loadEngine();
+  const engine = activeGenerationEngine || loadEngine();
   const jzxz = jzxzChecks(here);
+  const blender = { blender_installed: !!findBlender(), blender_ready: engine === 'blender' && !!findBlender() && CODEX.enabled && codex.codex_cli && codex.codex_login && codex.mcp_bridge ? 'true' : 'false' };
   const capabilities = [
     ...(canGenerate ? ['parametric'] : []),
     ...(canPreview ? ['preview'] : []),
     ...(engine === 'codex' && codex.codex_ready === 'true' ? ['codex_v1'] : []),
     ...(engine === 'jzxz' && jzxz.jzxz_ready === 'true' ? ['jzxz_v1'] : []),
+    ...(blender.blender_ready === 'true' ? ['blender_v1'] : []),
   ];
-  const ready = canGenerate || canPreview || (engine === 'codex' && codex.codex_ready === 'true') || jzxz.jzxz_ready === 'true';
-  await callAgent('ready', { ready, checks: { ...checks, ...codex, ...jzxz, capabilities }, version: `device-auth-3+${CODEX_JOB_VERSION}` });
+  const ready = canGenerate || canPreview || (engine === 'codex' && codex.codex_ready === 'true') || jzxz.jzxz_ready === 'true' || blender.blender_ready === 'true';
+  await callAgent('ready', { ready, checks: { ...checks, ...codex, ...jzxz, ...blender, engine, capabilities }, version: `device-auth-3+${CODEX_JOB_VERSION}` });
   return ready;
 }
 
@@ -574,11 +583,11 @@ for (const name of (await readdir(CODEX.workRoot).catch(() => [])).sort((a,b) =>
   try {
     const review = existsSync(join(dir, 'review.json'))
       ? JSON.parse(await readFile(join(dir, 'review.json'), 'utf8'))
-      : { ...JSON.parse(await readFile(join(dir, 'recovery.json'), 'utf8')), status: 'pending' };
+      : { ...JSON.parse(await readFile(join(dir, existsSync(join(dir,'blender-recovery.json')) ? 'blender-recovery.json' : 'recovery.json'), 'utf8')), status: 'pending' };
     if (recoveredJobs.has(review.job_id)) continue;
     recoveredJobs.add(review.job_id);
     if (!['pending', 'accepted', 'revise', 'revising'].includes(review.status)) continue;
-    if (!existsSync(join(dir, 'job.json')) || (!existsSync(join(dir, 'checkpoint.json')) && !existsSync(join(dir, 'recovery.json')))) {
+    if (!existsSync(join(dir, 'job.json')) || (!existsSync(join(dir, 'checkpoint.json')) && !existsSync(join(dir, 'recovery.json')) && !existsSync(join(dir,'blender-recovery.json')))) {
       console.error(`review recovery ${name}: legacy_checkpoint_missing; 舊版草稿保留在本機，請重新提交生成`);
       continue;
     }
@@ -591,7 +600,7 @@ for (const name of (await readdir(CODEX.workRoot).catch(() => [])).sort((a,b) =>
     if (error?.code) authStop(error);
     if (existsSync(join(dir, 'review.json'))) console.error(`review recovery ${name}: ${error.message}; 本機草稿已保留`);
     // A transient network error must not fall through to claim and supersede this lease.
-    if ((existsSync(join(dir, 'review.json')) || existsSync(join(dir, 'recovery.json'))) && !['lease_rejected','stopped','revoked','expired','suspended','unauthorized'].includes(error?.code ?? error?.message)) throw error;
+    if ((existsSync(join(dir, 'review.json')) || existsSync(join(dir, 'recovery.json')) || existsSync(join(dir,'blender-recovery.json'))) && !['lease_rejected','stopped','revoked','expired','suspended','unauthorized'].includes(error?.code ?? error?.message)) throw error;
   }
 }
 

@@ -89,7 +89,9 @@ export function FactoryDetailView({
   const [linkedProjects, setLinkedProjects] = useState<LinkedProjectRecord[]>([]);
   const [stats, setStats] = useState<{ order_count: number; comment_count: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'info' | 'orders' | 'comments' | 'catalogs' | 'asana'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'orders' | 'comments' | 'catalogs' | 'asana'>(() =>
+    new URLSearchParams(window.location.search).has('asana') ? 'asana' : 'info',
+  );
   const [urlCopied, setUrlCopied] = useState(false);
   const reduceMotion = useReducedMotion();
 

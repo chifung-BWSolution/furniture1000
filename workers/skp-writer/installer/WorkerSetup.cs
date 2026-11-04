@@ -261,13 +261,14 @@ internal static class WorkerSetup {
     internal static string LoadEngine() {
         try {
             var row = Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(EngineFile));
-            return Pick(row, "engine") == "jzxz" ? "jzxz" : "codex";
+            var value = Pick(row, "engine");
+            return value == "jzxz" || value == "blender" ? value : "codex";
         } catch { return "codex"; }
     }
 
     internal static void SaveEngine(string engine) {
         Directory.CreateDirectory(Home);
-        File.WriteAllText(EngineFile, Json.Serialize(new Dictionary<string, object> { { "engine", engine == "jzxz" ? "jzxz" : "codex" } }));
+        File.WriteAllText(EngineFile, Json.Serialize(new Dictionary<string, object> { { "engine", engine == "jzxz" || engine == "blender" ? engine : "codex" } }));
     }
 
     internal static void StopWorker() {
@@ -315,7 +316,7 @@ internal static class WorkerSetup {
         Shortcut(DesktopFile, "");
         if (autoStart) Shortcut(StartupFile, "--run");
         else if (File.Exists(StartupFile)) File.Delete(StartupFile);
-        if (config.CreateSeed ?? true) EnsureSeed(config);
+        if (LoadEngine() != "blender" && (config.CreateSeed ?? true)) EnsureSeed(config);
         Process.Start(new ProcessStartInfo(InstalledExe, "--run") { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden });
     }
 
@@ -368,7 +369,7 @@ internal static class WorkerSetup {
             };
             if (String.IsNullOrWhiteSpace(config.AnonKey) || String.IsNullOrWhiteSpace(config.DeviceId) || String.IsNullOrWhiteSpace(config.RefreshToken) || String.IsNullOrWhiteSpace(config.AccessToken))
                 throw new Exception("設定檔需要瀏覽器授權後的裝置憑證。");
-            if (!File.Exists(config.SketchUp) || !String.Equals(Path.GetFileName(config.SketchUp), "SketchUp.exe", StringComparison.OrdinalIgnoreCase))
+            if (LoadEngine() != "blender" && (!File.Exists(config.SketchUp) || !String.Equals(Path.GetFileName(config.SketchUp), "SketchUp.exe", StringComparison.OrdinalIgnoreCase)))
                 throw new Exception("找不到 SketchUp.exe，請先安裝或修正設定檔路徑。");
             object auto;
             if (row.TryGetValue("autoStart", out auto) || row.TryGetValue("AutoStart", out auto)) config.AutoStart = Convert.ToBoolean(auto);
@@ -617,7 +618,7 @@ internal sealed class SetupForm : Form {
 
         var header = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Top, BackColor = WorkerUi.Page, Margin = new Padding(0, 0, 0, 16) };
         header.Controls.Add(new Label { Text = "FDS SKP Worker", AutoSize = true, Font = new Font(Font.FontFamily, 20, FontStyle.Bold), ForeColor = WorkerUi.Ink, BackColor = WorkerUi.Page, Margin = new Padding(0, 0, 0, 4) });
-        header.Controls.Add(new Label { Text = "使用 FDS 帳號登入並授權這台電腦，即可協助生成模型。請先安裝 SketchUp 並完成登入。", AutoSize = true, MaximumSize = new Size(980, 0), ForeColor = WorkerUi.Muted, BackColor = WorkerUi.Page, Margin = new Padding(0) });
+        header.Controls.Add(new Label { Text = "使用 FDS 帳號登入並授權這台電腦。Codex + Blender 直接建模、檢查及匯出 FBX／GLB；SKP 另行轉換。", AutoSize = true, MaximumSize = new Size(980, 0), ForeColor = WorkerUi.Muted, BackColor = WorkerUi.Page, Margin = new Padding(0) });
         Add(grid, header);
 
         var settings = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, BackColor = WorkerUi.Page, Margin = new Padding(0, 0, 0, 14) };
@@ -625,7 +626,7 @@ internal sealed class SetupForm : Form {
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26));
         var environmentCard = Card("環境設定");
-        var sketchupCard = Card("SketchUp 設定");
+        var sketchupCard = Card("建模方式及 SKP 轉換設定");
         var startupCard = Card("啟動設定");
         startupCard.Margin = new Padding(0);
         environmentCard.Dock = sketchupCard.Dock = startupCard.Dock = DockStyle.Fill;
@@ -670,18 +671,20 @@ internal sealed class SetupForm : Form {
         downloadSu.LinkClicked += (s, e) => Process.Start("https://help.sketchup.com/en/downloading-sketchup");
         sketchupCard.Stack(downloadSu);
         Add(sketchupCard, new Label { Text = "建模方式", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 8, 0, 6) });
-        engine.Items.AddRange(new object[] { "Codex", "建築學長" });
+        engine.Items.AddRange(new object[] { "Codex + SketchUp", "建築學長", "Codex + Blender" });
         engine.Dock = DockStyle.Top;
         engine.Margin = new Padding(0, 0, 0, 10);
         var loadingEngine = true;
-        engine.SelectedIndex = WorkerSetup.LoadEngine() == "jzxz" ? 1 : 0;
+        engine.SelectedIndex = WorkerSetup.LoadEngine() == "blender" ? 2 : WorkerSetup.LoadEngine() == "jzxz" ? 1 : 0;
         loadingEngine = false;
         engine.SelectedIndexChanged += (s, e) => {
             if (loadingEngine || engine.SelectedIndex < 0) return;
-            WorkerSetup.SaveEngine(engine.SelectedIndex == 1 ? "jzxz" : "codex");
+            WorkerSetup.SaveEngine(engine.SelectedIndex == 2 ? "blender" : engine.SelectedIndex == 1 ? "jzxz" : "codex");
+            DescribeSketchUp();
             status.Text = "建模方式已改為" + engine.Text + "。正在運行的 Worker 約 30 秒內會用這個方式處理下一個任務。";
         };
         sketchupCard.Stack(engine);
+        Add(sketchupCard, new Label { Text = "Codex + Blender 只需 Blender 及已登入的 Codex，即可建模、四視角檢查及匯出 FBX／GLB。SketchUp 僅用於 SKP 轉換；缺少或轉換失敗不影響其他格式。Blender 非標準位置可設定 FDS_BLENDER_EXE。", AutoSize = true, MaximumSize = new Size(520, 0), ForeColor = WorkerUi.Muted, Margin = new Padding(0, 0, 0, 8) });
         var mcpHint = new Label { AutoSize = true, MaximumSize = new Size(520, 0), ForeColor = WorkerUi.Muted, BackColor = Color.White, Margin = new Padding(0, 0, 0, 8), Text = WorkerSetup.FdsMcpInstalled() ? "FDS SketchUp MCP 已安裝（埠 9878）。建築學長的 MCP 繼續用 9876。" : "尚未安裝 FDS SketchUp MCP。下載後自行複製到 SketchUp Plugins，它使用埠 9878，不佔建築學長的 9876。" };
         sketchupCard.Stack(mcpHint);
         var downloadMcp = WorkerUi.NativeButton("下載 FDS SketchUp MCP");
@@ -916,7 +919,7 @@ internal sealed class SetupForm : Form {
             };
             add("查看原圖", (file, r) => Process.Start("explorer.exe", Path.Combine(Path.GetDirectoryName(file), "references")));
             add("查看預覽", (file, r) => Process.Start(WorkerSetup.Text(r, "preview_path")));
-            add("SketchUp 開啟", (file, r) => Process.Start(WorkerSetup.Text(r, "model_path")));
+            add("開啟原始模型", (file, r) => Process.Start(WorkerSetup.Text(r, "model_path")));
             add("接受並上傳", (file, r) => { r["status"] = "accepted"; File.WriteAllText(file, new JavaScriptSerializer().Serialize(r)); dialog.Close(); });
             add("填寫問題後修正", (file, r) => {
                 using (var feedbackDialog = new Form { Text = "描述需要修正的細節", Size = new Size(640, 440), StartPosition = FormStartPosition.CenterParent, Font = Font }) {
@@ -989,10 +992,15 @@ internal sealed class SetupForm : Form {
             text.Append(stage == "failed" ? "✗ 失敗：" : "— 已放棄：").Append(detail);
             return text.ToString();
         }
-        var current = stage == "done" ? TaskSteps.Length : Array.FindIndex(TaskSteps, s => s[0] == stage);
-        for (var i = 0; i < TaskSteps.Length; i++) {
-            text.Append(i < current ? "✓ " : i == current ? "● " : "○ ").Append(TaskSteps[i][1]);
-            if (i == current && detail != "" && detail != TaskSteps[i][1]) text.Append("　").Append(detail);
+        var steps = WorkerSetup.Text(progress, "engine") == "blender" ? new[] {
+            new[] { "download", "下載參考圖" }, new[] { "codex", "Codex 操作 Blender 建模及四視角檢查" },
+            new[] { "validate", "檢查 Blender FBX／GLB、尺寸及部件" }, new[] { "export", "獨立轉換 SKP（不阻擋其他格式）" },
+            new[] { "review", "人工驗收" }, new[] { "upload", "上傳檔案" }, new[] { "publish", "發布模型" }
+        } : TaskSteps;
+        var current = stage == "done" ? steps.Length : Array.FindIndex(steps, s => s[0] == stage);
+        for (var i = 0; i < steps.Length; i++) {
+            text.Append(i < current ? "✓ " : i == current ? "● " : "○ ").Append(steps[i][1]);
+            if (i == current && detail != "" && detail != steps[i][1]) text.Append("　").Append(detail);
             text.AppendLine();
         }
         if (stage == "done") text.Append("已發布。");
@@ -1094,7 +1102,7 @@ internal sealed class SetupForm : Form {
         var found = File.Exists(path) && String.Equals(Path.GetFileName(path), "SketchUp.exe", StringComparison.OrdinalIgnoreCase);
         sketchupState.Text = found ? "已找到 SketchUp。" : "尚未找到 SketchUp。";
         sketchupState.ForeColor = found ? Color.FromArgb(22, 163, 74) : Color.FromArgb(220, 38, 38);
-        sketchupHint.Text = found ? "首次使用前，請開啟 SketchUp、登入並選擇模板。" : "請先安裝並登入，或按下面的連結下載。";
+        sketchupHint.Text = WorkerSetup.LoadEngine() == "blender" ? "Blender 建模及 FBX／GLB 不需要 SketchUp；此路徑只供 SKP 轉換使用。" : found ? "首次使用前，請開啟 SketchUp、登入並選擇模板。" : "請先安裝並登入，或按下面的連結下載。";
     }
 
     RoundCard Card(string title) {
@@ -1220,7 +1228,7 @@ internal sealed class SetupForm : Form {
                     });
                     WorkerSetup.Install(config, auto.Checked);
                 });
-                status.Text = "授權：已授權\r\n連線：正在啟動 Worker\r\n模型生成：請按「檢查狀態」。開始生成前，請確認 SketchUp 已安裝及登入。";
+                status.Text = "授權：已授權\r\n連線：正在啟動 Worker\r\n模型生成：請按「檢查狀態」，確認所選建模方式的環境已就緒。";
                 return;
             }
         }
@@ -1281,10 +1289,11 @@ internal sealed class SetupForm : Form {
         }
         if (error != "") throw new Exception(error);
         var ready = result.ContainsKey("ready") && Convert.ToBoolean(result["ready"]);
+        if (WorkerSetup.LoadEngine() == "blender") ready = WorkerSetup.Text(Child(result, "checks") ?? new Dictionary<string, object>(), "blender_ready") == "true";
         var localSketchUp = File.Exists(config.SketchUp);
-        status.Text = "授權：已授權\r\n連線：已連線\r\n模型生成：" + (ready ? "已就緒" : "尚未就緒，請確認 SketchUp 已安裝及登入，再重新啟動 Worker")
-            + "\r\n本機 SketchUp.exe：" + (localSketchUp ? "已找到" : "缺少")
-            + "\r\n首次使用時，建議生成一個模型並用 SketchUp 開啟確認。\r\n環境：" + (config.Environment == "branch" ? "測試環境" : "正式環境");
+        status.Text = "授權：已授權\r\n連線：已連線\r\n模型生成：" + (ready ? "已就緒" : "尚未就緒，請確認所選方式的建模工具已安裝、Codex 已登入，再重新啟動 Worker")
+            + "\r\nSKP 轉換用 SketchUp.exe：" + (localSketchUp ? "已找到" : "缺少")
+            + "\r\nBlender 模式以 Blender 原始檔及四視角預覽驗收；SKP 轉換失敗不影響 FBX／GLB。\r\n環境：" + (config.Environment == "branch" ? "測試環境" : "正式環境");
     }
 
     async Task Disconnect() {

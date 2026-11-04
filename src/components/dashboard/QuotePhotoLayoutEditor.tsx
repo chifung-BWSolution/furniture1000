@@ -41,6 +41,7 @@ import {
   type QuotePhotoRef,
 } from '@/lib/quotePhotoLibrary';
 import { QuotePhotoGenerateDialog, type GenerateChoice, type QuotePhotoZone } from '@/components/dashboard/QuotePhotoGenerateDialog';
+import { usePasteFiles } from '@/hooks/use-paste-files';
 import { QUOTE_ZONE_SCOPE_MESSAGES } from '@/lib/quoteZoneScope';
 import { supabase } from '@/lib/supabase';
 import {
@@ -597,6 +598,16 @@ export function QuotePhotoLayoutEditor({
   const [generateOpen, setGenerateOpen] = useState(false);
   /** FDS-13：非 BWF 正式報價（快速報價／客戶方案／DP-／設計專案）不提供分區示範圖生成。 */
   const [zoneScopeBlocked, setZoneScopeBlocked] = useState<string | null>(null);
+
+  /** Ctrl+V 貼上圖片：直接上載並放入素材區，跟拖放／選檔一樣。 */
+  usePasteFiles({
+    enabled: canManage && !libraryOpen && !generateOpen && !pendingReplace,
+    multiple: true,
+    accept: (file) => file.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(file.name),
+    onFiles: (files) => {
+      void upload(files);
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -1374,8 +1385,8 @@ export function QuotePhotoLayoutEditor({
                 ? library.filter((asset) => !asset.isGenerated).length >= QUOTE_PHOTO_MANUAL_LIMIT
                   ? `手動上載已達 ${QUOTE_PHOTO_MANUAL_LIMIT} 張上限，刪除不再用的圖後可再上載`
                   : trayIds.length === 0
-                    ? '點擊或拖放圖片到這裡上載，或從圖片庫加入。'
-                    : '點擊或拖放圖片到這裡上載'
+                    ? '點擊、拖放或貼上（Ctrl+V）圖片到這裡上載，或從圖片庫加入。'
+                    : '點擊、拖放或貼上（Ctrl+V）圖片到這裡上載'
                 : '只有管理員或上載員可以新增圖片'}
             </button>
           </section>

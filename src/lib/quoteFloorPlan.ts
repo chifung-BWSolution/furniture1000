@@ -634,7 +634,8 @@ export function referenceImagePromptBlock(furniture: ZoneSceneFurniture[]): stri
 export function withReferenceImagePrompts(
   text: string,
   furniture: ZoneSceneFurniture[],
-  max = 500,
+  /** 跟 Edge `PROMPT_MAX`／`QUOTE_PHOTO_PROMPT_MAX` 一致（2000 字）。 */
+  max = 2000,
 ): string {
   const block = referenceImagePromptBlock(furniture);
   const base = text.replace(/【參考圖】[\s\S]*$/, '').replace(/\s+/g, ' ').trim();

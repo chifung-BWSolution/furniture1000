@@ -102,7 +102,6 @@ module FdsCodexSession
 
   def self.scene_info
     model = Sketchup.active_model
-    trace.call('measure')
     counts = Hash.new(0)
     walk(model.entities) { |e, _| counts[e.typename] += 1 }
     top = model.entities.select { |e| e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance) }.first(60).map do |e|
@@ -141,6 +140,67 @@ module FdsCodexSession
     sel = Sketchup.active_model.selection
     return [] if sel.empty?
     sel.first(100).map { |e| { 'id' => e.entityID, 'type' => e.typename, 'bounds_mm' => (bounds_mm(e.bounds) rescue nil) } }
+  end
+
+  # Fixed Blender mesh adapter. No generated Ruby is evaluated during conversion.
+  def self.import_blender
+    raise 'model_mismatch' unless model_job_id == JOB_ID
+    data = JSON.parse(File.read(File.join(OUTPUT_DIR, 'blender-mesh.json')))
+    parts = data.fetch('parts')
+    raise 'blender_mesh_limit' if parts.empty? || parts.sum { |p| p.fetch('faces').length } > 200_000
+    model = Sketchup.active_model
+    model.start_operation('FDS Blender import', true)
+    begin
+      old = model.entities.grep(Sketchup::Group).select { |g| g.get_attribute(DICT, 'blender') }
+      root = model.entities.add_group
+      root.name = 'Blender product'
+      root.set_attribute(DICT, 'blender', true)
+      parts.each_with_index do |part, pi|
+        group = root.entities.add_group
+        group.name = part.fetch('name')
+        group.layer = model.layers.add(group.name)
+        points = part.fetch('vertices').map { |v| Geom::Point3d.new(*v.map { |x| Float(x).mm }) }
+        materials = part.fetch('materials').each_with_index.map do |raw, mi|
+          mat = model.materials.add("Blender-#{pi}-#{mi}")
+          color = raw.fetch('color')
+          mat.color = Sketchup::Color.new(*color.first(3).map { |v| [[(v * 255).round, 0].max, 255].min })
+          mat.alpha = color[3] || 1.0
+          texture = raw['texture']
+          if texture
+            raise 'blender_texture_path' unless inside_output?(texture) && File.file?(texture)
+            mat.texture = texture
+          end
+          mat
+        end
+        group.entities.build do |builder|
+        part.fetch('faces').each do |raw|
+          vertices = raw.fetch('v').map { |i| points.fetch(i) }
+          face = builder.add_face(vertices)
+          next unless face # Degenerate triangles have no face.
+          normal = (vertices[1] - vertices[0]).cross(vertices[2] - vertices[0])
+          face.reverse! if face.normal.dot(normal) < 0
+          mat = materials[raw['m']]
+          if mat
+            face.material = mat
+            face.back_material = mat
+            if mat.texture && raw['uv']
+              mapping = vertices.each_with_index.flat_map { |p, i| [p, Geom::Point3d.new(*raw['uv'][i], 1)] }
+              face.position_material(mat, mapping, true)
+              face.position_material(mat, mapping, false)
+            end
+          end
+        end
+        end
+        raise 'blender_empty_part' if group.entities.grep(Sketchup::Face).empty?
+      end
+      model.entities.erase_entities(old) unless old.empty?
+      model.commit_operation
+      raise 'checkpoint_save_failed' unless model.save
+      { 'parts' => parts.length }
+    rescue StandardError
+      model.abort_operation rescue nil
+      raise
+    end
   end
 
   def self.run_eval(code)
@@ -320,6 +380,13 @@ module FdsCodexSession
     when 'scene_info' then scene_info
     when 'selection' then selection_info
     when 'screenshot' then screenshot(args)
+    when 'import_blender' then import_blender
+    when 'save_skp'
+      raise 'export_path_invalid' unless inside_output?(args['path'])
+      raise 'model_empty' if Sketchup.active_model.entities.length.zero?
+      label_product(Sketchup.active_model, args['product'] || {})
+      raise 'skp_save_failed' unless Sketchup.active_model.save(args['path'])
+      { 'saved_path' => args['path'] }
     when 'save_checkpoint'
       raise 'checkpoint_save_failed' unless Sketchup.active_model.save
       { 'saved_path' => Sketchup.active_model.path }

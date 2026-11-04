@@ -53,6 +53,17 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
   const [busy, setBusy] = useState<'save' | 'remove' | 'sync' | null>(null);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const status = url.searchParams.get('asana');
+    if (status === 'connected') toast.success('Asana 已連接');
+    if (status === 'error') toast.error('未能連接 Asana，請重新嘗試。');
+    if (status) {
+      url.searchParams.delete('asana');
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, []);
+
   const load = async () => {
     const { data, error: loadError } = await supabase.rpc('fds_asana_factory_link_list');
     if (loadError) {
@@ -108,6 +119,7 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
         setError(startError?.message || (data as { error?: string } | null)?.error || '未能開始 Asana 連接。');
         return;
       }
+      sessionStorage.setItem('fds_asana_return_path', window.location.pathname);
       window.location.assign(url);
     } finally {
       setConnecting(false);
