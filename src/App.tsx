@@ -117,7 +117,7 @@ function App() {
           <Routes>
             <Route path="/auth/shopify/callback" element={<ShopifyCallback />} />
             <Route path="/auth/pms/callback" element={<PmsSsoCallback />} />
-            <Route path="/asana/callback" element={<AsanaCallback />} />
+            <Route path="/fds/asana/callback" element={<AsanaCallback />} />
             <Route path="/package-quote/:token" element={<PackageQuoteSharePage />} />
             <Route path="/manufacturers/:factoryCode" element={<LegacyManufacturerRedirect />} />
             {/* Stable deep links for PMS Quote tab / SSO redirect_to */}
