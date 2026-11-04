@@ -14,7 +14,7 @@ export async function generateBlenderDraft({job,deps,dir,paths,stage,signal}) {
   const write = (name,data) => writeFile(join(dir,name),JSON.stringify(data,null,2));
   const fail = (kind,message) => Object.assign(new Error(`${kind}: ${message}`),{kind,retryable:false});
   await stage('download',0.05,'下載 Blender 建模參考圖');
-  const refs = await downloadReferences(input.references ?? [],paths.refs);
+  const refs = await (deps.downloadReferences ?? downloadReferences)(input.references ?? [],paths.refs);
   await write('references.json',refs);
   if (!refs.saved.length) throw fail('input','參考圖片下載失敗');
   const blend = join(paths.outputs,'model.blend');
@@ -38,12 +38,19 @@ export async function generateBlenderDraft({job,deps,dir,paths,stage,signal}) {
     if (existsSync(blend)) prompt += '\n現有 model.blend 和 build_model.py 已保留，請接續修正，保留無關部件。';
     if (deps.feedback) prompt += `\n修正要求：${deps.feedback}`;
     await writeFile(join(dir,'prompt.md'),prompt);
-    const entries = await executeBlenderCodex({job,dir,paths,config:deps.config,blenderExe:deps.blenderExe,prompt,references:refs.saved,signal,secrets:deps.secrets});
+    const entries = await (deps.executeBlenderCodex ?? executeBlenderCodex)({job,dir,paths,config:deps.config,blenderExe:deps.blenderExe,prompt,references:refs.saved,signal,secrets:deps.secrets});
     report = JSON.parse((await readFile(join(paths.outputs,'report.json'),'utf8')).replace(/^\uFEFF/,''));
     const gaps = orientationGaps(report,refs.saved,entries);
     if (entries.findLast((e)=>e.tool==='run_blender'&&e.ok)?.script_sha256 !== sha256(await readFile(script))) gaps.push('建模腳本在最後一次執行後被修改，需重新執行及檢查');
     if (!Array.isArray(report.parts) || !report.parts.length || !Array.isArray(report.batches) || !report.batches.length || !Array.isArray(report.semantic_checks) || !Array.isArray(report.known_issues)) gaps.push('建模報告欄位不完整');
-    if (gaps.length) throw fail('validation',`orientation_review_required: ${gaps.join('；')}`);
+    if (gaps.length) {
+      const details = [...gaps, ...(report.orientation_review?.unresolved ?? [])];
+      if ((deps.blenderRepairRound ?? 0) < 2) {
+        await stage('validate',0.55,'方向檢查未通過，保留現有 Blender 模型並接續修正');
+        return generateBlenderDraft({job,deps:{...deps,blenderRepairRound:(deps.blenderRepairRound??0)+1,feedback:[deps.feedback,`請接續修正現有模型，禁止清空重建或虛報通過。修正以下問題後重新執行腳本、檢視四視角並更新報告：${details.join('；')}`].filter(Boolean).join('\n')},dir,paths,stage,signal});
+      }
+      throw fail('validation',`orientation_review_required: ${details.join('；')}`);
+    }
     await write('blender-recovery.json',{job_id:job.id,stage:'export'});
   }
   await stage('validate',0.6,'檢查 Blender 原生 FBX／GLB、尺寸及部件');

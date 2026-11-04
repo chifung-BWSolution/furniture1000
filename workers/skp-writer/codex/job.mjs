@@ -505,7 +505,11 @@ ${existsSync(scriptPath)
         !report.unit_plan?.instances?.length || report.orientation_review?.passed !== true ||
         !Array.isArray(report.orientation_review?.unresolved) || report.orientation_review.unresolved.length ||
         !topScreens.length || !toolEntries.some((entry) => entry.tool === 'screenshot' && entry.ok)) {
-      throw new JobError('validation', 'orientation_review_required: 圖片分類、單元組合或頂視方向檢查未通過，模型保留在本機，未發布');
+      const details = ['圖片分類、單元組合或頂視方向檢查未通過', ...(report.orientation_review?.unresolved ?? [])];
+      await bridgeCall(port, 'save_checkpoint', {}, { timeoutMs: 60_000 });
+      const error = new JobError('validation', `orientation_review_required: ${details.join('；')}`);
+      error.repair = validationRepair({ checks: details.map((detail) => ({ name: 'orientation_review', ok: false, severity: 'error', detail })) }, working, deps.validationRepairRound ?? recovery?.validationRepairRound ?? 0);
+      throw error;
     }
     const missing = reportGaps(report);
     if (!existsSync(scriptPath) || !toolEntries.some((entry) => entry.tool === 'eval_ruby' && entry.ok && entry.script_load === true)) {
