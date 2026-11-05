@@ -341,6 +341,10 @@ function buildHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: JSX.El
 
   const rightFields = data.quickQuote ? [] : build([
     [labels.company, data.companyInfo?.name],
+    // 「是否顯示」在編輯器預設勾選；只有明確取消才從客戶報價單移除地址。
+    ...(data.companyInfo?.showAddress === false
+      ? []
+      : ([[labels.address, data.companyInfo?.address]] as Array<[string, string | undefined | null]>)),
     [labels.tel, data.companyInfo?.phone],
     [labels.email, data.companyInfo?.email],
     [labels.website, data.companyInfo?.website],

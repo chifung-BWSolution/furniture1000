@@ -2765,6 +2765,7 @@ export function QuotationDraftEditor({
         name?: string;
         address?: string;
         addressEn?: string;
+        showAddressInPdf?: boolean;
         phone?: string;
         email?: string;
         website?: string;
@@ -3029,6 +3030,8 @@ export function QuotationDraftEditor({
     name: savedCompanyInfo?.name || formData.company || "Branding Works Design Ltd",
     address: savedCompanyInfo?.address || DEFAULT_COMPANY_ADDRESS.zh,
     addressEn: savedCompanyInfo?.addressEn || DEFAULT_COMPANY_ADDRESS.en,
+    // 預設勾選：只有明確取消（舊資料沒有這個欄位）才不在 PDF 顯示地址。
+    showAddressInPdf: savedCompanyInfo?.showAddressInPdf !== false,
     // Prefer the logged-in user's mapped phone when generating a quote.
     phone:
       resolveQuoteCompanyPhone({
@@ -4990,6 +4993,7 @@ export function QuotationDraftEditor({
               "Branding Works Design Ltd",
             address: cachedCompany.address || DEFAULT_COMPANY_ADDRESS.zh,
             addressEn: cachedCompany.addressEn || DEFAULT_COMPANY_ADDRESS.en,
+            showAddressInPdf: cachedCompany.showAddressInPdf !== false,
             phone:
               resolveQuoteCompanyPhone({
                 email: userEmail,
@@ -5699,7 +5703,6 @@ export function QuotationDraftEditor({
 
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
-      const { addressEn, address: _zhAddress, ...companyRest } = companyInfo;
       const enFullHtml = deliveryAddress
         ? injectDeliveryAddressIntoTermsHtml(
             termsContentEn.fullHtml || buildDefaultTermsFullHtmlEn(deliveryAddress),
@@ -5708,8 +5711,12 @@ export function QuotationDraftEditor({
         : termsContentEn.fullHtml || buildDefaultTermsFullHtmlEn();
       return {
         companyInfo: {
-          ...companyRest,
-          address: addressEn || DEFAULT_COMPANY_ADDRESS.en,
+          name: companyInfo.name,
+          address: companyInfo.addressEn || DEFAULT_COMPANY_ADDRESS.en,
+          showAddress: companyInfo.showAddressInPdf,
+          phone: companyInfo.phone,
+          email: companyInfo.email,
+          website: companyInfo.website,
         },
         clientInfo,
         quoteMeta: {
@@ -5756,6 +5763,7 @@ export function QuotationDraftEditor({
     companyInfo: {
       name: companyInfo.name,
       address: companyInfo.address,
+      showAddress: companyInfo.showAddressInPdf,
       phone: companyInfo.phone,
       email: companyInfo.email,
       website: companyInfo.website,
@@ -6179,6 +6187,9 @@ export function QuotationDraftEditor({
                     <LabelValueRow label={ui('公司名稱', 'Company Name')}>{companyInfo.name || "—"}</LabelValueRow>
                     <LabelValueRow label={ui('地址', 'Address')}>
                       {(quoteLocale === "en" ? companyInfo.addressEn : companyInfo.address) || "—"}
+                      {companyInfo.showAddressInPdf
+                        ? null
+                        : ui('（PDF 隱藏）', ' (hidden in PDF)')}
                     </LabelValueRow>
                     <LabelValueRow label={ui('電話', 'Phone')}>{companyInfo.phone || "—"}</LabelValueRow>
                     <LabelValueRow label={ui('電郵', 'Email')}>{companyInfo.email || "—"}</LabelValueRow>
@@ -6198,22 +6209,50 @@ export function QuotationDraftEditor({
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
                     {ui('地址', 'Address')}
                   </label>
-                  <textarea
-                    value={
-                      quoteLocale === 'en'
-                        ? companyInfo.addressEn
-                        : companyInfo.address
-                    }
-                    onChange={(e) =>
-                      setCompanyInfo((p) =>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={
                         quoteLocale === 'en'
-                          ? { ...p, addressEn: e.target.value }
-                          : { ...p, address: e.target.value },
-                      )
-                    }
-                    rows={2}
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  />
+                          ? companyInfo.addressEn
+                          : companyInfo.address
+                      }
+                      onChange={(e) =>
+                        setCompanyInfo((p) =>
+                          quoteLocale === 'en'
+                            ? { ...p, addressEn: e.target.value }
+                            : { ...p, address: e.target.value },
+                        )
+                      }
+                      title={
+                        quoteLocale === 'en'
+                          ? companyInfo.addressEn
+                          : companyInfo.address
+                      }
+                      className="h-9 w-full rounded-md border border-border bg-background pl-3 pr-24 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                    <label
+                      className="absolute right-2 top-1/2 inline-flex -translate-y-1/2 cursor-pointer items-center gap-1 rounded bg-background/90 px-1 py-0.5"
+                      title={ui(
+                        '取消勾選後，客戶的報價單不會顯示公司地址',
+                        'Uncheck to leave the company address off the customer quotation.',
+                      )}
+                    >
+                      <Checkbox
+                        checked={companyInfo.showAddressInPdf}
+                        onCheckedChange={(checked) =>
+                          setCompanyInfo((p) => ({
+                            ...p,
+                            showAddressInPdf: checked === true,
+                          }))
+                        }
+                        className="border-foreground/60 data-[state=checked]:border-primary"
+                      />
+                      <span className="whitespace-nowrap font-body text-[11px] text-muted-foreground">
+                        {ui('是否顯示', 'Show in PDF')}
+                      </span>
+                    </label>
+                  </div>
                 </div>
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">

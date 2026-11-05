@@ -12,6 +12,8 @@ export interface QuotationPDFData {
   companyInfo: {
     name: string;
     address: string;
+    /** 是否在 PDF 表頭顯示公司地址；未設定時預設顯示（舊報價沿用）。 */
+    showAddress?: boolean;
     phone: string;
     email: string;
     website: string;
