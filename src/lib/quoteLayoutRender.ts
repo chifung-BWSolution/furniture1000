@@ -48,7 +48,7 @@ async function reviewLayoutImage(planUrl: string, renderUrl: string, productUrl:
       body: JSON.stringify({ model: DEFAULT_GEMINI_MODEL, feature: 'quote_floor_plan_zones', contents: [{ parts: [
         { text: `第一張為局部分區平面圖，第二張為生成的透視圖，第三張為產品圖集。按已確認傢俬清單比較數量、相對位置、門洞及產品外觀：${JSON.stringify(inventory)}。透視遮擋或相機方向不明時，不要猜測，列入 uncertain。影響傢俬數量、位置、朝向、門洞或出入口、產品款式及結構的差異列入 issues；材質色差、光影、地板牆面等裝飾細節、輕微比例或輕微遮擋等不影響使用的列入 minor。只回 JSON：{"issues":["明顯差異"],"minor":["可忽略的小問題"],"uncertain":["需要人工確認的項目"]}。不要聲稱已精確驗證。` },
         ...images.map(image => ({ inlineData: { mimeType: 'image/jpeg', data: image } })),
-      ] }] }), signal: AbortSignal.timeout(90000),
+      ] }] }), signal: AbortSignal.timeout(150000),
     });
     if (!response.ok) return null;
     const body = await response.json();
@@ -110,7 +110,7 @@ export async function recognizeLayout(plan: QuoteFloorPlan, zones: LayoutZone[])
     body: JSON.stringify({ model: DEFAULT_GEMINI_MODEL, feature: 'quote_floor_plan_zones', contents: [{ parts: [
       { text: `識別附圖傢俬位置與朝向，配對以下報價產品。位置用整張圖百分比座標(x,y)，朝向用相對圖上方順時針角度。每件實物分別描述，列產品id；未知配對或朝向寫待確認，不推測。數量與報價不符必須指出，不新增產品。分區框與產品資料：${layoutDescription(zones, plan)}。只回JSON：{"zones":[{"id":"分區id","notes":"各件傢俬的產品id、位置、角度及待確認問題"}]}` },
       { inlineData: { mimeType: 'image/jpeg', data } },
-    ] }] }), signal: AbortSignal.timeout(90000),
+    ] }] }), signal: AbortSignal.timeout(150000),
   });
   const body = await result.json();
   if (!result.ok) throw new Error('布局識別失敗，請稍後重試');

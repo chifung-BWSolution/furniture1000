@@ -15,9 +15,13 @@ const corsHeaders = {
  */
 const XAI_URL = "https://api.x.ai/v1/chat/completions";
 const DEFAULT_XAI_CHAT_MODEL = "grok-4.7";
-/** 兩段加起來低於 Edge gateway 的 ~150s 上限。 */
+/**
+ * Gateway 在 150s 內未開始回傳會 504。Gemini 維持 75s，成功的慢請求不必提早改走 xAI。
+ * 後備唔再用固定 65s：Gemini 若幾秒就回 503，剩低的閒置時間全部撥給 xAI，
+ * 否則 grok-4.7（reasoning 不能關閉）會在額度還沒用完時被截斷，用戶收到原本的 503。
+ */
+const GATEWAY_IDLE_MS = 142_000;
 const GEMINI_TIMEOUT_MS = 75_000;
-const XAI_TIMEOUT_MS = 65_000;
 /** 供應方容量問題才值得換模型；400/401/403 是請求本身的問題，換了也一樣。 */
 const FALLBACK_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 /** 這些 feature 的呼叫端會 JSON.parse 回覆，要求 Grok 用 JSON 模式。 */
@@ -55,7 +59,17 @@ function toXaiMessages(contents: unknown) {
   });
 }
 
-async function askXai(apiKey: string, contents: unknown, feature: string | null) {
+function xaiTimeoutMs(startedAt: number): number {
+  const remaining = GATEWAY_IDLE_MS - (Date.now() - startedAt) - 3_000;
+  return Math.max(8_000, remaining);
+}
+
+async function askXai(
+  apiKey: string,
+  contents: unknown,
+  feature: string | null,
+  timeoutMs: number,
+) {
   const model = (Deno.env.get("XAI_CHAT_MODEL") ?? "").trim() ||
     DEFAULT_XAI_CHAT_MODEL;
   const response = await fetch(XAI_URL, {
@@ -72,7 +86,7 @@ async function askXai(apiKey: string, contents: unknown, feature: string | null)
         ? { response_format: { type: "json_object" } }
         : {}),
     }),
-    signal: AbortSignal.timeout(XAI_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
@@ -167,6 +181,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    const startedAt = Date.now();
     const modelName = resolveGeminiModel(model);
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
     const feature = typeof body.feature === "string" ? body.feature : null;
@@ -223,8 +238,12 @@ Deno.serve(async (req: Request) => {
       // 供應方容量問題：改用 xAI Grok 完成同一個請求（有設 XAI_API_KEY 才啟用）。
       const xaiApiKey = (Deno.env.get("XAI_API_KEY") ?? "").trim();
       if (FALLBACK_STATUSES.has(geminiResponse.status) && xaiApiKey) {
+        const timeoutMs = xaiTimeoutMs(startedAt);
+        console.log(
+          `[gemini-proxy] Gemini ${geminiResponse.status} after ${Date.now() - startedAt}ms; xAI budget ${timeoutMs}ms`,
+        );
         try {
-          const fallback = await askXai(xaiApiKey, contents, feature);
+          const fallback = await askXai(xaiApiKey, contents, feature, timeoutMs);
           console.log(
             `[gemini-proxy] Gemini ${geminiResponse.status}; answered by ${fallback.model}`
           );
