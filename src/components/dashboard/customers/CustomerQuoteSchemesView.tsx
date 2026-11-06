@@ -78,11 +78,19 @@ import {
 import { resolveQuoteShareToken } from '@/lib/bwfQuoteShareLinks';
 import {
   customerQuoteError,
+  confirmSharedCustomerQuote,
   fetchSharedCustomerQuote,
+  fetchSharedQuoteRequests,
   listCustomerQuotes,
   loadCustomerSafeItems,
   submitCustomerQuoteRequest,
+  type CustomerSharedQuoteRequestRow,
 } from '@/lib/customerQuoteAccess';
+import { QuoteRelatedFurniture } from '@/components/dashboard/customers/QuoteRelatedFurniture';
+import {
+  customerRequestStatusLabel,
+  customerRequestTypeLabel,
+} from '@/lib/customerQuoteRequests';
 import { recordQuoteShareView } from '@/lib/quoteEmailFollowUp';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 import { unsavedGuard } from '@/lib/unsavedGuard';
@@ -1328,7 +1336,7 @@ export function CustomerQuoteSchemesView() {
   const [loading, setLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
-  /** Quote opened via 生成QR Code 及連結 share token. */
+  /** Quote opened via its QR Code or share link. */
   const [sharedQuoteTarget, setSharedQuoteTarget] = useState<{
     quoteUuid: string;
     quoteId: string;
@@ -1377,6 +1385,21 @@ export function CustomerQuoteSchemesView() {
     startIndex: number;
   } | null>(null);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
+  /** 客戶尚未提交的加選／換款（在「相關家具」內編輯）。 */
+  const [hasPendingChangeDraft, setHasPendingChangeDraft] = useState(false);
+  /** 這張報價的客戶提交紀錄（回執與待處理狀態）。 */
+  const [quoteRequests, setQuoteRequests] = useState<CustomerSharedQuoteRequestRow[]>([]);
+  const [confirmationReceipt, setConfirmationReceipt] = useState<{
+    status: 'confirmed' | 'rejected';
+    version: string;
+    confirmedAt: string | null;
+    note: string;
+  } | null>(null);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  /** 分享連結無效／已撤銷：不可讀取明細，也不可提交。 */
+  const [shareLinkInvalid, setShareLinkInvalid] = useState(false);
+
+  const quoteShareToken = readStoredQuoteShareToken();
 
   useEffect(() => {
     let cancelled = false;
@@ -1446,6 +1469,7 @@ export function CustomerQuoteSchemesView() {
     }
     storeQuoteShareToken(token);
     setLoading(true);
+    setShareLinkInvalid(false);
     setPortalProjects([]);
     setPortalProjectData({});
     setPortalTotals({});
@@ -1471,8 +1495,9 @@ export function CustomerQuoteSchemesView() {
           if (!sharedQuote?.quote.id) {
             toast.error('分享連結無效或已撤銷', {
               description:
-                '請重新在報價單按「生成QR Code 及連結」。若剛從編輯頁開啟，請用無痕視窗或另一瀏覽器開啟連結。',
+                '請向報價負責同事索取有效的分享連結。若剛從編輯頁開啟，請用無痕視窗或另一瀏覽器開啟連結。',
             });
+            setShareLinkInvalid(true);
             setSharedQuoteTarget(null);
             setQuotes([]);
             setShowDetail(false);
@@ -1528,8 +1553,9 @@ export function CustomerQuoteSchemesView() {
         if (!resolved?.quoteUuid) {
           toast.error('分享連結無效或已撤銷', {
             description:
-              '請重新在報價單按「生成QR Code 及連結」。若剛從編輯頁開啟，請用無痕視窗或另一瀏覽器開啟連結。',
+              '請向報價負責同事索取有效的分享連結。若剛從編輯頁開啟，請用無痕視窗或另一瀏覽器開啟連結。',
           });
+          setShareLinkInvalid(true);
           setSharedQuoteTarget(null);
           setQuotes([]);
           setShowDetail(false);
@@ -2198,6 +2224,48 @@ export function CustomerQuoteSchemesView() {
     0,
   );
 
+  /** 原報價項目（可被更換款式）；不含分區標題與自訂條款。 */
+  const originalItemOptions = useMemo(
+    () =>
+      items
+        .filter(
+          (item) =>
+            Boolean(item.id) &&
+            !item.isSectionTitle &&
+            !item.isDivisionTitle &&
+            !item.isCustomTerm,
+        )
+        .map((item) => ({
+          id: item.id!,
+          name: quoteItemDisplayName(item),
+          unit: item.unit,
+          unitPrice: Number(item.unitPrice) || 0,
+          quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
+        })),
+    [items],
+  );
+
+  const loadQuoteRequests = useCallback(async () => {
+    const quoteUuid = active?.id && /^[0-9a-f-]{36}$/i.test(active.id) ? active.id : '';
+    if (!quoteUuid) {
+      setQuoteRequests([]);
+      return;
+    }
+    setRequestsLoading(true);
+    try {
+      const rows = await fetchSharedQuoteRequests(
+        readStoredQuoteShareToken(),
+        quoteUuid,
+      );
+      setQuoteRequests(rows);
+    } catch (error) {
+      console.warn('[quote_requests]', error);
+      setQuoteRequests([]);
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, [active?.id]);
+
   const itemKey = (item: BwfQuoteItemInput, index: number) =>
     item.id || `${quoteItemDisplayName(item)}-${index}`;
 
@@ -2639,9 +2707,9 @@ export function CustomerQuoteSchemesView() {
       .join('');
     const decisionLabel =
       quoteDecision === 'approved'
-        ? '確認整張報價'
+        ? '確認現有報價'
         : quoteDecision === 'rejected'
-          ? '拒絕整張報價'
+          ? '不接受這個版本'
           : '尚未決定';
     return `<!doctype html>
       <html lang="zh-HK"><head><meta charset="utf-8">
@@ -2872,6 +2940,38 @@ export function CustomerQuoteSchemesView() {
     void recordQuoteShareView(shareToken);
   }, [showDetail, itemsLoading, activeId, profileRole]);
 
+  // 切換報價版本時載入客戶提交紀錄，並還原這一版的確認回執。
+  useEffect(() => {
+    if (!showDetail || !active) {
+      setQuoteRequests([]);
+      setConfirmationReceipt(null);
+      return;
+    }
+    const raw = (
+      active.project_data as
+        | { customerConfirmation?: Record<string, unknown> }
+        | null
+        | undefined
+    )?.customerConfirmation;
+    const status =
+      raw?.status === 'rejected'
+        ? 'rejected'
+        : raw?.status === 'confirmed'
+          ? 'confirmed'
+          : null;
+    setConfirmationReceipt(
+      status
+        ? {
+            status,
+            version: String(raw?.version || active.version || '').trim(),
+            confirmedAt: raw?.confirmedAt ? String(raw.confirmedAt) : null,
+            note: String(raw?.note || ''),
+          }
+        : null,
+    );
+    void loadQuoteRequests();
+  }, [active, loadQuoteRequests, showDetail]);
+
   useEffect(() => {
     if (!showDetail) return;
     const handler = (event: BeforeUnloadEvent) => {
@@ -2938,6 +3038,7 @@ export function CustomerQuoteSchemesView() {
         await submitCustomerQuoteRequest({
           token: readStoredQuoteShareToken(),
           quoteId: quoteUuid,
+          quoteVersion: active.version,
           note: quoteNote.trim(),
           requestType: 'scheme',
           lines: productItems.map((item) => ({
@@ -3182,80 +3283,117 @@ export function CustomerQuoteSchemesView() {
   const submitResponse = async () => {
     if (!active) return;
     const note = quoteNote.trim();
-    if (quoteDecision === 'pending' && !note) {
-      toast.error('請選擇確認／拒絕整張報價，或輸入回覆後再提交');
+    if (quoteDecision === 'pending') {
+      toast.error('請先選擇「確認現有報價」或「不接受這個版本」');
       return;
     }
-    const linkedProject = resolveLinkedProject();
-    if (!linkedProject) {
-      toast.error('找不到對應的設計專案，無法提交');
+    if (hasPendingChangeDraft) {
+      toast.error('請先提交或移除未提交的加選／換款', {
+        description:
+          '「確認現有報價」只會確認目前顯示的版本，不會包含「相關家具」內未提交的變更。',
+      });
       return;
     }
 
-    const decision =
-      quoteDecision === 'approved'
-        ? 'approved'
-        : quoteDecision === 'rejected'
-          ? 'rejected'
-          : 'comment';
-    const clientQuoteReply = {
-      decision: decision as 'approved' | 'rejected' | 'comment',
-      note,
-      submittedAt: new Date().toISOString(),
-      quoteId: active.quote_id,
-      version: active.version,
-    };
+    const linkedProject = resolveLinkedProject();
+    const decision: 'confirmed' | 'rejected' =
+      quoteDecision === 'approved' ? 'confirmed' : 'rejected';
+    const version = (active.version || 'v1').trim() || 'v1';
     setSubmittingQuote(true);
     try {
-      // Persist selections/qty together with the whole-quote reply.
-      await saveQuoteScheme();
-      const savedMeta = await mergeProjectMeta(linkedProject.id, {
-        clientQuoteReply,
-      });
-      if (!savedMeta.ok || !savedMeta.data) {
-        toast.error('提交失敗', { description: savedMeta.error });
-        return;
-      }
-      const nextMeta = savedMeta.data;
-      if (decision === 'approved') {
-        const statusSaved = await saveProject(linkedProject.id, {
-          status: 'confirmed',
-          progress: 100,
+      // 先記錄客戶對這個版本的決定（沒有設計專案也能完成）。
+      // 若這個環境尚未套用新的提交函式，仍讓有設計專案的報價沿用原本流程。
+      let recordedByRequest = true;
+      try {
+        await confirmSharedCustomerQuote({
+          token: readStoredQuoteShareToken(),
+          quoteId: active.id,
+          quoteVersion: version,
+          note,
+          decision,
         });
-        if (!statusSaved.ok) {
-          toast.error('提交失敗', { description: statusSaved.error });
-          return;
+      } catch (error) {
+        const code = (error as { code?: string })?.code;
+        const message = String((error as { message?: string })?.message || '');
+        const missingRpc =
+          code === 'PGRST202' ||
+          message.includes('submit_customer_quote_request') ||
+          message.includes('Could not find the function');
+        if (!missingRpc || !linkedProject) throw error;
+        recordedByRequest = false;
+      }
+
+      // 有設計專案時，沿用原有 clientQuoteReply 契約同步給 PM 介面。
+      if (linkedProject) {
+        const clientQuoteReply = {
+          decision:
+            decision === 'confirmed'
+              ? ('approved' as const)
+              : ('rejected' as const),
+          note,
+          submittedAt: new Date().toISOString(),
+          quoteId: active.quote_id,
+          version: active.version,
+        };
+        const savedMeta = await mergeProjectMeta(linkedProject.id, {
+          clientQuoteReply,
+        });
+        if (savedMeta.ok && savedMeta.data) {
+          const nextMeta = savedMeta.data;
+          if (decision === 'confirmed') {
+            await saveProject(linkedProject.id, {
+              status: 'confirmed',
+              progress: 100,
+            });
+          }
+          setPortalProjects((current) =>
+            current.map((row) =>
+              row.id === linkedProject.id
+                ? {
+                    ...row,
+                    meta: nextMeta,
+                    status:
+                      decision === 'confirmed' ? 'confirmed' : row.status,
+                    progress:
+                      decision === 'confirmed' ? 100 : row.progress,
+                  }
+                : row,
+            ),
+          );
+        } else {
+          console.warn('[clientQuoteReply]', savedMeta.error);
         }
       }
-      setPortalProjects((current) =>
-        current.map((row) =>
-          row.id === linkedProject.id
-            ? {
-                ...row,
-                meta: nextMeta,
-                status:
-                  decision === 'approved' ? 'confirmed' : row.status,
-                progress:
-                  decision === 'approved' ? 100 : row.progress,
-              }
-            : row,
-        ),
+
+      setConfirmationReceipt({
+        status: decision,
+        version,
+        confirmedAt: new Date().toISOString(),
+        note,
+      });
+      savedSchemeSnapshotRef.current = buildSchemeSnapshot(
+        undefined,
+        undefined,
+        quoteDecision,
+        quoteNote,
       );
-      savedSchemeSnapshotRef.current = buildSchemeSnapshot();
       unsavedGuard.clear();
-      if (decision === 'approved') {
-        toast.success('已確認整張報價並提交', {
-          description: '方案已標示為已確認，可在這張報價方案查看',
-        });
-      } else if (decision === 'rejected') {
-        toast.success('已提交拒絕整張報價的回覆', {
-          description: '方案仍為進行中；回覆已顯示於設計專案',
+      if (recordedByRequest) void loadQuoteRequests();
+      if (decision === 'confirmed') {
+        toast.success('已確認這個報價版本', {
+          description: `${active.quote_id} · ${displayQuoteVersion(version)} 的確認已提交，負責同事會收到通知。`,
         });
       } else {
-        toast.success('已提交回覆', {
-          description: '方案仍為進行中；回覆已顯示於設計專案',
+        toast.success('已提交不接受這個版本', {
+          description: '負責同事會看到你的回覆，正式報價維持不變。',
         });
       }
+    } catch (error) {
+      toast.error('提交失敗', {
+        description: customerQuoteError(
+          error as { code?: string; message?: string } | null,
+        ),
+      });
     } finally {
       setSubmittingQuote(false);
     }
@@ -3352,6 +3490,11 @@ export function CustomerQuoteSchemesView() {
           <div className="flex justify-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
+        ) : shareLinkInvalid ? (
+          <EmptyState
+            title="分享連結無效或已撤銷"
+            description="這個連結已不能讀取報價明細，也不能提交變更。請向報價負責同事索取新的二維碼或連結。"
+          />
         ) : availableQuotes.length === 0 ? (
           <EmptyState
             title="目前沒有屬於您的報價"
@@ -4159,6 +4302,81 @@ export function CustomerQuoteSchemesView() {
             </strong>
           </div>
 
+          <QuoteRelatedFurniture
+            key={`${active.id}:${active.version}`}
+            token={quoteShareToken}
+            quoteUuid={active.id}
+            quoteVersion={(active.version || 'v1').trim() || 'v1'}
+            projectData={
+              (active.project_data as Record<string, unknown> | null) ?? null
+            }
+            engineeringType={linkedFloorPlanProject?.meta?.projectType ?? null}
+            originalItems={originalItemOptions}
+            onDraftChange={setHasPendingChangeDraft}
+            onSubmitted={() => {
+              void loadQuoteRequests();
+            }}
+          />
+
+          {quoteRequests.length > 0 ? (
+            <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-display text-base font-bold">已提交的請求</h2>
+                {requestsLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : null}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                只記錄你這張報價的提交與狀態；正式報價由負責同事覆核後處理。
+              </p>
+              <ul className="mt-3 space-y-2">
+                {quoteRequests.slice(0, 8).map((request) => (
+                  <li
+                    key={request.id}
+                    className="rounded-xl border border-border/80 bg-muted/20 px-3 py-2.5"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded-full border border-border bg-background px-2 py-0.5 font-medium">
+                        {customerRequestTypeLabel(request.request_type)}
+                      </span>
+                      <span className="rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
+                        {customerRequestStatusLabel(request.status)}
+                      </span>
+                      {request.quote_version ? (
+                        <span className="font-mono-data text-muted-foreground">
+                          {displayQuoteVersion(request.quote_version)}
+                        </span>
+                      ) : null}
+                      <span className="font-mono-data text-muted-foreground">
+                        {fmtUtc8DateTime(request.submitted_at)}
+                      </span>
+                    </div>
+                    {request.lines.length > 0 ? (
+                      <ul className="mt-1.5 space-y-0.5 text-sm">
+                        {request.lines
+                          .filter((line) => line.selected !== false && Number(line.quantity) > 0)
+                          .slice(0, 6)
+                          .map((line, index) => (
+                            <li key={`${request.id}-${index}`}>
+                              {line.kind === 'replacement'
+                                ? `${line.originalName || '原項目'} → ${line.name || '替代品'}`
+                                : line.name || '家具'}{' '}
+                              × {line.quantity}
+                            </li>
+                          ))}
+                      </ul>
+                    ) : null}
+                    {request.note ? (
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                        {request.note}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
           {isBwfDetail ? (
             <>
               <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
@@ -4185,10 +4403,52 @@ export function CustomerQuoteSchemesView() {
           ) : null}
 
           <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
-            <h2 className="font-display text-lg font-bold">整張報價決定</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              選擇「確認整張報價」並按「提交」後，方案會標示為已確認；拒絕或只輸入回覆再提交，則只傳送意見，方案仍為進行中。
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="font-display text-lg font-bold">確認現有報價</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  確認會綁定目前顯示的版本；「提交變更」只建立待處理請求，不會改動正式報價金額。
+                </p>
+              </div>
+              <span className="rounded-full border border-border bg-card px-3 py-1 font-mono-data text-xs font-semibold">
+                {active.quote_id} · 版本 {displayQuoteVersion(active.version)}
+              </span>
+            </div>
+
+            {confirmationReceipt ? (
+              <div
+                className={cn(
+                  'mt-4 rounded-xl border p-4 text-sm',
+                  confirmationReceipt.status === 'confirmed'
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-900'
+                    : 'border-rose-500/30 bg-rose-500/10 text-rose-900',
+                )}
+              >
+                <p className="font-semibold">
+                  {confirmationReceipt.status === 'confirmed'
+                    ? '已確認這個報價版本'
+                    : '已提交不接受這個版本'}
+                </p>
+                <p className="mt-1 font-mono-data text-xs">
+                  {active.quote_id} ·{' '}
+                  {displayQuoteVersion(confirmationReceipt.version || active.version)}
+                  {confirmationReceipt.confirmedAt
+                    ? ` · ${fmtUtc8DateTime(confirmationReceipt.confirmedAt)}`
+                    : ''}
+                </p>
+                {confirmationReceipt.note ? (
+                  <p className="mt-2 whitespace-pre-wrap">{confirmationReceipt.note}</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {hasPendingChangeDraft ? (
+              <p className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900">
+                你仍有未提交的加選／換款。請先按上方「提交變更」；
+                「確認現有報價」只會確認目前顯示的版本，不會包含這些變更。
+              </p>
+            ) : null}
+
             <div className="mt-4 flex flex-wrap gap-3">
               <button
                 type="button"
@@ -4201,7 +4461,7 @@ export function CustomerQuoteSchemesView() {
                 )}
               >
                 <CheckCircle2 className="h-5 w-5" />
-                確認整張報價
+                確認現有報價
               </button>
               <button
                 type="button"
@@ -4214,20 +4474,21 @@ export function CustomerQuoteSchemesView() {
                 )}
               >
                 <Ban className="h-5 w-5" />
-                拒絕整張報價
+                不接受這個版本
               </button>
             </div>
             <textarea
               value={quoteNote}
               onChange={(event) => setQuoteNote(event.target.value)}
               rows={3}
+              maxLength={1000}
               placeholder="整體意見、交期或其他補充…"
               className="mt-4 w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
             />
             <button
               type="button"
               onClick={() => void submitResponse()}
-              disabled={submittingQuote}
+              disabled={submittingQuote || quoteDecision === 'pending'}
               className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60"
             >
               {submittingQuote ? (
@@ -4235,7 +4496,7 @@ export function CustomerQuoteSchemesView() {
               ) : (
                 <CheckCircle2 className="h-5 w-5" />
               )}
-              提交
+              {quoteDecision === 'rejected' ? '提交不接受' : '確認並提交'}
             </button>
           </section>
         </section>

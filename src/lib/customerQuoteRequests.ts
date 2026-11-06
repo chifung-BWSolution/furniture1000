@@ -16,12 +16,21 @@ export interface CustomerQuoteRequestLine {
   quantity?: number;
   selected?: boolean;
   note?: string;
+  /** original / addition / replacement（加選與換款由客戶目錄提交）。 */
+  kind?: 'original' | 'addition' | 'replacement';
+  productId?: string;
+  originalItemId?: string;
+  originalName?: string;
+  originalUnitPrice?: number | null;
+  image?: string;
 }
 
 export interface CustomerQuoteRequest {
   id: string;
   quote_uuid: string;
   quote_id: string;
+  /** 客戶提交／確認時所看到的報價版本。 */
+  quote_version?: string | null;
   request_type: string;
   note: string;
   lines: CustomerQuoteRequestLine[];
@@ -40,6 +49,35 @@ export const CUSTOMER_REQUEST_STATUS_LABELS: Record<CustomerQuoteRequestStatus, 
   converted: '已開正式報價',
   declined: '不採用',
 };
+
+/** 客戶頁看到的狀態用語（不用內部「待處理」口徑）。 */
+export const CUSTOMER_REQUEST_STATUS_CUSTOMER_LABELS: Record<CustomerQuoteRequestStatus, string> = {
+  submitted: '已提交，等待負責同事處理',
+  acknowledged: '負責同事已確認',
+  converted: '已開正式報價',
+  declined: '未採用',
+};
+
+export const CUSTOMER_REQUEST_TYPE_LABELS: Record<string, string> = {
+  scheme: '選品／數量',
+  selection: '選品',
+  quantity: '數量',
+  additional: '加選',
+  replacement: '換款',
+  change: '加選／換款',
+  confirm: '確認報價',
+  reject: '不接受報價',
+};
+
+export function customerRequestTypeLabel(type: string | null | undefined): string {
+  const key = String(type ?? '').trim();
+  return CUSTOMER_REQUEST_TYPE_LABELS[key] ?? (key || '提交');
+}
+
+export function customerRequestStatusLabel(status: string | null | undefined): string {
+  const key = String(status ?? '').trim() as CustomerQuoteRequestStatus;
+  return CUSTOMER_REQUEST_STATUS_CUSTOMER_LABELS[key] ?? (key || '—');
+}
 
 export const CUSTOMER_REQUEST_STATUS_OPTIONS: CustomerQuoteRequestStatus[] = [
   'submitted',
@@ -70,7 +108,13 @@ export function requestLineLabel(line: CustomerQuoteRequestLine): string {
   const quantity = Math.max(0, Number(line.quantity) || 0);
   const unit = (line.unit ?? '').trim();
   const note = (line.note ?? '').trim();
-  return `${name} × ${quantity}${unit ? ` ${unit}` : ''}${note ? `（${note}）` : ''}`;
+  const detail = `${name} × ${quantity}${unit ? ` ${unit}` : ''}${note ? `（${note}）` : ''}`;
+  if (line.kind === 'addition') return `加選：${detail}`;
+  if (line.kind === 'replacement') {
+    const original = (line.originalName ?? '').trim() || '原報價項目';
+    return `換款：${original} → ${detail}`;
+  }
+  return detail;
 }
 
 export function formatRequestMoney(cents: number): string {

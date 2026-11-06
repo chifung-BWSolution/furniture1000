@@ -197,6 +197,9 @@ function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
       ? String(r.shopify_product_id)
       : null,
     sku: r.sku ? String(r.sku).trim() || undefined : undefined,
+    tags: Array.isArray(r.tags)
+      ? r.tags.map((tag: unknown) => String(tag)).filter(Boolean)
+      : undefined,
     tier: deriveTier(sale),
     inStock: (r.delivery_term_name ?? '').includes('現貨') || (r.total_lead_time ?? 99) <= 7,
     deliveryDays: r.total_lead_time ?? r.shipping_days ?? 14,
@@ -204,7 +207,7 @@ function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
 }
 
 const PORTAL_PRODUCT_SELECT =
-  'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,total_lead_time,shipping_days,delivery_term_name,shopify_product_id,sku';
+  'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,total_lead_time,shipping_days,delivery_term_name,shopify_product_id,sku,tags';
 
 /** Lightweight dims + factory + SKU + gallery for 設計專案 / 報價方案 product rows. */
 export type ProductDisplayMeta = {
@@ -906,7 +909,7 @@ export async function fetchActiveShopifyProducts(
     const chunks = Array.from({ length: Math.ceil(sourceIds.length / 150) }, (_, i) => sourceIds.slice(i * 150, (i + 1) * 150));
     const sourcePages = await mapConcurrent(chunks, async (ids) => {
       const { data: rows } = await supabase.from('products')
-        .select('id,material,color,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name')
+        .select('id,material,color,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,tags')
         .in('id', ids);
       return rows ?? [];
     });
@@ -945,6 +948,7 @@ export async function fetchActiveShopifyProducts(
           level1Category: categories.level1,
           level2Category: categories.level2 || undefined,
           isOnShopify: true,
+          tags: Array.isArray(source?.tags) ? source.tags : [],
           shopifyProductId: row.shopify_product_id
             ? String(row.shopify_product_id)
             : null,

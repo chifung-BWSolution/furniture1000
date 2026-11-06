@@ -83,10 +83,30 @@ export async function findActiveQuoteShareLink(quoteUuid: string): Promise<Quote
     .limit(1)
     .maybeSingle();
   if (error) {
-    console.warn('[findActiveQuoteShareLink]', error.message);
-    return null;
+    throw new Error(error.message);
   }
   return data ? mapShareRow(data) : null;
+}
+
+const pendingShareLinks = new Map<string, Promise<QuoteShareLink>>();
+
+export function ensureQuoteShareLink(input: {
+  quoteUuid: string;
+  quoteId: string;
+}): Promise<QuoteShareLink> {
+  const pending = pendingShareLinks.get(input.quoteUuid);
+  if (pending) return pending;
+
+  const prepare = async () => {
+    const existing = await findActiveQuoteShareLink(input.quoteUuid);
+    if (existing) return existing;
+    const result = await createQuoteShareLink(input);
+    if (result.ok === false) throw new Error(result.error);
+    return result.data;
+  };
+  const request = prepare().finally(() => pendingShareLinks.delete(input.quoteUuid));
+  pendingShareLinks.set(input.quoteUuid, request);
+  return request;
 }
 
 /** Revoke a quote-share token (used when 邀請管理 withdraws the link). */

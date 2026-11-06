@@ -8,6 +8,8 @@ import {
   CUSTOMER_REQUEST_STATUS_LABELS,
   CUSTOMER_REQUEST_STATUS_OPTIONS,
   customerRequestErrorMessage,
+  customerRequestStatusLabel,
+  customerRequestTypeLabel,
   formatRequestMoney,
   formatRequestTime,
   listCustomerQuoteRequests,
@@ -104,10 +106,22 @@ export function CustomerQuoteRequestsModal({
                   <li key={request.id} className="space-y-2 rounded-lg border p-3">
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <span className="rounded-md border bg-muted/50 px-2 py-0.5 text-xs font-medium">
+                        {customerRequestTypeLabel(request.request_type)}
+                      </span>
+                      {request.quote_version ? (
+                        <span className="rounded-md border px-2 py-0.5 font-mono-data text-xs text-muted-foreground">
+                          {request.quote_version}
+                        </span>
+                      ) : null}
+                      <span className="rounded-md border bg-muted/50 px-2 py-0.5 text-xs font-medium">
                         {CUSTOMER_REQUEST_STATUS_LABELS[request.status] ?? request.status}
                       </span>
                       <span className="text-muted-foreground">{formatRequestTime(request.submitted_at)}</span>
-                      <span className="text-muted-foreground">選品合計（參考）{formatRequestMoney(request.total_cents)}</span>
+                      <span className="text-muted-foreground">
+                        {request.request_type === 'confirm' || request.request_type === 'reject'
+                          ? customerRequestStatusLabel(request.status)
+                          : `選品合計（參考）${formatRequestMoney(request.total_cents)}`}
+                      </span>
                       <span className={request.pm_notified_at ? 'text-emerald-700' : 'text-amber-700'}>
                         {requestNotifyLabel(request)}
                       </span>

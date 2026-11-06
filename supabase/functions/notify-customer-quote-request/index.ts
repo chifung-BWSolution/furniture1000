@@ -31,8 +31,17 @@ type ClaimedRequest = {
   id: string;
   quote_uuid: string;
   quote_id: string;
+  quote_version: string | null;
   request_type: string;
-  lines: Array<{ name?: string; quantity?: number; selected?: boolean; unit?: string; note?: string }>;
+  lines: Array<{
+    name?: string;
+    quantity?: number;
+    selected?: boolean;
+    unit?: string;
+    note?: string;
+    kind?: "original" | "addition" | "replacement";
+    originalName?: string;
+  }>;
   note: string;
   total_cents: number;
   submitted_at: string;
@@ -89,6 +98,8 @@ function buildMessage(request: ClaimedRequest): { subject: string; text: string;
   const quoteUrl = appUrl ? `${appUrl}/quote/${encodeURIComponent(request.quote_id)}` : "";
   return buildQuoteRequestEmail({
     quoteId: request.quote_id,
+    requestType: request.request_type,
+    quoteVersion: request.quote_version,
     lines: selectedLines(request),
     note: request.note,
     totalCents: request.total_cents,
@@ -115,6 +126,8 @@ async function recordEmailLog(
     payload: {
       customer_request_id: request.id,
       quote_uuid: request.quote_uuid,
+      request_type: request.request_type,
+      quote_version: request.quote_version,
       line_count: selectedLines(request).length,
       total_cents: request.total_cents,
     },
