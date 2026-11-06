@@ -284,6 +284,8 @@ export interface SearchProduct {
   isOnShopify?: boolean;
   shopifyProductId?: string | null;
   sku?: string;
+  /** products.tags — 官方標籤（含應用場景），「相關家具」排序用。 */
+  tags?: string[];
   tier: ProductTier;
   inStock: boolean;
   deliveryDays: number;

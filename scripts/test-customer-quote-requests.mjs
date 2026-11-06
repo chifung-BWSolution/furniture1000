@@ -40,6 +40,24 @@ const lines = M.selectedRequestLines([
 assert.equal(lines.length, 1);
 assert.equal(M.requestLineLabel(lines[0]), '員工椅 × 3 PC');
 assert.equal(M.requestLineLabel({ name: ' ', quantity: 1, unit: '', note: ' 淺色 ' }), '未命名項目 × 1（淺色）');
+assert.equal(
+  M.requestLineLabel({ kind: 'addition', name: '會議枱', quantity: 2, unit: '件' }),
+  '加選：會議枱 × 2 件',
+);
+assert.equal(
+  M.requestLineLabel({
+    kind: 'replacement',
+    originalName: '員工椅',
+    name: '大班椅',
+    quantity: 1,
+    unit: '件',
+    note: '改深色',
+  }),
+  '換款：員工椅 → 大班椅 × 1 件（改深色）',
+);
+assert.equal(M.customerRequestTypeLabel('change'), '加選／換款');
+assert.equal(M.customerRequestTypeLabel('confirm'), '確認報價');
+assert.equal(M.customerRequestStatusLabel('submitted'), '已提交，等待負責同事處理');
 assert.equal(M.selectedRequestLines(null).length, 0);
 
 assert.equal(M.formatRequestMoney(240000), 'HK$ 2,400.00');

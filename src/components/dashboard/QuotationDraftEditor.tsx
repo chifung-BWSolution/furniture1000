@@ -47,7 +47,6 @@ import {
   Wand2,
   X,
   Check,
-  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fetchTodayCnyHkdRate, formatFxRate } from "@/lib/fxRate";
@@ -229,7 +228,7 @@ import {
 } from "@/lib/zoneRenderHandoff";
 import { requestQuoteOpen } from "@/lib/quoteOpenRequests";
 import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
-import { createQuoteShareLink, findActiveQuoteShareLink } from "@/lib/bwfQuoteShareLinks";
+import { ensureQuoteShareLink } from "@/lib/bwfQuoteShareLinks";
 import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
 import {
   buildDraftProductFromQuoteItem,
@@ -2826,9 +2825,10 @@ export function QuotationDraftEditor({
   /** 當日匯率快取 — 同一次工作階段重開彈窗不再重新抓。 */
   const todayRateRef = useRef<number | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [shareUrl, setShareUrl] = useState("");
   const { settings: formatSettings } = useQuoteFormatSettings();
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [quoteShare, setQuoteShare] = useState<
+    { quoteUuid: string; url: string; qr: string } | { quoteUuid: string; error: string } | null
+  >(null);
 
   // 報價單圖片：project_data.quotePhotoLayouts 存排版，quotePhotoAssets 存圖片庫快照。
   const [quotePhotoLayouts, setQuotePhotoLayouts] = useState<PhotoLayoutGroup[]>(() =>
@@ -2995,33 +2995,34 @@ export function QuotationDraftEditor({
     setCatalogPages((prev) => (JSON.stringify(prev) === JSON.stringify(nextCatalogPages) ? prev : nextCatalogPages));
   }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
-  // 報價 PDF 的 QR 指向這張單已有的客戶連結，不必每次開啟都重新生成。
-  const shareQuoteUuid = existingQuote?.quoteUuid?.trim() || "";
+  const shareQuoteUuid = forceNewQuote ? "" : existingQuote?.quoteUuid?.trim() || "";
+  const shareQuoteId = existingQuote?.quoteId?.trim() || "";
+  const canShareQuote = Boolean(shareQuoteUuid && shareQuoteId && shareQuoteId !== "NEW");
+  const currentShare = canShareQuote && quoteShare?.quoteUuid === shareQuoteUuid ? quoteShare : null;
+  const shareUrl = currentShare && "url" in currentShare ? currentShare.url : "";
+  const qrDataUrl = currentShare && "qr" in currentShare ? currentShare.qr : null;
+  const shareError = currentShare && "error" in currentShare ? currentShare.error : null;
+  const shareBusy = canShareQuote && !currentShare;
   useEffect(() => {
-    if (!shareQuoteUuid) return;
+    if (!canShareQuote) return;
     let cancelled = false;
-    void findActiveQuoteShareLink(shareQuoteUuid).then((link) => {
-      if (!cancelled && link) setShareUrl((current) => current || link.url);
-    });
+    void (async () => {
+      try {
+        const link = await ensureQuoteShareLink({ quoteUuid: shareQuoteUuid, quoteId: shareQuoteId });
+        if (cancelled) return;
+        const qr = await QRCode.toDataURL(link.url, { margin: 1, width: 440 });
+        if (!cancelled) setQuoteShare({ quoteUuid: shareQuoteUuid, url: link.url, qr });
+      } catch (error) {
+        if (!cancelled) setQuoteShare({
+          quoteUuid: shareQuoteUuid,
+          error: error instanceof Error ? error.message : "未能準備分享連結",
+        });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [shareQuoteUuid]);
-
-  useEffect(() => {
-    if (!shareUrl) {
-      setQrDataUrl(null);
-      return;
-    }
-    let cancelled = false;
-    void QRCode.toDataURL(shareUrl, { margin: 1, width: 440 }).then((url) => {
-      if (!cancelled) setQrDataUrl(url);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [shareUrl]);
-  const [shareBusy, setShareBusy] = useState(false);
+  }, [canShareQuote, shareQuoteId, shareQuoteUuid]);
   const [shareCopied, setShareCopied] = useState(false);
 
   // Company info (editable) — address / addressEn keep separate zh & en defaults;
@@ -3747,36 +3748,6 @@ export function QuotationDraftEditor({
     toast.success("已統一所有產品匯率", { description: String(rate) });
     return true;
   }, []);
-
-  const handleGenerateQuoteShare = useCallback(async () => {
-    const quoteUuid = existingQuote?.quoteUuid?.trim() || "";
-    const qid = (existingQuote?.quoteId || quoteId || "").trim();
-    if (!quoteUuid || !qid || qid === "NEW") {
-      toast.error("請先按「保存現有版本」或「版本審核」儲存報價單後再生成連結");
-      return;
-    }
-    setShareBusy(true);
-    setShareCopied(false);
-    try {
-      const res = await createQuoteShareLink({ quoteUuid, quoteId: qid });
-      if (res.ok === false) {
-        toast.error("生成失敗", { description: res.error });
-        return;
-      }
-      const url = res.data.url;
-      setShareUrl(url);
-      setShareModalOpen(true);
-      try {
-        await navigator.clipboard.writeText(url);
-        setShareCopied(true);
-        toast.success("已生成連結並複製");
-      } catch {
-        toast.success("已生成客戶專區連結");
-      }
-    } finally {
-      setShareBusy(false);
-    }
-  }, [existingQuote?.quoteId, existingQuote?.quoteUuid, quoteId]);
 
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
@@ -6039,24 +6010,27 @@ export function QuotationDraftEditor({
                 </button>
                 <button
                   type="button"
+                  disabled={shareBusy}
                   onClick={() => onOpenPdfPreview?.(buildPDFData())}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
                 >
                   <Eye className="h-4 w-4 shrink-0" />
                   <span className="truncate">{t.previewPdf}</span>
                 </button>
                 <button
                   type="button"
-                  disabled={shareBusy}
-                  onClick={() => void handleGenerateQuoteShare()}
-                  className="inline-flex h-9 min-w-[12rem] items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-4 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
+                  onClick={() => {
+                    setShareCopied(false);
+                    setShareModalOpen(true);
+                  }}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50"
                 >
                   {shareBusy ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <QrCode className="h-4 w-4" />
                   )}
-                  {t.generateQrLink}
+                  {t.getQuoteQrCode}
                 </button>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -7459,11 +7433,12 @@ export function QuotationDraftEditor({
         onOpenChange={setShareModalOpen}
         size="md"
         icon={<QrCode className="h-6 w-6" />}
-        title={t.generateQrLink}
+        title={t.quoteShareLink}
         description="掃描 QR Code 或複製連結後，可免登入進入客戶專區查看此報價單，並瀏覽產品搜尋、傢俬訂製、付款+送貨、訂單狀況、成功案例、服務一覽、公司資料及聯絡我們等頁面（不含機構採購帳號）。"
         footer={
           <ModalButton
             variant="secondary"
+            disabled={!shareUrl}
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(shareUrl);
@@ -7492,7 +7467,11 @@ export function QuotationDraftEditor({
                   height={220}
                   className="h-[220px] w-[220px]"
                 />
-              ) : null}
+              ) : (
+                <p className="text-sm text-muted-foreground" role="status">
+                  {shareBusy ? "正在準備 QR Code…" : shareError || "保存報價後會自動準備 QR Code 及連結。"}
+                </p>
+              )}
             </div>
             <label className="mb-1 block font-body text-xs text-muted-foreground">
               網址連結
@@ -7503,10 +7482,6 @@ export function QuotationDraftEditor({
               value={shareUrl}
               className="w-full rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono-data text-[11px] text-foreground"
             />
-            <div className="mt-3 flex items-center gap-1.5 font-body text-[11px] text-muted-foreground">
-              <Link2 className="h-3.5 w-3.5" />
-              每次按「生成」都會建立全新連結與 QR Code
-            </div>
       </Modal>
 
       {pickingPlacement && floorPlan ? <FurniturePlacementDialog key={`${pickingPlacement.itemId}:${pickingPlacement.index}`} plan={floorPlan} zoneId={pickingPlacement.zoneId} zoneName={items.find(i => i.id === pickingPlacement.zoneId)?.name || '分區'} productName={items.find(i => i.id === pickingPlacement.itemId)?.name || items.find(i => i.id === pickingPlacement.itemId)?.category || '傢俬'} productCategory={items.find(i => i.id === pickingPlacement.itemId)?.category} productSku={items.find(i => i.id === pickingPlacement.itemId)?.sku} productImage={items.find(i => i.id === pickingPlacement.itemId)?.image} quantity={items.find(i => i.id === pickingPlacement.itemId)?.quantity || 0} values={floorPlan.placements?.assignments[pickingPlacement.itemId]} occupiedIds={Object.entries(floorPlan.placements?.assignments || {}).filter(([id]) => id !== pickingPlacement.itemId).flatMap(([, ids]) => ids.filter(Boolean))} onClose={() => setPickingPlacement(null)} onSave={selections => {
