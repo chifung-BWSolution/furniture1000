@@ -8,6 +8,8 @@ export function PortalPageShell({
   badge,
   titleExtra,
   actions,
+  header,
+  footer,
   children,
   className,
   maxWidthClass = 'max-w-none',
@@ -19,6 +21,10 @@ export function PortalPageShell({
   /** Rendered to the right of title + badge (e.g. 全部 / BWA / BWF filters). */
   titleExtra?: ReactNode;
   actions?: ReactNode;
+  /** Full custom header — replaces the default title block. */
+  header?: ReactNode;
+  /** Pinned action bar rendered at the bottom of the scroll area. */
+  footer?: ReactNode;
   children: ReactNode;
   className?: string;
   maxWidthClass?: string;
@@ -28,36 +34,53 @@ export function PortalPageShell({
   return (
     <div
       ref={scrollRef}
-      className={cn('h-full overflow-y-auto bg-background fds-page-padding', className)}
+      className={cn(
+        'h-full overflow-y-auto bg-background fds-page-padding',
+        footer && 'flex flex-col pb-0',
+        className,
+      )}
     >
-      <div className={cn('mx-auto w-full space-y-5 md:space-y-7', maxWidthClass)}>
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="fds-page-title">
-                {title}
-              </h1>
-              {badge ? (
-                <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 font-body text-xs font-medium text-primary">
-                  {badge}
-                </span>
+      <div
+        className={cn(
+          'mx-auto w-full space-y-5 md:space-y-7',
+          footer && 'flex-1',
+          maxWidthClass,
+        )}
+      >
+        {header ?? (
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="fds-page-title">
+                  {title}
+                </h1>
+                {badge ? (
+                  <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 font-body text-xs font-medium text-primary">
+                    {badge}
+                  </span>
+                ) : null}
+                {titleExtra}
+              </div>
+              {subtitle ? (
+                <p className="mt-1 max-w-2xl font-body text-sm text-muted-foreground">
+                  {subtitle}
+                </p>
               ) : null}
-              {titleExtra}
             </div>
-            {subtitle ? (
-              <p className="mt-1 max-w-2xl font-body text-sm text-muted-foreground">
-                {subtitle}
-              </p>
+            {actions ? (
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+                {actions}
+              </div>
             ) : null}
           </div>
-          {actions ? (
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-              {actions}
-            </div>
-          ) : null}
-        </div>
+        )}
         {children}
       </div>
+      {footer ? (
+        <div className="sticky bottom-0 z-30 -mx-4 mt-5 border-t border-border/70 bg-card px-4 py-3 md:-mx-6">
+          <div className="mx-auto w-full">{footer}</div>
+        </div>
+      ) : null}
     </div>
   );
 }

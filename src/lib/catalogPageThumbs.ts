@@ -288,3 +288,62 @@ export function primeCatalogPageThumbs(documentId: string, pageNos: number[]): v
     void loadCatalogPageThumb(documentId, pageNo);
   }
 }
+
+/* ── 高清預覽（hover 放大用） ─────────────────────────────────────────
+ * 縮圖只有 360px 寬，放大看會軟。這裡才向 edge 取該頁 PDF，即場畫到 900px，
+ * 只在浮卡真的打開後才叫，並且記憶體快取，同一頁滑過第二次不會再下載。
+ */
+const PREVIEW_WIDTH = 900;
+const PREVIEW_QUALITY = 0.82;
+/** 一頁約 120–220 KB data URL，留幾頁就夠（滑來滑去也不會爆記憶體）。 */
+const PREVIEW_CACHE_MAX = 6;
+
+const previewCache = new Map<string, CatalogPageThumb>();
+const previewInFlight = new Map<string, Promise<CatalogPageThumb | null>>();
+
+function rememberPreview(key: string, thumb: CatalogPageThumb): void {
+  previewCache.set(key, thumb);
+  while (previewCache.size > PREVIEW_CACHE_MAX) {
+    const oldest = previewCache.keys().next().value;
+    if (oldest === undefined) break;
+    previewCache.delete(oldest);
+  }
+}
+
+/** 已畫好的高清頁（同步取，給浮卡第一次 render 用）。 */
+export function peekCatalogPagePreview(documentId: string, pageNo: number): CatalogPageThumb | null {
+  return previewCache.get(cacheKey(documentId, pageNo)) ?? null;
+}
+
+/** 取該頁 PDF 並畫成 900px 寬的高清圖；失敗回 null（維持小圖就好）。 */
+export function loadCatalogPagePreview(
+  documentId: string,
+  pageNo: number,
+): Promise<CatalogPageThumb | null> {
+  const key = cacheKey(documentId, pageNo);
+  const cached = previewCache.get(key);
+  if (cached) return Promise.resolve(cached);
+  const pending = previewInFlight.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    try {
+      const bytes = await fetchQuoteCatalogPdf([{ documentId, pageNo }]);
+      const [thumb] = await renderQuotePdfThumbnails(bytes, {
+        maxWidth: PREVIEW_WIDTH,
+        quality: PREVIEW_QUALITY,
+      });
+      if (!thumb) return null;
+      rememberPreview(key, thumb);
+      return thumb;
+    } catch {
+      // 高清只是錦上添花，失敗就繼續用 360px 縮圖。
+      return null;
+    } finally {
+      previewInFlight.delete(key);
+    }
+  })();
+
+  previewInFlight.set(key, request);
+  return request;
+}

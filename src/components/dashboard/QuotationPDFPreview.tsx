@@ -405,9 +405,16 @@ interface QuotationPDFPreviewProps {
   open: boolean;
   onClose: () => void;
   data: QuotationPDFData;
+  /** Show the「加入人民幣總額」toggle. Customer portal passes false. */
+  showCnyToggle?: boolean;
 }
 
-export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPreviewProps) {
+export function QuotationPDFPreviewModal({
+  open,
+  onClose,
+  data,
+  showCnyToggle = true,
+}: QuotationPDFPreviewProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [showCnyTotal, setShowCnyTotal] = useState(false);
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
@@ -629,18 +636,20 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
             <p className="font-body text-xs text-muted-foreground">{labels.modalSubtitle}</p>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setShowCnyTotal((prev) => !prev)}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-semibold transition-all active:scale-[0.98]",
-                showCnyTotal
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-border bg-background text-foreground hover:bg-accent",
-              )}
-            >
-              {labels.addCnyTotal}
-            </button>
+            {showCnyToggle ? (
+              <button
+                type="button"
+                onClick={() => setShowCnyTotal((prev) => !prev)}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-semibold transition-all active:scale-[0.98]",
+                  showCnyTotal
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-border bg-background text-foreground hover:bg-accent",
+                )}
+              >
+                {labels.addCnyTotal}
+              </button>
+            ) : null}
             <button
               onClick={handleDownload}
               disabled={downloadDisabled}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import {
   Check,
   ChevronDown,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { cn } from '@/lib/utils';
 import {
@@ -24,7 +25,6 @@ import {
   QUOTE_CATALOG_PAGE_LIMIT,
   buildQuoteCatalogPiecePdf,
   catalogPageBadge,
-  catalogPageCrop,
   catalogPageKey,
   catalogPageLabel,
   fetchQuoteCatalogPdf,
@@ -32,7 +32,6 @@ import {
   listQuoteCatalogs,
   newCatalogPageId,
   parseCatalogCrop,
-  splitSpreadAttachments,
   type QuoteCatalogCrop,
   type QuoteCatalogOption,
   type QuoteCatalogPage,
@@ -41,7 +40,9 @@ import {
 import {
   clearCatalogThumbFailure,
   catalogThumbFailure,
+  loadCatalogPagePreview,
   loadCatalogPageThumb,
+  peekCatalogPagePreview,
   peekCatalogPageThumb,
   type CatalogPageThumb as CatalogThumb,
 } from '@/lib/catalogPageThumbs';
@@ -59,6 +60,8 @@ interface PagePreview {
   url: string;
   width: number;
   height: number;
+  /** 這一項在附錄會出幾張（跨頁整頁＝左、右各一張）。 */
+  sheetCount: number;
 }
 
 /** 一屏 12 張：圖冊一頁 0.3–1.3 MB，一屏越多第一排縮圖越遲出現。 */
@@ -91,6 +94,83 @@ function cropStyle(crop: QuoteCatalogCrop) {
     height: `${crop.height * 100}%`,
   };
 }
+
+/** 框選框的最小可用尺寸（相對整頁）；太細會令 PDF 切成幾乎空白。 */
+const CROP_MIN_SIZE = 0.02;
+/** 邊／角多遠以內當成拖框調整（像素）。 */
+const CROP_HANDLE_HIT_PX = 14;
+
+interface CropEdges {
+  left: boolean;
+  right: boolean;
+  top: boolean;
+  bottom: boolean;
+}
+
+type CropHit =
+  | { kind: 'new' }
+  | { kind: 'move' }
+  | { kind: 'resize'; edges: CropEdges };
+
+/**
+ * 指標落在框選框的哪裡：邊／角＝調整大小、框內＝移動、框外＝重新框選。
+ * 用像素判斷而不是百分比，縮放後手感才一致。
+ */
+function cropHitTest(rect: DOMRect, clientX: number, clientY: number, crop: QuoteCatalogCrop | null): CropHit {
+  const box = parseCatalogCrop(crop);
+  if (!box) return { kind: 'new' };
+  const px = clientX - rect.left;
+  const py = clientY - rect.top;
+  const left = box.x * rect.width;
+  const right = (box.x + box.width) * rect.width;
+  const top = box.y * rect.height;
+  const bottom = (box.y + box.height) * rect.height;
+  const h = CROP_HANDLE_HIT_PX;
+  let nearLeft = Math.abs(px - left) <= h && py >= top - h && py <= bottom + h;
+  let nearRight = Math.abs(px - right) <= h && py >= top - h && py <= bottom + h;
+  let nearTop = Math.abs(py - top) <= h && px >= left - h && px <= right + h;
+  let nearBottom = Math.abs(py - bottom) <= h && px >= left - h && px <= right + h;
+  // 框很窄時兩條邊都可能命中：只認比較近的那一條，否則一拖就會兩邊一起動。
+  if (nearLeft && nearRight) {
+    if (Math.abs(px - left) <= Math.abs(px - right)) nearRight = false;
+    else nearLeft = false;
+  }
+  if (nearTop && nearBottom) {
+    if (Math.abs(py - top) <= Math.abs(py - bottom)) nearBottom = false;
+    else nearTop = false;
+  }
+  if (nearLeft || nearRight || nearTop || nearBottom) {
+    return { kind: 'resize', edges: { left: nearLeft, right: nearRight, top: nearTop, bottom: nearBottom } };
+  }
+  if (px > left && px < right && py > top && py < bottom) return { kind: 'move' };
+  return { kind: 'new' };
+}
+
+function cropCursor(hit: CropHit): string {
+  if (hit.kind === 'move') return 'move';
+  if (hit.kind === 'new') return 'crosshair';
+  const { left, right, top, bottom } = hit.edges;
+  if ((left && top) || (right && bottom)) return 'nwse-resize';
+  if ((right && top) || (left && bottom)) return 'nesw-resize';
+  if (left || right) return 'ew-resize';
+  return 'ns-resize';
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+/** 框選框的四角與四邊把手位置（把手 10px，-5px 讓它壓在邊線上）。 */
+const CROP_HANDLES: { key: string; style: CSSProperties }[] = [
+  { key: 'nw', style: { left: -5, top: -5 } },
+  { key: 'n', style: { left: '50%', top: -5, marginLeft: -5 } },
+  { key: 'ne', style: { right: -5, top: -5 } },
+  { key: 'w', style: { left: -5, top: '50%', marginTop: -5 } },
+  { key: 'e', style: { right: -5, top: '50%', marginTop: -5 } },
+  { key: 'sw', style: { left: -5, bottom: -5 } },
+  { key: 's', style: { left: '50%', bottom: -5, marginLeft: -5 } },
+  { key: 'se', style: { right: -5, bottom: -5 } },
+];
 
 /** 縮圖：先看記憶體／IndexedDB，沒有才向 edge 取那一頁再畫成小 JPEG。 */
 function useCatalogThumb(documentId: string | null, pageNo: number | null) {
@@ -149,6 +229,33 @@ function CatalogPageThumb({
   const reported = useRef<string>('');
   const reportedFail = useRef(false);
 
+  // 浮卡打開後才去取高清頁；延遲一點，滑過（sweep）時不會每一頁都下載。
+  const [hoverOpen, setHoverOpen] = useState(false);
+  const [sharp, setSharp] = useState<CatalogThumb | null>(null);
+
+  useEffect(() => {
+    setSharp(null);
+  }, [documentId, pageNo]);
+
+  useEffect(() => {
+    if (!hoverOpen) return;
+    const cached = peekCatalogPagePreview(documentId, pageNo);
+    if (cached) {
+      setSharp(cached);
+      return;
+    }
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      void loadCatalogPagePreview(documentId, pageNo).then((big) => {
+        if (alive && big) setSharp(big);
+      });
+    }, 220);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [hoverOpen, documentId, pageNo]);
+
   useEffect(() => {
     if (!thumb) return;
     const key = `${documentId}#${pageNo}`;
@@ -178,13 +285,45 @@ function CatalogPageThumb({
       </span>
     );
   }
+  const shown = sharp ?? thumb;
   return (
-    <LoadingImage
-      src={thumb.url ?? thumb.dataUrl}
-      alt=""
-      className={className}
-      imgClassName={imgClassName}
-    />
+    <HoverCard openDelay={160} closeDelay={80} onOpenChange={setHoverOpen}>
+      <HoverCardTrigger asChild>
+        <span className={cn('block cursor-zoom-in', className)}>
+          <LoadingImage
+            src={thumb.url ?? thumb.dataUrl}
+            alt=""
+            className="h-full w-full bg-white"
+            imgClassName={imgClassName}
+          />
+        </span>
+      </HoverCardTrigger>
+      {/* 先出 360px 縮圖，高清版畫好就換上（同一頁會記憶體快取）。 */}
+      <HoverCardContent
+        side="right"
+        align="start"
+        sideOffset={10}
+        collisionPadding={16}
+        className={cn(
+          'z-[60] max-w-[calc(100vw_-_3rem)] border-border/80 p-1.5 shadow-xl',
+          thumb.width > thumb.height ? 'w-[560px]' : 'w-[440px]',
+        )}
+      >
+        <div className="relative">
+          <img
+            src={shown.url ?? shown.dataUrl}
+            alt=""
+            className="block h-auto max-h-[70vh] w-full rounded-sm object-contain"
+          />
+          {sharp ? null : (
+            <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded-full bg-slate-900/70 px-2 py-0.5 text-[10px] font-medium text-white">
+              <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />
+              高清載入中
+            </span>
+          )}
+        </div>
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
@@ -248,11 +387,24 @@ export function QuoteCatalogPagesDialog({
   const [focusPageNo, setFocusPageNo] = useState(1);
   const [draftPages, setDraftPages] = useState<QuoteCatalogPage[]>([]);
   const [manualPage, setManualPage] = useState('');
-  const [preview, setPreview] = useState<PagePreview | null>(null);
-  const [previewing, setPreviewing] = useState(false);
-  const [previewEditable, setPreviewEditable] = useState(false);
+  /** 彈窗內容：框選時是整頁原圖，看清單項目時是成品那一張。 */
+  const [sheet, setSheet] = useState<PagePreview | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetMode, setSheetMode] = useState<'crop' | 'piece'>('crop');
+  const [sheetLoading, setSheetLoading] = useState(false);
   const [cropDraft, setCropDraft] = useState<QuoteCatalogCrop | null>(null);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  /** 拖曳狀態用 ref：pointermove 不會拿到上一個 render 的過期 state。 */
+  const cropDragRef = useRef<
+    | { mode: 'new'; start: { x: number; y: number } }
+    | { mode: 'move'; start: { x: number; y: number }; initial: QuoteCatalogCrop }
+    | { mode: 'resize'; start: { x: number; y: number }; initial: QuoteCatalogCrop; edges: CropEdges }
+    | null
+  >(null);
+  /** 框選舞台量到的可用區域，用來把原圖放到最大又不變形。 */
+  const cropStageRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  /** 舊的原圖請求回來時不要蓋掉剛開的另一張。 */
+  const sheetRequest = useRef(0);
   const [reloadToken, setReloadToken] = useState(0);
   const [shapeByDocument, setShapeByDocument] = useState<Record<string, 'spread' | 'page'>>({});
   /** 縮圖失敗時顯示原因與重試，不要只出一個壞掉的圖片圖示。 */
@@ -262,9 +414,11 @@ export function QuoteCatalogPagesDialog({
   useEffect(() => {
     if (!open) return;
     setDraftPages(pages);
-    setPreview(null);
-    setPreviewEditable(false);
+    setSheet(null);
+    setSheetOpen(false);
+    setSheetMode('crop');
     setCropDraft(null);
+    cropDragRef.current = null;
     setError(null);
     setManualPage('');
     setPageView(1);
@@ -348,7 +502,7 @@ export function QuoteCatalogPagesDialog({
     });
   }, []);
 
-  // 已選附件所屬的圖冊也要判斷，否則舊單的整頁附件在清單裡看不到左／右半。
+  // 已選附件所屬的圖冊也要判斷：清單要標成「跨頁」，左／右半按鈕也才知道何時出現。
   useEffect(() => {
     if (!open) return;
     const known = new Set(Object.keys(shapeByDocument));
@@ -361,17 +515,33 @@ export function QuoteCatalogPagesDialog({
     }
   }, [open, draftPages, shapeByDocument, rememberShape]);
 
-  // 確定是跨頁後，把舊資料裡「整頁」的附件換成左、右兩列，清單與 PDF 才會一致。
+  // 框選彈窗的可用區域：原圖要放到最大，框選才不會一拖就超出畫面。
   useEffect(() => {
-    if (!open) return;
-    const spreadIds = Object.keys(shapeByDocument).filter((id) => shapeByDocument[id] === 'spread');
-    if (spreadIds.length === 0) return;
-    setDraftPages((current) => {
-      let next = current;
-      for (const id of spreadIds) next = splitSpreadAttachments(next, id);
-      return next;
-    });
-  }, [open, shapeByDocument]);
+    if (!sheetOpen) return;
+    const element = cropStageRef.current;
+    if (!element) return;
+    const measure = () => {
+      const styles = window.getComputedStyle(element);
+      const paddingX = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+      const paddingY = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
+      setStageSize({
+        width: Math.max(0, element.clientWidth - (Number.isFinite(paddingX) ? paddingX : 0)),
+        height: Math.max(0, element.clientHeight - (Number.isFinite(paddingY) ? paddingY : 0)),
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [sheetOpen, sheet]);
+
+  /** 原圖在舞台裡的最大尺寸：守住版面比例，不拉伸。 */
+  const sheetBox = useMemo(() => {
+    if (!sheet || stageSize.width < 40 || stageSize.height < 40) return null;
+    const ratio = sheet.width / sheet.height;
+    const width = Math.max(80, Math.min(stageSize.width, stageSize.height * ratio));
+    return { width: Math.round(width), height: Math.round(width / ratio) };
+  }, [sheet, stageSize]);
 
   const totalPages = active?.page_count && active.page_count > 0 ? active.page_count : null;  const pageViewCount = totalPages ? Math.max(1, Math.ceil(totalPages / PAGES_PER_VIEW)) : 1;
   const currentPageView = Math.min(pageView, pageViewCount);
@@ -394,23 +564,16 @@ export function QuoteCatalogPagesDialog({
     setDraftPages((current) => [...current, ...additions]);
   };
 
-  const toggleWholePage = (catalog: QuoteCatalogOption, pageNo: number) => {
+  // 點縮圖只是「選取這一頁」，不會自動加入清單；加入要靠下方的按鈕
+  // （加入整頁／左半頁／右半頁／框選），要甚麼由用戶自己決定。
+  const selectPage = (pageNo: number) => {
     setFocusPageNo(pageNo);
     setError(null);
-    // 同一頁的整頁／左半／右半算同一組；框選是自己畫的，不會被這裡刪掉。
-    const existing = draftPages.filter(
-      (page) => page.documentId === catalog.id && page.pageNo === pageNo && !parseCatalogCrop(page.crop),
-    );
-    if (existing.length > 0) {
-      const ids = new Set(existing.map((page) => page.id));
-      setDraftPages((current) => current.filter((page) => !ids.has(page.id)));
-      return;
-    }
-    addPages(
-      shapeByDocument[catalog.id] === 'spread'
-        ? [pageFromCatalog(catalog, pageNo, null, 'left'), pageFromCatalog(catalog, pageNo, null, 'right')]
-        : [pageFromCatalog(catalog, pageNo)],
-    );
+  };
+
+  const addWholePage = (catalog: QuoteCatalogOption | null = active, pageNo: number = focusPageNo) => {
+    if (!catalog) return;
+    addPages([pageFromCatalog(catalog, pageNo)]);
   };
 
   const addSplit = (split: QuoteCatalogSplit) => {
@@ -434,7 +597,8 @@ export function QuoteCatalogPagesDialog({
       setError('頁碼超出這份圖冊的頁數');
       return;
     }
-    toggleWholePage(active, pageNo);
+    addWholePage(active, pageNo);
+    setFocusPageNo(pageNo);
     setManualPage('');
   };
 
@@ -449,58 +613,175 @@ export function QuoteCatalogPagesDialog({
     });
   };
 
+  const closeSheet = () => {
+    sheetRequest.current += 1;
+    setSheetOpen(false);
+    setSheet(null);
+    setCropDraft(null);
+    cropDragRef.current = null;
+  };
+
+  const beginSheetRequest = () => {
+    sheetRequest.current += 1;
+    return sheetRequest.current;
+  };
+
   /** 清單上的「預覽」：看它在報價 PDF 裡實際的那一張（已裁切、已轉正）。 */
-  const showPiece = async (page: QuoteCatalogPage) => {
-    setPreviewing(true);
+  const openPieceSheet = async (page: QuoteCatalogPage) => {
+    const token = beginSheetRequest();
+    setSheetMode('piece');
+    setSheetOpen(true);
+    setSheetLoading(true);
+    setSheet(null);
+    setCropDraft(null);
     setError(null);
-    setPreviewEditable(false);
-    setPreview(null);
     try {
       const bytes = await buildQuoteCatalogPiecePdf(page);
       const rendered = await renderQuotePdfPages(bytes);
+      if (sheetRequest.current !== token) return;
       const first = rendered[0];
       if (!first) {
         setError('這一頁未能預覽');
+        closeSheet();
         return;
       }
-      setCropDraft(null);
-      setPreview({ page, url: first.dataUrl, width: first.width, height: first.height });
+      setSheet({ page, url: first.dataUrl, width: first.width, height: first.height, sheetCount: rendered.length });
     } catch (err) {
+      if (sheetRequest.current !== token) return;
       setError(err instanceof Error ? err.message : '這一頁未能預覽');
+      closeSheet();
     } finally {
-      setPreviewing(false);
+      if (sheetRequest.current === token) setSheetLoading(false);
     }
   };
 
-  /** 整頁預覽：讓用戶在整張 PDF 頁上拖框（跨頁就是左右兩版一起看）。 */
-  const showWholePage = async (page: QuoteCatalogPage) => {
-    setPreviewing(true);
+  /** 框選彈窗：整張 PDF 原圖放到最大，拖出範圍後按「加入框選」才加入並關閉。 */
+  const openCropSheet = async (pageNo: number = focusPageNo) => {
+    if (!active) return;
+    setFocusPageNo(pageNo);
+    const page = pageFromCatalog(active, pageNo);
+    const token = beginSheetRequest();
+    setSheetMode('crop');
+    setSheetOpen(true);
+    setSheetLoading(true);
+    setSheet(null);
+    setCropDraft(null);
+    cropDragRef.current = null;
     setError(null);
-    setPreviewEditable(true);
-    setPreview(null);
     try {
       const bytes = await fetchQuoteCatalogPdf([page]);
       const rendered = await renderQuotePdfPages(bytes);
+      if (sheetRequest.current !== token) return;
       const first = rendered[0];
       if (!first) {
         setError('這一頁未能預覽');
+        closeSheet();
         return;
       }
-      setCropDraft(catalogPageCrop(page));
-      setPreview({ page, url: first.dataUrl, width: first.width, height: first.height });
+      setSheet({ page, url: first.dataUrl, width: first.width, height: first.height, sheetCount: rendered.length });
     } catch (err) {
+      if (sheetRequest.current !== token) return;
       setError(err instanceof Error ? err.message : '這一頁未能預覽');
+      closeSheet();
     } finally {
-      setPreviewing(false);
+      if (sheetRequest.current === token) setSheetLoading(false);
     }
   };
 
-  const pointInPreview = (event: PointerEvent<HTMLDivElement>) => {
+  /** 確認框選：有框就只取框內，沒有框就維持整頁；加入後關閉彈窗。 */
+  const confirmCropSheet = () => {
+    if (!sheet) return;
+    const crop = parseCatalogCrop(cropDraft);
+    addPages([{ ...sheet.page, id: newCatalogPageId(), crop, split: null }]);
+    closeSheet();
+  };
+
+  const previewPoint = (event: PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
       x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
       y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
     };
+  };
+
+  const beginCrop = (event: PointerEvent<HTMLDivElement>) => {
+    // 只認主鍵；右鍵／中鍵拖動不應該重設框選。
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const point = previewPoint(event);
+    const hit = cropHitTest(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY, cropDraft);
+    if (hit.kind === 'move' && cropSelection) {
+      cropDragRef.current = { mode: 'move', start: point, initial: cropSelection };
+    } else if (hit.kind === 'resize' && cropSelection) {
+      cropDragRef.current = { mode: 'resize', start: point, initial: cropSelection, edges: hit.edges };
+    } else {
+      // 框外：重新拉一個新框。
+      cropDragRef.current = { mode: 'new', start: point };
+      setCropDraft({ x: point.x, y: point.y, width: 0, height: 0 });
+    }
+    // 捕獲指針，拖出原圖邊界也繼續更新框選。
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  /** 未拖曳時依位置換游標：邊＝雙箭頭、框內＝移動、框外＝十字。 */
+  const hoverCrop = (event: PointerEvent<HTMLDivElement>) => {
+    if (cropDragRef.current) return;
+    event.currentTarget.style.cursor = cropCursor(
+      cropHitTest(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY, cropDraft),
+    );
+  };
+
+  const extendCrop = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = cropDragRef.current;
+    if (!drag) return;
+    const point = previewPoint(event);
+    if (drag.mode === 'new') {
+      setCropDraft({
+        x: Math.min(drag.start.x, point.x),
+        y: Math.min(drag.start.y, point.y),
+        width: Math.abs(point.x - drag.start.x),
+        height: Math.abs(point.y - drag.start.y),
+      });
+      return;
+    }
+    const initial = drag.initial;
+    if (drag.mode === 'move') {
+      setCropDraft({
+        ...initial,
+        x: clamp01(Math.min(initial.x + (point.x - drag.start.x), 1 - initial.width)),
+        y: clamp01(Math.min(initial.y + (point.y - drag.start.y), 1 - initial.height)),
+      });
+      return;
+    }
+    // 拖邊／角：只動被抓住的那幾條邊，並保留最小尺寸。
+    let left = initial.x;
+    let right = initial.x + initial.width;
+    let top = initial.y;
+    let bottom = initial.y + initial.height;
+    if (drag.edges.left) left = Math.max(0, Math.min(point.x, right - CROP_MIN_SIZE));
+    if (drag.edges.right) right = Math.min(1, Math.max(point.x, left + CROP_MIN_SIZE));
+    if (drag.edges.top) top = Math.max(0, Math.min(point.y, bottom - CROP_MIN_SIZE));
+    if (drag.edges.bottom) bottom = Math.min(1, Math.max(point.y, top + CROP_MIN_SIZE));
+    setCropDraft({ x: left, y: top, width: right - left, height: bottom - top });
+  };
+
+  /** 放手：新拉的框太小（誤觸）就還原成「整頁」；移動／調整大小保持原樣。 */
+  const endCrop = () => {
+    const drag = cropDragRef.current;
+    if (!drag) return;
+    cropDragRef.current = null;
+    if (drag.mode === 'new') {
+      setCropDraft((current) => (current && parseCatalogCrop(current) ? current : null));
+    }
+  };
+
+  /** 一個 pointermove 同時處理拖曳與游標提示。 */
+  const moveCrop = (event: PointerEvent<HTMLDivElement>) => {
+    if (cropDragRef.current) {
+      extendCrop(event);
+      return;
+    }
+    hoverCrop(event);
   };
 
   const draftPageSet = useMemo(
@@ -521,6 +802,7 @@ export function QuoteCatalogPagesDialog({
 
   const step = !active ? 1 : draftPages.length === 0 ? 2 : 3;
   const pagerItems = pagerWindow(currentPageView, pageViewCount);
+  const cropSelection = parseCatalogCrop(cropDraft);
 
   return (
     <Modal
@@ -528,7 +810,7 @@ export function QuoteCatalogPagesDialog({
       onOpenChange={onOpenChange}
       size="5xl"
       title="圖冊附件"
-      description="選擇圖冊與頁面，可加入整頁、上半／下半頁、跨頁的左半／右半，或在預覽上拖出框選。清單順序即報價 PDF 附件順序。"
+      description="選擇圖冊與頁面：點縮圖選取後，再按加入整頁、上半／下半頁、跨頁左半／右半，或按「框選」在彈窗原圖上拖出範圍。清單順序即報價 PDF 附件順序。"
       footer={
         <>
           <ModalButton variant="secondary" onClick={() => onOpenChange(false)}>取消</ModalButton>
@@ -538,9 +820,9 @@ export function QuoteCatalogPagesDialog({
     >
       <StepHeader current={step} />
 
-      <div className="grid gap-3 lg:h-[62vh] lg:grid-cols-[232px_minmax(0,1fr)_300px]">
+      <div className="grid gap-3 lg:max-h-[62vh] lg:min-h-[420px] lg:grid-cols-[232px_minmax(0,1fr)_300px]">
         {/* ── 1. 圖冊 ─────────────────────────────────────────── */}
-        <section className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
+        <section className="flex min-h-0 flex-col rounded-xl border border-border bg-card lg:max-h-[62vh]">
           <header className="flex items-center justify-between border-b border-border px-3 py-2">
             <h3 className="font-display text-sm font-semibold text-foreground">選擇圖冊</h3>
             <Button
@@ -610,7 +892,8 @@ export function QuoteCatalogPagesDialog({
                     onClick={() => {
                       setActiveId(catalog.id);
                       setPageView(1);
-                      setPreview(null);
+                      setSheet(null);
+                      setSheetOpen(false);
                       setFocusPageNo(1);
                     }}
                     className={cn(
@@ -648,7 +931,7 @@ export function QuoteCatalogPagesDialog({
         </section>
 
         {/* ── 2. 頁面 ─────────────────────────────────────────── */}
-        <section className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
+        <section className="flex min-h-0 flex-col rounded-xl border border-border bg-card lg:max-h-[62vh]">
           <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
             <div className="min-w-0">
               <h3 className="font-display text-sm font-semibold text-foreground">選擇頁面</h3>
@@ -661,10 +944,10 @@ export function QuoteCatalogPagesDialog({
             {active ? (
               <span className="text-[11px] text-muted-foreground">
                 {activeIsSpread
-                  ? '跨頁：選一頁會加入左半＋右半'
+                  ? '跨頁：加入整頁會出左、右兩張'
                   : activeShape === null
                     ? '正在判斷版面…'
-                    : '單頁：選一頁加入整頁'}
+                    : '單頁：按「加入整頁」加入這一頁'}
               </span>
             ) : null}
           </header>
@@ -705,11 +988,12 @@ export function QuoteCatalogPagesDialog({
                     <button
                       key={`${pageNo}-${thumbRetry}`}
                       type="button"
-                      onClick={() => toggleWholePage(active, pageNo)}
-                      onDoubleClick={() => void showWholePage(pageFromCatalog(active, pageNo))}
+                      onClick={() => selectPage(pageNo)}
+                      onDoubleClick={() => void openCropSheet(pageNo)}
                       className={cn(
                         'group rounded-lg border p-1 text-left transition-colors',
-                        picked ? 'border-primary bg-primary/5' : focusPageNo === pageNo ? 'border-primary/60' : 'border-border hover:border-primary/40',
+                        picked ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+                        focusPageNo === pageNo ? 'ring-2 ring-primary/70' : '',
                       )}
                     >
                       <CatalogPageThumb
@@ -776,17 +1060,21 @@ export function QuoteCatalogPagesDialog({
             ) : null}
 
             {active ? (
-              <div className="mt-3 space-y-2 border-t border-border/70 pt-2">
+              <div className="mt-3 space-y-1.5 border-t border-border/70 pt-2">
+                <p className="text-[11px] text-muted-foreground">
+                  點縮圖只會選取，不會自動加入；要加入哪一種自己按下面。
+                </p>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] font-medium text-foreground">第 {focusPageNo} 頁</span>
+                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+                    已選第 {focusPageNo} 頁
+                  </span>
                   <Button
                     type="button"
-                    variant="outline"
                     size="sm"
                     className="h-7 px-2 text-[11px]"
-                    onClick={() => void showWholePage(pageFromCatalog(active, focusPageNo))}
+                    onClick={() => addWholePage()}
                   >
-                    預覽／框選
+                    加入整頁
                   </Button>
                   {activeIsSpread ? (
                     <>
@@ -804,71 +1092,11 @@ export function QuoteCatalogPagesDialog({
                     variant="outline"
                     size="sm"
                     className="h-7 px-2 text-[11px]"
-                    disabled={!parseCatalogCrop(cropDraft)}
-                    onClick={() => {
-                      const crop = parseCatalogCrop(cropDraft);
-                      if (!crop) return;
-                      const source = previewEditable ? preview?.page : null;
-                      if (!source) {
-                        addAttachment(crop);
-                        return;
-                      }
-                      addPages([{ ...source, id: newCatalogPageId(), crop, split: null }]);
-                    }}
+                    onClick={() => void openCropSheet()}
                   >
-                    加入框選
+                    框選
                   </Button>
                 </div>
-
-                {previewing ? (
-                  <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在預覽
-                  </p>
-                ) : preview ? (
-                  <div className="flex gap-2">
-                    <div
-                      className={cn('relative shrink-0', previewEditable ? 'w-[150px] touch-none' : 'w-[110px]')}
-                      style={{ aspectRatio: `${preview.width} / ${preview.height}` }}
-                      onPointerDown={previewEditable ? (event) => {
-                        const point = pointInPreview(event);
-                        setDragStart(point);
-                        setCropDraft({ x: point.x, y: point.y, width: 0, height: 0 });
-                        event.currentTarget.setPointerCapture(event.pointerId);
-                      } : undefined}
-                      onPointerMove={previewEditable ? (event) => {
-                        if (!dragStart) return;
-                        const point = pointInPreview(event);
-                        const x = Math.min(dragStart.x, point.x);
-                        const y = Math.min(dragStart.y, point.y);
-                        setCropDraft({
-                          x,
-                          y,
-                          width: Math.abs(point.x - dragStart.x),
-                          height: Math.abs(point.y - dragStart.y),
-                        });
-                      } : undefined}
-                      onPointerUp={previewEditable ? () => setDragStart(null) : undefined}
-                    >
-                      <div className="absolute inset-0">
-                        <LoadingImage src={preview.url} alt="圖冊頁預覽" className="h-full w-full" imgClassName="object-fill" />
-                      </div>
-                      {previewEditable && cropDraft ? (
-                        <div
-                          className={cn(
-                            'pointer-events-none absolute border-2 border-primary',
-                            cropDraft.width > 0.005 && cropDraft.height > 0.005 ? 'bg-primary/20' : '',
-                          )}
-                          style={cropStyle(cropDraft)}
-                        />
-                      ) : null}
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      {previewEditable
-                        ? '在預覽上拖出範圍，再按「加入框選」；不拖就維持整頁。'
-                        : '這一張就是會加在封底之前的樣子。'}
-                    </p>
-                  </div>
-                ) : null}
               </div>
             ) : null}
 
@@ -877,7 +1105,7 @@ export function QuoteCatalogPagesDialog({
         </section>
 
         {/* ── 3. 已選 ─────────────────────────────────────────── */}
-        <section className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
+        <section className="flex min-h-0 flex-col rounded-xl border border-border bg-card lg:max-h-[62vh]">
           <header className="flex items-center justify-between border-b border-border px-3 py-2">
             <h3 className="font-display text-sm font-semibold text-foreground">
               已選頁面（{draftPages.length}）
@@ -894,14 +1122,14 @@ export function QuoteCatalogPagesDialog({
           <div className="min-h-0 flex-1 space-y-1 overflow-auto px-2 py-2">
             {draftPages.length === 0 ? (
               <p className="px-1 py-3 text-[11px] leading-relaxed text-muted-foreground">
-                還未加入任何頁面。點中間的頁面縮圖即可加入；要只取局部就用「預覽／框選」。
+                還未加入任何頁面。點中間的頁面縮圖選取，再按「加入整頁」「左半頁／右半頁」「上半頁／下半頁」或「框選」。
               </p>
             ) : (
               draftPages.map((page, index) => (
                 <div key={catalogPageKey(page)} className="flex items-start gap-1.5 rounded-lg border border-border p-1">
                   <button
                     type="button"
-                    onClick={() => void showPiece(page)}
+                    onClick={() => void openPieceSheet(page)}
                     title="預覽這一張"
                     className="shrink-0"
                   >
@@ -915,7 +1143,9 @@ export function QuoteCatalogPagesDialog({
                     <p className="truncate text-[11px] font-medium text-foreground">
                       第 {page.pageNo} 頁
                       <span className="ml-1 rounded bg-muted px-1 py-px text-[10px] font-normal text-muted-foreground">
-                        {catalogPageBadge(page)}
+                        {catalogPageBadge(page) === '整頁' && shapeByDocument[page.documentId] === 'spread'
+                          ? '跨頁'
+                          : catalogPageBadge(page)}
                       </span>
                     </p>
                     <p className="truncate text-[10px] text-muted-foreground/80" title={catalogPageLabel(page)}>
@@ -949,6 +1179,128 @@ export function QuoteCatalogPagesDialog({
           </p>
         </section>
       </div>
+
+      {/* ── 框選／預覽彈窗（顯示原圖，框選確定後才加入並關閉） ────── */}
+      <Modal
+        open={sheetOpen}
+        onOpenChange={(next) => {
+          if (!next) closeSheet();
+        }}
+        size="full"
+        title={sheetMode === 'crop' ? `框選第 ${sheet?.page.pageNo ?? focusPageNo} 頁` : '附件預覽'}
+        description={
+          sheetMode === 'crop'
+            ? '在原圖上拖出要放進報價單的範圍；拉好後可拖框內移動、拖邊或角調整大小，再按「加入框選」。'
+            : '這一張就是會加在封底之前的樣子。'
+        }
+        bodyClassName="p-0 sm:p-0"
+        footer={
+          sheetMode === 'crop' ? (
+            <>
+              <ModalButton variant="secondary" onClick={closeSheet}>取消</ModalButton>
+              <ModalButton onClick={confirmCropSheet} disabled={sheetLoading || !sheet}>加入框選</ModalButton>
+            </>
+          ) : (
+            <ModalButton variant="secondary" onClick={closeSheet}>關閉</ModalButton>
+          )
+        }
+      >
+        {sheetLoading ? (
+          <p className="flex items-center justify-center gap-2 py-24 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> 正在載入預覽
+          </p>
+        ) : sheet ? (
+          <div className="flex flex-col">
+            {sheetMode === 'crop' ? (
+              <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+                <span className="text-[11px] font-medium text-foreground">框選範圍</span>
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {cropSelection
+                    ? `${Math.round(cropSelection.width * 100)}% × ${Math.round(cropSelection.height * 100)}%`
+                    : '未框選（按加入框選＝整頁）'}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5 text-[11px]"
+                  disabled={!cropSelection}
+                  onClick={() => setCropDraft(null)}
+                >
+                  清除框選
+                </Button>
+                {sheet.sheetCount > 1 ? (
+                  <span className="text-[11px] text-muted-foreground">跨頁：這是左右兩版的原圖</span>
+                ) : null}
+                <span className="text-[11px] text-muted-foreground">拖框內移動、拖邊／角調整大小</span>
+              </div>
+            ) : null}
+
+            <div
+              ref={cropStageRef}
+              className="flex h-[62vh] w-full items-center justify-center overflow-hidden bg-muted/40 p-3"
+            >
+              <div
+                className={cn(
+                  'relative shrink-0 rounded bg-white shadow-lg',
+                  sheetMode === 'crop' ? 'touch-none select-none' : '',
+                )}
+                style={{
+                  ...(sheetBox ? { width: sheetBox.width, height: sheetBox.height } : { width: '100%', height: '100%' }),
+                  cursor: sheetMode === 'crop' ? 'crosshair' : 'default',
+                }}
+                onPointerDown={sheetMode === 'crop' ? beginCrop : undefined}
+                onPointerMove={sheetMode === 'crop' ? moveCrop : undefined}
+                onPointerUp={sheetMode === 'crop' ? endCrop : undefined}
+                onPointerCancel={sheetMode === 'crop' ? endCrop : undefined}
+                onPointerLeave={sheetMode === 'crop' ? (event) => { event.currentTarget.style.cursor = 'crosshair'; } : undefined}
+                onLostPointerCapture={sheetMode === 'crop' ? endCrop : undefined}
+                onDragStart={(event) => event.preventDefault()}
+              >
+                {/* 圖片本身不吃指針事件：否則瀏覽器的圖片拖放會搶走 drag，框選會拖不動。 */}
+                <div className="pointer-events-none absolute inset-0 overflow-hidden rounded">
+                  <LoadingImage
+                    src={sheet.url}
+                    alt="圖冊頁原圖"
+                    className="h-full w-full"
+                    imgClassName="object-contain"
+                    draggable={false}
+                  />
+                </div>
+                {sheetMode === 'crop' && cropSelection ? (
+                  <div
+                    className="pointer-events-none absolute border-2 border-primary bg-primary/20 shadow-[0_0_0_1px_rgba(255,255,255,0.55)]"
+                    style={cropStyle(cropSelection)}
+                  >
+                    {/* 八個把手只是視覺提示；實際命中範圍由 cropHitTest 用像素判斷。 */}
+                    {CROP_HANDLES.map((handle) => (
+                      <span
+                        key={handle.key}
+                        className="absolute h-2.5 w-2.5 rounded-[2px] border border-primary bg-white shadow-sm"
+                        style={handle.style}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {sheetMode === 'crop' && cropDraft && !cropSelection ? (
+                  <div
+                    className="pointer-events-none absolute border border-dashed border-primary/70"
+                    style={cropStyle(cropDraft)}
+                  />
+                ) : null}
+              </div>
+            </div>
+
+            {sheetMode === 'piece' && sheet.sheetCount > 1 ? (
+              <p className="border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
+                跨頁：PDF 會出左、右兩張，這裡顯示的是左半（第 {sheet.page.pageNo} 頁）。
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="py-24 text-center text-xs text-muted-foreground">這一頁未能預覽。</p>
+        )}
+      </Modal>
     </Modal>
   );
 }

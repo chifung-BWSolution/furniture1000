@@ -1,26 +1,43 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
-  Ban,
   ArrowLeft,
+  ArrowRightLeft,
+  Ban,
+  Bell,
   Check,
   CheckCircle2,
-  Clock,
-  ExternalLink,
+  ChevronDown,
+  ChevronRight,
+  CreditCard,
+  Download,
+  FileText,
+  History,
   Layers,
+  LayoutGrid,
   Loader2,
+  MessageCircle,
+  MoreHorizontal,
+  Package,
   PenLine,
-  Printer,
+  ReceiptText,
   RefreshCw,
-  Save,
+  ShoppingBag,
   Trash2,
   X,
   ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { productThumbUrl } from '@/lib/imageThumb';
+import { originalImageUrl, productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -74,6 +91,7 @@ import {
   readStoredQuoteShareToken,
   storeQuoteShareTarget,
   storeQuoteShareToken,
+  withCustomerPortalQuery,
 } from '@/lib/customerPortalRoutes';
 import { resolveQuoteShareToken } from '@/lib/bwfQuoteShareLinks';
 import {
@@ -87,11 +105,17 @@ import {
   type CustomerSharedQuoteRequestRow,
 } from '@/lib/customerQuoteAccess';
 import { QuoteRelatedFurniture } from '@/components/dashboard/customers/QuoteRelatedFurniture';
+import type { QuoteRelatedFurnitureHandle } from '@/components/dashboard/customers/QuoteRelatedFurniture';
 import {
   customerRequestStatusLabel,
   customerRequestTypeLabel,
 } from '@/lib/customerQuoteRequests';
 import { recordQuoteShareView } from '@/lib/quoteEmailFollowUp';
+import {
+  buildCustomerQuotePdfData,
+  fetchCustomerQuotePdfPayload,
+} from '@/lib/customerQuotePdf';
+import type { QuotationPDFData } from '@/types/quotation-pdf';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 import { unsavedGuard } from '@/lib/unsavedGuard';
 import {
@@ -220,6 +244,64 @@ function portalClientInfoOf(quote: QuoteRecord): {
 function portalDeliveryDetailsOf(quote: QuoteRecord): string {
   const raw = quote.project_data?.deliveryDetails;
   return typeof raw === 'string' ? raw.trim() : '';
+}
+
+type QuoteTermsSection = {
+  key: string;
+  title: string;
+  text: string;
+};
+
+/** Split 報價條款 into the four portal accordion sections. */
+function portalTermsSectionsOf(quote: QuoteRecord): QuoteTermsSection[] {
+  const terms = quote.project_data?.termsContent;
+  const parts: QuoteTermsSection[] = [
+    {
+      key: 'payment',
+      title: '訂單及付款',
+      text: [terms?.payment]
+        .map((part) => (typeof part === 'string' ? part.trim() : ''))
+        .filter(Boolean)
+        .join('\n'),
+    },
+    {
+      key: 'delivery',
+      title: '交付及安裝',
+      text: [quote.project_data?.deliveryDetails, terms?.transport]
+        .map((part) => (typeof part === 'string' ? part.trim() : ''))
+        .filter(Boolean)
+        .join('\n'),
+    },
+    {
+      key: 'warranty',
+      title: '保養及維修',
+      text: [terms?.warranty, terms?.extraFees]
+        .map((part) => (typeof part === 'string' ? part.trim() : ''))
+        .filter(Boolean)
+        .join('\n'),
+    },
+    {
+      key: 'other',
+      title: '其他條款',
+      text: [terms?.other]
+        .map((part) => (typeof part === 'string' ? part.trim() : ''))
+        .filter(Boolean)
+        .join('\n'),
+    },
+  ];
+  if (parts.some((part) => part.text)) return parts;
+  const html = portalTermsHtmlOf(quote);
+  if (!html) return parts;
+  return [
+    {
+      key: 'full',
+      title: '條款及細則',
+      text: html
+        .replace(/<[^>]+>/g, '\n')
+        .replace(/\n{2,}/g, '\n')
+        .trim(),
+    },
+  ];
 }
 
 function portalTermsHtmlOf(quote: QuoteRecord): string {
@@ -445,7 +527,7 @@ function zoneBaseName(name: string): string {
       .trim()
       .replace(/\s+\d+$/, '')
       .replace(/[（(]\d+[）)]$/, '')
-      .trim() || '其他間隔'
+      .trim() || '其他分區'
   );
 }
 
@@ -569,14 +651,16 @@ function groupQuoteItemsByZoneType(
 
   const ensureRoom = (title: string, zoneId: string | null = null) => {
     const parsed = parseZoneSectionTitle(title);
-    const key = parsed.label;
+    // Group by the quotation's zone type (AREA / ROOM / FOYER); fall back to
+    // the room name when the section title has no type code.
+    const key = parsed.code ? parsed.prefix : parsed.label;
     let groupIndex = indexByKey.get(key);
     if (groupIndex == null) {
       groupIndex = groups.length;
       indexByKey.set(key, groupIndex);
       groups.push({
         key,
-        label: parsed.label,
+        label: key,
         rooms: [],
       });
     }
@@ -584,7 +668,7 @@ function groupQuoteItemsByZoneType(
     currentRoom = {
       id: `${key}:${parsed.name}:${group.rooms.length}`,
       zoneId,
-      code: '',
+      code: parsed.code,
       name: parsed.name || parsed.label,
       sections: [],
     };
@@ -818,7 +902,7 @@ function QuotePortalProductCard({
   const galleryLightboxUrls = productGalleryLightboxUrls(
     item.image,
     item.galleryUrls,
-  );
+  ).map(fullSizeImageUrl);
   const openGalleryAt = (startIndex = 0) => {
     if (galleryLightboxUrls.length === 0) return;
     onPreviewImage(galleryLightboxUrls, title, startIndex);
@@ -1297,11 +1381,338 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, '&#039;');
 }
 
+/** Lightbox should show the largest available source, never a stored thumbnail. */
+function fullSizeImageUrl(url: string | null | undefined): string {
+  const src = originalImageUrl(String(url || '').trim());
+  if (!src) return src;
+  try {
+    const parsed = new URL(src);
+    if (parsed.hostname.endsWith('cdn.shopify.com')) {
+      parsed.searchParams.delete('width');
+      parsed.searchParams.delete('height');
+      return parsed.toString();
+    }
+    if (parsed.hostname.endsWith('images.unsplash.com')) {
+      parsed.searchParams.set('w', '1600');
+      parsed.searchParams.delete('h');
+      parsed.searchParams.set('q', '85');
+      return parsed.toString();
+    }
+  } catch {
+    // Relative / data URLs: return as-is.
+  }
+  return src;
+}
+
+/** Compact 報價明細 row used by the redesigned /customer quote detail. */
+function QuotePortalDetailRow({
+  item,
+  selected,
+  review,
+  schemeLabel,
+  saving,
+  dimmed,
+  maxQuantity,
+  draftNote,
+  messageCount,
+  onSetQuantity,
+  onSetReview,
+  onSetDraftNote,
+  onSendMessage,
+  onReplace,
+  onPreviewImage,
+}: {
+  item: BwfQuoteItemInput;
+  selected: boolean;
+  review: ItemReview | undefined;
+  schemeLabel?: string;
+  saving: boolean;
+  dimmed: boolean;
+  maxQuantity?: number | null;
+  draftNote: string;
+  messageCount: number;
+  onSetQuantity: (quantity: number) => void;
+  onSetReview: (review: ItemReview | null) => void;
+  onSetDraftNote: (value: string) => void;
+  onSendMessage: () => void;
+  onReplace: () => void;
+  onPreviewImage: (urls: string[], title: string, startIndex?: number) => void;
+}) {
+  const title = quoteItemDisplayName(item);
+  const dimsLabel = formatProductDimensionsMm(
+    item.dimensionLMm,
+    item.dimensionWMm,
+    item.dimensionHMm,
+  );
+  const notesLabel = portalNotesDisplay(item.notes);
+  const qty = Math.max(0, Math.floor(Number(item.quantity) || 0));
+  const qtyCeiling =
+    typeof maxQuantity === 'number' && Number.isFinite(maxQuantity)
+      ? Math.max(0, Math.floor(maxQuantity))
+      : 9999;
+  const status: 'accepted' | 'change' | 'rejected' | 'pending' =
+    selected || review === 'accepted'
+      ? 'accepted'
+      : review === 'change'
+        ? 'change'
+        : review === 'rejected'
+          ? 'rejected'
+          : 'pending';
+  const statusClass: Record<typeof status, string> = {
+    accepted: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700',
+    change: 'border-amber-500/25 bg-amber-500/10 text-amber-700',
+    rejected: 'border-rose-500/25 bg-rose-500/10 text-rose-700',
+    pending: 'border-amber-500/25 bg-amber-500/10 text-amber-700',
+  };
+  const statusLabel: Record<typeof status, string> = {
+    accepted: '已接受',
+    change: '待處理',
+    rejected: '不接受',
+    pending: '待處理',
+  };
+  const galleryLightboxUrls = productGalleryLightboxUrls(
+    item.image,
+    item.galleryUrls,
+  ).map(fullSizeImageUrl);
+
+  return (
+    <div
+      className={cn(
+        'bg-card transition-colors',
+        selected && 'bg-primary/[0.035]',
+        dimmed && 'opacity-55',
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:flex-nowrap sm:gap-4 sm:px-5">
+      <Checkbox
+        checked={selected}
+        disabled={saving || (dimmed && !selected)}
+        onCheckedChange={(checked) =>
+          onSetReview(checked ? 'accepted' : null)
+        }
+        aria-label={`${selected ? '取消接受' : '接受'} ${title}`}
+        className="shrink-0"
+      />
+
+      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-border/60 bg-muted sm:h-[72px] sm:w-[72px]">
+        {item.image ? (
+          galleryLightboxUrls.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => onPreviewImage(galleryLightboxUrls, title, 0)}
+              className="group relative h-full w-full cursor-zoom-in"
+              title="點擊放大圖片"
+              aria-label={`${title}圖片預覽`}
+            >
+              <LoadingImage
+                src={productThumbUrl(item.image)}
+                alt={title}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover"
+              />
+              <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100">
+                <ZoomIn className="h-4 w-4" />
+              </span>
+            </button>
+          ) : (
+            <LoadingImage
+              src={productThumbUrl(item.image)}
+              alt={title}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover"
+            />
+          )
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <Package className="h-5 w-5 text-muted-foreground/50" />
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0 flex-1 basis-[180px]">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <h5 className="min-w-0 truncate text-[14.5px] font-semibold leading-snug text-foreground">
+            {title}
+          </h5>
+          {item.isOptional ? (
+            <span className="text-[11px] font-normal text-muted-foreground">
+              （可選）
+            </span>
+          ) : null}
+          {schemeLabel ? (
+            <span className="rounded border border-violet-500/25 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+              {schemeLabel}
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-0.5 font-mono-data text-[12px] text-muted-foreground">
+          {dimsLabel ? `尺寸 ${dimsLabel}` : '尺寸 —'}
+        </p>
+        {notesLabel ? (
+          <p className="mt-0.5 line-clamp-1 text-[12px] text-muted-foreground/80">
+            備註：{notesLabel}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="shrink-0 whitespace-nowrap text-right sm:text-left">
+        <p
+          className={cn(
+            'font-mono-data text-[14px] font-semibold',
+            selected ? 'text-foreground' : 'text-muted-foreground',
+          )}
+        >
+          {fmtMoney(Number(item.unitPrice) || 0)}
+          {item.unit ? (
+            <span className="ml-1 font-mono-data text-[10.5px] font-normal text-muted-foreground">
+              / {item.unit}
+            </span>
+          ) : null}
+        </p>
+      </div>
+
+      <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
+        <button
+          type="button"
+          onClick={() => onSetQuantity(qty - 1)}
+          disabled={saving || dimmed || qty <= 0}
+          className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+          aria-label="數量減一"
+        >
+          −
+        </button>
+        <input
+          type="number"
+          min={0}
+          max={qtyCeiling}
+          value={qty}
+          disabled={saving || dimmed}
+          onChange={(event) => onSetQuantity(Number(event.target.value))}
+          className="h-7 w-9 border-x border-border bg-background text-center font-mono-data text-[12.5px] font-semibold text-foreground outline-none disabled:opacity-50"
+          aria-label={`${title}數量`}
+        />
+        <button
+          type="button"
+          onClick={() => onSetQuantity(qty + 1)}
+          disabled={saving || dimmed || qty >= qtyCeiling}
+          className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+          aria-label="數量加一"
+        >
+          +
+        </button>
+      </div>
+
+      <span
+        className={cn(
+          'inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px] font-medium',
+          statusClass[status],
+        )}
+      >
+        {status === 'accepted' ? <Check className="h-3 w-3" /> : null}
+        {statusLabel[status]}
+      </span>
+
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          onClick={onReplace}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground/80 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+        >
+          <ArrowRightLeft className="h-3.5 w-3.5" />
+          更換款式
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label={`${title}更多操作`}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="z-[300] w-40">
+            <DropdownMenuItem
+              disabled={saving || dimmed}
+              onClick={() => onSetReview('accepted')}
+            >
+              <Check className="mr-2 h-3.5 w-3.5 text-emerald-600" />
+              接受
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={saving || dimmed}
+              onClick={() => onSetReview('change')}
+            >
+              <PenLine className="mr-2 h-3.5 w-3.5 text-amber-600" />
+              要求修改
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={saving || dimmed}
+              onClick={() => onSetReview('rejected')}
+            >
+              <X className="mr-2 h-3.5 w-3.5 text-rose-600" />
+              不接受
+            </DropdownMenuItem>
+            {review || selected ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={saving}
+                  onClick={() => onSetReview(null)}
+                >
+                  清除回覆
+                </DropdownMenuItem>
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      </div>
+
+      {review === 'change' || review === 'rejected' ? (
+        <div className="border-t border-border/60 bg-muted/[0.12] px-4 pb-3 pt-2.5 sm:pl-[7.25rem]">
+          <textarea
+            value={draftNote}
+            onChange={(event) => onSetDraftNote(event.target.value)}
+            rows={2}
+            placeholder="請說明需要修改或不接受的原因…"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[12.5px]"
+          />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] text-muted-foreground">
+              {messageCount > 0
+                ? `已留 ${messageCount} 則意見，負責同事會看到。`
+                : '意見會同步給負責同事。'}
+            </span>
+            <button
+              type="button"
+              onClick={onSendMessage}
+              disabled={saving}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-[12px] font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              確定
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const REVIEW_LABEL: Record<ItemReview, string> = {
   accepted: '接受',
   change: '要求修改',
   rejected: '不接受',
 };
+
+const LazyQuotationPDFPreviewModal = lazy(() =>
+  import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
+    default: mod.QuotationPDFPreviewModal,
+  })),
+);
 
 export function CustomerQuoteSchemesView() {
   const { user } = useAuth();
@@ -1398,6 +1809,19 @@ export function CustomerQuoteSchemesView() {
   const [requestsLoading, setRequestsLoading] = useState(false);
   /** 分享連結無效／已撤銷：不可讀取明細，也不可提交。 */
   const [shareLinkInvalid, setShareLinkInvalid] = useState(false);
+  /** 客戶版報價 PDF 預覽：資料由 get_quote_pdf_payload() 一次取回。 */
+  const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  /** Redesigned quote detail tabs. */
+  const [detailTab, setDetailTab] = useState<
+    'items' | 'explore' | 'changes' | 'terms'
+  >('items');
+  const [expandedRooms, setExpandedRooms] = useState<Record<string, boolean>>({});
+  const relatedFurnitureRef = useRef<QuoteRelatedFurnitureHandle>(null);
+  const [draftChangeCount, setDraftChangeCount] = useState(0);
+  const [termsAgreed, setTermsAgreed] = useState(false);
+  const [termsOpen, setTermsOpen] = useState<Record<string, boolean>>({});
+  const autoOpenedDetailRef = useRef(false);
 
   const quoteShareToken = readStoredQuoteShareToken();
 
@@ -2033,20 +2457,24 @@ export function CustomerQuoteSchemesView() {
         const hydratedRows = rows.map((row) => {
           if (!row.id || row.isSectionTitle || row.isDivisionTitle) return row;
           const savedQty = savedQuantities[row.id];
-          if (typeof savedQty === 'number' && Number.isFinite(savedQty)) {
+          const quotedQty = Math.max(
+            0,
+            Math.floor(Number(row.quantity) || 0),
+          );
+          // 0 is only meaningful when the client explicitly accepted 0;
+          // otherwise show the quantity from the quotation itself.
+          if (
+            typeof savedQty === 'number' &&
+            Number.isFinite(savedQty) &&
+            (savedQty > 0 || nextSelected[row.id])
+          ) {
             return {
               ...row,
               quantity: Math.max(0, Math.floor(savedQty)),
             };
           }
-          // Default: selected → ≥1, unselected → 0
-          if (nextSelected[row.id]) {
-            return {
-              ...row,
-              quantity: Math.max(1, Math.floor(Number(row.quantity) || 1)),
-            };
-          }
-          return { ...row, quantity: 0 };
+          // 「接受」只影響是否計入總額，數量一律跟隨報價單。
+          return { ...row, quantity: quotedQty };
         });
         setItems(hydratedRows);
         setItemReviews(nextReviews);
@@ -2212,6 +2640,56 @@ export function CustomerQuoteSchemesView() {
     () => groupQuoteItemsByZoneType(items),
     [items],
   );
+  const visibleZoneTypeGroups = useMemo(
+    () =>
+      zoneTypeGroups.filter((group) =>
+        group.rooms.some(
+          (room) =>
+            roomProductCount(room, schemeGroupsByZone[room.zoneId || ''] || []) >
+            0,
+        ),
+      ),
+    [zoneTypeGroups, schemeGroupsByZone],
+  );
+  const groupProductCount = useCallback(
+    (group: QuoteZoneTypeGroup) =>
+      group.rooms.reduce(
+        (roomSum, room) =>
+          roomSum +
+          roomProductCount(room, schemeGroupsByZone[room.zoneId || ''] || []),
+        0,
+      ),
+    [schemeGroupsByZone],
+  );
+  const totalDisplayProductCount = useMemo(
+    () =>
+      visibleZoneTypeGroups.reduce(
+        (sum, group) => sum + groupProductCount(group),
+        0,
+      ),
+    [visibleZoneTypeGroups, groupProductCount],
+  );
+  // /customer lands on the quote detail (as in the portal design) once quotes load.
+  useEffect(() => {
+    if (autoOpenedDetailRef.current) return;
+    if (loading || shareLinkInvalid || availableQuotes.length === 0) return;
+    autoOpenedDetailRef.current = true;
+    setActiveId((current) => current || availableQuotes[0].id);
+    setShowDetail(true);
+  }, [availableQuotes, loading, shareLinkInvalid]);
+
+  // Accordion: expand all rooms by default.
+  const zoneTypeGroupSignature = visibleZoneTypeGroups
+    .map((group) => group.rooms.map((room) => room.id).join(','))
+    .join('|');
+  useEffect(() => {
+    setExpandedRooms((current) => {
+      if (Object.keys(current).length > 0) return current;
+      const allRooms = visibleZoneTypeGroups.flatMap((group) => group.rooms);
+      if (allRooms.length === 0) return current;
+      return Object.fromEntries(allRooms.map((room) => [room.id, true]));
+    });
+  }, [zoneTypeGroupSignature, visibleZoneTypeGroups]);
   const billableItems = items.filter(
     (item) =>
       !item.isSectionTitle &&
@@ -2223,6 +2701,31 @@ export function CustomerQuoteSchemesView() {
     (sum, item) => sum + clientQuoteLineTotal(item),
     0,
   );
+  const selectedPieceCount = billableItems.reduce(
+    (sum, item) => sum + Math.max(0, Math.floor(Number(item.quantity) || 0)),
+    0,
+  );
+  const structuralItems = items.filter(
+    (item) =>
+      !item.isSectionTitle && !item.isDivisionTitle && !item.isCustomTerm,
+  );
+  const pendingRequestCount = quoteRequests.filter(
+    (request) => request.status === 'submitted',
+  ).length;
+  const pendingChangeCount = Math.max(pendingRequestCount, draftChangeCount);
+  const termsSections = useMemo(
+    () => (active ? portalTermsSectionsOf(active) : []),
+    [active],
+  );
+  const quoteStatusTone = /確認|approved|confirmed/i.test(
+    String(active?.status || ''),
+  )
+    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700'
+    : 'border-amber-500/25 bg-amber-500/10 text-amber-700';
+  const openReplaceForItem = useCallback((itemId: string | undefined) => {
+    if (!itemId) return;
+    relatedFurnitureRef.current?.openReplaceFor(itemId);
+  }, []);
 
   /** 原報價項目（可被更換款式）；不含分區標題與自訂條款。 */
   const originalItemOptions = useMemo(
@@ -2241,10 +2744,63 @@ export function CustomerQuoteSchemesView() {
           unit: item.unit,
           unitPrice: Number(item.unitPrice) || 0,
           quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
+          category: item.category?.trim() || '',
         })),
     [items],
   );
 
+  // Quote lines store one image; hydrate the full product gallery so the
+  // lightbox can show every photo (including the original full-size main image).
+  const itemGalleryProductIds = useMemo(() => {
+    const ids = items
+      .filter(
+        (item) =>
+          !item.isSectionTitle &&
+          !item.isDivisionTitle &&
+          !item.isCustomTerm,
+      )
+      .map((item) => String(item.productId || '').trim())
+      .filter(Boolean);
+    return [...new Set(ids)].sort();
+  }, [items]);
+  const itemGalleryProductIdSignature = itemGalleryProductIds.join('|');
+  useEffect(() => {
+    if (!showDetail || itemGalleryProductIds.length === 0) return;
+    let cancelled = false;
+    void fetchProductsDisplayMeta(itemGalleryProductIds)
+      .then((meta) => {
+        if (cancelled) return;
+        setItems((current) =>
+          current.map((item) => {
+            if (
+              item.isSectionTitle ||
+              item.isDivisionTitle ||
+              item.isCustomTerm
+            ) {
+              return item;
+            }
+            const productId = String(item.productId || '').trim();
+            const gallery = productId
+              ? meta[productId]?.galleryUrls || []
+              : [];
+            if (gallery.length === 0) return item;
+            const merged = [
+              ...new Set([...(item.galleryUrls || []), ...gallery]),
+            ];
+            if (merged.length === (item.galleryUrls || []).length) {
+              return item;
+            }
+            return { ...item, galleryUrls: merged };
+          }),
+        );
+      })
+      .catch(() => {
+        // Gallery enrichment is optional; keep the quote image.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [itemGalleryProductIdSignature, showDetail]);
   const loadQuoteRequests = useCallback(async () => {
     const quoteUuid = active?.id && /^[0-9a-f-]{36}$/i.test(active.id) ? active.id : '';
     if (!quoteUuid) {
@@ -2752,18 +3308,38 @@ export function CustomerQuoteSchemesView() {
     popup.document.close();
   };
 
-  const printPdf = () => {
-    const popup = window.open('', '_blank');
-    if (!popup) {
-      toast.error('瀏覽器已阻擋列印視窗');
+  const openPdfPreview = async () => {
+    if (!active || pdfLoading) return;
+    if (!isBwfQuoteRecord(active)) {
+      toast.error('此項目尚未有正式報價 PDF', {
+        description: '設計專案方案未連結正式報價單，暫未能產生 PDF。',
+      });
       return;
     }
-    popup.opener = null;
-    popup.document.open();
-    popup.document.write(buildExportHtml());
-    popup.document.close();
-    popup.focus();
-    window.setTimeout(() => popup.print(), 300);
+    setPdfLoading(true);
+    try {
+      const payload = await fetchCustomerQuotePdfPayload({
+        quoteUuid: active.id,
+        token: quoteShareGuest
+          ? quoteShareFromUrl?.trim() || quoteShareToken
+          : null,
+      });
+      if (!payload?.quote?.id) throw new Error('找不到這份報價');
+      if (payload.quote.id !== active.id) {
+        throw new Error('報價資料不相符，請重新整理後再試');
+      }
+      const data = buildCustomerQuotePdfData(payload);
+      if (!data) throw new Error('報價資料不完整');
+      setPdfPreviewData(data);
+    } catch (error) {
+      toast.error('未能開啟 PDF 預覽', {
+        description: customerQuoteError(
+          error as { code?: string; message?: string },
+        ),
+      });
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   const resolveLinkedProject = useCallback((): DesignProject | null => {
@@ -3399,1109 +3975,1324 @@ export function CustomerQuoteSchemesView() {
     }
   };
 
-  return (
-    <>
-    <PortalPageShell
-      scrollRef={pageScrollRef}
-      title={showDetail && active ? quoteDisplayName(active) : '報價方案'}
-      badge="Client Portal"
-      titleExtra={
-        !showDetail && showSourceFilter ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {(
-              [
-                { key: 'all', label: '全部' },
-                { key: 'bwa', label: 'BWA' },
-                { key: 'bwf', label: 'BWF' },
-              ] as const
-            ).map((opt) => (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => setSourceFilter(opt.key)}
-                className={cn(
-                  'rounded-full border px-3 py-1 text-[11.5px] font-semibold transition-colors',
-                  sourceFilter === opt.key
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border bg-background text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        ) : null
+  const applyItemReview = (
+    item: BwfQuoteItemInput,
+    context: {
+      targetQty: number | null;
+      slotCount: number;
+      selectedQty: number;
+      sectionLabel: string;
+    },
+    nextReview: ItemReview | null,
+  ) => {
+    if (!item.id) return;
+    const itemQty = Math.max(0, Math.floor(Number(item.quantity) || 0));
+    if (nextReview === 'accepted') {
+      if (
+        context.targetQty != null &&
+        context.slotCount > 1 &&
+        !isQuoteItemSelected(item, itemSelected)
+      ) {
+        const remaining = context.targetQty - context.selectedQty;
+        if (remaining <= 0) {
+          toast.message('已達此傢俬劃分所需數量', {
+            description: `「${context.sectionLabel}」需要 ${context.targetQty} 件，請先調整已選方案的數量。`,
+          });
+          return;
+        }
+        setItemQuantity(
+          item.id,
+          Math.max(1, Math.min(itemQty > 0 ? itemQty : 1, remaining)),
+        );
+      } else if (itemQty <= 0) {
+        setItemQuantity(item.id, 1);
       }
-      subtitle="查看自己的報價、切換版本、按房間批核產品，並回覆整張報價。"
-      maxWidthClass="max-w-none"
-      actions={
-        showDetail && active ? (
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-            <button
-              type="button"
-              disabled={!hasFloorPlan}
-              onClick={openFloorPlanViewer}
-              className="relative flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40 shadow-sm transition hover:border-primary/40 hover:shadow-md disabled:cursor-default disabled:opacity-70 sm:h-20 sm:w-28"
-              title={hasFloorPlan ? '點擊查看平面圖' : '尚未上傳平面圖'}
-              aria-label={hasFloorPlan ? '查看平面圖縮圖' : '尚未上傳平面圖'}
-            >
-              <FloorPlanThumb
-                url={linkedFloorPlanProject?.floorPlanUrl ?? null}
-                type={linkedFloorPlanProject?.floorPlanType ?? null}
-                previewUrl={floorPlanPreviewUrl}
-                fileName={
-                  typeof linkedFloorPlanProject?.meta?.floorPlanFileName ===
-                  'string'
-                    ? linkedFloorPlanProject.meta.floorPlanFileName
-                    : undefined
-                }
-              />
-            </button>
-          </div>
-        ) : null
+      setItemSelected((current) => ({ ...current, [item.id!]: true }));
+    } else {
+      // 不接受／要求修改不應改動報價單數量；只取消計入總額。
+      setItemSelected((current) => ({ ...current, [item.id!]: false }));
+    }
+    void syncItemReview(item, nextReview).then((ok) => {
+      if (ok && nextReview === 'accepted') {
+        toast.success('已同步為「已確定」');
       }
-    >
-      {!showDetail ? (
-      <section>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="font-display text-lg font-bold">您的報價</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {showSourceFilter
-                ? sourceFilter === 'bwa'
-                  ? '顯示傢俬方案「設計專案」的訂單'
-                  : sourceFilter === 'bwf'
-                    ? '顯示傢俬報價「報價單一覽」的報價單'
-                    : '顯示設計專案與報價單一覽的全部項目'
-                : '一般只會顯示目前客戶的 1–2 張有效報價。'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void fetchQuotes()}
-            className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-border px-3 py-2 text-sm sm:self-auto"
-          >
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            重新整理
-          </button>
-        </div>
+    });
+  };
 
-        {loading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          </div>
-        ) : shareLinkInvalid ? (
-          <EmptyState
-            title="分享連結無效或已撤銷"
-            description="這個連結已不能讀取報價明細，也不能提交變更。請向報價負責同事索取新的二維碼或連結。"
-          />
-        ) : availableQuotes.length === 0 ? (
-          <EmptyState
-            title="目前沒有屬於您的報價"
-            description="PM 完成報價後，報價方案會顯示在這裡。"
-          />
-        ) : (
-          <div className="mt-5 grid grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2">
-            {availableQuotes.map((quote) => {
-              const selected = active?.quote_id === quote.quote_id;
-              const versions = versionsByQuote.get(quote.quote_id) || [quote];
-              const linkedDesignProject =
-                isBwaPortalQuote(quote) ||
-                portalProjects.some(
-                  (project) =>
-                    project.id === designProjectIdOf(quote) ||
-                    projectQuoteId(project) === quote.quote_id,
-                );
-              return (
-                <button
-                  key={`${quote.id}:${quote.quote_id}`}
-                  type="button"
-                  onClick={() => {
-                    setActiveId(quote.id);
-                    setShowDetail(true);
-                    setItemReviews({});
-                    setItemDraftNotes({});
-                    setItemMessages({});
-                    const linked =
-                      quote.id.startsWith('design-project:')
-                        ? portalProjects.find(
-                            (project) =>
-                              project.id ===
-                              quote.id.replace('design-project:', ''),
-                          )
-                        : quote.id.startsWith('confirmed-project:')
-                          ? portalProjects.find(
-                              (project) =>
-                                project.id ===
-                                quote.id.replace('confirmed-project:', ''),
-                            )
-                          : portalProjects.find(
-                              (project) =>
-                                projectQuoteId(project) === quote.quote_id,
-                            );
-                    const hydrated = hydrateQuoteReplyFromProject(linked);
-                    setQuoteDecision(hydrated.decision);
-                    setQuoteNote(hydrated.note);
-                  }}
-                  className={cn(
-                    'min-h-[44px] rounded-2xl border bg-card p-4 text-left shadow-sm transition-all sm:p-5',
-                    selected
-                      ? 'border-primary/50 ring-2 ring-primary/10'
-                      : 'border-border hover:border-primary/30',
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="max-w-[70%] break-all rounded-lg bg-primary/10 px-2.5 py-1 font-mono-data text-xs font-bold text-primary">
-                      {quote.quote_id}
+  const detailFooter = active ? (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                  <p className="text-[12.5px] text-muted-foreground">
+                    已選擇{' '}
+                    <span className="font-mono-data font-bold text-foreground">
+                      {selectedPieceCount}
+                    </span>{' '}
+                    件產品
+                  </p>
+                  <p className="text-[12.5px] text-muted-foreground">
+                    合計{' '}
+                    <span className="font-mono-data text-[16px] font-bold text-primary">
+                      {fmtMoney(itemSubtotal)}
                     </span>
-                    <span
-                      className={cn(
-                        'rounded-full border px-2.5 py-1 text-xs font-medium',
-                        linkedDesignProject
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                          : quoteStatusBadgeClass(quote.status),
-                      )}
-                    >
-                      {linkedDesignProject
-                        ? quote.status || '設計專案'
-                        : quote.status || '—'}
-                    </span>
-                  </div>
-                  <h3 className="mt-4 line-clamp-2 font-display text-lg font-bold">
-                    {quoteDisplayName(quote)}
-                  </h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {clientNameOf(quote)} · {versions.length} 個版本
-                  </p>
-                  {linkedDesignProject ? (
-                    <p className="mt-2 inline-flex rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                      來自設計專案
-                    </p>
-                  ) : null}
-                  <div className="mt-4 flex items-end justify-between gap-3 border-t border-border pt-4">
-                    <span className="text-xs text-muted-foreground">
-                      {fmtDate(quote.modified_date || quote.created_at)}
-                    </span>
-                    <strong className="font-mono-data text-lg text-primary">
-                      {fmtMoney(quote.total_amount)}
-                    </strong>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
-      ) : null}
-
-      {showDetail && active ? (
-        <section className="space-y-5">
-          <button
-            type="button"
-            onClick={() => setShowDetail(false)}
-            className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            返回您的報價
-          </button>
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="font-mono-data text-xs text-primary">
-                  {active.quote_id}
-                </p>
-                <h2 className="mt-1 font-display text-xl font-bold">
-                  {quoteDisplayName(active)}
-                </h2>
-                <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Clock className="h-4 w-4" />
-                  更新日期 {fmtDate(active.modified_date || active.created_at)}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Select
-                  value={activeId}
-                  onValueChange={(nextId) => {
-                    setActiveId(nextId);
-                    setItemReviews({});
-                    setItemDraftNotes({});
-                    setItemMessages({});
-                    const nextQuote = activeVersions.find(
-                      (version) => version.id === nextId,
-                    );
-                    const linked = nextQuote
-                      ? nextId.startsWith('design-project:')
-                        ? portalProjects.find(
-                            (project) =>
-                              project.id ===
-                              nextId.replace('design-project:', ''),
-                          )
-                        : nextId.startsWith('confirmed-project:')
-                          ? portalProjects.find(
-                              (project) =>
-                                project.id ===
-                                nextId.replace('confirmed-project:', ''),
-                            )
-                          : portalProjects.find(
-                              (project) =>
-                                projectQuoteId(project) === nextQuote.quote_id,
-                            )
-                      : null;
-                    const hydrated = hydrateQuoteReplyFromProject(linked);
-                    setQuoteDecision(hydrated.decision);
-                    setQuoteNote(hydrated.note);
-                  }}
-                >
-                  <SelectTrigger className="h-10 min-w-[12rem] text-sm font-semibold" aria-label="選擇報價版本">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="z-[300]">
-                    {activeVersions.map((version) => (
-                      <SelectItem key={version.id} value={version.id}>
-                        {displayQuoteVersion(version.version)} · {version.status}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <button
-                  type="button"
-                  onClick={openHtmlQuote}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  HTML Quote
-                </button>
-                <button
-                  type="button"
-                  onClick={printPdf}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm"
-                >
-                  <Printer className="h-4 w-4" />
-                  PDF
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {isBwfDetail && bwfClientInfo ? (
-            <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <h2 className="font-display text-base font-bold">客戶資訊</h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    公司名稱
-                  </p>
-                  <p className="mt-1 text-sm font-semibold">
-                    {bwfClientInfo.companyName || '—'}
                   </p>
                 </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    客戶名稱
-                  </p>
-                  <p className="mt-1 text-sm font-semibold">
-                    {bwfClientInfo.contactName || '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    電話
-                  </p>
-                  <p className="mt-1 font-mono-data text-sm font-semibold">
-                    {bwfClientInfo.phone || '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    電郵
-                  </p>
-                  <p className="mt-1 font-mono-data text-sm font-semibold break-all">
-                    {bwfClientInfo.email || '—'}
-                  </p>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          <section className="space-y-3">
-            <div ref={partitionStickySentinelRef}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="font-display text-lg font-bold">
-                  間隔清單與傢俬配置
-                </h2>
-                <span className="font-mono-data text-[15px] text-muted-foreground">
-                  {zoneTypeGroups.length} 個間隔 ·{' '}
-                  {items.filter(
-                    (item) =>
-                      !item.isSectionTitle &&
-                      !item.isDivisionTitle &&
-                      !item.isCustomTerm,
-                  ).length}{' '}
-                  件產品
-                </span>
-              </div>
-              {!itemsLoading && zoneTypeGroups.length > 0 ? (
-                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
-                  <span className="mr-1 text-[15px] font-semibold text-muted-foreground">
-                    間隔數量
-                  </span>
-                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                    {zoneTypeGroups.map((group) => {
-                      const productTotal = group.rooms.reduce(
-                        (sum, room) =>
-                          sum +
-                          roomProductCount(
-                            room,
-                            schemeGroupsByZone[room.zoneId || ''] || [],
-                          ),
-                        0,
-                      );
-                      const isActive =
-                        (activeZoneLabel || zoneTypeGroups[0]?.label) ===
-                        group.label;
-                      return (
-                        <button
-                          key={group.key}
-                          type="button"
-                          onClick={() => scrollToZoneGroup(group.label)}
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-[15px] transition-colors',
-                            isActive
-                              ? 'border-primary/50 bg-primary/15 text-primary shadow-sm'
-                              : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-foreground',
-                          )}
-                          title={`跳至「${group.label}」· 產品總數 ${productTotal}`}
-                          aria-current={isActive ? 'true' : undefined}
-                        >
-                          <span
-                            className={cn(
-                              'font-semibold',
-                              isActive ? 'text-primary' : 'text-foreground',
-                            )}
-                          >
-                            {group.label}
-                          </span>
-                          <span
-                            className={
-                              isActive
-                                ? 'text-primary/80'
-                                : 'text-muted-foreground'
-                            }
-                          >
-                            ：{productTotal}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => void saveQuoteScheme()}
-                    disabled={savingScheme}
-                    className="ml-auto inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                    onClick={() => {
+                      if (draftChangeCount > 0) {
+                        relatedFurnitureRef.current?.focusDraft();
+                        setDetailTab('explore');
+                        window.setTimeout(() => {
+                          relatedFurnitureRef.current?.focusDraft();
+                        }, 40);
+                      } else {
+                        setDetailTab('explore');
+                      }
+                    }}
+                    className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-background px-3.5 text-[12.5px] font-semibold text-foreground/80 transition-colors hover:border-primary/40 hover:text-primary"
                   >
-                    {savingScheme ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4" />
-                    )}
-                    儲存
+                    <PenLine className="h-4 w-4" />
+                    提交變更請求
+                    {pendingChangeCount > 0
+                      ? `（${pendingChangeCount} 項）`
+                      : ''}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailTab('terms')}
+                    className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-4 text-[12.5px] font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    確認報價（{fmtMoney(active.total_amount)}）
                   </button>
                 </div>
-              ) : null}
-            </div>
-          </section>
 
-          {itemsLoading ? (
-            <div className="flex justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    </div>
+  ) : null;
+
+
+  return (
+    <>
+      <PortalPageShell
+        scrollRef={pageScrollRef}
+        title={showDetail && active ? quoteDisplayName(active) : '報價方案'}
+        footer={
+          showDetail && active && detailTab === 'items'
+            ? detailFooter
+            : undefined
+        }
+        badge="Client Portal"
+        titleExtra={
+          !showDetail && showSourceFilter ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { key: 'all', label: '全部' },
+                  { key: 'bwa', label: 'BWA' },
+                  { key: 'bwf', label: 'BWF' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setSourceFilter(opt.key)}
+                  className={cn(
+                    'rounded-full border px-3 py-1 text-[11.5px] font-semibold transition-colors',
+                    sourceFilter === opt.key
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border bg-background text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
-          ) : zoneTypeGroups.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border px-6 py-12 text-center text-muted-foreground">
-              此版本暫無產品明細
-            </div>
-          ) : (
-            <div className="space-y-7">
-              {zoneTypeGroups.map((group) => {
-                const isSingleRoomGroup = group.rooms.length === 1;
-                const productCount = group.rooms.reduce(
-                  (sum, room) =>
-                    sum +
-                    roomProductCount(
-                      room,
-                      schemeGroupsByZone[room.zoneId || ''] || [],
-                    ),
-                  0,
-                );
-                return (
-                  <section
-                    key={group.key}
-                    id={zoneGroupDomId(group.label)}
-                    className="scroll-mt-2 space-y-3"
+          ) : null
+        }
+        subtitle="查看自己的報價、切換版本、按房間批核產品，並回覆整張報價。"
+        maxWidthClass="max-w-none"
+        header={
+          showDetail && active ? (
+            <div className="space-y-4">
+              <section className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm">
+                <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-start">
+                  <button
+                    type="button"
+                    disabled={!hasFloorPlan}
+                    onClick={openFloorPlanViewer}
+                    className="relative h-24 w-28 shrink-0 overflow-hidden rounded-xl border border-border bg-muted/40 transition hover:border-primary/40 disabled:cursor-default disabled:opacity-70"
+                    title={hasFloorPlan ? '點擊查看平面圖' : '尚未上傳平面圖'}
+                    aria-label={hasFloorPlan ? '查看平面圖縮圖' : '尚未上傳平面圖'}
                   >
-                    {!isSingleRoomGroup ? (
-                      <div className="rounded-xl border border-border bg-foreground/[0.06] px-4 py-3 text-center">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                          區域類型
-                        </p>
-                        <h3 className="mt-0.5 font-display text-lg font-bold leading-snug md:text-xl">
-                          {group.label} x {group.rooms.length} 個
-                          {productCount > 0
-                            ? ` · 總共${productCount} 件產品`
-                            : ''}
-                        </h3>
-                      </div>
-                    ) : null}
+                    {structuralItems.find((item) => item.image)?.image ? (
+                      <LoadingImage
+                        src={productThumbUrl(
+                          structuralItems.find((item) => item.image)!.image!,
+                        )}
+                        alt={quoteDisplayName(active)}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <FloorPlanThumb
+                        url={linkedFloorPlanProject?.floorPlanUrl ?? null}
+                        type={linkedFloorPlanProject?.floorPlanType ?? null}
+                        previewUrl={floorPlanPreviewUrl}
+                        fileName={
+                          typeof linkedFloorPlanProject?.meta?.floorPlanFileName ===
+                          'string'
+                            ? linkedFloorPlanProject.meta.floorPlanFileName
+                            : undefined
+                        }
+                      />
+                    )}
+                  </button>
 
-                    <div className="space-y-3">
-                      {group.rooms.map((room) => {
-                        const roomSchemeGroups =
-                          schemeGroupsByZone[room.zoneId || ''] || [];
-                        const roomCount = roomProductCount(
-                          room,
-                          roomSchemeGroups,
-                        );
-                        const plannedCount = roomPlannedFurnitureCount(room);
-                        const roomTitle = isSingleRoomGroup
-                          ? group.label
-                          : room.name;
-                        const roomSqft = zoneSqftForDisplay(
-                          activeZoneAreasSqft,
-                          room.zoneId,
-                        );
-                        const roomContextCount =
-                          plannedCount > 0 ? plannedCount : roomCount;
-                        const roomSubtotal = room.sections.reduce(
-                          (sum, section) =>
-                            sum +
-                            section.items.reduce((sectionSum, item) => {
-                              if (!isQuoteItemSelected(item, itemSelected)) {
-                                return sectionSum;
-                              }
-                              return sectionSum + clientQuoteLineTotal(item);
-                            }, 0),
-                          0,
-                        );
-                        const hasDivisionLabels = room.sections.some(
-                          (section) => Boolean(section.label),
-                        );
-                        return (
-                          <section
-                            key={room.id}
-                            className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
-                          >
-                            <div
-                              className="border-b border-border bg-foreground/[0.06] px-5 py-4"
-                              data-partition-zone={group.label}
-                              data-partition-zone-title={roomTitle}
-                              {...(!hasDivisionLabels
-                                ? {
-                                    'data-partition-division': roomTitle,
-                                    'data-partition-count': String(
-                                      roomContextCount,
-                                    ),
-                                    'data-partition-picked': String(
-                                      room.sections.reduce(
-                                        (sum, section) =>
-                                          sum +
-                                          sectionSelectedQuantity(
-                                            section,
-                                            itemSelected,
-                                          ),
-                                        0,
-                                      ),
-                                    ),
-                                    'data-partition-product': '',
-                                  }
-                                : {})}
-                            >
-                              <div className="flex w-full min-w-0 flex-col items-center gap-1 text-center">
-                                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                                  區域
-                                </p>
-                                <h4 className="font-display text-lg font-bold leading-snug tracking-tight text-foreground md:text-xl">
-                                  {roomTitle}{' '}
-                                  {plannedCount > 0
-                                    ? `× 總數 ${plannedCount}件傢俬`
-                                    : roomCount > 0
-                                      ? `× 總數 ${roomCount}件傢俬`
-                                      : '× 暫無產品'}
-                                  {roomSqft != null
-                                    ? ` · ${formatZoneSqftLabel(roomSqft)}`
-                                    : ''}
-                                </h4>
-                              </div>
-                            </div>
-                            <div className="divide-y divide-border/70">
-                              {roomCount === 0 ? (
-                                <p className="px-5 py-6 text-sm text-muted-foreground">
-                                  此區域暫未選擇產品
-                                </p>
-                              ) : null}
-                              {room.sections.map((section) => {
-                                const sectionSlots = buildQuoteSchemeSlots(
-                                  section.items,
-                                  roomSchemeGroups,
-                                );
-                                const sectionCount = sectionDisplayCount(
-                                  section,
-                                  roomSchemeGroups,
-                                );
-                                const sectionPickedQty =
-                                  sectionSelectedQuantity(
-                                    section,
-                                    itemSelected,
-                                  );
-                                return (
-                                  <div key={section.id}>
-                                    {section.label ? (
-                                      <div
-                                        className="grid grid-cols-1 items-center gap-2 border-b border-border/80 bg-muted/20 px-4 py-2.5 sm:grid-cols-[1fr_auto_1fr] sm:px-5"
-                                        data-partition-division={section.label}
-                                        data-partition-count={String(
-                                          sectionCount,
-                                        )}
-                                        data-partition-picked={String(
-                                          sectionPickedQty,
-                                        )}
-                                        data-partition-zone={group.label}
-                                        data-partition-zone-title={roomTitle}
-                                        data-partition-product=""
-                                      >
-                                        <div className="hidden sm:block" />
-                                        <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1">
-                                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-                                            <Layers className="h-3 w-3" />
-                                            傢俬劃分
-                                          </span>
-                                          <h5 className="text-center font-display text-[15px] font-semibold leading-snug text-foreground/90 md:text-base">
-                                            {section.label}
-                                            <span className="ml-1.5 font-mono-data text-[13px] font-medium text-muted-foreground">
-                                              : 總共{sectionCount} 件產品
-                                            </span>
-                                          </h5>
-                                        </div>
-                                        <p
-                                          className={cn(
-                                            'justify-self-center text-[13px] font-semibold sm:justify-self-end md:text-sm',
-                                            sectionPickedQty >= sectionCount &&
-                                              sectionCount > 0
-                                              ? 'text-emerald-700'
-                                              : 'text-muted-foreground',
-                                          )}
-                                        >
-                                          已選擇 : {sectionPickedQty}/
-                                          {sectionCount}件
-                                        </p>
-                                      </div>
-                                    ) : null}
-                                    {sectionSlots.length > 0 ? (
-                                      <div className="space-y-px bg-border">
-                                        {/*
-                                          Each scheme slot (e.g. 7選1 / 2選1) owns its own grid.
-                                          Multi-scheme → up to 3 vertical cards; single → horizontal 1-col row.
-                                        */}
-                                        {sectionSlots.map((slot, slotIndex) => {
-                                          const targetQty =
-                                            section.plannedQuantity != null &&
-                                            section.plannedQuantity > 0
-                                              ? section.plannedQuantity
-                                              : null;
-                                          const selectedQty =
-                                            schemeSlotSelectedQuantity(
-                                              slot,
-                                              itemSelected,
-                                            );
-                                          const quotaMet =
-                                            targetQty != null &&
-                                            slot.items.length > 1 &&
-                                            selectedQty >= targetQty;
-                                          const multiScheme =
-                                            slot.items.length > 1;
-                                          // Hide「產品 N」when the division only has one product slot.
-                                          const productOrdinal =
-                                            sectionSlots.length > 1
-                                              ? slotIndex + 1
-                                              : undefined;
-                                          return (
-                                          <div
-                                            key={slot.key}
-                                            className={cn(
-                                              'min-w-0',
-                                              // Multi → 3-col vertical cards; single → stacked horizontal rows.
-                                              multiScheme
-                                                ? 'grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3'
-                                                : 'flex flex-col bg-card',
-                                            )}
-                                          >
-                                            {slot.items.map((item, index) => {
-                                              const key = itemKey(item, index);
-                                              const review = itemReviews[key];
-                                              const messages =
-                                                itemMessages[key] || [];
-                                              const selected =
-                                                isQuoteItemSelected(
-                                                  item,
-                                                  itemSelected,
-                                                );
-                                              const itemQty = Math.max(
-                                                0,
-                                                Math.floor(
-                                                  Number(item.quantity) || 0,
-                                                ),
-                                              );
-                                              const othersSelectedQty =
-                                                selected
-                                                  ? selectedQty - itemQty
-                                                  : selectedQty;
-                                              const maxQuantity =
-                                                targetQty != null &&
-                                                slot.items.length > 1
-                                                  ? Math.max(
-                                                      0,
-                                                      targetQty -
-                                                        Math.max(
-                                                          0,
-                                                          othersSelectedQty,
-                                                        ),
-                                                    )
-                                                  : null;
-                                              return (
-                                                <div
-                                                  key={`${slot.key}:${key}`}
-                                                  className="min-w-0 bg-card"
-                                                >
-                                                  <QuotePortalProductCard
-                                                    item={item}
-                                                    schemeIndex={index}
-                                                    schemeCount={
-                                                      slot.items.length
-                                                    }
-                                                    productOrdinal={
-                                                      productOrdinal
-                                                    }
-                                                    partitionSpy={
-                                                      section.label
-                                                        ? {
-                                                            zoneLabel:
-                                                              group.label,
-                                                            zoneTitle:
-                                                              roomTitle,
-                                                            divisionLabel:
-                                                              section.label,
-                                                            count: sectionCount,
-                                                            picked:
-                                                              sectionPickedQty,
-                                                          }
-                                                        : null
-                                                    }
-                                                    review={review}
-                                                    messages={messages}
-                                                    selected={selected}
-                                                    draftNote={
-                                                      itemDraftNotes[key] || ''
-                                                    }
-                                                    saving={
-                                                      savingReviewKey === key
-                                                    }
-                                                    currentUserName={
-                                                      currentUserName
-                                                    }
-                                                    quotaFilled={
-                                                      quotaMet && !selected
-                                                    }
-                                                    maxQuantity={maxQuantity}
-                                                    onSetQuantity={(
-                                                      quantity,
-                                                    ) => {
-                                                      if (!item.id) return;
-                                                      const next = Math.max(
-                                                        0,
-                                                        Math.floor(
-                                                          Number(quantity) || 0,
-                                                        ),
-                                                      );
-                                                      const capped =
-                                                        maxQuantity != null
-                                                          ? Math.min(
-                                                              next,
-                                                              maxQuantity,
-                                                            )
-                                                          : next;
-                                                      setItemQuantity(
-                                                        item.id,
-                                                        capped,
-                                                      );
-                                                      // Typing a positive qty implies selecting; 0 clears selection.
-                                                      if (capped > 0 && !selected) {
-                                                        setItemSelected(
-                                                          (current) => ({
-                                                            ...current,
-                                                            [item.id!]: true,
-                                                          }),
-                                                        );
-                                                      } else if (
-                                                        capped <= 0 &&
-                                                        selected
-                                                      ) {
-                                                        setItemSelected(
-                                                          (current) => ({
-                                                            ...current,
-                                                            [item.id!]: false,
-                                                          }),
-                                                        );
-                                                      }
-                                                    }}
-                                                    onSetDraftNote={(value) =>
-                                                      setItemDraftNotes(
-                                                        (current) => ({
-                                                          ...current,
-                                                          [key]: value,
-                                                        }),
-                                                      )
-                                                    }
-                                                    onSendMessage={() =>
-                                                      void sendItemMessage(
-                                                        item,
-                                                        index,
-                                                      )
-                                                    }
-                                                    onDeleteMessage={(
-                                                      messageId,
-                                                    ) =>
-                                                      void deleteItemMessage(
-                                                        item,
-                                                        messageId,
-                                                      )
-                                                    }
-                                                    onSetReview={(
-                                                      nextReview,
-                                                    ) => {
-                                                      if (!item.id) return;
-                                                      if (
-                                                        nextReview ===
-                                                        'accepted'
-                                                      ) {
-                                                        if (
-                                                          targetQty != null &&
-                                                          slot.items.length >
-                                                            1 &&
-                                                          !selected
-                                                        ) {
-                                                          const remaining =
-                                                            targetQty -
-                                                            selectedQty;
-                                                          if (remaining <= 0) {
-                                                            toast.message(
-                                                              '已達此傢俬劃分所需數量',
-                                                              {
-                                                                description: `「${section.label || '此劃分'}」需要 ${targetQty} 件，請先調整已選方案的數量。`,
-                                                              },
-                                                            );
-                                                            return;
-                                                          }
-                                                          setItemQuantity(
-                                                            item.id,
-                                                            Math.max(
-                                                              1,
-                                                              Math.min(
-                                                                itemQty > 0
-                                                                  ? itemQty
-                                                                  : 1,
-                                                                remaining,
-                                                              ),
-                                                            ),
-                                                          );
-                                                        } else if (itemQty <= 0) {
-                                                          // Select → default quantity 1
-                                                          setItemQuantity(
-                                                            item.id,
-                                                            1,
-                                                          );
-                                                        }
-                                                        setItemSelected(
-                                                          (current) => ({
-                                                            ...current,
-                                                            [item.id!]: true,
-                                                          }),
-                                                        );
-                                                      } else {
-                                                        // 取消接受／要求修改／不接受 → 數量歸 0
-                                                        setItemQuantity(
-                                                          item.id,
-                                                          0,
-                                                        );
-                                                        setItemSelected(
-                                                          (current) => ({
-                                                            ...current,
-                                                            [item.id!]: false,
-                                                          }),
-                                                        );
-                                                      }
-                                                      void syncItemReview(
-                                                        item,
-                                                        nextReview,
-                                                      ).then((ok) => {
-                                                        if (
-                                                          ok &&
-                                                          nextReview ===
-                                                            'accepted'
-                                                        ) {
-                                                          toast.success(
-                                                            '已同步為「已確定」',
-                                                          );
-                                                        }
-                                                      });
-                                                    }}
-                                                    onPreviewImage={(
-                                                      urls,
-                                                      previewTitle,
-                                                      startIndex = 0,
-                                                    ) =>
-                                                      setLightbox({
-                                                        urls,
-                                                        title: previewTitle,
-                                                        startIndex,
-                                                      })
-                                                    }
-                                                  />
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                          );
-                                        })}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
-                              {roomCount > 0 ? (
-                                <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
-                                  <p className="font-mono-data text-[15px] font-semibold text-foreground">
-                                    {room.name} : 小計 $
-                                    {Math.round(roomSubtotal).toLocaleString()}
-                                  </p>
-                                </div>
-                              ) : null}
-                            </div>
-                          </section>
-                        );
-                      })}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h1 className="font-display text-[22px] font-bold leading-tight tracking-tight sm:text-[26px]">
+                        {quoteDisplayName(active)}
+                      </h1>
+                      <span
+                        className={cn(
+                          'inline-flex items-center rounded-full border px-2.5 py-1 text-[11.5px] font-semibold',
+                          quoteStatusTone,
+                        )}
+                      >
+                        {active.status || '待審核'}
+                      </span>
                     </div>
-                  </section>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between rounded-xl bg-primary/5 px-4 py-3">
-            <span className="font-semibold">報價總額</span>
-            <strong className="font-mono-data text-xl text-primary">
-              {fmtMoney(itemSubtotal || active.total_amount || 0)}
-            </strong>
-          </div>
-
-          <QuoteRelatedFurniture
-            key={`${active.id}:${active.version}`}
-            token={quoteShareToken}
-            quoteUuid={active.id}
-            quoteVersion={(active.version || 'v1').trim() || 'v1'}
-            projectData={
-              (active.project_data as Record<string, unknown> | null) ?? null
-            }
-            engineeringType={linkedFloorPlanProject?.meta?.projectType ?? null}
-            originalItems={originalItemOptions}
-            onDraftChange={setHasPendingChangeDraft}
-            onSubmitted={() => {
-              void loadQuoteRequests();
-            }}
-          />
-
-          {quoteRequests.length > 0 ? (
-            <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-display text-base font-bold">已提交的請求</h2>
-                {requestsLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : null}
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                只記錄你這張報價的提交與狀態；正式報價由負責同事覆核後處理。
-              </p>
-              <ul className="mt-3 space-y-2">
-                {quoteRequests.slice(0, 8).map((request) => (
-                  <li
-                    key={request.id}
-                    className="rounded-xl border border-border/80 bg-muted/20 px-3 py-2.5"
-                  >
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="rounded-full border border-border bg-background px-2 py-0.5 font-medium">
-                        {customerRequestTypeLabel(request.request_type)}
+                    <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono-data text-[11.5px] text-muted-foreground">
+                      <span>{active.quote_id}</span>
+                      <span className="text-border">·</span>
+                      <span>版本 {displayQuoteVersion(active.version)}</span>
+                      <span className="text-border">·</span>
+                      <span>
+                        更新日期{' '}
+                        {fmtDate(active.modified_date || active.created_at)}
                       </span>
-                      <span className="rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
-                        {customerRequestStatusLabel(request.status)}
+                    </p>
+                    <p className="mt-2 text-[13px] text-muted-foreground">
+                      {clientNameOf(active)}
+                      {activeVersions.length > 1
+                        ? ` · 共 ${activeVersions.length} 個版本`
+                        : ''}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowDetail(false)}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      title="返回所有報價"
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" />
+                      所有報價
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openPdfPreview()}
+                      disabled={pdfLoading}
+                      title="預覽或下載報價單 PDF"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-[12px] font-medium text-foreground/80 transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-60"
+                    >
+                      {pdfLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <FileText className="h-3.5 w-3.5" />
+                      )}
+                      PDF 預覽
+                    </button>
+                    <Link
+                      to={withCustomerPortalQuery('/customer/contact', {
+                        quoteShareToken: quoteShareToken,
+                      })}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-[12px] font-medium text-foreground/80 transition-colors hover:border-primary/40 hover:text-primary"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      聯絡我們
+                    </Link>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5 border-t border-border/70 bg-muted/[0.18] px-4 py-3 sm:px-5 lg:grid-cols-4">
+                  {[
+                    {
+                      icon: Package,
+                      label: '報價產品',
+                      value: `${totalDisplayProductCount} 件`,
+                      tone: 'text-sky-600 bg-sky-500/10',
+                    },
+                    {
+                      icon: LayoutGrid,
+                      label: '分區',
+                      value: `${visibleZoneTypeGroups.length} 個`,
+                      tone: 'text-violet-600 bg-violet-500/10',
+                    },
+                    {
+                      icon: ReceiptText,
+                      label: '原報價總額',
+                      value: fmtMoney(active.total_amount),
+                      tone: 'text-indigo-600 bg-indigo-500/10',
+                    },
+                    {
+                      icon: Bell,
+                      label: '待處理變更',
+                      value: `${pendingChangeCount} 項`,
+                      tone: 'text-rose-500 bg-rose-500/10',
+                    },
+                  ].map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-card px-3 py-2.5"
+                    >
+                      <span
+                        className={cn(
+                          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                          stat.tone,
+                        )}
+                      >
+                        <stat.icon className="h-4 w-4" />
                       </span>
-                      {request.quote_version ? (
-                        <span className="font-mono-data text-muted-foreground">
-                          {displayQuoteVersion(request.quote_version)}
+                      <div className="min-w-0">
+                        <p className="truncate font-mono-data text-[14px] font-bold leading-tight text-foreground">
+                          {stat.value}
+                        </p>
+                        <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+                          {stat.label}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <div className="flex flex-wrap items-center gap-1 border-b border-border/70">
+                {(
+                  [
+                    {
+                      key: 'items' as const,
+                      label: '報價明細',
+                      icon: FileText,
+                      count: totalDisplayProductCount,
+                    },
+                    {
+                      key: 'explore' as const,
+                      label: '探索家具',
+                      icon: ShoppingBag,
+                    },
+                    {
+                      key: 'changes' as const,
+                      label: '變更記錄',
+                      icon: History,
+                      count: quoteRequests.length || null,
+                    },
+                    {
+                      key: 'terms' as const,
+                      label: '條款及付款',
+                      icon: CreditCard,
+                    },
+                  ] as const
+                ).map((tab) => {
+                  const activeTab = detailTab === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setDetailTab(tab.key)}
+                      className={cn(
+                        'relative inline-flex items-center gap-1.5 px-3 py-2.5 text-[12.5px] font-medium transition-colors sm:px-4',
+                        activeTab
+                          ? 'text-primary'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      <tab.icon className="h-4 w-4" />
+                      {tab.label}
+                      {'count' in tab && tab.count ? (
+                        <span
+                          className={cn(
+                            'font-mono-data text-[10.5px]',
+                            activeTab ? 'text-primary/70' : 'text-muted-foreground',
+                          )}
+                        >
+                          ({tab.count})
                         </span>
                       ) : null}
-                      <span className="font-mono-data text-muted-foreground">
-                        {fmtUtc8DateTime(request.submitted_at)}
-                      </span>
-                    </div>
-                    {request.lines.length > 0 ? (
-                      <ul className="mt-1.5 space-y-0.5 text-sm">
-                        {request.lines
-                          .filter((line) => line.selected !== false && Number(line.quantity) > 0)
-                          .slice(0, 6)
-                          .map((line, index) => (
-                            <li key={`${request.id}-${index}`}>
-                              {line.kind === 'replacement'
-                                ? `${line.originalName || '原項目'} → ${line.name || '替代品'}`
-                                : line.name || '家具'}{' '}
-                              × {line.quantity}
-                            </li>
-                          ))}
-                      </ul>
-                    ) : null}
-                    {request.note ? (
-                      <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                        {request.note}
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          {isBwfDetail ? (
-            <>
-              <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="font-display text-base font-bold">
-                  訂單確認及交付細節
-                </h2>
-                <p className="mt-3 whitespace-pre-wrap font-body text-sm leading-relaxed text-foreground/90">
-                  {bwfDeliveryDetails || '—'}
-                </p>
-              </section>
-
-              <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="font-display text-base font-bold">條款及付款</h2>
-                {bwfTermsHtml ? (
-                  <div
-                    className="quotation-terms-html mt-3 max-w-none font-body text-sm leading-relaxed text-foreground/90 [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-bold [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5"
-                    dangerouslySetInnerHTML={{ __html: bwfTermsHtml }}
-                  />
-                ) : (
-                  <p className="mt-3 text-sm text-muted-foreground">—</p>
-                )}
-              </section>
-            </>
-          ) : null}
-
-          <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+                      {activeTab ? (
+                        <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : undefined
+        }
+      >
+        {!showDetail ? (
+          <section>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <h2 className="font-display text-lg font-bold">確認現有報價</h2>
+                <h2 className="font-display text-lg font-bold">您的報價</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  確認會綁定目前顯示的版本；「提交變更」只建立待處理請求，不會改動正式報價金額。
+                  {showSourceFilter
+                    ? sourceFilter === 'bwa'
+                      ? '顯示傢俬方案「設計專案」的訂單'
+                      : sourceFilter === 'bwf'
+                        ? '顯示傢俬報價「報價單一覽」的報價單'
+                        : '顯示設計專案與報價單一覽的全部項目'
+                    : '一般只會顯示目前客戶的 1–2 張有效報價。'}
                 </p>
               </div>
-              <span className="rounded-full border border-border bg-card px-3 py-1 font-mono-data text-xs font-semibold">
-                {active.quote_id} · 版本 {displayQuoteVersion(active.version)}
-              </span>
+              <button
+                type="button"
+                onClick={() => void fetchQuotes()}
+                className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-border px-3 py-2 text-sm sm:self-auto"
+              >
+                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+                重新整理
+              </button>
             </div>
 
-            {confirmationReceipt ? (
-              <div
-                className={cn(
-                  'mt-4 rounded-xl border p-4 text-sm',
-                  confirmationReceipt.status === 'confirmed'
-                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-900'
-                    : 'border-rose-500/30 bg-rose-500/10 text-rose-900',
-                )}
-              >
-                <p className="font-semibold">
-                  {confirmationReceipt.status === 'confirmed'
-                    ? '已確認這個報價版本'
-                    : '已提交不接受這個版本'}
-                </p>
-                <p className="mt-1 font-mono-data text-xs">
-                  {active.quote_id} ·{' '}
-                  {displayQuoteVersion(confirmationReceipt.version || active.version)}
-                  {confirmationReceipt.confirmedAt
-                    ? ` · ${fmtUtc8DateTime(confirmationReceipt.confirmedAt)}`
-                    : ''}
-                </p>
-                {confirmationReceipt.note ? (
-                  <p className="mt-2 whitespace-pre-wrap">{confirmationReceipt.note}</p>
-                ) : null}
+            {loading ? (
+              <div className="flex justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
-            ) : null}
-
-            {hasPendingChangeDraft ? (
-              <p className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900">
-                你仍有未提交的加選／換款。請先按上方「提交變更」；
-                「確認現有報價」只會確認目前顯示的版本，不會包含這些變更。
-              </p>
-            ) : null}
-
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => setQuoteDecision('approved')}
-                className={cn(
-                  'inline-flex items-center gap-2 rounded-lg border px-4 py-3 font-semibold',
-                  quoteDecision === 'approved'
-                    ? 'border-emerald-500/40 bg-emerald-600 text-white'
-                    : 'border-border bg-card',
-                )}
-              >
-                <CheckCircle2 className="h-5 w-5" />
-                確認現有報價
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuoteDecision('rejected')}
-                className={cn(
-                  'inline-flex items-center gap-2 rounded-lg border px-4 py-3 font-semibold',
-                  quoteDecision === 'rejected'
-                    ? 'border-rose-500/40 bg-rose-600 text-white'
-                    : 'border-border bg-card',
-                )}
-              >
-                <Ban className="h-5 w-5" />
-                不接受這個版本
-              </button>
-            </div>
-            <textarea
-              value={quoteNote}
-              onChange={(event) => setQuoteNote(event.target.value)}
-              rows={3}
-              maxLength={1000}
-              placeholder="整體意見、交期或其他補充…"
-              className="mt-4 w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => void submitResponse()}
-              disabled={submittingQuote || quoteDecision === 'pending'}
-              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60"
-            >
-              {submittingQuote ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-5 w-5" />
-              )}
-              {quoteDecision === 'rejected' ? '提交不接受' : '確認並提交'}
-            </button>
+            ) : shareLinkInvalid ? (
+              <EmptyState
+                title="分享連結無效或已撤銷"
+                description="這個連結已不能讀取報價明細，也不能提交變更。請向報價負責同事索取新的二維碼或連結。"
+              />
+            ) : availableQuotes.length === 0 ? (
+              <EmptyState
+                title="目前沒有屬於您的報價"
+                description="PM 完成報價後，報價方案會顯示在這裡。"
+              />
+            ) : (
+              <div className="mt-5 grid grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2">
+                {availableQuotes.map((quote) => {
+                  const selected = active?.quote_id === quote.quote_id;
+                  const versions = versionsByQuote.get(quote.quote_id) || [quote];
+                  const linkedDesignProject =
+                    isBwaPortalQuote(quote) ||
+                    portalProjects.some(
+                      (project) =>
+                        project.id === designProjectIdOf(quote) ||
+                        projectQuoteId(project) === quote.quote_id,
+                    );
+                  return (
+                    <button
+                      key={`${quote.id}:${quote.quote_id}`}
+                      type="button"
+                      onClick={() => {
+                        setActiveId(quote.id);
+                        setShowDetail(true);
+                        setItemReviews({});
+                        setItemDraftNotes({});
+                        setItemMessages({});
+                        const linked =
+                          quote.id.startsWith('design-project:')
+                            ? portalProjects.find(
+                                (project) =>
+                                  project.id ===
+                                  quote.id.replace('design-project:', ''),
+                              )
+                            : quote.id.startsWith('confirmed-project:')
+                              ? portalProjects.find(
+                                  (project) =>
+                                    project.id ===
+                                    quote.id.replace('confirmed-project:', ''),
+                                )
+                              : portalProjects.find(
+                                  (project) =>
+                                    projectQuoteId(project) === quote.quote_id,
+                                );
+                        const hydrated = hydrateQuoteReplyFromProject(linked);
+                        setQuoteDecision(hydrated.decision);
+                        setQuoteNote(hydrated.note);
+                      }}
+                      className={cn(
+                        'min-h-[44px] rounded-2xl border bg-card p-4 text-left shadow-sm transition-all sm:p-5',
+                        selected
+                          ? 'border-primary/50 ring-2 ring-primary/10'
+                          : 'border-border hover:border-primary/30',
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="max-w-[70%] break-all rounded-lg bg-primary/10 px-2.5 py-1 font-mono-data text-xs font-bold text-primary">
+                          {quote.quote_id}
+                        </span>
+                        <span
+                          className={cn(
+                            'rounded-full border px-2.5 py-1 text-xs font-medium',
+                            linkedDesignProject
+                              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                              : quoteStatusBadgeClass(quote.status),
+                          )}
+                        >
+                          {linkedDesignProject
+                            ? quote.status || '設計專案'
+                            : quote.status || '—'}
+                        </span>
+                      </div>
+                      <h3 className="mt-4 line-clamp-2 font-display text-lg font-bold">
+                        {quoteDisplayName(quote)}
+                      </h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {clientNameOf(quote)} · {versions.length} 個版本
+                      </p>
+                      {linkedDesignProject ? (
+                        <p className="mt-2 inline-flex rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                          來自設計專案
+                        </p>
+                      ) : null}
+                      <div className="mt-4 flex items-end justify-between gap-3 border-t border-border pt-4">
+                        <span className="text-xs text-muted-foreground">
+                          {fmtDate(quote.modified_date || quote.created_at)}
+                        </span>
+                        <strong className="font-mono-data text-lg text-primary">
+                          {fmtMoney(quote.total_amount)}
+                        </strong>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </section>
-        </section>
-      ) : null}
-    </PortalPageShell>
+        ) : null}
+
+        {showDetail && active ? (
+          <section className="space-y-4 pb-2">
+            <div className={detailTab === 'items' ? 'space-y-3' : 'hidden'}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-display text-base font-bold">
+                  分區清單與傢俬配置
+                </h2>
+                <div className="flex items-center gap-3">
+                  <span className="font-mono-data text-[11.5px] text-muted-foreground">
+                    {visibleZoneTypeGroups.length} 個分區 ·{' '}
+                    {totalDisplayProductCount} 件產品
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedRooms(
+                        Object.fromEntries(
+                          visibleZoneTypeGroups.flatMap((group) =>
+                            group.rooms.map((room) => [room.id, true]),
+                          ),
+                        ),
+                      )
+                    }
+                    className="text-[11.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    全部展開
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedRooms({})}
+                    className="text-[11.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    全部收合
+                  </button>
+                </div>
+              </div>
+
+              {!itemsLoading && visibleZoneTypeGroups.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/80 bg-card px-3 py-2.5 sm:px-4">
+                  <span className="mr-1 text-[12px] font-semibold text-muted-foreground">
+                    分區數量
+                  </span>
+                  {visibleZoneTypeGroups.map((group) => {
+                    const isActive =
+                      (activeZoneLabel || visibleZoneTypeGroups[0]?.label) ===
+                      group.label;
+                    return (
+                      <button
+                        key={group.key}
+                        type="button"
+                        onClick={() => scrollToZoneGroup(group.label)}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-[12px] transition-colors',
+                          isActive
+                            ? 'border-primary/50 bg-primary/15 text-primary shadow-sm'
+                            : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-foreground',
+                        )}
+                        title={`跳至「${group.label}」· 產品總數 ${groupProductCount(group)}`}
+                        aria-current={isActive ? 'true' : undefined}
+                      >
+                        <span
+                          className={cn(
+                            'font-semibold',
+                            isActive ? 'text-primary' : 'text-foreground',
+                          )}
+                        >
+                          {group.label}
+                        </span>
+                        <span
+                          className={
+                            isActive
+                              ? 'text-primary/80'
+                              : 'text-muted-foreground'
+                          }
+                        >
+                          ：{groupProductCount(group)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {itemsLoading ? (
+                <div className="flex justify-center py-16">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : visibleZoneTypeGroups.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border px-6 py-12 text-center text-muted-foreground">
+                  此版本暫無產品明細
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {visibleZoneTypeGroups.map((group) => {
+                    const visibleRooms = group.rooms.filter(
+                      (room) =>
+                        roomProductCount(
+                          room,
+                          schemeGroupsByZone[room.zoneId || ''] || [],
+                        ) > 0,
+                    );
+                    const groupCount = group.rooms.reduce(
+                      (sum, room) =>
+                        sum +
+                        roomProductCount(
+                          room,
+                          schemeGroupsByZone[room.zoneId || ''] || [],
+                        ),
+                      0,
+                    );
+                    const groupSubtotal = group.rooms.reduce(
+                      (sum, room) =>
+                        sum +
+                        room.sections.reduce(
+                          (sectionSum, section) =>
+                            sectionSum +
+                            section.items.reduce((itemSum, item) => {
+                              if (!isQuoteItemSelected(item, itemSelected)) {
+                                return itemSum;
+                              }
+                              return itemSum + clientQuoteLineTotal(item);
+                            }, 0),
+                          0,
+                        ),
+                      0,
+                    );
+                    const groupExpanded = visibleRooms.some(
+                      (room) => expandedRooms[room.id],
+                    );
+                    return (
+                      <section
+                        key={group.key}
+                        id={zoneGroupDomId(group.label)}
+                        className="scroll-mt-2 overflow-hidden rounded-xl border border-border/80 bg-card"
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedRooms((current) => {
+                              const next = { ...current };
+                              group.rooms.forEach((room) => {
+                                next[room.id] = !groupExpanded;
+                              });
+                              return next;
+                            })
+                          }
+                          className="flex w-full flex-wrap items-center gap-2.5 bg-muted/[0.22] px-4 py-3 text-left transition-colors hover:bg-muted/[0.32] sm:px-5"
+                          aria-expanded={groupExpanded}
+                        >
+                          <ChevronRight
+                            className={cn(
+                              'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+                              groupExpanded && 'rotate-90',
+                            )}
+                          />
+                          <span className="font-display text-[13.5px] font-bold uppercase tracking-wide text-foreground">
+                            {group.label}
+                          </span>
+                          <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono-data text-[10.5px] font-medium text-muted-foreground">
+                            （{groupCount} 件產品）
+                          </span>
+                          <span className="ml-auto font-mono-data text-[12px] font-semibold text-muted-foreground">
+                            小計：
+                            <span className="ml-1 text-foreground">
+                              {fmtMoney(groupSubtotal)}
+                            </span>
+                          </span>
+                        </button>
+
+                        {groupExpanded ? (
+                          <div className="divide-y divide-border/70">
+                            {visibleRooms.map((room) => {
+                              const roomSchemeGroups =
+                                schemeGroupsByZone[room.zoneId || ''] || [];
+                              const roomCount = roomProductCount(
+                                room,
+                                roomSchemeGroups,
+                              );
+                              const roomSubtotal = room.sections.reduce(
+                                (sum, section) =>
+                                  sum +
+                                  section.items.reduce((sectionSum, item) => {
+                                    if (
+                                      !isQuoteItemSelected(item, itemSelected)
+                                    ) {
+                                      return sectionSum;
+                                    }
+                                    return (
+                                      sectionSum + clientQuoteLineTotal(item)
+                                    );
+                                  }, 0),
+                                0,
+                              );
+                              return (
+                                <div key={room.id}>
+                                  {visibleRooms.length > 1 ? (
+                                    <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/[0.12] px-4 py-2 sm:px-5">
+                                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        {room.name}
+                                      </span>
+                                      <span className="font-mono-data text-[10.5px] text-muted-foreground">
+                                        {roomCount} 件
+                                      </span>
+                                      <span className="ml-auto font-mono-data text-[11px] text-muted-foreground">
+                                        小計 {fmtMoney(roomSubtotal)}
+                                      </span>
+                                    </div>
+                                  ) : null}
+                                  {room.sections.map((section) => {
+                                    const sectionSlots = buildQuoteSchemeSlots(
+                                      section.items,
+                                      roomSchemeGroups,
+                                    );
+                                    const sectionCount = sectionDisplayCount(
+                                      section,
+                                      roomSchemeGroups,
+                                    );
+                                    const sectionPickedQty =
+                                      sectionSelectedQuantity(
+                                        section,
+                                        itemSelected,
+                                      );
+                                    return (
+                                      <div key={section.id}>
+                                        {section.label ? (
+                                          <div className="flex flex-wrap items-center gap-2 border-y border-border/50 bg-muted/[0.18] px-4 py-2 sm:px-5">
+                                            <Layers className="h-3 w-3 text-muted-foreground" />
+                                            <span className="font-display text-[12px] font-semibold text-foreground/80">
+                                              {section.label}
+                                            </span>
+                                            <span className="font-mono-data text-[10.5px] text-muted-foreground">
+                                              : 總共{sectionCount} 件產品
+                                            </span>
+                                            <span
+                                              className={cn(
+                                                'ml-auto font-mono-data text-[10.5px] font-medium',
+                                                sectionPickedQty >=
+                                                  sectionCount &&
+                                                  sectionCount > 0
+                                                  ? 'text-emerald-700'
+                                                  : 'text-muted-foreground',
+                                              )}
+                                            >
+                                              已選擇 {sectionPickedQty}/
+                                              {sectionCount} 件
+                                            </span>
+                                          </div>
+                                        ) : null}
+                                        {sectionSlots.length > 0 ? (
+                                          <div className="divide-y divide-border/70">
+                                            {sectionSlots.map(
+                                              (slot, slotIndex) => {
+                                                const targetQty =
+                                                  section.plannedQuantity !=
+                                                    null &&
+                                                  section.plannedQuantity > 0
+                                                    ? section.plannedQuantity
+                                                    : null;
+                                                const selectedQty =
+                                                  schemeSlotSelectedQuantity(
+                                                    slot,
+                                                    itemSelected,
+                                                  );
+                                                const quotaMet =
+                                                  targetQty != null &&
+                                                  slot.items.length > 1 &&
+                                                  selectedQty >= targetQty;
+                                                const multiScheme =
+                                                  slot.items.length > 1;
+                                                const productOrdinal =
+                                                  sectionSlots.length > 1
+                                                    ? slotIndex + 1
+                                                    : undefined;
+                                                return (
+                                                  <div key={slot.key}>
+                                                    {multiScheme ? (
+                                                      <div className="flex flex-wrap items-center gap-2 px-4 pt-2.5 pb-1 sm:px-5">
+                                                        {productOrdinal ? (
+                                                          <span className="rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-bold text-sky-800">
+                                                            產品 {productOrdinal}
+                                                          </span>
+                                                        ) : null}
+                                                        <span className="rounded border border-violet-500/25 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+                                                          方案 {slot.items.length}{' '}
+                                                          選 1
+                                                        </span>
+                                                        <span className="font-mono-data text-[10.5px] text-muted-foreground">
+                                                          已選 {selectedQty}/
+                                                          {targetQty ?? '-'} 件
+                                                        </span>
+                                                      </div>
+                                                    ) : null}
+                                                    {slot.items.map(
+                                                      (item, index) => {
+                                                        const key = itemKey(
+                                                          item,
+                                                          index,
+                                                        );
+                                                        const selected =
+                                                          isQuoteItemSelected(
+                                                            item,
+                                                            itemSelected,
+                                                          );
+                                                        const itemQty = Math.max(
+                                                          0,
+                                                          Math.floor(
+                                                            Number(
+                                                              item.quantity,
+                                                            ) || 0,
+                                                          ),
+                                                        );
+                                                        const othersSelectedQty =
+                                                          selected
+                                                            ? selectedQty -
+                                                              itemQty
+                                                            : selectedQty;
+                                                        const maxQuantity =
+                                                          targetQty != null &&
+                                                          slot.items.length > 1
+                                                            ? Math.max(
+                                                                0,
+                                                                targetQty -
+                                                                  Math.max(
+                                                                    0,
+                                                                    othersSelectedQty,
+                                                                  ),
+                                                              )
+                                                            : null;
+                                                        const rowKey = `${slot.key}:${key}`;
+                                                        return (
+                                                          <div
+                                                            key={rowKey}
+                                                            className="min-w-0"
+                                                          >
+                                                            <QuotePortalDetailRow
+                                                              item={item}
+                                                              selected={selected}
+                                                              review={
+                                                                itemReviews[key]
+                                                              }
+                                                              schemeLabel={
+                                                                slot.items
+                                                                  .length > 1
+                                                                  ? `方案 ${index + 1}/${slot.items.length}`
+                                                                  : undefined
+                                                              }
+                                                              saving={
+                                                                savingReviewKey ===
+                                                                key
+                                                              }
+                                                              dimmed={Boolean(
+                                                                quotaMet &&
+                                                                  !selected,
+                                                              )}
+                                                              maxQuantity={
+                                                                maxQuantity
+                                                              }
+                                                              draftNote={
+                                                                itemDraftNotes[
+                                                                  key
+                                                                ] || ''
+                                                              }
+                                                              messageCount={
+                                                                (
+                                                                  itemMessages[
+                                                                    key
+                                                                  ] || []
+                                                                ).length
+                                                              }
+                                                              onSetDraftNote={(
+                                                                value,
+                                                              ) =>
+                                                                setItemDraftNotes(
+                                                                  (current) => ({
+                                                                    ...current,
+                                                                    [key]: value,
+                                                                  }),
+                                                                )
+                                                              }
+                                                              onSendMessage={() =>
+                                                                void sendItemMessage(
+                                                                  item,
+                                                                  index,
+                                                                )
+                                                              }
+                                                              onSetQuantity={(
+                                                                quantity,
+                                                              ) => {
+                                                                if (!item.id)
+                                                                  return;
+                                                                const next =
+                                                                  Math.max(
+                                                                    0,
+                                                                    Math.floor(
+                                                                      Number(
+                                                                        quantity,
+                                                                      ) || 0,
+                                                                    ),
+                                                                  );
+                                                                const capped =
+                                                                  maxQuantity !=
+                                                                  null
+                                                                    ? Math.min(
+                                                                        next,
+                                                                        maxQuantity,
+                                                                      )
+                                                                    : next;
+                                                                setItemQuantity(
+                                                                  item.id,
+                                                                  capped,
+                                                                );
+                                                                // 改數量不會自動接受；接受仍由勾選／狀態控制。
+                                                                if (
+                                                                  capped <= 0 &&
+                                                                  selected
+                                                                ) {
+                                                                  setItemSelected(
+                                                                    (current) => ({
+                                                                      ...current,
+                                                                      [item.id!]: false,
+                                                                    }),
+                                                                  );
+                                                                }
+                                                              }}
+                                                              onSetReview={(
+                                                                nextReview,
+                                                              ) => {
+                                                                applyItemReview(
+                                                                  item,
+                                                                  {
+                                                                    targetQty,
+                                                                    slotCount:
+                                                                      slot.items
+                                                                        .length,
+                                                                    selectedQty,
+                                                                    sectionLabel:
+                                                                      section.label ||
+                                                                      '此劃分',
+                                                                  },
+                                                                  nextReview,
+                                                                );
+                                                              }}
+                                                              onReplace={() =>
+                                                                openReplaceForItem(
+                                                                  item.id,
+                                                                )
+                                                              }
+                                                              onPreviewImage={(
+                                                                urls,
+                                                                previewTitle,
+                                                                startIndex = 0,
+                                                              ) =>
+                                                                setLightbox({
+                                                                  urls,
+                                                                  title: previewTitle,
+                                                                  startIndex,
+                                                                })
+                                                              }
+                                                            />
+                                                          </div>
+                                                        );
+                                                      },
+                                                    )}
+                                                  </div>
+                                                );
+                                              },
+                                            )}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </section>
+                    );
+                  })}
+                </div>
+              )}
+
+            </div>
+
+            <div className={detailTab === 'explore' ? 'space-y-3' : 'hidden'}>
+              <QuoteRelatedFurniture
+                ref={relatedFurnitureRef}
+                key={`${active.id}:${active.version}`}
+                token={quoteShareToken}
+                quoteUuid={active.id}
+                quoteVersion={(active.version || 'v1').trim() || 'v1'}
+                projectData={
+                  (active.project_data as Record<string, unknown> | null) ??
+                  null
+                }
+                engineeringType={
+                  linkedFloorPlanProject?.meta?.projectType ?? null
+                }
+                originalItems={originalItemOptions}
+                onDraftChange={setHasPendingChangeDraft}
+                onDraftCountChange={setDraftChangeCount}
+                onSubmitted={() => {
+                  void loadQuoteRequests();
+                }}
+              />
+            </div>
+
+            <div className={detailTab === 'changes' ? 'space-y-3' : 'hidden'}>
+              <div className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="font-display text-lg font-bold">變更記錄</h2>
+                    <p className="mt-1 text-[12.5px] text-muted-foreground">
+                      您在本報價方案中的所有操作記錄。
+                    </p>
+                  </div>
+                  {requestsLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  ) : null}
+                </div>
+
+                {quoteRequests.length === 0 && !confirmationReceipt ? (
+                  <div className="mt-4 rounded-xl border border-dashed border-border px-4 py-10 text-center">
+                    <History className="mx-auto h-6 w-6 text-muted-foreground/60" />
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      暫無變更記錄。提交加選、換款或報價回覆後會顯示在這裡。
+                    </p>
+                  </div>
+                ) : (
+                  <ol className="relative mt-5 space-y-4 before:absolute before:left-[5px] before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-border">
+                    {confirmationReceipt ? (
+                      <li className="relative pl-6">
+                        <span className="absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono-data text-[11.5px] text-muted-foreground">
+                            {fmtUtc8DateTime(
+                              confirmationReceipt.confirmedAt ||
+                                new Date().toISOString(),
+                            )}
+                          </span>
+                          <span
+                            className={cn(
+                              'rounded-full border px-2 py-0.5 text-[10.5px] font-medium',
+                              confirmationReceipt.status === 'confirmed'
+                                ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700'
+                                : 'border-rose-500/25 bg-rose-500/10 text-rose-700',
+                            )}
+                          >
+                            {confirmationReceipt.status === 'confirmed'
+                              ? '已確認報價'
+                              : '不接受報價'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[13px] font-medium">
+                          {confirmationReceipt.status === 'confirmed'
+                            ? '已確認這個報價版本'
+                            : '已提交不接受這個版本'}
+                        </p>
+                        {confirmationReceipt.note ? (
+                          <p className="mt-1 whitespace-pre-wrap text-[12.5px] text-muted-foreground">
+                            {confirmationReceipt.note}
+                          </p>
+                        ) : null}
+                      </li>
+                    ) : null}
+                    {quoteRequests.map((request) => (
+                      <li key={request.id} className="relative pl-6">
+                        <span
+                          className={cn(
+                            'absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-card',
+                            request.status === 'converted'
+                              ? 'bg-emerald-500'
+                              : request.status === 'declined'
+                                ? 'bg-rose-500'
+                                : 'bg-amber-500',
+                          )}
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono-data text-[11.5px] text-muted-foreground">
+                            {fmtUtc8DateTime(request.submitted_at)}
+                          </span>
+                          <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10.5px] font-medium">
+                            {customerRequestTypeLabel(request.request_type)}
+                          </span>
+                          <span
+                            className={cn(
+                              'rounded-full border px-2 py-0.5 text-[10.5px] font-medium',
+                              request.status === 'converted'
+                                ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700'
+                                : request.status === 'declined'
+                                  ? 'border-rose-500/25 bg-rose-500/10 text-rose-700'
+                                  : 'border-amber-500/25 bg-amber-500/10 text-amber-700',
+                            )}
+                          >
+                            {customerRequestStatusLabel(request.status)}
+                          </span>
+                        </div>
+                        {request.lines.length > 0 ? (
+                          <ul className="mt-1.5 space-y-1 text-[12.5px] text-foreground/85">
+                            {request.lines
+                              .filter(
+                                (line) =>
+                                  line.selected !== false &&
+                                  Number(line.quantity) > 0,
+                              )
+                              .slice(0, 8)
+                              .map((line, index) => (
+                                <li key={`${request.id}-${index}`}>
+                                  {line.kind === 'replacement'
+                                    ? `${line.originalName || '原項目'} → ${line.name || '替代品'}`
+                                    : line.name || '家具'}{' '}
+                                  × {line.quantity}
+                                </li>
+                              ))}
+                          </ul>
+                        ) : null}
+                        {request.note ? (
+                          <p className="mt-1 whitespace-pre-wrap text-[12.5px] text-muted-foreground">
+                            {request.note}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            </div>
+
+            <div className={detailTab === 'terms' ? 'space-y-3' : 'hidden'}>
+              <div className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
+                <h2 className="font-display text-lg font-bold">條款及付款</h2>
+                <p className="mt-1 text-[12.5px] text-muted-foreground">
+                  請確認以下條款，並選擇是否確認目前報價版本。
+                </p>
+
+                <div className="mt-4 space-y-2">
+                  {(termsSections.length > 0
+                    ? termsSections
+                    : [
+                        {
+                          key: 'empty',
+                          title: '訂單及付款',
+                          text: '',
+                        },
+                      ]
+                  ).map((section, index) => {
+                    const open = termsOpen[section.key] ?? index === 0;
+                    return (
+                      <section
+                        key={section.key}
+                        className="overflow-hidden rounded-xl border border-border/80"
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTermsOpen((current) => ({
+                              ...current,
+                              [section.key]: !open,
+                            }))
+                          }
+                          className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                          aria-expanded={open}
+                        >
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono-data text-[10.5px] font-bold text-primary">
+                            {index + 1}
+                          </span>
+                          <span className="text-[13px] font-semibold">
+                            {section.title}
+                          </span>
+                          <ChevronDown
+                            className={cn(
+                              'ml-auto h-4 w-4 text-muted-foreground transition-transform',
+                              open && 'rotate-180',
+                            )}
+                          />
+                        </button>
+                        {open ? (
+                          <div className="border-t border-border/70 px-4 py-3 text-[12.5px] leading-relaxed text-muted-foreground">
+                            {section.text ? (
+                              <p className="whitespace-pre-wrap">{section.text}</p>
+                            ) : (
+                              <p>—</p>
+                            )}
+                          </div>
+                        ) : null}
+                      </section>
+                    );
+                  })}
+                </div>
+
+                {isBwfDetail ? (
+                  <div className="mt-4 grid gap-2 rounded-xl bg-muted/30 px-4 py-3 text-[12px] sm:grid-cols-2">
+                    <p>
+                      <span className="text-muted-foreground">公司名稱：</span>
+                      <span className="font-medium">
+                        {bwfClientInfo?.companyName || '—'}
+                      </span>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">聯絡人：</span>
+                      <span className="font-medium">
+                        {bwfClientInfo?.contactName || '—'}
+                      </span>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">電話：</span>
+                      <span className="font-mono-data font-medium">
+                        {bwfClientInfo?.phone || '—'}
+                      </span>
+                    </p>
+                    <p className="truncate">
+                      <span className="text-muted-foreground">電郵：</span>
+                      <span className="font-mono-data font-medium">
+                        {bwfClientInfo?.email || '—'}
+                      </span>
+                    </p>
+                  </div>
+                ) : null}
+
+                <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-xl border border-border/80 px-3.5 py-3">
+                  <Checkbox
+                    checked={termsAgreed}
+                    onCheckedChange={(checked) =>
+                      setTermsAgreed(Boolean(checked))
+                    }
+                    className="mt-0.5"
+                  />
+                  <span className="text-[12.5px] text-muted-foreground">
+                    我已閱讀並同意以上條款及細則
+                  </span>
+                </label>
+
+                {hasPendingChangeDraft ? (
+                  <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-900">
+                    您仍有未提交的加選／換款。請先到「探索家具」提交變更；「確認報價」只會確認目前顯示的版本。
+                  </p>
+                ) : null}
+
+                {confirmationReceipt ? (
+                  <div
+                    className={cn(
+                      'mt-3 rounded-lg border p-3 text-[12.5px]',
+                      confirmationReceipt.status === 'confirmed'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-900'
+                        : 'border-rose-500/30 bg-rose-500/10 text-rose-900',
+                    )}
+                  >
+                    <p className="font-semibold">
+                      {confirmationReceipt.status === 'confirmed'
+                        ? '已確認這個報價版本'
+                        : '已提交不接受這個版本'}
+                    </p>
+                    <p className="mt-0.5 font-mono-data text-[11px]">
+                      {active.quote_id} ·{' '}
+                      {displayQuoteVersion(
+                        confirmationReceipt.version || active.version,
+                      )}
+                      {confirmationReceipt.confirmedAt
+                        ? ` · ${fmtUtc8DateTime(confirmationReceipt.confirmedAt)}`
+                        : ''}
+                    </p>
+                  </div>
+                ) : null}
+
+                <textarea
+                  value={quoteNote}
+                  onChange={(event) => setQuoteNote(event.target.value)}
+                  rows={2}
+                  maxLength={1000}
+                  placeholder="整體意見、交期或其他補充…"
+                  className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-[12.5px]"
+                />
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQuoteDecision('approved')}
+                    className={cn(
+                      'inline-flex h-10 items-center gap-1.5 rounded-lg border px-3.5 text-[12.5px] font-semibold transition-colors',
+                      quoteDecision === 'approved'
+                        ? 'border-emerald-500/40 bg-emerald-600 text-white'
+                        : 'border-border bg-background text-foreground/80',
+                    )}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    確認現有報價
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuoteDecision('rejected')}
+                    className={cn(
+                      'inline-flex h-10 items-center gap-1.5 rounded-lg border px-3.5 text-[12.5px] font-semibold transition-colors',
+                      quoteDecision === 'rejected'
+                        ? 'border-rose-500/40 bg-rose-600 text-white'
+                        : 'border-border bg-background text-foreground/80',
+                    )}
+                  >
+                    <Ban className="h-4 w-4" />
+                    不接受這個版本
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitResponse()}
+                    disabled={
+                      submittingQuote ||
+                      quoteDecision === 'pending' ||
+                      !termsAgreed
+                    }
+                    className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-4 text-[12.5px] font-semibold text-primary-foreground shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {submittingQuote ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4" />
+                    )}
+                    {quoteDecision === 'rejected'
+                      ? '提交不接受'
+                      : '確認並提交'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
+      </PortalPageShell>
       {lightbox ? (
         <ProductImageGalleryLightbox
           urls={lightbox.urls}
@@ -4521,6 +5312,22 @@ export function CustomerQuoteSchemesView() {
         previewUrl={floorPlanPreviewUrl}
         onClose={() => setFloorPlanViewerOpen(false)}
       />
+      {pdfPreviewData ? (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
+              <Loader2 className="h-6 w-6 animate-spin text-white" />
+            </div>
+          }
+        >
+          <LazyQuotationPDFPreviewModal
+            open
+            onClose={() => setPdfPreviewData(null)}
+            data={pdfPreviewData}
+            showCnyToggle={false}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

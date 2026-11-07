@@ -66,6 +66,11 @@ const RAW_IMG_EXCEPTIONS = [
     null,
     "printed layout needs object-position / scale transforms on the full-size photo; a 320px thumb would blur the canvas and the A4 output",
   ],
+  [
+    "components/dashboard/QuoteCatalogPagesDialog.tsx",
+    "src={shown.url",
+    "hover card shows the on-demand hi-res page render (data URL / object URL of an already downloaded page) at its natural ratio",
+  ],
 ];
 
 /** Files allowed to use the raw <Dialog> (not the app-wide <Modal>). */
