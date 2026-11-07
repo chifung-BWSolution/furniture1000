@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent } from 'react';
 import {
   Check,
   ChevronDown,
@@ -16,6 +16,7 @@ import { Modal, ModalButton } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { SelectionBox, type SelectionHandle } from '@/components/ui/selection-box';
 import { cn } from '@/lib/utils';
 import {
   CATALOG_BOTTOM_HALF,
@@ -160,17 +161,22 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-/** 框選框的四角與四邊把手位置（把手 10px，-5px 讓它壓在邊線上）。 */
-const CROP_HANDLES: { key: string; style: CSSProperties }[] = [
-  { key: 'nw', style: { left: -5, top: -5 } },
-  { key: 'n', style: { left: '50%', top: -5, marginLeft: -5 } },
-  { key: 'ne', style: { right: -5, top: -5 } },
-  { key: 'w', style: { left: -5, top: '50%', marginTop: -5 } },
-  { key: 'e', style: { right: -5, top: '50%', marginTop: -5 } },
-  { key: 'sw', style: { left: -5, bottom: -5 } },
-  { key: 's', style: { left: '50%', bottom: -5, marginLeft: -5 } },
-  { key: 'se', style: { right: -5, bottom: -5 } },
-];
+/** 把手 ↔ 邊的對應：把手拖曳時只動它控制的那幾條邊。 */
+function handleEdges(handle: SelectionHandle): CropEdges {
+  return {
+    left: handle.includes('w'),
+    right: handle.includes('e'),
+    top: handle.includes('n'),
+    bottom: handle.includes('s'),
+  };
+}
+
+function edgesHandle(edges: CropEdges): SelectionHandle {
+  const vertical = edges.top ? 'n' : edges.bottom ? 's' : '';
+  const horizontal = edges.left ? 'w' : edges.right ? 'e' : '';
+  if (vertical && horizontal) return `${vertical}${horizontal}` as SelectionHandle;
+  return (vertical || horizontal || 'se') as SelectionHandle;
+}
 
 /** 縮圖：先看記憶體／IndexedDB，沒有才向 edge 取那一頁再畫成小 JPEG。 */
 function useCatalogThumb(documentId: string | null, pageNo: number | null) {
@@ -397,9 +403,13 @@ export function QuoteCatalogPagesDialog({
   const cropDragRef = useRef<
     | { mode: 'new'; start: { x: number; y: number } }
     | { mode: 'move'; start: { x: number; y: number }; initial: QuoteCatalogCrop }
-    | { mode: 'resize'; start: { x: number; y: number }; initial: QuoteCatalogCrop; edges: CropEdges }
+    | { mode: 'resize'; start: { x: number; y: number }; initial: QuoteCatalogCrop; edges: CropEdges; handle: SelectionHandle }
     | null
   >(null);
+  /** 正在拖的把手（給尺寸膠囊與箭頭動畫用）。 */
+  const [cropHandle, setCropHandle] = useState<SelectionHandle | null>(null);
+  /** 框選原圖的可用區域；把手要在它上面捕獲指針。 */
+  const cropSurfaceRef = useRef<HTMLDivElement>(null);
   /** 框選舞台量到的可用區域，用來把原圖放到最大又不變形。 */
   const cropStageRef = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
@@ -712,15 +722,71 @@ export function QuoteCatalogPagesDialog({
     const hit = cropHitTest(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY, cropDraft);
     if (hit.kind === 'move' && cropSelection) {
       cropDragRef.current = { mode: 'move', start: point, initial: cropSelection };
+      setCropHandle(null);
     } else if (hit.kind === 'resize' && cropSelection) {
-      cropDragRef.current = { mode: 'resize', start: point, initial: cropSelection, edges: hit.edges };
+      cropDragRef.current = { mode: 'resize', start: point, initial: cropSelection, edges: hit.edges, handle: edgesHandle(hit.edges) };
+      setCropHandle(edgesHandle(hit.edges));
     } else {
       // 框外：重新拉一個新框。
       cropDragRef.current = { mode: 'new', start: point };
+      setCropHandle(null);
       setCropDraft({ x: point.x, y: point.y, width: 0, height: 0 });
     }
     // 捕獲指針，拖出原圖邊界也繼續更新框選。
     event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  /** 抓住八個把手其中之一：直接以把手對應的邊開始調整大小。 */
+  const beginHandleResize = (handle: SelectionHandle, event: PointerEvent<HTMLButtonElement>) => {
+    if (!cropSelection) return;
+    const surface = cropSurfaceRef.current;
+    if (!surface) return;
+    event.preventDefault();
+    const box = surface.getBoundingClientRect();
+    const start = {
+      x: Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - box.top) / box.height)),
+    };
+    cropDragRef.current = {
+      mode: 'resize',
+      start,
+      initial: cropSelection,
+      edges: handleEdges(handle),
+      handle,
+    };
+    setCropHandle(handle);
+    try {
+      surface.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer already released; the surface keeps receiving moves while it is
+      // over the image, which is enough for a normal drag.
+    }
+  };
+
+  /** 方向鍵在把手上微調：0.5%（Shift 2%）。 */
+  const nudgeCrop = (handle: SelectionHandle, event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const current = parseCatalogCrop(cropDraft);
+    if (!current) return;
+    const step = (event.shiftKey ? 2 : 0.5) / 100;
+    const delta: Record<string, [number, number]> = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    };
+    const move = delta[event.key];
+    if (!move) return;
+    event.preventDefault();
+    const edges = handleEdges(handle);
+    let left = current.x;
+    let right = current.x + current.width;
+    let top = current.y;
+    let bottom = current.y + current.height;
+    if (edges.left) left = Math.max(0, Math.min(left + move[0], right - CROP_MIN_SIZE));
+    if (edges.right) right = Math.min(1, Math.max(right + move[0], left + CROP_MIN_SIZE));
+    if (edges.top) top = Math.max(0, Math.min(top + move[1], bottom - CROP_MIN_SIZE));
+    if (edges.bottom) bottom = Math.min(1, Math.max(bottom + move[1], top + CROP_MIN_SIZE));
+    setCropDraft({ x: left, y: top, width: right - left, height: bottom - top });
   };
 
   /** 未拖曳時依位置換游標：邊＝雙箭頭、框內＝移動、框外＝十字。 */
@@ -770,6 +836,7 @@ export function QuoteCatalogPagesDialog({
     const drag = cropDragRef.current;
     if (!drag) return;
     cropDragRef.current = null;
+    setCropHandle(null);
     if (drag.mode === 'new') {
       setCropDraft((current) => (current && parseCatalogCrop(current) ? current : null));
     }
@@ -1241,6 +1308,7 @@ export function QuoteCatalogPagesDialog({
               className="flex h-[62vh] w-full items-center justify-center overflow-hidden bg-muted/40 p-3"
             >
               <div
+                ref={cropSurfaceRef}
                 className={cn(
                   'relative shrink-0 rounded bg-white shadow-lg',
                   sheetMode === 'crop' ? 'touch-none select-none' : '',
@@ -1268,19 +1336,22 @@ export function QuoteCatalogPagesDialog({
                   />
                 </div>
                 {sheetMode === 'crop' && cropSelection ? (
-                  <div
-                    className="pointer-events-none absolute border-2 border-primary bg-primary/20 shadow-[0_0_0_1px_rgba(255,255,255,0.55)]"
-                    style={cropStyle(cropSelection)}
-                  >
-                    {/* 八個把手只是視覺提示；實際命中範圍由 cropHitTest 用像素判斷。 */}
-                    {CROP_HANDLES.map((handle) => (
-                      <span
-                        key={handle.key}
-                        className="absolute h-2.5 w-2.5 rounded-[2px] border border-primary bg-white shadow-sm"
-                        style={handle.style}
-                      />
-                    ))}
-                  </div>
+                  <SelectionBox
+                    x={cropSelection.x * 100}
+                    y={cropSelection.y * 100}
+                    w={cropSelection.width * 100}
+                    h={cropSelection.height * 100}
+                    color="hsl(var(--primary))"
+                    active
+                    draggingHandle={cropHandle}
+                    sizeText={{
+                      width: `${Math.round(cropSelection.width * 100)}%`,
+                      height: `${Math.round(cropSelection.height * 100)}%`,
+                    }}
+                    ariaLabel="框選範圍"
+                    onHandlePointerDown={beginHandleResize}
+                    onHandleKeyDown={nudgeCrop}
+                  />
                 ) : null}
                 {sheetMode === 'crop' && cropDraft && !cropSelection ? (
                   <div

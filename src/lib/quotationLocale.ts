@@ -83,7 +83,7 @@ export const QUOTE_UI = {
     recognizingZonesDetail: '正在讀取平面圖上的房間名稱，完成後可以在這裡調整範圍。',
     uploadFloorPlanRecognize: '上傳平面圖識別',
     reuploadFloorPlanRecognize: '重新上傳並識別',
-    floorPlanRecognizeHint: '在圖上空白的地方拉一個框，就會多一個空間。框可以移動、改大小，也可以刪掉；按左上角複製可以為同一個空間加第二個範圍。按確認後才會加進報價。',
+    floorPlanRecognizeHint: '在圖上空白的地方拉一個框，就會多一個空間。框可以移動、拉八個把手改大小，也可以刪掉；按右上角複製可以為同一個空間加第二個範圍。按確認後才會加進報價。',
     floorPlanReconfirmHint: '已更換平面圖，請在新圖上調整範圍後再確認。',
     zoneUnboxedHint: '有 {n} 個分區尚未畫範圍，請在左邊平面圖上拉框補上。',
     zoneBoxed: '已畫範圍',

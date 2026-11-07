@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEv
 import { Copy, X } from 'lucide-react';
 import type { FurnitureBounds } from '@/lib/quoteFurniturePlacement';
 import { LoadingImage } from '@/components/ui/loading-image';
+import { SelectionBox, type SelectionHandle } from '@/components/ui/selection-box';
 import { blankZoneManagerRow, MAX_FLOOR_PLAN_ZONES, normalizeZoneRect, type QuoteZoneRect, type ZoneManagerRow } from '@/lib/quoteFloorPlan';
 
 const ZONE_COLORS = ['#7c6cf0', '#3b82c4', '#e11d48', '#22a06b', '#e0a100', '#38bdf8', '#6366f1', '#f97316'];
@@ -10,12 +11,10 @@ export function floorPlanZoneColor(index: number): string {
   return ZONE_COLORS[index % ZONE_COLORS.length];
 }
 
-type Corner = 'nw' | 'ne' | 'sw' | 'se';
-
 type Drag =
   | { kind: 'move'; id: string; offsetX: number; offsetY: number }
   | { kind: 'furniture-move'; id: string; offsetX: number; offsetY: number; rect: FurnitureBounds }
-  | { kind: 'resize'; id: string; corner: Corner; origin: QuoteZoneRect }
+  | { kind: 'resize'; id: string; corner: SelectionHandle; origin: QuoteZoneRect }
   | { kind: 'draw'; id: string; x0: number; y0: number };
 
 export type FloorPlanFurnitureMarker = { id: string; label: string; x: number; y: number; angle: number | null; description: string; color: string; rect?: FurnitureBounds };
@@ -56,39 +55,23 @@ function pointerPct(event: ReactPointerEvent, frame: HTMLElement): { x: number; 
   };
 }
 
-function cornerHit(
-  event: ReactPointerEvent,
-  frame: HTMLElement,
-  rect: QuoteZoneRect,
-): Corner | null {
-  const box = frame.getBoundingClientRect();
-  const px = event.clientX - box.left;
-  const py = event.clientY - box.top;
-  const points: [Corner, number, number][] = [
-    ['nw', (rect.x / 100) * box.width, (rect.y / 100) * box.height],
-    ['ne', ((rect.x + rect.w) / 100) * box.width, (rect.y / 100) * box.height],
-    ['sw', (rect.x / 100) * box.width, ((rect.y + rect.h) / 100) * box.height],
-    ['se', ((rect.x + rect.w) / 100) * box.width, ((rect.y + rect.h) / 100) * box.height],
-  ];
-  for (const [corner, cx, cy] of points) {
-    if (Math.hypot(px - cx, py - cy) <= 14) return corner;
-  }
-  return null;
-}
-
 function inside(rect: QuoteZoneRect, point: { x: number; y: number }): boolean {
   return point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h;
 }
 
-function resized(origin: QuoteZoneRect, corner: Corner, point: { x: number; y: number }): QuoteZoneRect {
+/**
+ * Move only the edges the grabbed handle controls. `point` is where that edge
+ * (or corner) should end up, in percent.
+ */
+function resized(origin: QuoteZoneRect, handle: SelectionHandle, point: { x: number; y: number }): QuoteZoneRect {
   let left = origin.x;
   let top = origin.y;
   let right = origin.x + origin.w;
   let bottom = origin.y + origin.h;
-  if (corner === 'nw' || corner === 'sw') left = point.x;
-  else right = point.x;
-  if (corner === 'nw' || corner === 'ne') top = point.y;
-  else bottom = point.y;
+  if (handle.includes('w')) left = point.x;
+  else if (handle.includes('e')) right = point.x;
+  if (handle.includes('n')) top = point.y;
+  else if (handle.includes('s')) bottom = point.y;
   const x = Math.min(left, right);
   const y = Math.min(top, bottom);
   return {
@@ -96,6 +79,14 @@ function resized(origin: QuoteZoneRect, corner: Corner, point: { x: number; y: n
     y: clamp(y, 0, 100),
     w: clamp(Math.abs(right - left), 0, 100 - clamp(x, 0, 100)),
     h: clamp(Math.abs(bottom - top), 0, 100 - clamp(y, 0, 100)),
+  };
+}
+
+/** Where the grabbed edge sits right now, so keyboard nudges can move it. */
+function handlePoint(rect: QuoteZoneRect, handle: SelectionHandle): { x: number; y: number } {
+  return {
+    x: handle.includes('w') ? rect.x : handle.includes('e') ? rect.x + rect.w : rect.x,
+    y: handle.includes('n') ? rect.y : handle.includes('s') ? rect.y + rect.h : rect.y,
   };
 }
 
@@ -136,6 +127,8 @@ export function FloorPlanZoneCanvas({
   const draftRef = useRef<{ id: string; rect: QuoteZoneRect } | null>(null);
   const [draft, setDraft] = useState<{ id: string; rect: QuoteZoneRect } | null>(null);
   const [ready, setReady] = useState(false);
+  /** Which zone handle is being dragged, so its glyph and size pills stay active. */
+  const [resizing, setResizing] = useState<{ id: string; handle: SelectionHandle } | null>(null);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -264,16 +257,6 @@ export function FloorPlanZoneCanvas({
       .filter((entry): entry is { row: ZoneManagerRow & { rect: QuoteZoneRect }; index: number } => entry.row.rect != null)
       .reverse();
     for (const entry of ordered) {
-      const corner = cornerHit(event, frame, entry.row.rect);
-      if (corner) {
-        dragRef.current = { kind: 'resize', id: entry.row.id, corner, origin: entry.row.rect };
-        onActive(entry.row.id);
-        frame.setPointerCapture(event.pointerId);
-        event.preventDefault();
-        return;
-      }
-    }
-    for (const entry of ordered) {
       if (!inside(entry.row.rect, point)) continue;
       dragRef.current = {
         kind: 'move',
@@ -331,6 +314,7 @@ export function FloorPlanZoneCanvas({
   const onPointerUp = () => {
     const drag = dragRef.current;
     dragRef.current = null;
+    setResizing(null);
     if (!drag) return;
     if (drag.kind === 'furniture-move') return;
     if (drag.kind === 'draw') {
@@ -361,6 +345,53 @@ export function FloorPlanZoneCanvas({
     if (current && (current.rect.x !== rect.x || current.rect.y !== rect.y || current.rect.w !== rect.w || current.rect.h !== rect.h)) {
       commit(drag.id, rect, false);
     }
+  };
+
+  const beginResize = (
+    id: string,
+    rect: QuoteZoneRect,
+    handle: SelectionHandle,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const frame = frameRef.current;
+    if (disabled || !frame) return;
+    event.preventDefault();
+    dragRecordedRef.current = false;
+    dragRef.current = { kind: 'resize', id, corner: handle, origin: rect };
+    setResizing({ id, handle });
+    onActive(id);
+    try {
+      frame.setPointerCapture(event.pointerId);
+    } catch {
+      // The pointer may already be gone (e.g. released between events); the drag
+      // still tracks through the frame's own pointermove handler.
+    }
+  };
+
+  /** Arrow keys on a focused handle resize in 0.5% steps (2% with Shift). */
+  const nudgeZone = (
+    id: string,
+    handle: SelectionHandle,
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    const step = event.shiftKey ? 2 : 0.5;
+    const delta: Record<string, [number, number]> = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    };
+    const move = delta[event.key];
+    if (!move) return;
+    const current = zonesRef.current.find((row) => row.id === id)?.rect;
+    if (!current) return;
+    event.preventDefault();
+    const from = handlePoint(current, handle);
+    const next = resized(current, handle, { x: from.x + move[0], y: from.y + move[1] });
+    if (next.w < 0.5 || next.h < 0.5) return;
+    onBeforeEdit?.();
+    commit(id, next, false);
+    onActive(id);
   };
 
   return (
@@ -423,80 +454,68 @@ export function FloorPlanZoneCanvas({
             </svg>
             {!showFurniture ? zones.map((zone, index) => {
               if (!zone.rect) return null;
+              const rect = zone.rect;
               const display = regionDisplay?.(zone.id, index) ?? { colorIndex: index, number: index + 1 };
               const color = floorPlanZoneColor(display.colorIndex);
               const active = zone.id === activeId;
+              const actionsAbove = rect.y >= 4;
               return (
-                <div
+                <SelectionBox
                   key={zone.id}
-                  className="absolute box-border"
-                  style={{
-                    left: `${zone.rect.x}%`,
-                    top: `${zone.rect.y}%`,
-                    width: `${zone.rect.w}%`,
-                    height: `${zone.rect.h}%`,
-                    border: `2px solid ${color}`,
-                    background: active ? `${color}33` : `${color}1f`,
-                    boxShadow: active ? `0 0 0 1px ${color}` : undefined,
-                  }}
+                  x={rect.x}
+                  y={rect.y}
+                  w={rect.w}
+                  h={rect.h}
+                  color={color}
+                  active={active}
+                  disabled={disabled}
+                  draggingHandle={resizing?.id === zone.id ? resizing.handle : null}
+                  sizeText={{ width: `${Math.round(rect.w)}%`, height: `${Math.round(rect.h)}%` }}
+                  ariaLabel={`分區 ${display.number}${zone.name ? `：${zone.name}` : ''}`}
+                  onHandlePointerDown={(handle, event) => beginResize(zone.id, rect, handle, event)}
+                  onHandleKeyDown={(handle, event) => nudgeZone(zone.id, handle, event)}
                 >
-                  {disabled ? null : (
-                    <>
-                      <span className="absolute inset-x-0 top-0 z-[2] h-2 cursor-move" />
-                      <span className="absolute inset-x-0 bottom-0 z-[2] h-2 cursor-move" />
-                      <span className="absolute inset-y-0 left-0 z-[2] w-2 cursor-move" />
-                      <span className="absolute inset-y-0 right-0 z-[2] w-2 cursor-move" />
-                    </>
-                  )}
+                  {disabled ? null : <span className="pointer-events-auto absolute inset-0 cursor-move" />}
                   {zone.name ? (
                     <span
-                      className="pointer-events-none absolute left-0 top-0 z-[1] max-w-full truncate px-1 py-0.5 font-body text-[10px] font-medium leading-none text-white"
+                      className="pointer-events-none absolute left-0 top-0 z-[2] max-w-full truncate py-0.5 pl-2 pr-1 font-body text-[10px] font-medium leading-none text-white"
                       style={{ background: color }}
                     >
                       {zone.name}
                     </span>
                   ) : null}
-                  {!showFurniture ? <span
-                    className="pointer-events-none absolute left-1/2 top-1/2 z-[1] flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full font-body text-xs font-semibold leading-none text-white shadow-sm"
+                  <span
+                    className="pointer-events-none absolute left-1/2 top-1/2 z-[2] flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full font-body text-xs font-semibold leading-none text-white shadow-sm"
                     style={{ background: color }}
                   >
                     {display.number}
-                  </span> : null}
-                  {!disabled && (['nw', 'ne', 'sw', 'se'] as Corner[]).map((corner) => (
-                    <span
-                      key={corner}
-                      className={`absolute z-[3] h-2.5 w-2.5 border border-white ${corner === 'nw' || corner === 'se' ? 'cursor-nwse-resize' : 'cursor-nesw-resize'}`}
-                      style={{
-                        background: color,
-                        left: corner === 'nw' || corner === 'sw' ? -5 : undefined,
-                        right: corner === 'ne' || corner === 'se' ? -5 : undefined,
-                        top: corner === 'nw' || corner === 'ne' ? -5 : undefined,
-                        bottom: corner === 'sw' || corner === 'se' ? -5 : undefined,
-                      }}
-                    />
-                  ))}
-                  {!disabled && onCopyRegion ? <button type="button" data-zone-copy={zone.id} aria-label="複製區域"
-                    className="absolute -left-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-white text-primary shadow"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => { event.stopPropagation(); onCopyRegion(zone.id); }}><Copy className="h-3 w-3" /></button> : null}
+                  </span>
                   {disabled ? null : (
-                    <button
-                      type="button"
-                      data-zone-delete={zone.id}
-                      aria-label={deleteLabel}
-                      className="absolute -right-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-white text-rose-500 shadow"
-                      onPointerDown={(pointerEvent) => {
-                        pointerEvent.stopPropagation();
-                      }}
-                      onClick={(clickEvent) => {
-                        clickEvent.stopPropagation();
-                        removeZone(zone.id);
-                      }}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    <div className={`pointer-events-auto absolute z-[5] flex items-center gap-1 ${actionsAbove ? 'right-1 -top-6' : 'right-4 top-1'}`}>
+                      {onCopyRegion ? (
+                        <button type="button" data-zone-copy={zone.id} aria-label="複製區域"
+                          className="flex h-5 w-5 items-center justify-center rounded-full border border-white bg-white text-primary shadow"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => { event.stopPropagation(); onCopyRegion(zone.id); }}><Copy className="h-3 w-3" /></button>
+                      ) : null}
+                      <button
+                        type="button"
+                        data-zone-delete={zone.id}
+                        aria-label={deleteLabel}
+                        className="flex h-5 w-5 items-center justify-center rounded-full border border-white bg-white text-rose-500 shadow"
+                        onPointerDown={(pointerEvent) => {
+                          pointerEvent.stopPropagation();
+                        }}
+                        onClick={(clickEvent) => {
+                          clickEvent.stopPropagation();
+                          removeZone(zone.id);
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
                   )}
-                </div>
+                </SelectionBox>
               );
             }) : null}
             {showFurniture ? furnitureMarkers.map(marker => (
