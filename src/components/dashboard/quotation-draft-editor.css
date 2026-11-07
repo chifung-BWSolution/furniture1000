@@ -221,6 +221,21 @@
   font-weight: 600;
   color: hsl(var(--muted-foreground));
 }
+/* 合計下面的成本／毛利：同一列並排，兩欄等寬 */
+.quote-fee-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.quote-fee-split-sec {
+  min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(0 0% 100%);
+  padding: 10px 14px;
+}
+.quote-fee-split-sec .quote-side-big { font-size: 1.25rem; }
 .quote-fee-side-sec + .quote-fee-side-sec {
   border-top: 1px solid hsl(var(--border));
   padding-top: 14px;
@@ -285,6 +300,7 @@
 }
 @media (max-width: 479px) {
   .quote-editor-header { position: relative; }
+  .quote-fee-split { grid-template-columns: minmax(0, 1fr); }
   .quote-fee-side { padding: 14px; }
   .quote-product-row-head { gap: 8px; }
   .quote-product-row-totals { width: 100%; }

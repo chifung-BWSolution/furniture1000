@@ -6867,25 +6867,28 @@ export function QuotationDraftEditor({
                             <small>HKD</small>${totalAmount.toLocaleString()}
                           </span>
                         </div>
+                        {/* 成本與毛利：放在合計下面並排，兩欄對齊 */}
+                        <div className="quote-fee-split">
+                          <div className="quote-fee-split-sec">
+                            <span className="quote-lrow-label">
+                              <Wallet className="h-3.5 w-3.5" /> Cost 成本
+                            </span>
+                            <div className="quote-side-big font-mono-data">HKD ${totalProductCost.toLocaleString()}</div>
+                          </div>
+                          <div className="quote-fee-split-sec">
+                            <span className="quote-lrow-label">GP 毛利</span>
+                            <div className="quote-side-big font-mono-data text-emerald-700">
+                              HKD ${gpValue.toLocaleString()}
+                              <span className="quote-gp-pct">（{Math.round(gpPercent)}%）</span>
+                            </div>
+                            <div className="quote-gp-bar" role="img" aria-label={`GP ${Math.round(gpPercent)}%`}>
+                              <i style={{ width: `${Math.min(100, Math.max(0, gpPercent))}%` }} />
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      {/* 右：結果欄 — Cost、GP、單價換算 */}
+                      {/* 右：結果欄 — 安裝費與單價換算 */}
                       <aside className="quote-fee-side">
-                        <div className="quote-fee-side-sec">
-                          <span className="quote-lrow-label">
-                            <Wallet className="h-3.5 w-3.5" /> Cost 成本
-                          </span>
-                          <div className="quote-side-big font-mono-data">HKD ${totalProductCost.toLocaleString()}</div>
-                        </div>
-                        <div className="quote-fee-side-sec">
-                          <span className="quote-lrow-label">GP 毛利</span>
-                          <div className="quote-side-big font-mono-data text-emerald-700">
-                            HKD ${gpValue.toLocaleString()}
-                            <span className="quote-gp-pct">（{Math.round(gpPercent)}%）</span>
-                          </div>
-                          <div className="quote-gp-bar" role="img" aria-label={`GP ${Math.round(gpPercent)}%`}>
-                            <i style={{ width: `${Math.min(100, Math.max(0, gpPercent))}%` }} />
-                          </div>
-                        </div>
                         <div className="quote-fee-note">
                           <input
                             type="text"

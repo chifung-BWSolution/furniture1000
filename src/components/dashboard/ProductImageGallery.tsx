@@ -7,6 +7,7 @@ import { ImageLightbox } from '@/components/ui/image-lightbox';
  * Reserved row under a product main image.
  * - Design project default: up to 4 non-interactive thumbs
  * - Quote schemes: up to 3 clickable thumbs; overflow shows +N on the last slot
+ * - No extra images: the whole row is hidden (empty slots read as dead buttons)
  */
 export function ProductExtraImageThumbs({
   urls,
@@ -28,6 +29,10 @@ export function ProductExtraImageThumbs({
   const overflow = Math.max(0, urls.length - slots);
   const visible = urls.slice(0, slots);
 
+  // Nothing to show (no product/reference/remarks extras) → omit the row
+  // entirely instead of printing empty placeholder slots.
+  if (visible.length === 0) return null;
+
   return (
     <div
       className={cn(
@@ -35,7 +40,6 @@ export function ProductExtraImageThumbs({
         className,
       )}
       style={{ gridTemplateColumns: `repeat(${slots}, minmax(0, 1fr))` }}
-      aria-hidden={visible.length === 0 && !interactive}
     >
       {Array.from({ length: slots }, (_, index) => {
         const src = visible[index];

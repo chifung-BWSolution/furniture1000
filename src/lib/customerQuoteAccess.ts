@@ -25,6 +25,7 @@ export function customerQuoteError(error: PostgrestError): string {
   if (
     error?.code === 'PGRST202'
     || message.includes('get_shared_quote')
+    || message.includes('get_quote_pdf_payload')
     || message.includes('get_customer_quote')
     || message.includes('list_customer_quotes')
     || message.includes('save_customer_quote_scheme')
