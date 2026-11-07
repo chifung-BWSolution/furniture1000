@@ -8,10 +8,17 @@ import {
   MapPin,
   UserRound,
 } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { LoadingImage } from "@/components/ui/loading-image";
+import {
+  ViewModeSwitch,
+  type ViewModeOption,
+} from "@/components/ui/view-mode-switch";
+import { inkEase } from "@/components/motion/NavInk";
+import { cn } from "@/lib/utils";
 import {
   buildExportItem,
   type CaseExportItem,
@@ -37,6 +44,14 @@ import { CaseExportDialog } from "./CaseExportDialog";
 const PAGE_SIZE = 20;
 
 type ViewMode = "grid" | "list";
+
+const VIEW_MODE_OPTIONS: ReadonlyArray<ViewModeOption<ViewMode>> = [
+  { value: "grid", label: "格狀", icon: LayoutGrid },
+  { value: "list", label: "列表", icon: List },
+];
+
+const PHOTO_BOARD_ID = "case-photos-board";
+
 type SortMode =
   "handover-desc" | "handover-asc" | "project-asc" | "customer-asc";
 
@@ -113,6 +128,19 @@ function PhotoProjectCard({
   const customer = project.real_customer_display_name || "未設定客戶";
   const title = `${projectCode} · ${customer}`;
 
+  const reduceMotion = useReducedMotion();
+  const isList = viewMode === "list";
+  const layoutTransition = reduceMotion
+    ? { duration: 0 }
+    : { layout: { duration: 0.42, ease: inkEase } };
+
+  // Fade the copy in only when the user switches views, never on first paint.
+  const viewRef = useRef(viewMode);
+  const viewChanged = viewRef.current !== viewMode;
+  useEffect(() => {
+    viewRef.current = viewMode;
+  }, [viewMode]);
+
   const details = (
     <button
       type="button"
@@ -158,36 +186,47 @@ function PhotoProjectCard({
     </button>
   );
 
-  if (viewMode === "list") {
-    return (
-      <article className="relative flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/40 md:flex-row md:items-center">
-        <div className="absolute left-2 top-2 z-10">
-          <PickBox project={project} picked={picked} onPick={onPick} />
-        </div>
-        {details}
-        <div className="w-full md:w-[300px] md:shrink-0">
-          <PhotoStrip
-            urls={urls}
-            title={title}
-            onOpenPhoto={(index) => onOpenPhoto(project, index)}
-          />
-        </div>
-      </article>
-    );
-  }
-
   return (
-    <article className="relative flex min-h-[220px] min-w-0 flex-col gap-1.5 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40">
+    <motion.article
+      layout={!reduceMotion}
+      transition={layoutTransition}
+      className={cn(
+        "relative flex min-w-0 flex-col gap-1.5 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40",
+        isList ? "md:flex-row md:items-center md:gap-3 md:p-3" : "min-h-[220px]",
+      )}
+    >
       <div className="absolute left-2 top-2 z-10">
         <PickBox project={project} picked={picked} onPick={onPick} />
       </div>
-      {details}
-      <PhotoStrip
-        urls={urls}
-        title={title}
-        onOpenPhoto={(index) => onOpenPhoto(project, index)}
-      />
-    </article>
+      {/* The card box morphs between layouts; the copy swaps in as it settles so
+          the squash of a 4-column card into a full-width row never distorts text. */}
+      <motion.div
+        key={viewMode}
+        initial={
+          reduceMotion || !viewChanged ? false : { opacity: 0 }
+        }
+        animate={{ opacity: 1 }}
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : { duration: 0.26, delay: 0.14, ease: "easeOut" }
+        }
+        className="flex min-h-0 min-w-0 flex-1"
+      >
+        {details}
+      </motion.div>
+      <motion.div
+        layout={!reduceMotion}
+        transition={layoutTransition}
+        className={cn("w-full", isList && "md:w-[300px] md:shrink-0")}
+      >
+        <PhotoStrip
+          urls={urls}
+          title={title}
+          onOpenPhoto={(index) => onOpenPhoto(project, index)}
+        />
+      </motion.div>
+    </motion.article>
   );
 }
 
@@ -433,7 +472,7 @@ export function CasePhotosPage() {
                 onChange={setSearch}
                 placeholder="項目編號、名稱、客戶或地址"
                 onReload={data.reload}
-                searchClassName="w-full sm:w-96 sm:flex-1"
+                searchClassName="w-full sm:w-96 sm:min-w-[12rem] sm:flex-1"
                 filtersClassName="sm:flex-none"
               >
                 <CaseFilter
@@ -484,32 +523,13 @@ export function CasePhotosPage() {
                   <Download className="mr-2 h-4 w-4" />
                   導出已選（{picked.size}）
                 </Button>
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant={viewMode === "grid" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="h-9 w-9"
-                    aria-label="格狀檢視"
-                    aria-pressed={viewMode === "grid"}
-                    title="格狀檢視"
-                    onClick={() => setViewMode("grid")}
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={viewMode === "list" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="h-9 w-9"
-                    aria-label="列表檢視"
-                    aria-pressed={viewMode === "list"}
-                    title="列表檢視"
-                    onClick={() => setViewMode("list")}
-                  >
-                    <List className="h-4 w-4" />
-                  </Button>
-                </div>
+                <ViewModeSwitch<ViewMode>
+                  label="檢視模式"
+                  value={viewMode}
+                  onChange={setViewMode}
+                  options={VIEW_MODE_OPTIONS}
+                  panelId={PHOTO_BOARD_ID}
+                />
               </CaseSearch>
               <div className="flex flex-wrap items-center gap-2">
                 <CaseFilter
@@ -566,7 +586,12 @@ export function CasePhotosPage() {
           onOpenPhoto={openLightbox}
         />
       ) : (
-        <>
+        <div
+          id={PHOTO_BOARD_ID}
+          role="tabpanel"
+          aria-label="完工相片專案"
+          className="min-w-0"
+        >
           {!filtered.length ? (
             <CaseEmpty />
           ) : (
@@ -598,7 +623,7 @@ export function CasePhotosPage() {
               ))}
             </div>
           )}
-        </>
+        </div>
       )}
       <ImageLightbox
         open={Boolean(lightbox)}
