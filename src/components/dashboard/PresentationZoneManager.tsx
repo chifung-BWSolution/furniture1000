@@ -92,7 +92,7 @@ export function PresentationZoneManager({ zones, floorUrl, onSave, onClose }: {
             regionDisplay={(id, index) => { const zoneIndex = draft.findIndex((zone) => zone.id === canvasZoneId(id)); return { colorIndex: zoneIndex < 0 ? index : zoneIndex, number: zoneIndex < 0 ? index + 1 : zoneIndex + 1 }; }} />
             : <div className="flex h-full items-center justify-center rounded-lg border-2 border-dashed bg-muted/30 p-6 text-sm text-muted-foreground">上傳整體平面圖後，可在這裡框選分區。</div>}
         </div>
-        <p className="text-xs leading-5 text-muted-foreground">點選區域可調整範圍；按左上角複製可為同一分區新增區域，拖曳至所需位置。空白處拖曳可新增分區。</p>
+        <p className="text-xs leading-5 text-muted-foreground">點選區域可調整範圍；拖八個把手其中一個可改大小；按右上角複製可為同一分區新增區域，拖曳至所需位置。空白處拖曳可新增分區。</p>
       </div>
       <div className="min-w-0 space-y-3 overflow-x-auto">
         {!draft.length ? <p className="flex h-40 items-center justify-center rounded-lg border bg-muted/20 text-sm text-muted-foreground">尚未建立分區，請框選或新增分區。</p> : null}
