@@ -7,19 +7,28 @@ export const QUOTE_COUNTDOWN_DAYS = 45;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * 剩餘日數（無條件進位）。建立當日為 45 天，第 45 日完結後回傳 0 或負數。
+ * 剩餘日數（無條件進位）。開始當日為 `days`，第 `days` 日完結後回傳 0 或負數。
  * 日期缺失或無效時回傳 null。
  */
+export function countdownRemainingDays(
+  startedAt: string | null | undefined,
+  days: number = QUOTE_COUNTDOWN_DAYS,
+  now: Date = new Date(),
+): number | null {
+  if (!startedAt) return null;
+  const start = new Date(startedAt);
+  const startMs = start.getTime();
+  if (Number.isNaN(startMs)) return null;
+  const deadline = startMs + days * DAY_MS;
+  return Math.ceil((deadline - now.getTime()) / DAY_MS);
+}
+
+/** 報價由建立日期起計 45 日的剩餘日數。 */
 export function quoteRemainingDays(
   createdAt: string | null | undefined,
   now: Date = new Date(),
 ): number | null {
-  if (!createdAt) return null;
-  const start = new Date(createdAt);
-  const startMs = start.getTime();
-  if (Number.isNaN(startMs)) return null;
-  const deadline = startMs + QUOTE_COUNTDOWN_DAYS * DAY_MS;
-  return Math.ceil((deadline - now.getTime()) / DAY_MS);
+  return countdownRemainingDays(createdAt, QUOTE_COUNTDOWN_DAYS, now);
 }
 
 /** 已過 45 日倒數期限；日期缺失時不當作不成功。 */
