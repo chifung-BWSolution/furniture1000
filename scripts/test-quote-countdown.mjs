@@ -56,5 +56,40 @@ assert.equal(
   42,
   '查詢日期 3 日前，45 日倒數剩 42 天',
 );
+assert.equal(
+  M.quoteCountdownOutcome('Confirmed Project', -9),
+  'won',
+  'Confirmed Project 過了 45 日仍算成功，不顯示不成功',
+);
+assert.equal(
+  M.quoteCountdownOutcome(' confirmed project ', 30),
+  'won',
+  'Confirmed Project 未到期亦以成功為準',
+);
+assert.equal(
+  M.quoteCountdownOutcome('Case Closed', 30),
+  'unsuccessful',
+  'Case Closed 未到期亦算不成功',
+);
+assert.equal(
+  M.quoteCountdownOutcome('Pitching', 30),
+  'active',
+  'Pitching 階段仍在倒數',
+);
+assert.equal(
+  M.quoteCountdownOutcome('Pitching', 0),
+  'unsuccessful',
+  '過了 45 日仍未成功即不成功',
+);
+assert.equal(
+  M.quoteCountdownOutcome(null, -1),
+  'unsuccessful',
+  '沒有階段但過期仍算不成功',
+);
+assert.equal(
+  M.isWonPitchingStage('不成功'),
+  false,
+  '「不成功」不可被當成成功階段',
+);
 
 console.log('quote countdown tests passed');
