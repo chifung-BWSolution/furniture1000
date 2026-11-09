@@ -15,6 +15,8 @@ export interface PmsPitchingListItem {
   estimated_expense?: number | string | null;
   estimated_gross_profit?: number | string | null;
   enquiry_date: string | null;
+  /** PMS `modified_date`; Recover Pitching writes the recovery time here. */
+  modified_date?: string | null;
   remaining_days?: number | null;
   customer_type?: string | null;
   /** PMS customer industry tags (客戶產業), joined with 、 */
@@ -159,6 +161,7 @@ function mapPitchingRows(items: unknown[]): PmsPitchingListItem[] {
         estimated_gross_profit:
           (r.estimated_gross_profit as number | string | null) ?? null,
         enquiry_date: r.enquiry_date ? String(r.enquiry_date) : null,
+        modified_date: r.modified_date ? String(r.modified_date) : null,
         remaining_days:
           typeof r.remaining_days === 'number'
             ? r.remaining_days

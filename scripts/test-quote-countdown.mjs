@@ -92,4 +92,75 @@ assert.equal(
   '「不成功」不可被當成成功階段',
 );
 
+// PMS Recover Pitching: stage returns to Enquiry, enquiry_date is unchanged,
+// and modified_date becomes the recovery time.
+assert.equal(
+  M.pitchingReopenedAt(
+    '2026-08-01T00:00:00Z',
+    '2026-11-01T00:00:00Z',
+    'Enquiry',
+  ),
+  '2026-11-01T00:00:00Z',
+  '原 45 日已過，復原後以 modified_date 重新起算',
+);
+assert.equal(
+  M.pitchingReopenedAt(
+    '2026-08-01T00:00:00Z',
+    '2026-09-01T00:00:00Z',
+    'Enquiry',
+  ),
+  null,
+  '未過原 45 日就復原，不重新起算',
+);
+assert.equal(
+  M.pitchingReopenedAt(
+    '2026-08-01T00:00:00Z',
+    '2026-11-01T00:00:00Z',
+    'Case Closed',
+  ),
+  null,
+  'Case Closed 不當作復原',
+);
+assert.equal(
+  M.pitchingReopenedAt(
+    '2026-08-01T00:00:00Z',
+    '2026-11-01T00:00:00Z',
+    'Confirmed Project',
+  ),
+  null,
+  '已成功提案不當作復原',
+);
+assert.equal(
+  M.pitchingCountdownStart(
+    '2026-08-01T00:00:00Z',
+    '2026-11-01T00:00:00Z',
+    'Pitching',
+  ),
+  '2026-11-01T00:00:00Z',
+  '復原後再推進階段，仍由 modified_date 起算',
+);
+assert.equal(
+  M.quoteCountdownStart('2026-08-10T00:00:00Z', {
+    enquiry_date: '2026-08-01T00:00:00Z',
+    modified_date: '2026-11-01T00:00:00Z',
+    pitching_stages: 'Enquiry',
+  }),
+  '2026-11-01T00:00:00Z',
+  '報價建立早於復原日期時，用復原日期起算',
+);
+assert.equal(
+  M.quoteCountdownStart('2026-11-05T00:00:00Z', {
+    enquiry_date: '2026-08-01T00:00:00Z',
+    modified_date: '2026-11-01T00:00:00Z',
+    pitching_stages: 'Enquiry',
+  }),
+  '2026-11-05T00:00:00Z',
+  '報價在復原後才建立時，仍用報價建立日期',
+);
+assert.equal(
+  M.quoteCountdownStart('2026-08-10T00:00:00Z', null),
+  '2026-08-10T00:00:00Z',
+  '沒有 PMS 提案時，用報價建立日期',
+);
+
 console.log('quote countdown tests passed');
