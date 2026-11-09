@@ -10,8 +10,8 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-/** SLA window used for 剩餘天數 (enquiry_date + 90 days). */
-const ENQUIRY_SLA_DAYS = 90;
+/** SLA window used for 剩餘天數 (enquiry_date + 45 days; 過了即不成功). */
+const ENQUIRY_SLA_DAYS = 45;
 
 /** Same industry collection as fetch-pms-pitching-quote-defaults / 客戶產業 *. */
 const INDUSTRY_COLLECTION_ID = "4f5de598-2dcb-45a6-a106-9d933e9a8007";

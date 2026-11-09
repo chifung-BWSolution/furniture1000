@@ -25,6 +25,11 @@ import {
   SortHeaderIcon,
   type ListSortDir,
 } from '@/lib/listTableUtils';
+import {
+  countdownRemainingDays,
+  isQuoteUnsuccessful,
+  QUOTE_COUNTDOWN_DAYS,
+} from '@/lib/quoteCountdown';
 
 interface PmsPitchingGateProps {
   onSelect: (item: PmsPitchingListItem) => void;
@@ -118,7 +123,11 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
             sortDir,
           );
         case 'remaining_days':
-          return compareNullable(a.remaining_days, b.remaining_days, sortDir);
+          return compareNullable(
+            countdownRemainingDays(a.enquiry_date, QUOTE_COUNTDOWN_DAYS),
+            countdownRemainingDays(b.enquiry_date, QUOTE_COUNTDOWN_DAYS),
+            sortDir,
+          );
         case 'customer_type':
           return compareNullable(a.customer_type, b.customer_type, sortDir);
         case 'client_industry':
@@ -237,7 +246,11 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
             sortedItems.map((item) => {
               const selected = activeId === item.id;
               const title = pitchingDisplayTitle(item);
-              const days = item.remaining_days;
+              const days = countdownRemainingDays(
+                item.enquiry_date,
+                QUOTE_COUNTDOWN_DAYS,
+              );
+              const unsuccessful = isQuoteUnsuccessful(days);
               return (
                 <tr
                   key={item.id}
@@ -266,15 +279,20 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
                       <span
                         className={cn(
                           'inline-flex items-center gap-1 font-body text-xs font-medium',
-                          days < 0
+                          unsuccessful
                             ? 'text-rose-600'
                             : days <= 14
                               ? 'text-amber-600'
                               : 'text-emerald-600',
                         )}
+                        title={
+                          unsuccessful
+                            ? `已超過 ${QUOTE_COUNTDOWN_DAYS} 日，報價不成功`
+                            : `由查詢日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
+                        }
                       >
                         <Clock className="h-3.5 w-3.5" />
-                        {days} 天
+                        {unsuccessful ? '不成功' : `${days} 天`}
                       </span>
                     )}
                   </td>

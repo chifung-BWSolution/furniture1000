@@ -51,5 +51,10 @@ assert.equal(M.isQuoteUnsuccessful(1), false, '仍有 1 天未算不成功');
 assert.equal(M.quoteRemainingDays(null, now), null, '沒有建立日期回傳 null');
 assert.equal(M.quoteRemainingDays('not-a-date', now), null, '無效日期回傳 null');
 assert.equal(M.isQuoteUnsuccessful(null), false, '日期缺失不當作不成功');
+assert.equal(
+  M.countdownRemainingDays('2026-11-06T00:00:00Z', 45, now),
+  42,
+  '查詢日期 3 日前，45 日倒數剩 42 天',
+);
 
 console.log('quote countdown tests passed');
