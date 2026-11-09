@@ -27,8 +27,9 @@ import {
 } from '@/lib/listTableUtils';
 import {
   countdownRemainingDays,
-  isQuoteUnsuccessful,
+  isClosedPitchingStage,
   QUOTE_COUNTDOWN_DAYS,
+  quoteCountdownOutcome,
 } from '@/lib/quoteCountdown';
 
 interface PmsPitchingGateProps {
@@ -250,7 +251,14 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
                 item.enquiry_date,
                 QUOTE_COUNTDOWN_DAYS,
               );
-              const unsuccessful = isQuoteUnsuccessful(days);
+              const outcome = quoteCountdownOutcome(
+                item.pitching_stages,
+                days,
+              );
+              const won = outcome === 'won';
+              const unsuccessful = outcome === 'unsuccessful';
+              const closed =
+                unsuccessful && isClosedPitchingStage(item.pitching_stages);
               return (
                 <tr
                   key={item.id}
@@ -281,18 +289,26 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
                           'inline-flex items-center gap-1 font-body text-xs font-medium',
                           unsuccessful
                             ? 'text-rose-600'
-                            : days <= 14
-                              ? 'text-amber-600'
-                              : 'text-emerald-600',
+                            : won || days > 14
+                              ? 'text-emerald-600'
+                              : 'text-amber-600',
                         )}
                         title={
-                          unsuccessful
-                            ? `已超過 ${QUOTE_COUNTDOWN_DAYS} 日，報價不成功`
-                            : `由查詢日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
+                          won
+                            ? `提案已成功（${item.pitching_stages}）`
+                            : closed
+                              ? `提案已結案（${item.pitching_stages}）`
+                              : unsuccessful
+                                ? `已超過 ${QUOTE_COUNTDOWN_DAYS} 日，報價不成功`
+                                : `由查詢日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
                         }
                       >
                         <Clock className="h-3.5 w-3.5" />
-                        {unsuccessful ? '不成功' : `${days} 天`}
+                        {won
+                          ? '已成功'
+                          : unsuccessful
+                            ? '不成功'
+                            : `${days} 天`}
                       </span>
                     )}
                   </td>

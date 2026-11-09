@@ -48,7 +48,12 @@ import { collectStaffNamesFromQuoteRows } from '@/lib/quoteStaffOptions';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { formatClientIndustryLabel } from '@/lib/clientIndustryDisplay';
 import { normalizeQuoteDateInput } from '@/lib/quotationLocale';
-import { isQuoteUnsuccessful, QUOTE_COUNTDOWN_DAYS, quoteRemainingDays } from '@/lib/quoteCountdown';
+import {
+  isClosedPitchingStage,
+  QUOTE_COUNTDOWN_DAYS,
+  quoteCountdownOutcome,
+  quoteRemainingDays,
+} from '@/lib/quoteCountdown';
 import { moveQuoteToTrash, QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
 import { BwfInquiryReplyPanel } from '@/components/dashboard/BwfInquiryReplyPanel';
 import { QuoteEmailFollowUpModal } from '@/components/dashboard/QuoteEmailFollowUpModal';
@@ -725,7 +730,14 @@ export function QuotationListView({
                 const isLatestExpanded = expanded && showExpandControl;
                 const isOldExpanded = expanded && isOlderVersion;
                 const days = isOldExpanded ? null : quoteRemainingDays(createdDate);
-                const unsuccessful = isQuoteUnsuccessful(days);
+                const stage = quote.pitching?.pitching_stages;
+                const outcome = isOldExpanded
+                  ? 'active'
+                  : quoteCountdownOutcome(stage, days);
+                const won = outcome === 'won';
+                const unsuccessful = outcome === 'unsuccessful';
+                const closed =
+                  unsuccessful && isClosedPitchingStage(stage);
 
                 const openQuote = () =>
                   onOpenQuote?.(quote.quote_id, {
@@ -847,18 +859,26 @@ export function QuotationListView({
                             'inline-flex items-center gap-1 font-body text-xs font-medium',
                             unsuccessful
                               ? 'text-rose-600'
-                              : days <= 14
-                                ? 'text-amber-600'
-                                : 'text-emerald-600',
+                              : won || days > 14
+                                ? 'text-emerald-600'
+                                : 'text-amber-600',
                           )}
                           title={
-                            unsuccessful
-                              ? `已超過 ${QUOTE_COUNTDOWN_DAYS} 日，報價不成功`
-                              : `由建立日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
+                            won
+                              ? `提案已成功（${stage}）`
+                              : closed
+                                ? `提案已結案（${stage}）`
+                                : unsuccessful
+                                  ? `已超過 ${QUOTE_COUNTDOWN_DAYS} 日，報價不成功`
+                                  : `由建立日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
                           }
                         >
                           <Clock className="h-3.5 w-3.5" />
-                          {unsuccessful ? '不成功' : `${days} 天`}
+                          {won
+                            ? '已成功'
+                            : unsuccessful
+                              ? '不成功'
+                              : `${days} 天`}
                         </span>
                       )}
                     </td>
