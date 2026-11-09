@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import QRCode from "qrcode";
 import "./quotation-draft-editor.css";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Building2,
@@ -34,6 +35,7 @@ import {
   Percent,
   Plus,
   QrCode,
+  RefreshCw,
   Ruler,
   Save,
   Scissors,
@@ -372,6 +374,11 @@ interface QuotationDraftEditorProps {
   };
   /** Body fields copied from another quote (items, delivery, terms). Header uses formData. */
   initialCopyPayload?: QuoteCopyPayload | null;
+  /**
+   * 由外層在顯示編輯器前預載的明細（bwf_quote_item）。
+   * undefined＝未預載，編輯器自行載入；null＝預載失敗，先顯示錯誤讓用戶重新載入。
+   */
+  initialQuoteItems?: BwfQuoteItemInput[] | null;
   /** Always insert a new bwf_quote row (skip pitching dedup) — used for 複製報價單. */
   forceNewQuote?: boolean;
   /** Pre-assigned quote id for new drafts (editor-step URL persistence). */
@@ -2741,6 +2748,7 @@ export function QuotationDraftEditor({
   onQuotePersisted,
   existingQuote,
   initialCopyPayload,
+  initialQuoteItems,
   forceNewQuote = false,
   draftQuoteId = null,
 }: QuotationDraftEditorProps) {
@@ -3252,6 +3260,12 @@ export function QuotationDraftEditor({
   }, [existingQuote?.quoteId]);
 
   const initialItemsHydratedRef = useRef(false);
+  /** 外層已把明細載好才顯示編輯器；legacy project_data／複製內容仍然優先。 */
+  const quoteItemsPrefetched =
+    Boolean(existingQuote?.quoteUuid) &&
+    initialQuoteItems !== undefined &&
+    legacyItems.length === 0 &&
+    !copyPayload?.items?.length;
 
   // Product items table
   const [factories, setFactories] = useState<string[]>([]);
@@ -3265,15 +3279,24 @@ export function QuotationDraftEditor({
     if (legacyItems.length > 0) {
       return legacyItems.map((item) => mapInputToQuotationItem(item));
     }
+    if (quoteItemsPrefetched && initialQuoteItems?.length) {
+      return initialQuoteItems.map((item) => mapInputToQuotationItem(item));
+    }
     // Existing quotes load line items from bwf_quote_item — avoid flashing DEFAULT_ITEMS.
     if (existingQuote?.quoteUuid) {
       return [];
     }
     return DEFAULT_ITEMS;
   });
-  const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(false);
+  const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(quoteItemsPrefetched);
   /** Line items failed to load: keep the loading hint off so the editor shows the empty table instead. */
-  const [itemsLoadFailed, setItemsLoadFailed] = useState(false);
+  const [itemsLoadFailed, setItemsLoadFailed] = useState(
+    quoteItemsPrefetched && initialQuoteItems === null,
+  );
+  /** 明細載入失敗時遞增，重新跑同一個 uuid 的載入（不用整頁 F5）。 */
+  const [itemsReloadToken, setItemsReloadToken] = useState(0);
+  /** 載入期間按了送出／保存：載入完成後自動續做，避免用未載入的明細落庫。 */
+  const pendingQuoteActionRef = useRef<"submit" | "save" | null>(null);
   const autoPlacementAttempted = useRef(new Set<string>());
   useEffect(() => {
     if (existingQuote?.quoteUuid && !itemsLoadedFromDb) return;
@@ -3288,6 +3311,12 @@ export function QuotationDraftEditor({
   const itemsLoadedRef = useRef(false);
   itemsLoadedRef.current = itemsLoadedFromDb;
   const itemsReadyWaiters = useRef<Array<() => void>>([]);
+  /** 唤醒 waitForQuoteItems() 的等待者；失敗時也要 resolve，否則呼叫方會一直等下去。 */
+  const resolveItemsWaiters = () => {
+    const waiters = itemsReadyWaiters.current;
+    itemsReadyWaiters.current = [];
+    waiters.forEach((resolve) => resolve());
+  };
 
   // 報價明細的產品圖：排版時預設放進素材區，不用再去圖片庫找。
   const quoteProductPhotos = useMemo(() => {
@@ -3349,7 +3378,11 @@ export function QuotationDraftEditor({
   /** Prevents async loadQuoteItems from overwriting in-session line-item edits. */
   const itemsUserEditedRef = useRef(false);
   /** Tracks which quote uuid already hydrated items in this editor session. */
-  const itemsHydratedForUuidRef = useRef<string | null>(null);
+  const itemsHydratedForUuidRef = useRef<string | null>(
+    quoteItemsPrefetched && Array.isArray(initialQuoteItems)
+      ? existingQuote?.quoteUuid ?? null
+      : null,
+  );
 
   // Copy / legacy JSON drafts: infer product_id before first save (no quote UUID yet).
   useEffect(() => {
@@ -3398,6 +3431,9 @@ export function QuotationDraftEditor({
       setItemsLoadedFromDb(true);
       return;
     }
+    // 外層預載失敗：先顯示錯誤，等用戶按「重新載入明細」（itemsReloadToken > 0）才再抓，
+    // 避免一進畫面就自動重試、把載入錯誤閃走。
+    if (initialQuoteItems === null && itemsReloadToken === 0) return;
     let cancelled = false;
     setItemsLoadedFromDb(false);
     setItemsLoadFailed(false);
@@ -3407,6 +3443,11 @@ export function QuotationDraftEditor({
         if (cancelled) return;
         if (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent)) {
           toast.error("明細載入期間有修改，請重新開啟報價單後再保存。");
+          // 不要停在「仍在載入」：標成載入失敗，讓畫面顯示明確的錯誤與重新載入。
+          if (!cancelled) {
+            setItemsLoadFailed(true);
+            resolveItemsWaiters();
+          }
           return;
         }
         if (rows.length > 0) {
@@ -3416,6 +3457,10 @@ export function QuotationDraftEditor({
           if (cancelled) return;
           if (itemsUserEditedRef.current && itemsRef.current.some(hasQuoteItemContent)) {
             toast.error("明細載入期間有修改，請重新開啟報價單後再保存。");
+            if (!cancelled) {
+              setItemsLoadFailed(true);
+              resolveItemsWaiters();
+            }
             return;
           }
           setItems(linked.map((item) => mapInputToQuotationItem(item)));
@@ -3427,16 +3472,18 @@ export function QuotationDraftEditor({
         if (!cancelled) {
           setItemsLoadedFromDb(false);
           setItemsLoadFailed(true);
-          toast.error('報價明細載入失敗，已暫停保存。請重新開啟報價單後再試。');
+          resolveItemsWaiters();
+          toast.error('報價明細載入失敗，已暫停保存。請重新載入明細後再試。');
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-    // legacyItems length is stable for this existingQuote mount
+    // legacyItems length is stable for this existingQuote mount.
+    // itemsReloadToken retries the same uuid after a failure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingQuote?.quoteUuid]);
+  }, [existingQuote?.quoteUuid, itemsReloadToken]);
 
   useEffect(() => {
     if (!itemsLoadedFromDb) return;
@@ -3446,10 +3493,17 @@ export function QuotationDraftEditor({
   }, [itemsLoadedFromDb]);
 
   const waitForQuoteItems = () => {
-    if (!existingQuote?.quoteUuid || itemsLoadedRef.current) return Promise.resolve();
+    if (!existingQuote?.quoteUuid || itemsLoadedRef.current || itemsLoadFailed) return Promise.resolve();
     return new Promise<void>((resolve) => {
       itemsReadyWaiters.current.push(resolve);
     });
+  };
+
+  /** 明細載入失敗後的「重新載入」：重跑同一個 uuid，不用整頁刷新。 */
+  const retryQuoteItemsLoad = () => {
+    setItemsLoadFailed(false);
+    setItemsLoadedFromDb(false);
+    setItemsReloadToken((token) => token + 1);
   };
 
   useEffect(() => {
@@ -3967,10 +4021,19 @@ export function QuotationDraftEditor({
 
   const handleOpenSubmitReview = () => {
     if (existingQuote?.quoteUuid && !itemsLoadedFromDb) {
-      toast.error(quoteLocale === "en" ? "The quotation is still loading" : "報價內容仍在載入", {
+      if (itemsLoadFailed) {
+        toast.error(quoteLocale === "en" ? "Quotation items could not load" : "報價明細未能載入", {
+          description: quoteLocale === "en"
+            ? "Sending is paused so no items are lost. Reload the items below, then try again."
+            : "為免漏掉項目，已暫停送出。請先在下方按「重新載入明細」，再試一次。",
+        });
+        return;
+      }
+      pendingQuoteActionRef.current = "submit";
+      toast.message(quoteLocale === "en" ? "Waiting for quotation items to load" : "正在等報價內容載入完成", {
         description: quoteLocale === "en"
-          ? "Wait until everything has loaded before sending it for review."
-          : "請等報價內容載入完成再送出，以免漏掉項目。",
+          ? "The review window opens automatically once loading finishes."
+          : "載入完成後會自動打開版本審核，不用再按一次。",
       });
       return;
     }
@@ -5232,10 +5295,28 @@ export function QuotationDraftEditor({
   }): Promise<boolean> => {
     const sourceItems = overrides?.items ?? items;
     if (existingQuote?.quoteUuid && !itemsLoadedFromDb) {
-      toast.error(quoteLocale === "en" ? "The quotation is still loading" : "報價內容仍在載入", {
+      if (itemsLoadFailed) {
+        toast.error(quoteLocale === "en" ? "Quotation items could not load" : "報價明細未能載入", {
+          description: quoteLocale === "en"
+            ? "Saving is paused so no items are lost. Reload the items below, then try again."
+            : "為免漏掉項目，已暫停保存。請先在下方按「重新載入明細」，再試一次。",
+        });
+        return false;
+      }
+      if (overrides) {
+        // 分區管理等內部流程：不接受未載入的明細，直接擋下。
+        toast.error(quoteLocale === "en" ? "The quotation is still loading" : "報價內容仍在載入", {
+          description: quoteLocale === "en"
+            ? "Wait until everything has loaded before saving."
+            : "請等報價內容載入完成再保存，以免漏掉項目。",
+        });
+        return false;
+      }
+      pendingQuoteActionRef.current = "save";
+      toast.message(quoteLocale === "en" ? "Waiting for quotation items to load" : "正在等報價內容載入完成", {
         description: quoteLocale === "en"
-          ? "Wait until everything has loaded before saving."
-          : "請等報價內容載入完成再保存，以免漏掉項目。",
+          ? "Saving continues automatically once loading finishes."
+          : "載入完成後會自動繼續保存，不用再按一次。",
       });
       return false;
     }
@@ -5369,6 +5450,33 @@ export function QuotationDraftEditor({
     }
   };
 
+  /** 明細載入完成後，自動續做剛才按下的送出／保存（在最新一次 render 執行，讀到已載入的 items）。 */
+  const quoteActionHandlersRef = useRef({
+    submit: () => {},
+    save: async (): Promise<boolean> => false,
+  });
+  quoteActionHandlersRef.current = {
+    submit: handleOpenSubmitReview,
+    save: handleSaveExistingVersion,
+  };
+  useEffect(() => {
+    if (!itemsLoadedFromDb) return;
+    const action = pendingQuoteActionRef.current;
+    if (!action) return;
+    pendingQuoteActionRef.current = null;
+    if (action === "submit") quoteActionHandlersRef.current.submit();
+    else void quoteActionHandlersRef.current.save();
+  }, [itemsLoadedFromDb]);
+  useEffect(() => {
+    if (!itemsLoadFailed || !pendingQuoteActionRef.current) return;
+    pendingQuoteActionRef.current = null;
+    toast.error(quoteLocale === "en" ? "Quotation items could not load" : "報價明細未能載入", {
+      description: quoteLocale === "en"
+        ? "The send/save you requested was cancelled so no items are lost. Reload the items and try again."
+        : "剛才的送出／保存已取消，以免漏掉項目。請重新載入明細後再試。",
+    });
+  }, [itemsLoadFailed, quoteLocale]);
+
   // Warn on browser tab close / refresh while dirty.
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -5383,6 +5491,7 @@ export function QuotationDraftEditor({
 
   // Reset baseline when switching quotes.
   useEffect(() => {
+    pendingQuoteActionRef.current = null;
     baselineDraftRef.current = null;
     baselineSnapshotRef.current = null;
     setSnapshotReady(false);
@@ -6076,6 +6185,11 @@ export function QuotationDraftEditor({
                 <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
                 <span>{ui('正在載入報價內容與金額…', 'Loading quotation contents and totals…')}</span>
               </div>
+            ) : itemsLoadFailed && existingQuote?.quoteUuid ? (
+              <div role="alert" className="col-span-full flex min-h-10 items-center gap-2 px-1 font-body text-xs text-rose-600">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>{ui('報價明細未能載入，金額暫時無法計算。', 'Quotation items could not load, so totals are unavailable.')}</span>
+              </div>
             ) : [
               { label: `${t.grandTotal} HKD`, value: `$${totalAmount.toLocaleString()}`, tone: "total" },
               { label: "Cost", value: `$${totalProductCost.toLocaleString()}`, tone: "cost" },
@@ -6570,8 +6684,29 @@ export function QuotationDraftEditor({
                 <p className="mb-4 border-b border-border/80 pb-3 text-xs text-muted-foreground">
                   {quoteContentLoading
                     ? ui('正在載入報價項目…', 'Loading quotation items…')
-                    : <>{ui('產品項目', 'Products')} {productCount} · {ui('增值服務', 'Services')} {serviceCount} · {ui('備註標題', 'Titles')} {titleCount}{ui('；依報價單順序排列，可拖曳或上下移動調整位置。', '; drag or use the arrows to reorder items as they appear in the quotation.')}</>}
+                    : itemsLoadFailed && existingQuote?.quoteUuid
+                      ? ui('報價明細載入失敗，以下可能不是完整內容。', 'Items failed to load, so the list below may be incomplete.')
+                      : <>{ui('產品項目', 'Products')} {productCount} · {ui('增值服務', 'Services')} {serviceCount} · {ui('備註標題', 'Titles')} {titleCount}{ui('；依報價單順序排列，可拖曳或上下移動調整位置。', '; drag or use the arrows to reorder items as they appear in the quotation.')}</>}
                 </p>
+                {itemsLoadFailed && existingQuote?.quoteUuid && items.length > 0 ? (
+                  <div
+                    role="alert"
+                    className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 font-body text-xs text-rose-700"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      {ui('報價明細未完整載入，已暫停保存及送出，以免漏掉項目。', 'Items did not fully load. Saving and sending are paused so no items are lost.')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={retryQuoteItemsLoad}
+                      className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-rose-300 bg-white px-2 font-body text-xs font-medium text-rose-700 transition-colors hover:bg-rose-100"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 shrink-0" />
+                      {ui('重新載入明細', 'Reload items')}
+                    </button>
+                  </div>
+                ) : null}
                 <input
                   ref={floorPlanInputRef}
                   type="file"
@@ -6610,6 +6745,27 @@ export function QuotationDraftEditor({
                       <p className="font-body text-sm text-muted-foreground">
                         {ui('正在載入報價內容…', 'Loading quotation contents…')}
                       </p>
+                    </div>
+                  ) : itemsLoadFailed && existingQuote?.quoteUuid ? (
+                    <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-6 text-center">
+                      <AlertTriangle className="mx-auto h-5 w-5 text-rose-500" />
+                      <p className="mt-2 font-body text-sm font-medium text-rose-700">
+                        {ui('報價明細未能載入', 'Could not load quotation items')}
+                      </p>
+                      <p className="mx-auto mt-1 max-w-md font-body text-xs text-rose-600">
+                        {ui(
+                          '為免保存時漏掉項目，已暫停保存及送出。請先重新載入；如果仍然失敗，請重新整理頁面。',
+                          'Saving and sending are paused so no items are lost. Reload the items; if it still fails, refresh the page.',
+                        )}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={retryQuoteItemsLoad}
+                        className="mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-3 font-body text-sm font-medium text-rose-700 transition-colors hover:bg-rose-100"
+                      >
+                        <RefreshCw className="h-4 w-4 shrink-0" />
+                        {ui('重新載入明細', 'Reload items')}
+                      </button>
                     </div>
                   ) : (
                     <p className="py-8 text-center font-body text-sm text-muted-foreground">
@@ -8097,6 +8253,28 @@ export function QuotationDraftEditor({
         title={zoneLightbox?.title ?? t.uploadZoneImage}
         thumbWidth={96}
       />
+
+      {quoteContentLoading ? (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          onWheel={(event) => event.preventDefault()}
+          onTouchMove={(event) => event.preventDefault()}
+          className="fixed inset-0 z-50 flex touch-none flex-col items-center justify-center gap-3 overscroll-none bg-background/85 px-6 backdrop-blur-sm"
+        >
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="font-body text-sm font-medium text-foreground">
+            {ui('正在載入報價內容…', 'Loading quotation contents…')}
+          </p>
+          <p className="max-w-sm text-center font-body text-xs text-muted-foreground">
+            {ui(
+              '載入完成後即可繼續編輯、保存或送出審核。',
+              'Editing, saving and sending are available once loading finishes.',
+            )}
+          </p>
+        </div>
+      ) : null}
 
     </>
   );

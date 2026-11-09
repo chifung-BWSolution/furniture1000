@@ -44,6 +44,15 @@ import {
 import { PmsPitchingGate } from '@/components/dashboard/PmsPitchingGate';
 import { fetchLevel1CategoryOptions } from '@/lib/productCategoryOptions';
 import { isLegacyQFormatQuoteId } from '@/lib/quoteChainId';
+import {
+  itemsFromLegacyProjectData,
+  loadQuoteItems,
+  type BwfQuoteItemInput,
+} from '@/lib/bwfQuoteItems';
+import {
+  hydrateQuoteItemProductLinks,
+  normalizeLegacyQuoteItemProductId,
+} from '@/lib/quoteItemProductLink';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
@@ -208,7 +217,14 @@ export function QuickQuoteView({
   const [currentStep, setCurrentStep] = useState(1);
   const [isQuotationReady, setIsQuotationReady] = useState(false);
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
+  /** 報價單本文已到手、正在預載明細（bwf_quote_item），完成後才顯示編輯器。 */
+  const [isLoadingQuoteItems, setIsLoadingQuoteItems] = useState(false);
   const [quoteLoadError, setQuoteLoadError] = useState<string | null>(null);
+  /** 在顯示編輯器前載入好的明細；undefined 代表未預載，null 代表預載失敗。 */
+  const [prefetchedQuoteItems, setPrefetchedQuoteItems] = useState<{
+    quoteUuid: string;
+    items?: BwfQuoteItemInput[] | null;
+  } | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -709,6 +725,30 @@ export function QuickQuoteView({
           ),
         };
 
+        // 明細（bwf_quote_item）也在進編輯器前載好，頁面只會有一個 Loading。
+        // project_data 仍有舊版 items 時維持原行為：不預載，由編輯器直接沿用。
+        const loadedQuoteUuid = data.id as string;
+        const legacyHasItems =
+          itemsFromLegacyProjectData(projectDataToUse as Record<string, unknown>).length > 0;
+        if (!legacyHasItems) {
+          setIsLoadingQuoteItems(true);
+          try {
+            const rows = await loadQuoteItems(loadedQuoteUuid);
+            const prefetched = rows.length
+              ? await hydrateQuoteItemProductLinks(
+                  rows.map(normalizeLegacyQuoteItemProductId),
+                )
+              : [];
+            setPrefetchedQuoteItems({ quoteUuid: loadedQuoteUuid, items: prefetched });
+          } catch (itemsError) {
+            console.warn('[QuickQuoteView] loadQuoteItems failed', itemsError);
+            // 不要因為明細載入失敗就開不到報價單：讓編輯器顯示「重新載入明細」。
+            setPrefetchedQuoteItems({ quoteUuid: loadedQuoteUuid, items: null });
+          } finally {
+            setIsLoadingQuoteItems(false);
+          }
+        }
+
         const savedFormData = projectDataToUse.formData as
           | (Partial<QuoteFormData> & { projectName?: string; pitchingCode?: string })
           | undefined;
@@ -831,14 +871,18 @@ export function QuickQuoteView({
   // (or an open 提交審核 modal) on background re-fetch — that caused a black flash
   // and wiped in-progress wizard state when users later returned to step 1.
   const blockUiForInitialLoad =
-    (isLoadingQuote || isLoadingCopy || isLoadingPmsDefaults || Boolean(formData.pmsPitchingId || formData.pmsProjectId)) && !loadedQuoteData && !quoteLoadError && currentStep !== 3;
+    (isLoadingQuote || isLoadingQuoteItems || isLoadingCopy || isLoadingPmsDefaults || Boolean(formData.pmsPitchingId || formData.pmsProjectId)) && !loadedQuoteData && !quoteLoadError && currentStep !== 3;
   if (blockUiForInitialLoad) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <span className="font-mono-data text-xs text-muted-foreground">
-            {isLoadingCopy ? '載入複製內容中...' : '載入報價單中...'}
+            {isLoadingCopy
+              ? '載入複製內容中...'
+              : isLoadingQuoteItems
+                ? '載入報價內容中...'
+                : '載入報價單中...'}
           </span>
         </div>
       </div>
@@ -946,6 +990,12 @@ export function QuickQuoteView({
                 onEditingQuotePersisted?.(result.quoteId, result.quoteUuid, result.version);
               }}
               existingQuote={loadedQuoteData || undefined}
+              initialQuoteItems={
+                prefetchedQuoteItems &&
+                prefetchedQuoteItems.quoteUuid === loadedQuoteData?.quoteUuid
+                  ? prefetchedQuoteItems.items
+                  : undefined
+              }
               draftQuoteId={loadedQuoteData ? null : editingQuoteId}
             />
           </div>
