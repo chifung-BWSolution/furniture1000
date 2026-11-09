@@ -72,3 +72,68 @@ export function quoteCountdownOutcome(
   if (isClosedPitchingStage(stage)) return 'unsuccessful';
   return isQuoteUnsuccessful(remainingDays) ? 'unsuccessful' : 'active';
 }
+
+/**
+ * PMS `Recover Pitching` 會把階段改回 Enquiry，但保留 `enquiry_date`；
+ * 復原時間只寫入 `modified_date`。原本 45 日已過的話，由 `modified_date`
+ * 重新起算。未過原期限、已成功或已結案時回傳 null。
+ */
+export function pitchingReopenedAt(
+  enquiryDate: string | null | undefined,
+  modifiedDate: string | null | undefined,
+  stage: string | null | undefined,
+): string | null {
+  if (!enquiryDate || !modifiedDate) return null;
+  if (isWonPitchingStage(stage) || isClosedPitchingStage(stage)) return null;
+  const start = new Date(enquiryDate).getTime();
+  const modified = new Date(modifiedDate).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(modified)) return null;
+  return modified > start + QUOTE_COUNTDOWN_DAYS * DAY_MS
+    ? modifiedDate
+    : null;
+}
+
+/** PMS 提案倒數起點：原 `enquiry_date`，或復原後的 `modified_date`。 */
+export function pitchingCountdownStart(
+  enquiryDate: string | null | undefined,
+  modifiedDate: string | null | undefined,
+  stage: string | null | undefined,
+): string | null {
+  return (
+    pitchingReopenedAt(enquiryDate, modifiedDate, stage) ||
+    enquiryDate ||
+    null
+  );
+}
+
+/**
+ * 報價倒數起點：報價建立日期，或較遲的 PMS 提案復原日期。
+ * 報價在復原後才建立時，仍以報價建立日期為準。
+ */
+export function quoteCountdownStart(
+  quoteCreatedAt: string | null | undefined,
+  pitching:
+    | {
+        enquiry_date?: string | null;
+        modified_date?: string | null;
+        pitching_stages?: string | null;
+      }
+    | null
+    | undefined,
+): string | null {
+  const base = quoteCreatedAt || null;
+  const reopened = pitching
+    ? pitchingReopenedAt(
+        pitching.enquiry_date,
+        pitching.modified_date,
+        pitching.pitching_stages,
+      )
+    : null;
+  if (!base) return reopened;
+  if (!reopened) return base;
+  const baseMs = new Date(base).getTime();
+  const reopenedMs = new Date(reopened).getTime();
+  if (!Number.isFinite(baseMs)) return reopened;
+  if (!Number.isFinite(reopenedMs)) return base;
+  return reopenedMs > baseMs ? reopened : base;
+}

@@ -12,6 +12,20 @@ const corsHeaders = {
 
 /** SLA window used for 剩餘天數 (enquiry_date + 45 days; 過了即不成功). */
 const ENQUIRY_SLA_DAYS = 45;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const WON_STAGE_RE = /^(confirmed(\s*project)?|won|得標|已確認|成功)$/i;
+const CLOSED_STAGE_RE = /^(case\s*closed|closed|lost|結案|失敗|不成功)$/i;
+
+function isWonStage(stage: string | null | undefined): boolean {
+  const s = stage?.trim();
+  return Boolean(s && WON_STAGE_RE.test(s));
+}
+
+function isClosedStage(stage: string | null | undefined): boolean {
+  const s = stage?.trim();
+  return Boolean(s && !isWonStage(s) && CLOSED_STAGE_RE.test(s));
+}
 
 /** Same industry collection as fetch-pms-pitching-quote-defaults / 客戶產業 *. */
 const INDUSTRY_COLLECTION_ID = "4f5de598-2dcb-45a6-a106-9d933e9a8007";
@@ -78,15 +92,38 @@ async function quotationIdsWithFurnitureItems(
   ];
 }
 
-function remainingDaysFromEnquiry(enquiryDate: string | null): number | null {
+/**
+ * PMS `Recover Pitching` keeps `enquiry_date` and writes the recovery time to
+ * `modified_date`. Once the original 45-day window has expired, restart the
+ * countdown from `modified_date`.
+ */
+function pitchingCountdownStart(
+  enquiryDate: string | null,
+  modifiedDate: string | null,
+  stage: string | null,
+): string | null {
   if (!enquiryDate) return null;
-  const start = new Date(enquiryDate);
+  if (!modifiedDate) return enquiryDate;
+  if (isWonStage(stage) || isClosedStage(stage)) return enquiryDate;
+  const start = new Date(enquiryDate).getTime();
+  const modified = new Date(modifiedDate).getTime();
+  if (Number.isNaN(start) || Number.isNaN(modified)) return enquiryDate;
+  return modified > start + ENQUIRY_SLA_DAYS * DAY_MS
+    ? modifiedDate
+    : enquiryDate;
+}
+
+function remainingDaysFromEnquiry(
+  enquiryDate: string | null,
+  modifiedDate: string | null = null,
+  stage: string | null = null,
+): number | null {
+  const startedAt = pitchingCountdownStart(enquiryDate, modifiedDate, stage);
+  if (!startedAt) return null;
+  const start = new Date(startedAt);
   if (Number.isNaN(start.getTime())) return null;
-  const deadline = new Date(start.getTime());
-  deadline.setUTCDate(deadline.getUTCDate() + ENQUIRY_SLA_DAYS);
-  const now = new Date();
-  const ms = deadline.getTime() - now.getTime();
-  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+  const deadline = start.getTime() + ENQUIRY_SLA_DAYS * DAY_MS;
+  return Math.ceil((deadline - Date.now()) / DAY_MS);
 }
 
 Deno.serve(async (req: Request) => {
@@ -231,7 +268,7 @@ Deno.serve(async (req: Request) => {
     let query = pmsAdmin
       .from("bwf_pitchings")
       .select(
-        "id, pitching_code, pitching_name, customer_id, real_customer_display_name, real_customer_name, main_pm_id, main_designer_id, pitching_stages, estimated_income, estimated_expense, enquiry_date, n_customer_type_id, n_bwf_service_types_id, asana_link",
+        "id, pitching_code, pitching_name, customer_id, real_customer_display_name, real_customer_name, main_pm_id, main_designer_id, pitching_stages, estimated_income, estimated_expense, enquiry_date, modified_date, n_customer_type_id, n_bwf_service_types_id, asana_link",
       )
       .order("enquiry_date", { ascending: false, nullsFirst: false })
       .order("id", { ascending: true });
@@ -405,6 +442,8 @@ Deno.serve(async (req: Request) => {
       const customerTypeId = (r.n_customer_type_id as string | null) || null;
       const serviceTypeId = (r.n_bwf_service_types_id as string | null) || null;
       const enquiryDate = (r.enquiry_date as string | null) || null;
+      const modifiedDate = (r.modified_date as string | null) || null;
+      const pitchingStage = (r.pitching_stages as string | null) || null;
       const income = r.estimated_income ?? null;
       const expense = r.estimated_expense ?? null;
       let estimatedGp: number | null = null;
@@ -429,12 +468,17 @@ Deno.serve(async (req: Request) => {
         main_designer_name: designerId
           ? staffNameById.get(designerId) || null
           : null,
-        pitching_stages: (r.pitching_stages as string | null) || null,
+        pitching_stages: pitchingStage,
         estimated_income: income,
         estimated_expense: expense,
         estimated_gross_profit: estimatedGp,
         enquiry_date: enquiryDate,
-        remaining_days: remainingDaysFromEnquiry(enquiryDate),
+        modified_date: modifiedDate,
+        remaining_days: remainingDaysFromEnquiry(
+          enquiryDate,
+          modifiedDate,
+          pitchingStage,
+        ),
         customer_type: customerTypeId
           ? customerTypeById.get(customerTypeId) || null
           : null,

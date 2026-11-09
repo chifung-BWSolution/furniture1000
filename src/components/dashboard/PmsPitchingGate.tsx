@@ -28,6 +28,8 @@ import {
 import {
   countdownRemainingDays,
   isClosedPitchingStage,
+  pitchingCountdownStart,
+  pitchingReopenedAt,
   QUOTE_COUNTDOWN_DAYS,
   quoteCountdownOutcome,
 } from '@/lib/quoteCountdown';
@@ -125,8 +127,22 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
           );
         case 'remaining_days':
           return compareNullable(
-            countdownRemainingDays(a.enquiry_date, QUOTE_COUNTDOWN_DAYS),
-            countdownRemainingDays(b.enquiry_date, QUOTE_COUNTDOWN_DAYS),
+            countdownRemainingDays(
+              pitchingCountdownStart(
+                a.enquiry_date,
+                a.modified_date,
+                a.pitching_stages,
+              ),
+              QUOTE_COUNTDOWN_DAYS,
+            ),
+            countdownRemainingDays(
+              pitchingCountdownStart(
+                b.enquiry_date,
+                b.modified_date,
+                b.pitching_stages,
+              ),
+              QUOTE_COUNTDOWN_DAYS,
+            ),
             sortDir,
           );
         case 'customer_type':
@@ -247,8 +263,17 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
             sortedItems.map((item) => {
               const selected = activeId === item.id;
               const title = pitchingDisplayTitle(item);
-              const days = countdownRemainingDays(
+              const reopenedAt = pitchingReopenedAt(
                 item.enquiry_date,
+                item.modified_date,
+                item.pitching_stages,
+              );
+              const days = countdownRemainingDays(
+                pitchingCountdownStart(
+                  item.enquiry_date,
+                  item.modified_date,
+                  item.pitching_stages,
+                ),
                 QUOTE_COUNTDOWN_DAYS,
               );
               const outcome = quoteCountdownOutcome(
@@ -300,7 +325,9 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
                               ? `提案已結案（${item.pitching_stages}）`
                               : unsuccessful
                                 ? `已超過 ${QUOTE_COUNTDOWN_DAYS} 日，報價不成功`
-                                : `由查詢日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
+                                : reopenedAt
+                                  ? `提案已復原，由 ${formatListDate(reopenedAt)} 重新計 ${QUOTE_COUNTDOWN_DAYS} 日`
+                                  : `由查詢日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
                         }
                       >
                         <Clock className="h-3.5 w-3.5" />

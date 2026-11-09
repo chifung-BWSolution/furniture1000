@@ -50,8 +50,10 @@ import { formatClientIndustryLabel } from '@/lib/clientIndustryDisplay';
 import { normalizeQuoteDateInput } from '@/lib/quotationLocale';
 import {
   isClosedPitchingStage,
+  pitchingReopenedAt,
   QUOTE_COUNTDOWN_DAYS,
   quoteCountdownOutcome,
+  quoteCountdownStart,
   quoteRemainingDays,
 } from '@/lib/quoteCountdown';
 import { moveQuoteToTrash, QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
@@ -452,8 +454,8 @@ export function QuotationListView({
         }
         case 'remaining_days':
           return compareNullable(
-            quoteRemainingDays(quoteCreatedAt(a)),
-            quoteRemainingDays(quoteCreatedAt(b)),
+            quoteRemainingDays(quoteCountdownStart(quoteCreatedAt(a), a.pitching)),
+            quoteRemainingDays(quoteCountdownStart(quoteCreatedAt(b), b.pitching)),
             sortDir,
           );
         case 'customer_type':
@@ -729,7 +731,19 @@ export function QuotationListView({
                 const createdDate = quoteCreatedAt(quote);
                 const isLatestExpanded = expanded && showExpandControl;
                 const isOldExpanded = expanded && isOlderVersion;
-                const days = isOldExpanded ? null : quoteRemainingDays(createdDate);
+                const reopenedAt =
+                  !isOldExpanded && quote.pitching
+                    ? pitchingReopenedAt(
+                        quote.pitching.enquiry_date,
+                        quote.pitching.modified_date,
+                        quote.pitching.pitching_stages,
+                      )
+                    : null;
+                const days = isOldExpanded
+                  ? null
+                  : quoteRemainingDays(
+                      quoteCountdownStart(createdDate, quote.pitching),
+                    );
                 const stage = quote.pitching?.pitching_stages;
                 const outcome = isOldExpanded
                   ? 'active'
@@ -870,7 +884,9 @@ export function QuotationListView({
                                 ? `提案已結案（${stage}）`
                                 : unsuccessful
                                   ? `已超過 ${QUOTE_COUNTDOWN_DAYS} 日，報價不成功`
-                                  : `由建立日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
+                                  : reopenedAt
+                                    ? `提案已復原，由 ${formatListDate(reopenedAt)} 重新計 ${QUOTE_COUNTDOWN_DAYS} 日`
+                                    : `由建立日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
                           }
                         >
                           <Clock className="h-3.5 w-3.5" />
