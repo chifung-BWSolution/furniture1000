@@ -48,6 +48,7 @@ import { collectStaffNamesFromQuoteRows } from '@/lib/quoteStaffOptions';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { formatClientIndustryLabel } from '@/lib/clientIndustryDisplay';
 import { normalizeQuoteDateInput } from '@/lib/quotationLocale';
+import { isQuoteUnsuccessful, QUOTE_COUNTDOWN_DAYS, quoteRemainingDays } from '@/lib/quoteCountdown';
 import { moveQuoteToTrash, QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
 import { BwfInquiryReplyPanel } from '@/components/dashboard/BwfInquiryReplyPanel';
 import { QuoteEmailFollowUpModal } from '@/components/dashboard/QuoteEmailFollowUpModal';
@@ -446,8 +447,8 @@ export function QuotationListView({
         }
         case 'remaining_days':
           return compareNullable(
-            a.pitching?.remaining_days ?? null,
-            b.pitching?.remaining_days ?? null,
+            quoteRemainingDays(quoteCreatedAt(a)),
+            quoteRemainingDays(quoteCreatedAt(b)),
             sortDir,
           );
         case 'customer_type':
@@ -720,10 +721,11 @@ export function QuotationListView({
                 const selected = activeId === quote.id;
                 const title = quoteDisplayName(quote);
                 const code = quoteCode(quote);
-                const days = quote.pitching?.remaining_days ?? null;
                 const createdDate = quoteCreatedAt(quote);
                 const isLatestExpanded = expanded && showExpandControl;
                 const isOldExpanded = expanded && isOlderVersion;
+                const days = isOldExpanded ? null : quoteRemainingDays(createdDate);
+                const unsuccessful = isQuoteUnsuccessful(days);
 
                 const openQuote = () =>
                   onOpenQuote?.(quote.quote_id, {
@@ -843,15 +845,20 @@ export function QuotationListView({
                         <span
                           className={cn(
                             'inline-flex items-center gap-1 font-body text-xs font-medium',
-                            days < 0
+                            unsuccessful
                               ? 'text-rose-600'
                               : days <= 14
                                 ? 'text-amber-600'
                                 : 'text-emerald-600',
                           )}
+                          title={
+                            unsuccessful
+                              ? `已超過 ${QUOTE_COUNTDOWN_DAYS} 日，報價不成功`
+                              : `由建立日期起計 ${QUOTE_COUNTDOWN_DAYS} 日`
+                          }
                         >
                           <Clock className="h-3.5 w-3.5" />
-                          {days} 天
+                          {unsuccessful ? '不成功' : `${days} 天`}
                         </span>
                       )}
                     </td>
