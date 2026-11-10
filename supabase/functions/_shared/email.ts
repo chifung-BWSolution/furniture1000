@@ -39,13 +39,7 @@ export function isSafeEmail(value: string): boolean {
   return /^[^\s<>"]+@[^\s<>"]+\.[^\s<>"]+$/.test(value);
 }
 
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+export { escapeHtml } from "./escapeHtml.ts";
 
 function toBase64(value: string): string {
   return btoa(unescape(encodeURIComponent(value)));

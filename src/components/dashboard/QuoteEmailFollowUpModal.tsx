@@ -7,11 +7,11 @@ import { Modal } from '@/components/ui/modal';
 import { Textarea } from '@/components/ui/textarea';
 import { confirm } from '@/components/ui/confirm-dialog';
 import { buildCustomerPortalQuoteShareUrl } from '@/lib/customerPortalRoutes';
+import { buildQuoteCustomerEmail } from '../../../supabase/functions/_shared/quoteCustomerEmail.ts';
 import { fetchPmsPitchings } from '@/lib/pmsPitchings';
 import {
   QUOTE_EMAIL_PROBLEM_TEXT,
   QUOTE_EMAIL_STATUS_LABELS,
-  buildQuoteEmailSections,
   dispatchQuoteEmailsNow,
   loadQuoteEmailStatus,
   formatPmWorkPhone,
@@ -105,15 +105,17 @@ export function QuoteEmailFollowUpModal({
     return origin ? buildCustomerPortalQuoteShareUrl(origin, status.share_token) : '';
   }, [status?.share_token]);
 
-  const previewSections = useMemo(() => buildQuoteEmailSections({
-    itemCount: status?.item_count ?? 0,
-    totalCents: Math.round((status?.total_amount ?? 0) * 100),
-    sampleItems: status?.sample_items ?? null,
+  const customerEmail = useMemo(() => buildQuoteCustomerEmail({
+    kind: 'manual',
+    quoteId: quote?.quoteId || '',
     introText: intro,
     contactPhone: phone,
-    quoteUrl,
     customSections: sections,
-  }), [status, intro, phone, quoteUrl, sections]);
+    itemCount: status?.item_count ?? 0,
+    totalAmount: status?.total_amount ?? 0,
+    sampleItems: status?.sample_items ?? null,
+    shareUrl: quoteUrl,
+  }), [quote?.quoteId, intro, phone, sections, status?.item_count, status?.total_amount, status?.sample_items, quoteUrl]);
 
   const problem = quoteEmailReadiness({ recipient, contactPhone: phone, shareToken: status?.share_token ?? null });
   const statusLabel = QUOTE_EMAIL_STATUS_LABELS[status?.status ?? 'not_sent'];
@@ -217,7 +219,8 @@ export function QuoteEmailFollowUpModal({
       icon={<Mail className="h-6 w-6" />}
       title="郵件模板與跟進"
       description={quote ? `${quote.quoteId}${quote.clientName ? ` · ${quote.clientName}` : ''}` : undefined}
-      size="4xl"
+      size="full"
+      bodyClassName="overflow-hidden"
       footer={
         <>
           <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => onOpenChange(false)}>
@@ -239,7 +242,8 @@ export function QuoteEmailFollowUpModal({
           <Loader2 className="h-4 w-4 animate-spin" /> 正在讀取郵件狀態
         </p>
       ) : (
-        <div className="space-y-4">
+        <div className="grid h-[min(70vh,760px)] gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,1fr)]">
+        <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
           {error ? <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {!error && problem ? (
             <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -345,17 +349,6 @@ export function QuoteEmailFollowUpModal({
             ))}
           </div>
 
-          <div className="space-y-2 rounded-lg border bg-background p-3">
-            <p className="text-sm font-medium">郵件內容預覽</p>
-            <p className="text-xs text-muted-foreground">固定三段不可刪除；發送時會用這張單當下的模板與報價現況。按「立即發送」會即時寄出，寄不出時留在隊列，15 分鐘內自動補寄。</p>
-            {previewSections.map((section) => (
-              <div key={section.key} className="rounded-md border border-border/60 px-2.5 py-2">
-                <p className="text-xs font-semibold text-foreground">{section.label}</p>
-                <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">{section.body}</p>
-              </div>
-            ))}
-          </div>
-
           {status?.messages.length ? (
             <div className="space-y-1">
               <p className="text-sm font-medium">發送紀錄</p>
@@ -389,6 +382,20 @@ export function QuoteEmailFollowUpModal({
               </ul>
             </div>
           ) : null}
+        </div>
+        <aside className="flex min-h-[28rem] flex-col overflow-hidden rounded-xl border bg-white lg:min-h-0">
+          <div className="border-b bg-slate-50 px-3 py-2.5">
+            <p className="text-sm font-medium text-slate-900">客戶收到的郵件</p>
+            <p className="mt-1 text-xs text-slate-500">主旨：{customerEmail.subject}</p>
+            <p className="truncate text-xs text-slate-500">收件：{recipient.trim() || '（未填收件電郵）'}</p>
+          </div>
+          <iframe
+            title="客戶收到的郵件"
+            sandbox=""
+            srcDoc={customerEmail.html}
+            className="min-h-0 w-full flex-1 bg-[#F1F5FC]"
+          />
+        </aside>
         </div>
       )}
     </Modal>

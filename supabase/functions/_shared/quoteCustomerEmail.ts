@@ -5,7 +5,7 @@
  * always reflects the latest intro/custom sections stored on the quote.
  */
 
-import { escapeHtml } from "./email.ts";
+import { escapeHtml } from "./escapeHtml.ts";
 import {
   companyFooterText,
   EMAIL_FONT_STACK,

@@ -7,7 +7,7 @@
  * the logo is the public BW Furniture PNG on the production site.
  */
 
-import { escapeHtml } from "./email.ts";
+import { escapeHtml } from "./escapeHtml.ts";
 
 export const BRAND_LOGO_URL = "https://www.bwteam-furniture.com/assets/bwf-logo.png";
 
