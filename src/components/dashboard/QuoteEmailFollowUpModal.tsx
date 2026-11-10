@@ -7,12 +7,14 @@ import { Modal } from '@/components/ui/modal';
 import { Textarea } from '@/components/ui/textarea';
 import { confirm } from '@/components/ui/confirm-dialog';
 import { buildCustomerPortalQuoteShareUrl } from '@/lib/customerPortalRoutes';
+import { fetchPmsPitchings } from '@/lib/pmsPitchings';
 import {
   QUOTE_EMAIL_PROBLEM_TEXT,
   QUOTE_EMAIL_STATUS_LABELS,
   buildQuoteEmailSections,
   dispatchQuoteEmailsNow,
   loadQuoteEmailStatus,
+  formatPmWorkPhone,
   normalizeCustomQuoteEmailSections,
   quoteEmailErrorMessage,
   quoteEmailReadiness,
@@ -28,6 +30,8 @@ export interface QuoteEmailFollowUpQuote {
   quoteId: string;
   clientEmail?: string | null;
   clientName?: string | null;
+  /** PMS pitching id. Used to fill the PM work mobile when the template has none. */
+  pitchingId?: string | null;
 }
 
 /**
@@ -56,6 +60,7 @@ export function QuoteEmailFollowUpModal({
   const [sections, setSections] = useState<QuoteEmailCustomSection[]>([]);
 
   const quoteId = quote?.id ?? '';
+  const pitchingId = quote?.pitchingId?.trim() || '';
 
   useEffect(() => {
     if (!open || !quoteId) return;
@@ -64,11 +69,19 @@ export function QuoteEmailFollowUpModal({
     setError('');
     setStatus(null);
     void loadQuoteEmailStatus(quoteId)
-      .then((data) => {
+      .then(async (data) => {
         if (cancelled) return;
         setStatus(data);
         setIntro(data?.intro_text ?? '');
-        setPhone(data?.contact_phone ?? '');
+        const savedPhone = data?.contact_phone?.trim() ?? '';
+        if (savedPhone) {
+          setPhone(savedPhone);
+        } else if (pitchingId) {
+          const pitchings = await fetchPmsPitchings({ ids: [pitchingId], limit: 1 });
+          if (!cancelled) setPhone(formatPmWorkPhone(pitchings[0]?.main_pm_phone));
+        } else {
+          setPhone('');
+        }
         setRecipient(data?.recipient_email || quote?.clientEmail || '');
         setSections(normalizeCustomQuoteEmailSections(data?.custom_sections));
       })
@@ -84,7 +97,7 @@ export function QuoteEmailFollowUpModal({
     // Only reload when the modal opens or a different quote is targeted; parent
     // re-renders must not reset what the user is editing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, quoteId]);
+  }, [open, quoteId, pitchingId]);
 
   const quoteUrl = useMemo(() => {
     if (!status?.share_token) return '';

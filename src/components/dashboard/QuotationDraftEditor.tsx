@@ -7618,6 +7618,7 @@ export function QuotationDraftEditor({
           quoteId: shareQuoteId || quoteId,
           clientEmail: clientInfo.email || null,
           clientName: clientInfo.name || null,
+          pitchingId: formData.pmsPitchingId || existingQuote?.bwfPitchingId || null,
         } : null}
         onOpenChange={setEmailModalOpen}
       />

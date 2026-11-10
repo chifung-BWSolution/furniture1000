@@ -332,17 +332,22 @@ Deno.serve(async (req: Request) => {
     ];
 
     const staffNameById = new Map<string, string>();
+    // OTC staff.work_phone is mirrored onto PMS staff.work_phone (the work mobile).
+    // private_phone stays off this response.
+    const staffWorkPhoneById = new Map<string, string>();
     if (staffIds.length > 0) {
       const { data: staffRows, error: staffError } = await pmsAdmin
         .from("staff")
-        .select("id, name")
+        .select("id, name, work_phone")
         .in("id", staffIds);
       if (staffError) {
         console.warn("[fetch-pms-pitchings] staff lookup:", staffError.message);
       } else {
         for (const s of staffRows || []) {
           const name = String(s.name || "").trim();
+          const phone = String(s.work_phone || "").trim();
           if (s.id && name) staffNameById.set(s.id as string, name);
+          if (s.id && phone) staffWorkPhoneById.set(s.id as string, phone);
         }
       }
     }
@@ -464,6 +469,7 @@ Deno.serve(async (req: Request) => {
         customer_name: customerName,
         main_pm_id: pmId,
         main_pm_name: pmId ? staffNameById.get(pmId) || null : null,
+        main_pm_phone: pmId ? staffWorkPhoneById.get(pmId) || null : null,
         main_designer_id: designerId,
         main_designer_name: designerId
           ? staffNameById.get(designerId) || null

@@ -113,6 +113,22 @@ export const QUOTE_EMAIL_PROBLEM_TEXT: Record<QuoteEmailProblem, string> = {
 
 const EMAIL_PATTERN = /^[^@<>"\s]+@[^@<>"\s]+\.[^@<>"\s]+$/;
 
+/**
+ * OTC work mobile arrives as PMS `staff.work_phone`.
+ * An 8-digit Hong Kong number is shown as +852 XXXX XXXX. Shorter values are
+ * extensions, not a number a customer can call, so they stay blank.
+ */
+export function formatPmWorkPhone(raw: string | null | undefined): string {
+  const text = String(raw ?? '').trim();
+  if (!text) return '';
+  if (text.startsWith('+')) return text.slice(0, 40);
+  const digits = text.replace(/\D/g, '');
+  const local = digits.length === 11 && digits.startsWith('852') ? digits.slice(3) : digits;
+  if (local.length === 8) return `+852 ${local.slice(0, 4)} ${local.slice(4)}`;
+  if (digits.length >= 8) return text.slice(0, 40);
+  return '';
+}
+
 export function isQuoteEmailAddress(value: string): boolean {
   const text = value.trim();
   return text.length > 0 && text.length <= 320 && EMAIL_PATTERN.test(text);

@@ -1153,6 +1153,7 @@ export function QuotationListView({
           clientName: emailTarget.project_data?.clientInfo?.name
             ?? emailTarget.project_data?.formData?.clientName
             ?? null,
+          pitchingId: emailTarget.pitching?.id ?? null,
         } : null}
         onOpenChange={(open) => {
           if (!open) setEmailTarget(null);

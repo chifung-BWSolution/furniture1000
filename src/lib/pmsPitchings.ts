@@ -8,6 +8,8 @@ export interface PmsPitchingListItem {
   customer_name: string | null;
   main_pm_id: string | null;
   main_pm_name: string | null;
+  /** OTC work mobile, via PMS staff.work_phone. */
+  main_pm_phone?: string | null;
   main_designer_id?: string | null;
   main_designer_name?: string | null;
   pitching_stages: string | null;
@@ -146,6 +148,7 @@ function mapPitchingRows(items: unknown[]): PmsPitchingListItem[] {
         customer_name: r.customer_name ? String(r.customer_name) : null,
         main_pm_id: r.main_pm_id ? String(r.main_pm_id) : null,
         main_pm_name: r.main_pm_name ? String(r.main_pm_name) : null,
+        main_pm_phone: r.main_pm_phone ? String(r.main_pm_phone) : null,
         main_designer_id: r.main_designer_id
           ? String(r.main_designer_id)
           : null,
