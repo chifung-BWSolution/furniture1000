@@ -28,6 +28,7 @@ import {
   Inbox,
   Layers,
   Loader2,
+  Mail,
   PackagePlus,
   PackageSearch,
   Palette,
@@ -231,6 +232,8 @@ import {
 import { requestQuoteOpen } from "@/lib/quoteOpenRequests";
 import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
 import { ensureQuoteShareLink } from "@/lib/bwfQuoteShareLinks";
+import { QuoteEmailFollowUpModal } from "@/components/dashboard/QuoteEmailFollowUpModal";
+import { usePlatformRole } from "@/hooks/use-platform-role";
 import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
 import {
   buildDraftProductFromQuoteItem,
@@ -2760,6 +2763,8 @@ export function QuotationDraftEditor({
 }: QuotationDraftEditorProps) {
   const ui = (zh: string, en: string) => quoteLocale === 'en' ? en : zh;
   const { user } = useAuth();
+  const { profileRole } = usePlatformRole();
+  const canUseQuoteEmail = ['admin', 'uploader', 'pm'].includes((profileRole ?? '').toLowerCase());
   const staffName = usePmsStaffName(user?.id);
   /** 組件卸載後（用戶已切去其他頁面）toast 的 action 仍可被點，需要知道是否還在報價單頁。 */
   const mountedRef = useRef(false);
@@ -2839,6 +2844,7 @@ export function QuotationDraftEditor({
   /** 當日匯率快取 — 同一次工作階段重開彈窗不再重新抓。 */
   const todayRateRef = useRef<number | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
   const { settings: formatSettings } = useQuoteFormatSettings();
   const [quoteShare, setQuoteShare] = useState<
     { quoteUuid: string; url: string; qr: string } | { quoteUuid: string; error: string } | null
@@ -6147,6 +6153,18 @@ export function QuotationDraftEditor({
                   )}
                   {t.getQuoteQrCode}
                 </button>
+                {canUseQuoteEmail ? (
+                  <button
+                    type="button"
+                    disabled={!canShareQuote}
+                    title={canShareQuote ? t.emailCustomer : t.emailCustomerNeedSave}
+                    onClick={() => setEmailModalOpen(true)}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Mail className="h-4 w-4" />
+                    <span className="truncate">{t.emailCustomer}</span>
+                  </button>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
@@ -7592,6 +7610,17 @@ export function QuotationDraftEditor({
           }}
         />
       ) : null}
+
+      <QuoteEmailFollowUpModal
+        open={emailModalOpen && canShareQuote}
+        quote={canShareQuote ? {
+          id: shareQuoteUuid,
+          quoteId: shareQuoteId || quoteId,
+          clientEmail: clientInfo.email || null,
+          clientName: clientInfo.name || null,
+        } : null}
+        onOpenChange={setEmailModalOpen}
+      />
 
       <Modal
         open={shareModalOpen}
