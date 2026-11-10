@@ -4054,7 +4054,6 @@ export function QuotationDraftEditor({
       !clientInfo.name.trim() && '公司名稱',
       !clientInfo.phone.trim() && '客戶電話',
       formData.clientIndustry.length === 0 && '客戶產業',
-      formData.serviceScope.length === 0 && '辦公室傢俬類別',
       !/^\d+$/.test(quoteMeta.validity.trim()) && '有效期限（天）',
       clientInfo.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientInfo.email) && '有效的客戶電郵',
     ].filter(Boolean);
