@@ -129,6 +129,58 @@ export function formatPmWorkPhone(raw: string | null | undefined): string {
   return '';
 }
 
+export interface QuoteEmailContactSource {
+  clientEmail: string;
+  /** 報價「公司資訊」裡已保存的負責同事電話。 */
+  companyPhone: string;
+}
+
+/**
+ * 列表列沒有整份 project_data。收件電郵與負責同事電話要從這張報價已保存的欄位讀，
+ * 不能只靠父層暫存（列表投影沒有這兩欄）。
+ */
+export async function loadQuoteEmailContactSource(quoteUuid: string): Promise<QuoteEmailContactSource> {
+  const { data, error } = await supabase
+    .from('bwf_quote')
+    .select(
+      [
+        'client_info_email:project_data->clientInfo->>email',
+        'form_email:project_data->formData->>clientEmail',
+        'company_phone:project_data->companyInfo->>phone',
+      ].join(','),
+    )
+    .eq('id', quoteUuid)
+    .maybeSingle();
+  if (error) throw new Error(quoteEmailErrorMessage(error));
+  const row = (data ?? {}) as Record<string, unknown>;
+  const clientEmail = String(row.client_info_email || row.form_email || '').trim();
+  const companyPhone = String(row.company_phone || '').trim().slice(0, 40);
+  return { clientEmail, companyPhone };
+}
+
+/** 已寄過的地址優先；否則用畫面正在編的電郵，再否則用報價上已保存的客戶電郵。 */
+export function resolveQuoteEmailRecipient(input: {
+  savedRecipient?: string | null;
+  editorEmail?: string | null;
+  storedEmail?: string | null;
+}): string {
+  return String(input.savedRecipient || input.editorEmail || input.storedEmail || '').trim();
+}
+
+/**
+ * 電話取這張報價已有的負責同事電話。範本已保存的優先，
+ * 其次是報價公司電話，最後才是 PMS 工作手機。
+ */
+export function resolveQuoteEmailPhone(input: {
+  templatePhone?: string | null;
+  companyPhone?: string | null;
+  pmWorkPhone?: string | null;
+}): string {
+  const template = String(input.templatePhone ?? '').trim();
+  if (template) return template.slice(0, 40);
+  return formatPmWorkPhone(input.companyPhone) || formatPmWorkPhone(input.pmWorkPhone);
+}
+
 export function isQuoteEmailAddress(value: string): boolean {
   const text = value.trim();
   return text.length > 0 && text.length <= 320 && EMAIL_PATTERN.test(text);

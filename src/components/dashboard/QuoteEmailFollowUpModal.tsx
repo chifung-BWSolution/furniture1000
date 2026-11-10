@@ -13,8 +13,10 @@ import {
   QUOTE_EMAIL_PROBLEM_TEXT,
   QUOTE_EMAIL_STATUS_LABELS,
   dispatchQuoteEmailsNow,
+  loadQuoteEmailContactSource,
   loadQuoteEmailStatus,
-  formatPmWorkPhone,
+  resolveQuoteEmailPhone,
+  resolveQuoteEmailRecipient,
   normalizeCustomQuoteEmailSections,
   quoteEmailErrorMessage,
   quoteEmailReadiness,
@@ -30,7 +32,9 @@ export interface QuoteEmailFollowUpQuote {
   quoteId: string;
   clientEmail?: string | null;
   clientName?: string | null;
-  /** PMS pitching id. Used to fill the PM work mobile when the template has none. */
+  /** 報價公司資訊裡的負責同事電話。編輯中尚未保存時由父層傳入。 */
+  contactPhone?: string | null;
+  /** PMS pitching id. Used to fill the PM work mobile when the quote has none. */
   pitchingId?: string | null;
 }
 
@@ -68,21 +72,34 @@ export function QuoteEmailFollowUpModal({
     setLoading(true);
     setError('');
     setStatus(null);
-    void loadQuoteEmailStatus(quoteId)
-      .then(async (data) => {
+    void Promise.all([
+      loadQuoteEmailStatus(quoteId),
+      loadQuoteEmailContactSource(quoteId).catch(() => ({ clientEmail: '', companyPhone: '' })),
+    ])
+      .then(async ([data, source]) => {
         if (cancelled) return;
         setStatus(data);
         setIntro(data?.intro_text ?? '');
-        const savedPhone = data?.contact_phone?.trim() ?? '';
-        if (savedPhone) {
-          setPhone(savedPhone);
+        const companyPhone = quote?.contactPhone?.trim() || source.companyPhone;
+        const fromQuote = resolveQuoteEmailPhone({
+          templatePhone: data?.contact_phone,
+          companyPhone,
+        });
+        if (fromQuote) {
+          setPhone(fromQuote);
         } else if (pitchingId) {
           const pitchings = await fetchPmsPitchings({ ids: [pitchingId], limit: 1 });
-          if (!cancelled) setPhone(formatPmWorkPhone(pitchings[0]?.main_pm_phone));
+          if (!cancelled) {
+            setPhone(resolveQuoteEmailPhone({ pmWorkPhone: pitchings[0]?.main_pm_phone }));
+          }
         } else {
           setPhone('');
         }
-        setRecipient(data?.recipient_email || quote?.clientEmail || '');
+        setRecipient(resolveQuoteEmailRecipient({
+          savedRecipient: data?.recipient_email,
+          editorEmail: quote?.clientEmail,
+          storedEmail: source.clientEmail,
+        }));
         setSections(normalizeCustomQuoteEmailSections(data?.custom_sections));
       })
       .catch((err: unknown) => {
