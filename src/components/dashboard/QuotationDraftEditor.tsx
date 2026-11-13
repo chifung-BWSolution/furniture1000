@@ -3,8 +3,9 @@ import { ProductPlacementPicker, FurniturePlacementDialog } from './QuoteFurnitu
 import { DEFAULT_LAYOUT_STYLE, detectedLayoutNotes, generateZoneLayoutImage, layoutZones, type LayoutReview, type LayoutRenderProgress, type LayoutRenderRevision, type LayoutZone } from '@/lib/quoteLayoutRender';
 import { Button } from '@/components/ui/button';
 import { confirm } from '@/components/ui/confirm-dialog';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { QuoteLayoutRenderDialog } from './QuoteLayoutRenderDialog';
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useReducer, useSyncExternalStore, type ReactNode } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useReducer, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import QRCode from "qrcode";
 import "./quotation-draft-editor.css";
@@ -2745,6 +2746,96 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
   };
 }
 
+type CostBreakdownLine = {
+  key: string;
+  name: string;
+  unitCost: number;
+  quantity: number;
+  lineCost: number;
+};
+
+/**
+ * Shared hover card for the Cost totals (header metric + fee summary card).
+ * The list scrolls inside a viewport-capped panel so it never runs off screen.
+ */
+function CostBreakdownHoverCard({
+  children,
+  lines,
+  unpricedCount,
+  total,
+  english,
+}: {
+  children: ReactElement;
+  lines: CostBreakdownLine[];
+  unpricedCount: number;
+  total: number;
+  english: boolean;
+}) {
+  const label = (zh: string, en: string) => (english ? en : zh);
+  return (
+    <HoverCard openDelay={120} closeDelay={120}>
+      <HoverCardTrigger asChild>{children}</HoverCardTrigger>
+      <HoverCardContent
+        side="bottom"
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
+        className="group w-[min(92vw,20rem)] border-0 bg-transparent p-0 shadow-none"
+      >
+        {/* 小三角：旋轉 45° 的方塊；上半在卡片外，下半與 header / footer 同色，視覺上與卡片連成一體 */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute left-6 top-0 hidden h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-l border-t border-[hsl(var(--border))] bg-muted group-data-[side=bottom]:block"
+        />
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-0 left-6 hidden h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rotate-45 border-b border-r border-[hsl(var(--border))] bg-popover group-data-[side=top]:block"
+        />
+        <div className="flex max-h-[min(70vh,24rem)] w-full flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-[0_18px_45px_-12px_rgba(15,23,42,0.4),0_4px_12px_-4px_rgba(15,23,42,0.22)]">
+          <div className="border-b bg-muted px-3 py-2">
+            <p className="font-body text-xs font-semibold text-foreground">{label('成本明細', 'Cost breakdown')}</p>
+            <p className="mt-0.5 font-body text-[11px] text-muted-foreground">
+              {label('單件成本 × 數量（HKD）', 'Unit cost × quantity (HKD)')}
+            </p>
+          </div>
+          {lines.length === 0 ? (
+            <p className="px-3 py-3 font-body text-xs text-muted-foreground">
+              {label('未有已設定成本的項目', 'No items with a cost yet')}
+            </p>
+          ) : (
+            <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
+              {lines.map((line) => (
+                <li key={line.key} className="flex items-baseline gap-2 px-3 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-body text-xs text-foreground" title={line.name}>{line.name}</p>
+                    <p className="font-body text-[10px] tabular-nums text-muted-foreground">
+                      ${line.unitCost.toLocaleString()} × {line.quantity}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-body text-xs font-semibold tabular-nums text-foreground">
+                    ${line.lineCost.toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {unpricedCount > 0 ? (
+            <p className="border-t px-3 py-1.5 font-body text-[10px] text-muted-foreground">
+              {label(`另有 ${unpricedCount} 項未設定成本`, `${unpricedCount} item(s) have no cost set`)}
+            </p>
+          ) : null}
+          <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
+            <span className="font-body text-xs font-semibold text-muted-foreground">{label('合計', 'Total')}</span>
+            <strong className="font-body text-sm font-bold tabular-nums text-[hsl(24,90%,48%)]">
+              ${total.toLocaleString()}
+            </strong>
+          </div>
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
 export function QuotationDraftEditor({
   formData,
   onFormDataChange,
@@ -4021,6 +4112,32 @@ export function QuotationDraftEditor({
   const gpValue = totalAmount - totalProductCost - gpSummary.ship - gpSummary.installation;
   const gpPercent = totalAmount > 0 ? (gpValue / totalAmount) * 100 : 0;
   const totalCostPrice = totalProductCost;
+  /**
+   * Per-line cost rows for the Cost metric hover card. Mirrors quoteItemLineCost
+   * (ceil unit cost × qty; optional / section-title lines contribute 0) so the
+   * rows always add up to totalProductCost.
+   */
+  const costBreakdown = items
+    .map((item, index) => {
+      const billable = !item.isOptional && !item.isSectionTitle;
+      const unitCost = billable && item.hkdCostPrice != null ? Math.ceil(item.hkdCostPrice) : 0;
+      const quantity = billable ? (item.quantity ?? 0) : 0;
+      return {
+        key: `${item.id ?? 'cost-line'}-${index}`,
+        name: item.name?.trim() || ui('未命名項目', 'Untitled item'),
+        unitCost,
+        quantity,
+        lineCost: unitCost * quantity,
+      };
+    })
+    .filter((line) => line.lineCost !== 0);
+  const costBreakdownUnpricedCount = items.filter(
+    (item) =>
+      !item.isOptional &&
+      !item.isSectionTitle &&
+      (item.quantity ?? 0) > 0 &&
+      (item.hkdCostPrice == null || Math.ceil(item.hkdCostPrice) <= 0),
+  ).length;
   /** Existing quotes load line items from bwf_quote_item — say so instead of showing an empty $0 quote. */
   const quoteContentLoading = Boolean(existingQuote?.quoteUuid) && !itemsLoadedFromDb && !itemsLoadFailed && items.length === 0;
 
@@ -6220,15 +6337,42 @@ export function QuotationDraftEditor({
               { label: "Ship", value: `$${gpSummary.ship.toLocaleString()}` },
               { label: "Installation", value: `$${gpSummary.installation.toLocaleString()}` },
               { label: ui('Discount 折扣', 'Discount'), value: `$${discountValue.toLocaleString()}` },
-            ].map(({ label, value, tone }) => (
-              <div key={label} className={cn("quote-editor-metric", tone && `is-${tone}`)}>
-                <span>{label}</span>
-                <strong>{value}</strong>
-              </div>
-            ))}
+            ].map(({ label, value, tone }) => {
+              if (tone === "cost") {
+                return (
+                  <CostBreakdownHoverCard
+                    key={label}
+                    lines={costBreakdown}
+                    unpricedCount={costBreakdownUnpricedCount}
+                    total={totalProductCost}
+                    english={quoteLocale === 'en'}
+                  >
+                    <div
+                      className={cn(
+                        "quote-editor-metric cursor-help outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        tone && `is-${tone}`,
+                      )}
+                      tabIndex={0}
+                      aria-label={ui(
+                        `成本 $${totalProductCost.toLocaleString()}，查看每項成本`,
+                        `Cost $${totalProductCost.toLocaleString()} — view per-item cost`,
+                      )}
+                    >
+                      <span>{label}</span>
+                      <strong>{value}</strong>
+                    </div>
+                  </CostBreakdownHoverCard>
+                );
+              }
+              return (
+                <div key={label} className={cn("quote-editor-metric", tone && `is-${tone}`)}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </div>
+              );
+            })}
           </div>
         </div>
-
         <div className="quote-editor-workspace">
           <nav aria-label="報價步驟" className="quote-editor-nav">
             {([
@@ -7048,12 +7192,26 @@ export function QuotationDraftEditor({
                         </div>
                         {/* 成本與毛利：放在合計下面並排，兩欄對齊 */}
                         <div className="quote-fee-split">
-                          <div className="quote-fee-split-sec">
-                            <span className="quote-lrow-label">
-                              <Wallet className="h-3.5 w-3.5" /> Cost 成本
-                            </span>
-                            <div className="quote-side-big font-mono-data">HKD ${totalProductCost.toLocaleString()}</div>
-                          </div>
+                          <CostBreakdownHoverCard
+                            lines={costBreakdown}
+                            unpricedCount={costBreakdownUnpricedCount}
+                            total={totalProductCost}
+                            english={quoteLocale === 'en'}
+                          >
+                            <div
+                              className="quote-fee-split-sec cursor-help outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              tabIndex={0}
+                              aria-label={ui(
+                                `成本 $${totalProductCost.toLocaleString()}，查看每項成本`,
+                                `Cost $${totalProductCost.toLocaleString()} — view per-item cost`,
+                              )}
+                            >
+                              <span className="quote-lrow-label">
+                                <Wallet className="h-3.5 w-3.5" /> Cost 成本
+                              </span>
+                              <div className="quote-side-big font-mono-data">HKD ${totalProductCost.toLocaleString()}</div>
+                            </div>
+                          </CostBreakdownHoverCard>
                           <div className="quote-fee-split-sec">
                             <span className="quote-lrow-label">GP 毛利</span>
                             <div className="quote-side-big font-mono-data text-emerald-700">
