@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Send } from 'lucide-react';
+import { AlertTriangle, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { Modal, ModalButton } from '@/components/ui/modal';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { fetchQuoteStaffFilterOptions } from '@/lib/quoteStaffOptions';
 import { StaffNameCombobox } from '@/components/dashboard/StaffNameCombobox';
 import type { BwfQuoteItemInput } from '@/lib/bwfQuoteItems';
+import { findQuoteCostMismatches } from '@/lib/quoteCostConsistency';
 import { pickQuoteChainId } from '@/lib/quoteChainId';
 import { parseQuotePathname } from '@/lib/quoteRoutes';
 import {
@@ -70,6 +72,8 @@ export function SubmitReviewModal({
   const [staffOptionsLoading, setStaffOptionsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  /** 成本不一致時，提交者要明確勾選確認才能提交。 */
+  const [costAcknowledged, setCostAcknowledged] = useState(false);
   /** Snapshot ids when modal opens — parent remount must not wipe chain key mid-submit. */
   const lockedChainIdRef = useRef<string | null>(null);
 
@@ -79,6 +83,7 @@ export function SubmitReviewModal({
     if (!open) {
       setSubmitter('');
       setError('');
+      setCostAcknowledged(false);
       lockedChainIdRef.current = null;
       return;
     }
@@ -143,6 +148,10 @@ export function SubmitReviewModal({
       Boolean(String(item.name || '').trim() || (item.unitPrice ?? 0) > 0),
   );
   const emptyStateBlocked = !hasSubmitContent || totalAmount <= 0;
+  const costMismatches = findQuoteCostMismatches(previewItems);
+  const costAckRequired = costMismatches.length > 0;
+  const submitBlocked =
+    isSubmitting || emptyStateBlocked || (costAckRequired && !costAcknowledged);
 
   const formatSubmitError = (err: unknown): string => {
     if (err && typeof err === 'object' && 'message' in err) {
@@ -163,6 +172,12 @@ export function SubmitReviewModal({
         '目前沒有有效報價內容或總額為 HK$0。頁面狀態可能已過期：請關閉此視窗，按「保存現有版本」或重新整理以恢復草稿後再提交。';
       setError(msg);
       toast.error('無法提交審核', { description: msg });
+      return;
+    }
+    if (costAckRequired && !costAcknowledged) {
+      const msg = '有報價行的 HKD 成本與「¥成本 × 匯率」不一致，請先確認。';
+      setError(msg);
+      toast.error('請先確認成本', { description: msg });
       return;
     }
 
@@ -226,7 +241,7 @@ export function SubmitReviewModal({
         <>
           <ModalButton
             onClick={() => void handleSubmit()}
-            disabled={isSubmitting || emptyStateBlocked}
+            disabled={submitBlocked}
           >
             {isSubmitting ? (
               <span className="flex items-center gap-2">
@@ -261,6 +276,45 @@ export function SubmitReviewModal({
             </p>
           )}
         </div>
+
+        {/* Cost consistency confirmation */}
+        {costAckRequired && (
+          <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+            <p className="flex items-start gap-2 font-body text-sm font-semibold text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                {costMismatches.length} 行 HKD 成本與「¥成本 × 匯率」不一致
+              </span>
+            </p>
+            <p className="mt-1 font-body text-xs leading-relaxed text-amber-800/80">
+              Cost 與 GP 會以 HKD 成本計算。數值有誤請先取消，回到明細修正；確認無誤才提交。
+            </p>
+            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+              {costMismatches.map((row) => (
+                <li
+                  key={row.id}
+                  className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 font-body text-xs text-amber-900"
+                >
+                  <span className="min-w-0 truncate">{row.label}</span>
+                  <span className="font-mono-data tabular-nums">
+                    HK${Math.round(row.hkdCostPrice).toLocaleString()}
+                    <span className="ml-1 text-amber-800/70">
+                      （¥{row.costPrice} × {row.exchangeRate} = {Math.ceil(row.derivedHkdCost)}）
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <label className="mt-3 flex cursor-pointer items-start gap-2 font-body text-xs font-medium text-amber-900">
+              <Checkbox
+                checked={costAcknowledged}
+                onCheckedChange={(checked) => setCostAcknowledged(checked === true)}
+                className="mt-0.5 border-amber-600 data-[state=checked]:border-amber-600 data-[state=checked]:bg-amber-600"
+              />
+              <span>我已確認以上 HKD 成本正確</span>
+            </label>
+          </div>
+        )}
 
         {/* Submitter Input */}
         <div className="mt-4">

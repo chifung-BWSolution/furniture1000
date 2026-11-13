@@ -197,6 +197,10 @@ import {
 import { parseGpSummary } from "@/lib/quoteGpSummary";
 import { quoteBillableProductCost, quoteBillableSubtotal, quoteItemLineSubtotal } from "@/lib/quoteItemTotals";
 import {
+  findQuoteCostMismatches,
+  quoteDerivedHkdCost,
+} from "@/lib/quoteCostConsistency";
+import {
   formatSectionTitleLabel,
   productSerialAt,
   sectionTitleOrdinalAt,
@@ -2752,6 +2756,7 @@ type CostBreakdownLine = {
   unitCost: number;
   quantity: number;
   lineCost: number;
+  mismatch: boolean;
 };
 
 /**
@@ -2812,6 +2817,14 @@ function CostBreakdownHoverCard({
                       ${line.unitCost.toLocaleString()} × {line.quantity}
                     </p>
                   </div>
+                  {line.mismatch ? (
+                    <span
+                      className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 font-body text-[10px] font-semibold text-amber-700"
+                      title={label('HKD 成本與「¥成本 × 匯率」不一致', 'HKD cost differs from CNY cost × rate')}
+                    >
+                      ≠
+                    </span>
+                  ) : null}
                   <span className="shrink-0 font-body text-xs font-semibold tabular-nums text-foreground">
                     ${line.lineCost.toLocaleString()}
                   </span>
@@ -3790,12 +3803,14 @@ export function QuotationDraftEditor({
         if (item.id !== id) return item;
         const next = { ...item, [field]: value };
         if (field === "costPrice" || field === "exchangeRate") {
-          next.hkdCostPrice = computeHkdCostPrice(
-            field === "costPrice" ? (value as number | null) : next.costPrice,
-            field === "exchangeRate"
-              ? (value as number | null)
-              : next.exchangeRate,
-          );
+          // 保留手動輸入的 HKD 成本：只有「¥成本 × 匯率」算得出來時才覆寫。
+          next.hkdCostPrice =
+            computeHkdCostPrice(
+              field === "costPrice" ? (value as number | null) : next.costPrice,
+              field === "exchangeRate"
+                ? (value as number | null)
+                : next.exchangeRate,
+            ) ?? next.hkdCostPrice;
         }
         return next;
       }),
@@ -3876,7 +3891,8 @@ export function QuotationDraftEditor({
           ...item,
           exchangeRateInput: sanitized,
           exchangeRate: rate,
-          hkdCostPrice: computeHkdCostPrice(item.costPrice, rate),
+          // 沒有 ¥ 成本的行（例如清拆舊扶手）保留原本手動輸入的 HKD 成本。
+          hkdCostPrice: computeHkdCostPrice(item.costPrice, rate) ?? item.hkdCostPrice,
         };
       }),
     );
@@ -3898,7 +3914,8 @@ export function QuotationDraftEditor({
           ...item,
           exchangeRateInput: sanitized,
           exchangeRate: rate,
-          hkdCostPrice: computeHkdCostPrice(item.costPrice, rate),
+          // 沒有 ¥ 成本的行保留原本手動輸入的 HKD 成本，避免統一匯率把它清空。
+          hkdCostPrice: computeHkdCostPrice(item.costPrice, rate) ?? item.hkdCostPrice,
         };
       }),
     );
@@ -4113,6 +4130,32 @@ export function QuotationDraftEditor({
   const gpPercent = totalAmount > 0 ? (gpValue / totalAmount) * 100 : 0;
   const totalCostPrice = totalProductCost;
   /**
+   * 手動輸入的 HKD 成本與「¥成本 × 匯率」不一致的行。只提示、不自動覆寫
+   * （部分報價刻意用廠家的實際 HKD 成本），由使用者決定是否按匯率重算。
+   */
+  const costMismatches = findQuoteCostMismatches(items);
+  const costMismatchIds = new Set(costMismatches.map((row) => row.id));
+  const costMismatchSummary = costMismatches
+    .slice(0, 3)
+    .map(
+      (row) =>
+        `${row.label}（HK$${Math.round(row.hkdCostPrice)}／應為 HK$${Math.ceil(row.derivedHkdCost)}）`,
+    )
+    .join('、');
+  const realignMismatchedCosts = () => {
+    if (costMismatches.length === 0) return;
+    itemsUserEditedRef.current = true;
+    const ids = new Set(costMismatches.map((row) => row.id));
+    setItems((prev) =>
+      prev.map((item) => {
+        if (!ids.has(item.id)) return item;
+        const derived = quoteDerivedHkdCost(item.costPrice, item.exchangeRate);
+        return derived == null ? item : { ...item, hkdCostPrice: derived };
+      }),
+    );
+    toast.success(`已按匯率重算 ${costMismatches.length} 行成本`);
+  };
+  /**
    * Per-line cost rows for the Cost metric hover card. Mirrors quoteItemLineCost
    * (ceil unit cost × qty; optional / section-title lines contribute 0) so the
    * rows always add up to totalProductCost.
@@ -4128,6 +4171,7 @@ export function QuotationDraftEditor({
         unitCost,
         quantity,
         lineCost: unitCost * quantity,
+        mismatch: costMismatchIds.has(item.id),
       };
     })
     .filter((line) => line.lineCost !== 0);
@@ -6372,6 +6416,23 @@ export function QuotationDraftEditor({
               );
             })}
           </div>
+          {costMismatches.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => scrollToNav('fees')}
+              className="flex w-full items-center gap-2 border-t border-amber-500/30 bg-amber-500/10 px-1 py-1.5 text-left font-body text-[11px] text-amber-700 transition-colors hover:bg-amber-500/15"
+              title={`${costMismatchSummary}${costMismatches.length > 3 ? '…' : ''}`}
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate">
+                {ui(
+                  `${costMismatches.length} 行成本未同步（HKD 成本 ≠ ¥成本 × 匯率），Cost / GP 以 HKD 成本計算`,
+                  `${costMismatches.length} line(s) have an HKD cost that differs from CNY cost × rate; Cost / GP uses the HKD cost`,
+                )}
+              </span>
+              <span className="shrink-0 underline underline-offset-2">{ui('查看', 'View')}</span>
+            </button>
+          ) : null}
         </div>
         <div className="quote-editor-workspace">
           <nav aria-label="報價步驟" className="quote-editor-nav">
@@ -7102,6 +7163,52 @@ export function QuotationDraftEditor({
                 <p className="mb-3 mt-1 font-body text-sm text-muted-foreground">
                   合約金額、成本、運費、安裝、折扣與合計在「報價摘要」，與這裡同一組數字。
                 </p>
+                {costMismatches.length > 0 ? (
+                  <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 sm:p-4">
+                    <p className="flex items-start gap-2 font-body text-sm font-semibold text-amber-800">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>
+                        {ui(
+                          `${costMismatches.length} 行 HKD 成本與「¥成本 × 匯率」不一致`,
+                          `${costMismatches.length} line(s) have an HKD cost that differs from CNY cost × rate`,
+                        )}
+                      </span>
+                    </p>
+                    <p className="mt-1 font-body text-xs leading-relaxed text-amber-800/80">
+                      {ui(
+                        'Cost / GP 以 HKD 成本為準。若 HKD 成本是刻意輸入（廠家直接報 HKD），可保留；若是舊值，請按下方按鈕重算。',
+                        'Cost / GP uses the HKD cost. Keep it if it was entered deliberately (e.g. the factory quoted in HKD); otherwise recalculate below.',
+                      )}
+                    </p>
+                    <ul className="mt-2 space-y-1">
+                      {costMismatches.map((row) => (
+                        <li
+                          key={row.id}
+                          className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 font-body text-xs text-amber-900"
+                        >
+                          <span className="min-w-0 truncate">{row.label}</span>
+                          <span className="font-mono-data tabular-nums">
+                            HK${Math.round(row.hkdCostPrice).toLocaleString()}
+                            <span className="ml-1 text-amber-800/70">
+                              （¥{row.costPrice} × {row.exchangeRate} = {Math.ceil(row.derivedHkdCost)}）
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={summaryLocked}
+                      onClick={realignMismatchedCosts}
+                      className="mt-2 h-8 px-2 font-body text-xs font-medium text-amber-800 hover:bg-amber-500/15"
+                    >
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                      {ui('按「¥成本 × 匯率」重算這些行', 'Recalculate these lines from CNY cost × rate')}
+                    </Button>
+                  </div>
+                ) : null}
                 <div className="quote-fee-editor mb-5">
                   <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
                     <div className="mb-3 flex items-center justify-between gap-3">
