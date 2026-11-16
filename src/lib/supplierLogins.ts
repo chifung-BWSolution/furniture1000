@@ -23,6 +23,8 @@ export type SupplierDocumentRow = {
 export type DirectoryFactory = {
   id: string;
   name: string;
+  /** PMS factory_code (e.g. QXS); products use this code as factory_id. */
+  code?: string | null;
 };
 
 type PostgrestError = { code?: string; message: string } | null;
@@ -66,7 +68,11 @@ export async function loadDirectoryFactories(): Promise<{ factories: DirectoryFa
   try {
     const rows = await loadManufacturerDirectory();
     const factories = rows
-      .map((row) => ({ id: String(row.id ?? ''), name: String(row.display_name ?? '').trim() }))
+      .map((row) => ({
+        id: String(row.id ?? ''),
+        name: String(row.display_name ?? '').trim(),
+        code: row.factory_code ? String(row.factory_code).trim() : null,
+      }))
       .filter((row) => row.id && row.name);
     return { factories, error: null };
   } catch (err) {
@@ -104,15 +110,43 @@ export async function setSupplierLoginActive(id: string, active: boolean): Promi
   return { error: error?.message ?? null };
 }
 
+/**
+ * supabase-js collapses every non-2xx edge response to
+ * "Edge Function returned a non-2xx status code". Read the JSON body so staff
+ * see the real reason (e.g. 這電郵已是職員或客戶帳號) instead of a generic error.
+ */
+async function edgeErrorMessage(error: unknown): Promise<string> {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const context = (error as { context?: Response } | null)?.context;
+  if (context && typeof context.json === 'function') {
+    try {
+      const body = (await context.clone().json()) as { error?: string; message?: string } | null;
+      const detail = body?.error || body?.message;
+      if (detail) return detail;
+    } catch {
+      // Body is not JSON; fall through to text.
+    }
+    try {
+      const text = await context.clone().text();
+      if (text.trim()) return text.trim().slice(0, 300);
+    } catch {
+      // Keep the transport message.
+    }
+  }
+  return message || '邀請失敗';
+}
+
 export async function inviteSupplier(input: {
   email: string;
   factoryId: string;
   factoryName: string;
-}): Promise<{ ok: boolean; error: string | null; alreadyRegistered: boolean }> {
+  factoryCode?: string | null;
+}): Promise<{ ok: boolean; error: string | null; alreadyRegistered: boolean; actionLink: string | null }> {
   const body = {
     email: input.email.trim().toLowerCase(),
     factory_id: input.factoryId,
     factory_name: input.factoryName,
+    factory_code: input.factoryCode || null,
     display_name: input.factoryName,
   };
   const slugs = ['supabase-functions-invite-supplier', 'invite-supplier'];
@@ -120,19 +154,29 @@ export async function inviteSupplier(input: {
   for (const slug of slugs) {
     const { data, error } = await supabase.functions.invoke(slug, { body });
     if (error) {
-      lastError = error.message;
-      if (/not found|404/i.test(error.message)) continue;
-      return { ok: false, error: error.message, alreadyRegistered: false };
+      const message = await edgeErrorMessage(error);
+      lastError = message;
+      if (/not found|404/i.test(message)) continue;
+      return { ok: false, error: message, alreadyRegistered: false, actionLink: null };
     }
-    const payload = data as { error?: string; already_registered?: boolean } | null;
+    const payload = data as {
+      error?: string;
+      already_registered?: boolean;
+      action_link?: string | null;
+    } | null;
     if (payload?.error) {
       lastError = payload.error;
       if (/not found|404/i.test(payload.error)) continue;
-      return { ok: false, error: payload.error, alreadyRegistered: false };
+      return { ok: false, error: payload.error, alreadyRegistered: false, actionLink: null };
     }
-    return { ok: true, error: null, alreadyRegistered: payload?.already_registered === true };
+    return {
+      ok: true,
+      error: null,
+      alreadyRegistered: payload?.already_registered === true,
+      actionLink: payload?.action_link || null,
+    };
   }
-  return { ok: false, error: lastError, alreadyRegistered: false };
+  return { ok: false, error: lastError, alreadyRegistered: false, actionLink: null };
 }
 
 export async function loadSupplierReviewDocuments(): Promise<{

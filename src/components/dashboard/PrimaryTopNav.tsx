@@ -4,6 +4,7 @@ import { NAV_CONFIG, type PrimaryItem } from './navConfig';
 import { type PrimarySection } from '@/types/product';
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
+import { usePlatformRole } from '@/hooks/use-platform-role';
 import { Button } from '@/components/ui/button';
 import { FdsLogo } from '@/components/brand/FdsLogo';
 import { NavInk } from '@/components/motion/NavInk';
@@ -24,6 +25,16 @@ export function PrimaryTopNav({
 }: PrimaryTopNavProps) {
   const { user, signOut } = useAuth();
   const staffName = usePmsStaffName(user?.id);
+  const { profileRole } = usePlatformRole();
+  const role = (profileRole ?? '').toLowerCase();
+  const visibleSections = NAV_CONFIG.filter((p) => {
+    if (hiddenSections.includes(p.id)) return false;
+    if (clientOnly && p.id !== 'customers') return false;
+    if (p.visibleTo && p.visibleTo.length > 0) {
+      return p.visibleTo.some((item) => item.toLowerCase() === role);
+    }
+    return true;
+  });
   return (
     <header className="zone-top-nav sticky top-0 z-40 flex h-[56px] shrink-0 items-center border-b border-shell-border bg-shell px-3 text-shell-foreground sm:h-[68px] sm:px-6">
       {/* Logo */}
@@ -50,7 +61,7 @@ export function PrimaryTopNav({
 
       {/* Primary nav */}
       <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {NAV_CONFIG.filter((p) => !hiddenSections.includes(p.id) && (!clientOnly || p.id === 'customers')).map((p: PrimaryItem) => {
+        {visibleSections.map((p: PrimaryItem) => {
           const Icon = p.icon;
           const active = p.id === activeSection;
           return (
