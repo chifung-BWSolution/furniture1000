@@ -11,6 +11,7 @@ import {
   markUseLocalQuoteDraft,
   quickQuoteFormKey,
   readQuickQuoteCopyFrom,
+  readQuickQuoteEditingId,
   readQuickQuoteStep,
   resetQuickQuoteSessionStorage,
   shouldUseLocalQuoteDraft,
@@ -216,7 +217,6 @@ export function QuickQuoteView({
 
   const [currentStep, setCurrentStep] = useState(1);
   const [isQuotationReady, setIsQuotationReady] = useState(false);
-  const [isLoadingQuote, setIsLoadingQuote] = useState(false);
   /** 報價單本文已到手、正在預載明細（bwf_quote_item），完成後才顯示編輯器。 */
   const [isLoadingQuoteItems, setIsLoadingQuoteItems] = useState(false);
   const [quoteLoadError, setQuoteLoadError] = useState<string | null>(null);
@@ -225,11 +225,6 @@ export function QuickQuoteView({
     quoteUuid: string;
     items?: BwfQuoteItemInput[] | null;
   } | null>(null);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    writeQuickQuoteStep(userEmail, currentStep);
-  }, [currentStep, userEmail]);
 
   const [loadedQuoteData, setLoadedQuoteData] = useState<{
     quoteId: string;
@@ -312,7 +307,16 @@ export function QuickQuoteView({
     () => initialUrlPrefillRef.current.label,
   );
   const sessionRestoredRef = useRef(initialUrlPrefillRef.current.applied);
-  const loadedQuoteIdRef = useRef<string | null>(null);
+  const [resolvedQuoteKey, setResolvedQuoteKey] = useState<string | null>(null);
+  const quoteRequestKey = editingQuoteId
+    ? `${editingQuoteId}::${editingQuoteUuid || editingQuoteVersion || 'latest'}`
+    : null;
+  const quoteRequestPending =
+    quoteRequestKey !== null && (authLoading || resolvedQuoteKey !== quoteRequestKey);
+  const quoteSessionResumePending =
+    !editingQuoteId && !loadedQuoteData && !authLoading && userEmail &&
+    freshSessionKey === 0 && !initialUrlPrefillRef.current.applied &&
+    Boolean(readQuickQuoteEditingId(userEmail));
   const pmsDefaultsLoadedForRef = useRef<string | null>(null);
   /** True while fetching pitching/project defaults that will overwrite step-1 fields. */
   const [isLoadingPmsDefaults, setIsLoadingPmsDefaults] = useState(() =>
@@ -370,6 +374,9 @@ export function QuickQuoteView({
   useEffect(() => {
     if (authLoading || editingQuoteId || freshSessionKey > 0) return;
     if (!userEmail) return;
+    // AppShell restores the saved quote id/UUID. Don't mount an empty editor
+    // from the saved step while that navigation is still being applied.
+    if (readQuickQuoteEditingId(userEmail)) return;
     if (sessionRestoredRef.current) return;
     if (pmsPrefillAppliedRef.current) return;
 
@@ -408,6 +415,8 @@ export function QuickQuoteView({
   }, []);
 
   const resetToNewQuote = useCallback(() => {
+    setResolvedQuoteKey(null);
+    setPrefetchedQuoteItems(null);
     setCurrentStep(1);
     setIsQuotationReady(false);
     setLoadedQuoteData(null);
@@ -585,57 +594,54 @@ export function QuickQuoteView({
   // quote may have just been persisted via 版本審核 while AppShell id is still catching up.
   // Also keep onClearEditingQuote out of deps (parent often passes an inline fn).
   useEffect(() => {
-    if (authLoading) return;
-    if (!editingQuoteId) return;
+    if (authLoading || !editingQuoteId || !quoteRequestKey) return;
+    const loadKey = quoteRequestKey;
+    if (resolvedQuoteKey === loadKey) return;
 
-    const loadKey = `${editingQuoteId}::${editingQuoteUuid || editingQuoteVersion || 'latest'}`;
-    if (loadedQuoteIdRef.current === loadKey) return;
-
-    // Same quote already on screen (uuid dropped by URL sync) — just retarget the
-    // cache key; do not full-page reload / unmount the editor.
-    const sameQuoteAlreadyLoaded =
-      loadedQuoteData?.quoteId === editingQuoteId &&
-      Boolean(loadedQuoteData?.quoteUuid);
-    if (sameQuoteAlreadyLoaded && !editingQuoteUuid && !editingQuoteVersion) {
-      loadedQuoteIdRef.current = loadKey;
-      return;
-    }
-
+    let cancelled = false;
     const loadQuote = async () => {
-      // Only block the whole view on the first load for this mount.
-      const isInitialLoad = !loadedQuoteData;
-      if (isInitialLoad) setIsLoadingQuote(true);
+      setIsLoadingQuoteItems(false);
       setQuoteLoadError(null);
       try {
         let data: Record<string, unknown> | null = null;
+        let maxVersionInChain: string | undefined;
 
         if (editingQuoteUuid) {
           const { data: row, error } = await supabase
             .from('bwf_quote')
             .select('*')
             .eq('id', editingQuoteUuid)
-            .maybeSingle();
-          if (error) throw error;
-          data = row;
-        } else if (editingQuoteVersion) {
-          const { data: row, error } = await supabase
-            .from('bwf_quote')
-            .select('*')
             .eq('quote_id', editingQuoteId)
-            .eq('version', editingQuoteVersion)
             .maybeSingle();
           if (error) throw error;
           data = row;
         } else {
+          // Match the list's numeric version order, even if an older version
+          // was edited more recently. Also resolve legacy v1.N URL versions.
           const { data: rows, error } = await supabase
             .from('bwf_quote')
-            .select('*')
+            .select('id,version')
             .eq('quote_id', editingQuoteId)
-            .order('modified_date', { ascending: false, nullsFirst: false })
-            .limit(1);
+            .order('modified_date', { ascending: false, nullsFirst: false });
           if (error) throw error;
-          data = rows?.[0] ?? null;
+          if (cancelled) return;
+          const versions = rows ?? [];
+          maxVersionInChain = maxQuoteVersion(versions.map((row) => row.version));
+          const target = editingQuoteVersion
+            ? versions.find((row) => row.version === editingQuoteVersion) ??
+              versions.find((row) => compareQuoteVersion(row.version, editingQuoteVersion) === 0)
+            : versions.sort((a, b) => compareQuoteVersion(b.version, a.version))[0];
+          if (target) {
+            const { data: row, error } = await supabase
+              .from('bwf_quote')
+              .select('*')
+              .eq('id', target.id)
+              .maybeSingle();
+            if (error) throw error;
+            data = row;
+          }
         }
+        if (cancelled) return;
 
         if (!data) {
           // From 報價一覽 we always pass uuid/version — missing row is a real error.
@@ -650,7 +656,7 @@ export function QuickQuoteView({
           const isLegacyDraftId = /^Q\d{4}-\d{4}-\d{3}$/.test(editingQuoteId);
           const canOpenLocalDraft =
             !openedAsExisting &&
-            (savedStep === 4 || isAssignedDraft || isLegacyDraftId);
+            (savedStep === 3 || isAssignedDraft || isLegacyDraftId);
 
           if (!canOpenLocalDraft) {
             throw new Error('報價單不存在');
@@ -680,7 +686,8 @@ export function QuickQuoteView({
                 writeQuickQuoteEditingId(userEmail, pmsCode);
                 markUseLocalQuoteDraft(userEmail, pmsCode);
                 onAssignEditingQuoteId?.(pmsCode);
-                loadedQuoteIdRef.current = `${pmsCode}::`;
+                setResolvedQuoteKey(`${pmsCode}::latest`);
+                writeQuickQuoteStep(userEmail, 3);
                 setIsQuotationReady(true);
                 setCurrentStep(3);
                 return;
@@ -691,15 +698,18 @@ export function QuickQuoteView({
           }
           assignedDraftQuoteIdRef.current = editingQuoteId;
           markUseLocalQuoteDraft(userEmail, editingQuoteId);
-          loadedQuoteIdRef.current = loadKey;
+          setResolvedQuoteKey(loadKey);
+          setLoadedQuoteData(null);
+          writeQuickQuoteStep(userEmail, 3);
           setIsQuotationReady(true);
           setCurrentStep(3);
           return;
         }
 
-        const maxVersionInChain = await fetchMaxVersionForQuote(
+        maxVersionInChain ??= await fetchMaxVersionForQuote(
           String(data.quote_id),
         );
+        if (cancelled) return;
 
         // Prefer Supabase snapshot when not recovering mid-edit (F5).
         // Local draft restore is gated in QuotationDraftEditor via shouldUseLocalQuoteDraft.
@@ -710,8 +720,9 @@ export function QuickQuoteView({
         } catch {
           // IndexedDB unavailable — continue with server data
         }
+        if (cancelled) return;
 
-        const serverProjectData = data.project_data as Record<string, unknown>;
+        const serverProjectData = (data.project_data ?? {}) as Record<string, unknown>;
         let projectDataToUse = serverProjectData;
 
         const quoteMetaForTerms = projectDataToUse.quoteMeta as
@@ -734,19 +745,24 @@ export function QuickQuoteView({
           setIsLoadingQuoteItems(true);
           try {
             const rows = await loadQuoteItems(loadedQuoteUuid);
+            if (cancelled) return;
             const prefetched = rows.length
               ? await hydrateQuoteItemProductLinks(
                   rows.map(normalizeLegacyQuoteItemProductId),
                 )
               : [];
+            if (cancelled) return;
             setPrefetchedQuoteItems({ quoteUuid: loadedQuoteUuid, items: prefetched });
           } catch (itemsError) {
+            if (cancelled) return;
             console.warn('[QuickQuoteView] loadQuoteItems failed', itemsError);
             // 不要因為明細載入失敗就開不到報價單：讓編輯器顯示「重新載入明細」。
             setPrefetchedQuoteItems({ quoteUuid: loadedQuoteUuid, items: null });
           } finally {
-            setIsLoadingQuoteItems(false);
+            if (!cancelled) setIsLoadingQuoteItems(false);
           }
+        } else {
+          setPrefetchedQuoteItems(null);
         }
 
         const savedFormData = projectDataToUse.formData as
@@ -811,38 +827,34 @@ export function QuickQuoteView({
               : { ...prev, quoteId: loadedQuoteId },
           );
         }
-        loadedQuoteIdRef.current = loadKey;
+        setResolvedQuoteKey(loadKey);
+        writeQuickQuoteStep(userEmail, 3);
 
         // Skip directly to editor step
         setIsQuotationReady(true);
         setCurrentStep(3);
       } catch (err: unknown) {
+        if (cancelled) return;
         const message = err instanceof Error ? err.message : '無法載入報價單';
         toast.error('載入失敗', { description: message });
-        // If the editor already has a snapshot, keep it — exiting to the list (or a
-        // fresh step-1 shell) is what made users see「資料全遺失」after 版本審核.
-        if (!loadedQuoteData) {
-          loadedQuoteIdRef.current = null;
-          setQuoteLoadError(message);
-          setIsQuotationReady(false);
-          setCurrentStep(1);
-        } else {
-          loadedQuoteIdRef.current = loadKey;
-        }
-      } finally {
-        setIsLoadingQuote(false);
+        setResolvedQuoteKey(loadKey);
+        setLoadedQuoteData(null);
+        setQuoteLoadError(message);
+        setIsQuotationReady(false);
+        setCurrentStep(1);
       }
     };
 
-    loadQuote();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- onClearEditingQuote / loadedQuoteData read for guards only
-  }, [editingQuoteId, editingQuoteUuid, editingQuoteVersion, userEmail, authLoading]);
+    void loadQuote();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onAssignEditingQuoteId is only used for legacy draft migration
+  }, [editingQuoteId, editingQuoteUuid, editingQuoteVersion, quoteRequestKey, resolvedQuoteKey, userEmail, authLoading]);
 
   // Legacy wizard steps are retired. Resolve PMS defaults and any copy body
   // before mounting the unified editor, whose header fields initialize once.
   const preparingEditorRef = useRef(false);
   useEffect(() => {
-    if (currentStep === 3 || pmsDefaultsPendingRef.current || isLoadingPmsDefaults || isLoadingQuote || isLoadingCopy || quoteLoadError) return;
+    if (currentStep === 3 || pmsDefaultsPendingRef.current || isLoadingPmsDefaults || isLoadingCopy || quoteLoadError) return;
     if (editingQuoteId || loadedQuoteData) return;
     if (!formData.pmsPitchingId && !formData.pmsProjectId) return;
     if (!formData.quoteId.trim() || preparingEditorRef.current) return;
@@ -865,17 +877,18 @@ export function QuickQuoteView({
       }
     };
     void prepare();
-  }, [currentStep, isLoadingPmsDefaults, isLoadingQuote, isLoadingCopy, quoteLoadError, editingQuoteId, loadedQuoteData, formData.pmsPitchingId, formData.pmsProjectId, formData.quoteId, enterEditorStep, userEmail]);
+  }, [currentStep, isLoadingPmsDefaults, isLoadingCopy, quoteLoadError, editingQuoteId, loadedQuoteData, formData.pmsPitchingId, formData.pmsProjectId, formData.quoteId, enterEditorStep, userEmail]);
 
-  // Full-page spinner only for the *first* load/copy. Never unmount editor
-  // (or an open 提交審核 modal) on background re-fetch — that caused a black flash
-  // and wiped in-progress wizard state when users later returned to step 1.
+  // A restored step can reach the editor before AppShell supplies its quote id.
+  // Once an existing version is requested, wait for that version's snapshot
+  // even if the session is already on step 3.
   const blockUiForInitialLoad =
-    (isLoadingQuote || isLoadingQuoteItems || isLoadingCopy || isLoadingPmsDefaults || Boolean(formData.pmsPitchingId || formData.pmsProjectId)) && !loadedQuoteData && !quoteLoadError && currentStep !== 3;
+    quoteRequestPending || quoteSessionResumePending ||
+    ((isLoadingCopy || isLoadingPmsDefaults || Boolean(formData.pmsPitchingId || formData.pmsProjectId)) && !loadedQuoteData && !quoteLoadError && currentStep !== 3);
   if (blockUiForInitialLoad) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
+        <div role="status" className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <span className="font-mono-data text-xs text-muted-foreground">
             {isLoadingCopy
@@ -986,7 +999,7 @@ export function QuickQuoteView({
                 });
                 // Mark this version as already loaded so parent id sync does not re-fetch
                 // an older uuid and wipe the just-submitted editor state.
-                loadedQuoteIdRef.current = `${result.quoteId}::${result.quoteUuid}`;
+                setResolvedQuoteKey(`${result.quoteId}::${result.quoteUuid}`);
                 onEditingQuotePersisted?.(result.quoteId, result.quoteUuid, result.version);
               }}
               existingQuote={loadedQuoteData || undefined}

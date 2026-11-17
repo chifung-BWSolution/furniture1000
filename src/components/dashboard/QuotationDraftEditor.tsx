@@ -3374,7 +3374,9 @@ export function QuotationDraftEditor({
     }
     return DEFAULT_ITEMS;
   });
-  const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(quoteItemsPrefetched);
+  const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(
+    quoteItemsPrefetched && Array.isArray(initialQuoteItems),
+  );
   /** Line items failed to load: keep the loading hint off so the editor shows the empty table instead. */
   const [itemsLoadFailed, setItemsLoadFailed] = useState(
     quoteItemsPrefetched && initialQuoteItems === null,
@@ -3550,6 +3552,8 @@ export function QuotationDraftEditor({
             return;
           }
           setItems(linked.map((item) => mapInputToQuotationItem(item)));
+        } else {
+          setItems([]);
         }
         itemsHydratedForUuidRef.current = quoteUuid;
         if (!cancelled) setItemsLoadedFromDb(true);
@@ -4096,7 +4100,8 @@ export function QuotationDraftEditor({
       (item.hkdCostPrice == null || Math.ceil(item.hkdCostPrice) <= 0),
   ).length;
   /** Existing quotes load line items from bwf_quote_item — say so instead of showing an empty $0 quote. */
-  const quoteContentLoading = Boolean(existingQuote?.quoteUuid) && !itemsLoadedFromDb && !itemsLoadFailed && items.length === 0;
+  const quoteItemsUnavailable = Boolean(existingQuote?.quoteUuid) && !itemsLoadedFromDb;
+  const quoteContentLoading = quoteItemsUnavailable && !itemsLoadFailed;
 
   // Version & submission modal state
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -5071,11 +5076,13 @@ export function QuotationDraftEditor({
   // Existing quotes: only when markUseLocalQuoteDraft was set (autosave / F5).
   // Opening from 報價一覽 clears that mark so Supabase 版本審核 data wins.
   useEffect(() => {
+    // A restored draft must not race the server load or turn a failed preload
+    // into a successful one. Restore only after the saved version is complete.
+    if (quoteItemsUnavailable) return;
     if (draftHydratedRef.current === storageKey) {
       setDraftLoaded(true);
       return;
     }
-    draftHydratedRef.current = storageKey;
     let cancelled = false;
     (async () => {
       try {
@@ -5084,14 +5091,10 @@ export function QuotationDraftEditor({
           shouldUseLocalQuoteDraft(userEmail, existingQuote.quoteId) ||
           shouldUseLocalQuoteDraft(userEmail, rawQuoteId);
         if (!allowLocalDraft) {
-          setDraftLoaded(true);
           return;
         }
         const cached = await loadDraft(storageKey);
-        if (cancelled || !cached) {
-          setDraftLoaded(true);
-          return;
-        }
+        if (cancelled || !cached) return;
         // Hydrate state from the cached draft
         if (cached.formData) {
           const cachedForm = cached.formData as Partial<QuoteFormData>;
@@ -5239,14 +5242,17 @@ export function QuotationDraftEditor({
       } catch {
         // IndexedDB not available or error — silently continue
       } finally {
-        if (!cancelled) setDraftLoaded(true);
+        if (!cancelled) {
+          draftHydratedRef.current = storageKey;
+          setDraftLoaded(true);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageKey]);
+  }, [storageKey, quoteItemsUnavailable]);
 
   // Build draft data for auto-save (IndexedDB — survives refresh; cleared on 版本審核 or leave)
   const buildDraftData = useCallback(
@@ -5375,12 +5381,12 @@ export function QuotationDraftEditor({
   // Flush IndexedDB + resume markers before deploy-reload prompt.
   useEffect(() => {
     unsavedGuard.setDraftFlushHandler(async () => {
-      if (!hasQuoteData) return;
+      if (!hasQuoteData || quoteItemsUnavailable) return;
       await saveDraft(buildDraftData());
       persistLocalDraftMarkers();
     });
     return () => unsavedGuard.setDraftFlushHandler(null);
-  }, [hasQuoteData, buildDraftData, persistLocalDraftMarkers]);
+  }, [hasQuoteData, quoteItemsUnavailable, buildDraftData, persistLocalDraftMarkers]);
 
   /** Save current editor state to Supabase (update open version, or create v1). */
   const handleSaveExistingVersion = async (overrides?: {
@@ -5630,7 +5636,7 @@ export function QuotationDraftEditor({
   // Auto-save draft locally while dirty (browser backup; server save =「保存現有版本」).
   // Also refreshes resume / editingId markers so F5 can reopen this editor.
   useEffect(() => {
-    if (!draftLoaded || !hasQuoteData || !isDirty) return;
+    if (!draftLoaded || !hasQuoteData || !isDirty || quoteItemsUnavailable) return;
     setIsAutoSaving(true);
     const timer = window.setTimeout(() => {
       const draft = buildDraftData();
@@ -5651,7 +5657,7 @@ export function QuotationDraftEditor({
       window.clearTimeout(timer);
       setIsAutoSaving(false);
     };
-  }, [draftLoaded, hasQuoteData, isDirty, buildDraftData, persistLocalDraftMarkers]);
+  }, [draftLoaded, hasQuoteData, isDirty, quoteItemsUnavailable, buildDraftData, persistLocalDraftMarkers]);
 
   const handleProductSelected = (
     products: {
@@ -6801,7 +6807,7 @@ export function QuotationDraftEditor({
                       {ui('新增或編輯產品項目、增值服務等，支援圖片、材料及詳細規格。上傳平面圖後會自動識別分區，也可在分區管理裡調整。', 'Add or edit products and services, including images, materials and specifications. Uploading a floor plan detects zones automatically. Adjust them in Manage zones.')}
                     </p>
                   </div>
-                  <QuoteAddRowButtonGroup
+                  {!quoteItemsUnavailable && <QuoteAddRowButtonGroup
                     labels={t}
                     showPaste={cutItemId != null}
                     onUploadZoneImage={() => openZoneImageUpload(zoneTitleIdBefore(items, 0))}
@@ -6822,7 +6828,7 @@ export function QuotationDraftEditor({
                     onAddProduct={() => {
                       openProductSelector(0);
                     }}
-                  />
+                  />}
                 </div>
                 <p className="mb-4 border-b border-border/80 pb-3 text-xs text-muted-foreground">
                   {quoteContentLoading
@@ -7238,7 +7244,9 @@ export function QuotationDraftEditor({
                             <Wallet className="h-4 w-4" /> {ui("合約金額（合計）", "Contract sum (total)")}
                           </span>
                           <span className="quote-sum-value font-mono-data">
-                            <small>HKD</small>${totalAmount.toLocaleString()}
+                            {quoteItemsUnavailable
+                              ? '—'
+                              : <><small>HKD</small>${totalAmount.toLocaleString()}</>}
                           </span>
                         </div>
                       </div>
