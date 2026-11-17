@@ -386,7 +386,7 @@ export function AppShell() {
 
 function AppShellContent() {
   const store = useAppStore();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { role: platformRole, profileRole, loading: roleLoading } = usePlatformRole();
   const location = useLocation();
   const navigate = useNavigate();
@@ -408,12 +408,9 @@ function AppShellContent() {
   });
   const [quickQuoteFreshKey, setQuickQuoteFreshKey] = useState(0);
   const deepLinkHandledRef = useRef<string | null>(null);
-  const quoteUrlSyncRef = useRef<string | null>(
-    (() => {
-      const path = location.pathname.replace(/\/+$/, '') || '/';
-      return path.startsWith('/quote') ? path : null;
-    })(),
-  );
+  // Only URLs written by AppShell count as internal navigation. A cold
+  // /quote/quick visit still needs to restore its saved quote session.
+  const quoteUrlSyncRef = useRef<string | null>(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const mq = window.matchMedia('(max-width: 1023px)');
@@ -698,6 +695,7 @@ function AppShellContent() {
 
   // Deep links: /quote, /quote/large-amount, /quote/quick, /quote/:quoteId(Vn)
   useEffect(() => {
+    if (authLoading) return;
     const parsed = parseQuotePathname(location.pathname);
     if (parsed.kind === 'list' && location.pathname.replace(/\/+$/, '') !== QUOTE_LIST_PATH) {
       return;
@@ -746,8 +744,12 @@ function AppShellContent() {
       const savedStep = readQuickQuoteStep(user?.email);
       const hasPrefill = hasPmsQuotePrefillParams(new URLSearchParams(location.search));
 
-      if (savedEditingId && savedStep === 4) {
+      if (!hasPrefill && savedEditingId && savedStep === 3) {
+        const resume = readResumeQuote(user?.email);
         setEditingQuoteId(savedEditingId);
+        const resumeUuid = resume?.quoteId === savedEditingId ? resume.quoteUuid ?? null : null;
+        setEditingQuoteUuidRaw(resumeUuid);
+        setEditingQuoteVersionRaw(null);
         store.setCurrentView('quick-quote');
         const target = buildQuoteEditorPath(savedEditingId);
         quoteUrlSyncRef.current = target;
@@ -776,8 +778,9 @@ function AppShellContent() {
 
     if (parsed.kind === 'quote' && parsed.quoteId) {
       setEditingQuoteId(parsed.quoteId);
-      // Do not clear uuid on every deep-link pass — wiping it forces QuickQuote to
-      // re-fetch and briefly unmount editor step / 提交審核 (black flash + lost wizard state).
+      // In-app navigation returned above. An external URL owns its version
+      // and must not reuse the UUID from the previously opened quote.
+      setEditingQuoteUuidRaw(null);
       if (parsed.version) {
         setEditingQuoteVersionRaw(parsed.version);
       } else {
@@ -785,11 +788,12 @@ function AppShellContent() {
       }
       store.setCurrentView('quick-quote');
     }
-  }, [location.pathname, location.search, navigate, store, user?.email, setEditingQuoteId, roleLoading, profileRole]);
+  }, [location.pathname, location.search, navigate, store, user?.email, authLoading, setEditingQuoteId, roleLoading, profileRole]);
 
   // After deploy reload: restore editing quote id/uuid from resume marker or session.
   // Never steal quote_share / portal invite deep links back into the quote editor.
   useEffect(() => {
+    if (authLoading) return;
     if (location.pathname.startsWith("/quote/")) return;
     if (quoteShareGuestActive || invitePortalActive) return;
     if (isCustomerPortalPath(location.pathname)) return;
@@ -814,6 +818,7 @@ function AppShellContent() {
     if (saved) setEditingQuoteIdRaw(saved);
   }, [
     user?.email,
+    authLoading,
     store.currentView,
     location.pathname,
     navigate,
@@ -874,6 +879,7 @@ function AppShellContent() {
 
   // Keep browser URL aligned with quote / design-project / customer / section views.
   useEffect(() => {
+    if (authLoading && location.pathname.startsWith('/quote/')) return;
     const incomingLocation = `${location.pathname}${location.search}`;
     if (lastSyncedLocationRef.current !== incomingLocation) {
       // A Link/back/forward navigation owns this render. Let the inbound route
@@ -987,6 +993,7 @@ function AppShellContent() {
     navigate(target, { replace: true });
   }, [
     store.currentView,
+    authLoading,
     editingQuoteId,
     editingQuoteVersion,
     location.pathname,
