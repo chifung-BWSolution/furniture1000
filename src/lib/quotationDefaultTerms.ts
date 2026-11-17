@@ -26,6 +26,10 @@ function normalizeTermsRecord(
 /** Visible underline length for「1  送貨地址 : ________」 */
 export const DELIVERY_ADDRESS_BLANK = "&nbsp;".repeat(56);
 
+/** Factory 「訂單確認及交付細節」 used before a quote has its own lead time. */
+export const DEFAULT_QUOTATION_DELIVERY_DETAILS_ZH =
+  "訂單生產時間自收到訂金起計算，預計3-4 週完成。交付及安裝將分兩日進行：交付後1-2 個工作日內完成安裝。";
+
 export const DEFAULT_QUOTATION_TERMS = {
   payment: `須支付 70% 訂金於生產前，餘下 30% 於交付前支付。若未支付餘款，本公司將不安排交付或安裝。
 政府單位及NGO可在確認訂單後生產，收到貨後30天內付清全款。

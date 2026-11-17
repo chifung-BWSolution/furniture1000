@@ -182,12 +182,26 @@ import {
   writeResumeQuote,
 } from "@/lib/quickQuoteSession";
 import {
+  DEFAULT_QUOTATION_DELIVERY_DETAILS_ZH,
+  buildDefaultTermsFullHtml,
   readDeliveryAddressLine,
   injectDeliveryAddressIntoTermsHtml,
   migrateTermsContentToCurrent,
   resolveDeliveryAddress,
   type SavedTermsContent,
 } from "@/lib/quotationDefaultTerms";
+import {
+  mergeClientFields,
+  mergeDefaultableText,
+  mergeDeliveryAddress,
+  mergeGpSummary,
+  mergeInstallationAmount,
+  mergePriceMultiplier,
+  mergeStringList,
+  mergeTextField,
+  preferSavedIfDraftEmpty,
+  termsMatchIgnoringAddress,
+} from "@/lib/quoteDraftRestore";
 import {
   sanitizeExchangeRateInput,
   parseExchangeRateValue,
@@ -3203,7 +3217,7 @@ export function QuotationDraftEditor({
   const [deliveryDetails, setDeliveryDetails] = useState(
     copyPayload?.deliveryDetails ??
       savedDeliveryDetails ??
-      "訂單生產時間自收到訂金起計算，預計3-4 週完成。交付及安裝將分兩日進行：交付後1-2 個工作日內完成安裝。",
+      DEFAULT_QUOTATION_DELIVERY_DETAILS_ZH,
   );
   const [deliveryDetailsEn, setDeliveryDetailsEn] = useState(
     copyPayload?.deliveryDetailsEn ??
@@ -5096,27 +5110,69 @@ export function QuotationDraftEditor({
         }
         const cached = await loadDraft(storageKey);
         if (cancelled || !cached) return;
-        // Hydrate state from the cached draft
+        // Older drafts captured empty defaults before the saved quote loaded.
+        // Those blanks are not a user clear. New drafts set blankFieldsAreIntentional.
+        const blankFieldsAreIntentional = cached.blankFieldsAreIntentional === true;
+        const keepSavedTerms = (draftHtml: string | undefined, factoryHtml: string) =>
+          !blankFieldsAreIntentional &&
+          (!draftHtml?.trim() || termsMatchIgnoringAddress(draftHtml, factoryHtml));
+        const withAddress = (html: string, address: string) =>
+          address ? injectDeliveryAddressIntoTermsHtml(html, address) : html;
         if (cached.formData) {
           const cachedForm = cached.formData as Partial<QuoteFormData>;
           onFormDataChange({
-            clientIndustry: cachedForm.clientIndustry ?? formData.clientIndustry,
-            quotationType: cachedForm.quotationType ?? formData.quotationType,
-            serviceScope: cachedForm.serviceScope ?? formData.serviceScope,
-            workPeriod: cachedForm.workPeriod ?? formData.workPeriod,
-            remarks: cachedForm.remarks ?? formData.remarks,
+            clientIndustry: mergeStringList(
+              cachedForm.clientIndustry,
+              formData.clientIndustry,
+              blankFieldsAreIntentional,
+            ),
+            quotationType: mergeStringList(
+              cachedForm.quotationType,
+              formData.quotationType,
+              blankFieldsAreIntentional,
+            ),
+            serviceScope: mergeStringList(
+              cachedForm.serviceScope,
+              formData.serviceScope,
+              blankFieldsAreIntentional,
+            ),
+            workPeriod: mergeTextField(
+              cachedForm.workPeriod,
+              formData.workPeriod,
+              blankFieldsAreIntentional,
+            ),
+            remarks: mergeTextField(
+              cachedForm.remarks,
+              formData.remarks,
+              blankFieldsAreIntentional,
+            ),
           });
         }
         if (cached.companyInfo) {
           const cachedCompany = cached.companyInfo as Partial<typeof companyInfo>;
           setCompanyInfo({
-            name:
-              cachedCompany.name ||
-              formData.company ||
+            name: mergeDefaultableText(
+              cachedCompany.name,
+              companyInfo.name || formData.company,
               "Branding Works Design Ltd",
-            address: cachedCompany.address || DEFAULT_COMPANY_ADDRESS.zh,
-            addressEn: cachedCompany.addressEn || DEFAULT_COMPANY_ADDRESS.en,
-            showAddressInPdf: cachedCompany.showAddressInPdf !== false,
+              blankFieldsAreIntentional,
+            ) || formData.company || "Branding Works Design Ltd",
+            address: mergeDefaultableText(
+              cachedCompany.address,
+              companyInfo.address,
+              DEFAULT_COMPANY_ADDRESS.zh,
+              blankFieldsAreIntentional,
+            ) || DEFAULT_COMPANY_ADDRESS.zh,
+            addressEn: mergeDefaultableText(
+              cachedCompany.addressEn,
+              companyInfo.addressEn,
+              DEFAULT_COMPANY_ADDRESS.en,
+              blankFieldsAreIntentional,
+            ) || DEFAULT_COMPANY_ADDRESS.en,
+            showAddressInPdf:
+              !blankFieldsAreIntentional && companyInfo.showAddressInPdf === false
+                ? false
+                : cachedCompany.showAddressInPdf !== false,
             phone:
               resolveQuoteCompanyPhone({
                 email: userEmail,
@@ -5124,22 +5180,35 @@ export function QuotationDraftEditor({
               }) ||
               cachedCompany.phone ||
               DEFAULT_QUOTE_COMPANY_PHONE,
-            email: cachedCompany.email || "sales@brandingworks-furniture.com",
-            website: cachedCompany.website || DEFAULT_COMPANY_WEBSITE,
+            email: mergeDefaultableText(
+              cachedCompany.email,
+              companyInfo.email,
+              "sales@brandingworks-furniture.com",
+              blankFieldsAreIntentional,
+            ) || "sales@brandingworks-furniture.com",
+            website: mergeDefaultableText(
+              cachedCompany.website,
+              companyInfo.website,
+              DEFAULT_COMPANY_WEBSITE,
+              blankFieldsAreIntentional,
+            ) || DEFAULT_COMPANY_WEBSITE,
           });
         }
         if (cached.clientInfo) {
-          setClientInfo(cached.clientInfo as typeof clientInfo);
+          const draftClient = cached.clientInfo as Partial<typeof clientInfo>;
+          setClientInfo((saved) =>
+            mergeClientFields(draftClient, saved, blankFieldsAreIntentional),
+          );
         }
         const cachedTermsZh = cached.termsContent as SavedTermsContent | undefined;
         const cachedTermsEn = cached.termsContentEn as SavedTermsContent | undefined;
-        const cachedAddress = typeof cached.quoteMeta?.deliveryAddress === "string"
-          ? cached.quoteMeta.deliveryAddress.trim()
-          : "";
-        const restoredDeliveryAddress = cachedAddress
-          || readDeliveryAddressLine(cachedTermsZh?.fullHtml ?? "")
-          || readDeliveryAddressLine(cachedTermsEn?.fullHtml ?? "")
-          || "";
+        const restoredDeliveryAddress = mergeDeliveryAddress({
+          draftMetaAddress: cached.quoteMeta?.deliveryAddress,
+          draftTermsAddress: readDeliveryAddressLine(cachedTermsZh?.fullHtml ?? "") ?? "",
+          draftTermsEnAddress: readDeliveryAddressLine(cachedTermsEn?.fullHtml ?? "") ?? "",
+          savedAddress: quoteMeta.deliveryAddress,
+          blankFieldsAreIntentional,
+        });
         if (cached.quoteMeta || restoredDeliveryAddress) {
           const meta = cached.quoteMeta as {
             pmName?: string;
@@ -5156,73 +5225,161 @@ export function QuotationDraftEditor({
           });
         }
         if (cached.deliveryDetails) {
-          setDeliveryDetails(cached.deliveryDetails);
+          const draftDetails = cached.deliveryDetails;
+          setDeliveryDetails((saved) =>
+            mergeDefaultableText(
+              draftDetails,
+              saved,
+              DEFAULT_QUOTATION_DELIVERY_DETAILS_ZH,
+              blankFieldsAreIntentional,
+            ),
+          );
         }
         const cachedRecord = cached as unknown as Record<string, unknown>;
         if (typeof cached.deliveryDetailsEn === "string" && cached.deliveryDetailsEn) {
-          setDeliveryDetailsEn(cached.deliveryDetailsEn);
+          const draftDetailsEn = cached.deliveryDetailsEn;
+          setDeliveryDetailsEn((saved) =>
+            mergeDefaultableText(
+              draftDetailsEn,
+              saved,
+              DEFAULT_QUOTATION_DELIVERY_DETAILS_EN,
+              blankFieldsAreIntentional,
+            ),
+          );
         }
         if (cached.installationFee) {
           const draftFee = cached.installationFee as Partial<typeof installationFee>;
           const explicitlyEdited = cached.installationFeeAmountEdited === true;
           installationFeeAmountEdited.current = explicitlyEdited;
           setInstallationFee((saved) => ({
-            ...saved,
-            ...draftFee,
-            // Older drafts could capture the empty default before the saved quote loaded.
-            amount: draftFee.amount ?? (explicitlyEdited ? null : saved.amount),
+            title: mergeDefaultableText(
+              draftFee.title,
+              saved.title,
+              DEFAULT_INSTALL_FEE.title,
+              blankFieldsAreIntentional,
+            ),
+            subtitle: mergeDefaultableText(
+              draftFee.subtitle,
+              saved.subtitle,
+              DEFAULT_INSTALL_FEE.subtitle,
+              blankFieldsAreIntentional,
+            ),
+            conditionText: mergeDefaultableText(
+              draftFee.conditionText,
+              saved.conditionText,
+              DEFAULT_INSTALL_FEE.conditionText,
+              blankFieldsAreIntentional,
+            ),
+            freeLabel: mergeDefaultableText(
+              draftFee.freeLabel,
+              saved.freeLabel,
+              DEFAULT_INSTALL_FEE.freeLabel,
+              blankFieldsAreIntentional,
+            ),
+            chargeLabel: mergeDefaultableText(
+              draftFee.chargeLabel,
+              saved.chargeLabel,
+              DEFAULT_INSTALL_FEE.chargeLabel,
+              blankFieldsAreIntentional,
+            ),
+            amount: mergeInstallationAmount(draftFee.amount, saved.amount, explicitlyEdited),
           }));
         }
         if (typeof cachedRecord.discountNote === "string") {
-          setDiscountNote(
-            cachedRecord.discountNote as string,
+          const draftDiscount = cachedRecord.discountNote;
+          setDiscountNote((saved) =>
+            mergeTextField(draftDiscount, saved, blankFieldsAreIntentional),
           );
         }
         if (cachedRecord.gpSummary) {
           const gp = cachedRecord.gpSummary as { ship?: number; installation?: number };
-          setGpSummary({
-            ship: gp.ship ?? 0,
-            installation: gp.installation ?? 0,
-          });
+          setGpSummary((saved) => mergeGpSummary(gp, saved, blankFieldsAreIntentional));
         }
         if (cachedRecord.priceMultiplier != null && cachedRecord.priceMultiplier !== "") {
-          setPriceMultiplier(String(cachedRecord.priceMultiplier));
+          const nextMultiplier = mergePriceMultiplier(
+            cachedRecord.priceMultiplier,
+            priceMultiplier,
+            blankFieldsAreIntentional,
+          );
+          if (nextMultiplier != null) setPriceMultiplier(nextMultiplier);
         }
         if (Array.isArray(cachedRecord.quotePhotoLayouts)) {
-          setQuotePhotoLayouts(parsePhotoLayouts(cachedRecord.quotePhotoLayouts));
+          const next = parsePhotoLayouts(cachedRecord.quotePhotoLayouts);
+          setQuotePhotoLayouts((saved) =>
+            preferSavedIfDraftEmpty(next, saved, (rows) => rows.length === 0, blankFieldsAreIntentional),
+          );
         }
         if (Array.isArray(cachedRecord.quotePhotoAssets)) {
-          setQuotePhotoAssets(parseQuotePhotoAssetRefs(cachedRecord.quotePhotoAssets));
+          const next = parseQuotePhotoAssetRefs(cachedRecord.quotePhotoAssets);
+          setQuotePhotoAssets((saved) =>
+            preferSavedIfDraftEmpty(next, saved, (rows) => rows.length === 0, blankFieldsAreIntentional),
+          );
         }
         if ("floorPlan" in cachedRecord) {
-          setFloorPlan(parseQuoteFloorPlan(cachedRecord.floorPlan));
+          const next = parseQuoteFloorPlan(cachedRecord.floorPlan);
+          setFloorPlan((saved) =>
+            preferSavedIfDraftEmpty(next, saved, (plan) => plan == null, blankFieldsAreIntentional),
+          );
         }
         if ("zoneImages" in cachedRecord) {
-          setZoneImages(parseQuoteZoneImages(cachedRecord.zoneImages));
+          const next = parseQuoteZoneImages(cachedRecord.zoneImages);
+          setZoneImages((saved) =>
+            preferSavedIfDraftEmpty(
+              next,
+              saved,
+              (images) => Object.keys(images).length === 0,
+              blankFieldsAreIntentional,
+            ),
+          );
         }
         if ("zonePhotoLayouts" in cachedRecord) {
-          setZonePhotoLayouts(parseZonePhotoLayouts(cachedRecord.zonePhotoLayouts));
+          const next = parseZonePhotoLayouts(cachedRecord.zonePhotoLayouts);
+          setZonePhotoLayouts((saved) =>
+            preferSavedIfDraftEmpty(
+              next,
+              saved,
+              (layouts) => Object.keys(layouts).length === 0,
+              blankFieldsAreIntentional,
+            ),
+          );
         }
         if ("catalogPageAttachments" in cachedRecord) {
-          setCatalogPages(parseQuoteCatalogPages(cachedRecord.catalogPageAttachments));
+          const next = parseQuoteCatalogPages(cachedRecord.catalogPageAttachments);
+          setCatalogPages((saved) =>
+            preferSavedIfDraftEmpty(next, saved, (pages) => pages.length === 0, blankFieldsAreIntentional),
+          );
         }
-        if (cachedTermsZh || cached.quoteMeta) {
+        if (keepSavedTerms(cachedTermsZh?.fullHtml, buildDefaultTermsFullHtml())) {
+          if (restoredDeliveryAddress) {
+            setTermsContent((prev) => ({
+              ...prev,
+              fullHtml: withAddress(prev.fullHtml, restoredDeliveryAddress),
+            }));
+          }
+        } else if (cachedTermsZh || cached.quoteMeta) {
           setTermsContent((prev) => cachedTermsZh
             ? migrateTermsContentToCurrent(cachedTermsZh, restoredDeliveryAddress)
             : {
                 ...prev,
-                fullHtml: injectDeliveryAddressIntoTermsHtml(prev.fullHtml, restoredDeliveryAddress),
+                fullHtml: withAddress(prev.fullHtml, restoredDeliveryAddress),
               },
           );
         }
-        if (cachedTermsEn || cached.quoteMeta) {
+        if (keepSavedTerms(cachedTermsEn?.fullHtml, buildDefaultTermsFullHtmlEn())) {
+          if (restoredDeliveryAddress) {
+            setTermsContentEn((prev) => ({
+              ...prev,
+              fullHtml: withAddress(prev.fullHtml, restoredDeliveryAddress),
+            }));
+          }
+        } else if (cachedTermsEn || cached.quoteMeta) {
           const defaults = englishTermsContentForPdf(restoredDeliveryAddress);
           setTermsContentEn(
             cachedTermsEn?.fullHtml?.trim()
               ? {
                   ...defaults,
                   ...cachedTermsEn,
-                  fullHtml: injectDeliveryAddressIntoTermsHtml(cachedTermsEn.fullHtml, restoredDeliveryAddress),
+                  fullHtml: withAddress(cachedTermsEn.fullHtml, restoredDeliveryAddress),
                 }
               : defaults,
           );
@@ -5282,6 +5439,7 @@ export function QuotationDraftEditor({
       discountNote,
       installationFee,
       installationFeeAmountEdited: installationFeeAmountEdited.current,
+      blankFieldsAreIntentional: true,
       gpSummary,
       priceMultiplier: parseFloat(priceMultiplier) || 1,
       quotePhotoLayouts: quotePhotoLayouts as unknown as Record<string, unknown>[],

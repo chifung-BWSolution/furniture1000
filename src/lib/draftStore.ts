@@ -39,6 +39,12 @@ export interface DraftData {
   installationFee?: Record<string, unknown>;
   /** Distinguishes an intentional clearing from a legacy draft's empty default. */
   installationFeeAmountEdited?: boolean;
+  /**
+   * Set on drafts saved after the server quote has loaded.
+   * Blank fields in those drafts are the user's choice. Older drafts omit this
+   * and must not wipe saved values with the empty defaults they captured.
+   */
+  blankFieldsAreIntentional?: boolean;
   gpSummary?: { ship?: number; installation?: number };
   /** Last applied cost multiplier (e.g. 2.3). */
   priceMultiplier?: number | string;
