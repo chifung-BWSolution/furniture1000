@@ -37,6 +37,8 @@ export interface DraftData {
   subtotal: number;
   discountNote?: string;
   installationFee?: Record<string, unknown>;
+  /** Distinguishes an intentional clearing from a legacy draft's empty default. */
+  installationFeeAmountEdited?: boolean;
   gpSummary?: { ship?: number; installation?: number };
   /** Last applied cost multiplier (e.g. 2.3). */
   priceMultiplier?: number | string;
