@@ -129,14 +129,16 @@ function balanceLastPage<T extends PdfLayoutBlock>(
     guard < 20
   ) {
     guard += 1;
-    const moved = prev.blocks[prev.blocks.length - 1];
-    const prevAfter = prev.heightPt - moved.heightPt;
+    let start = prev.blocks.length - 1;
+    while (start > 0 && prev.blocks[start - 1].keepWithNext) start -= 1;
+    if (start === 0) break;
+    const movedHeight = prev.blocks.slice(start).reduce((sum, block) => sum + block.heightPt, 0);
+    const prevAfter = prev.heightPt - movedHeight;
     if (prevAfter < prevCapacity * MIN_KEEP_RATIO) break;
-    if (last.heightPt + moved.heightPt > lastCapacity) break;
-    prev.blocks.pop();
+    if (last.heightPt + movedHeight > lastCapacity) break;
+    last.blocks.unshift(...prev.blocks.splice(start));
     prev.heightPt = prevAfter;
-    last.blocks.unshift(moved);
-    last.heightPt += moved.heightPt;
+    last.heightPt += movedHeight;
   }
 }
 

@@ -36,6 +36,8 @@ function database({
       {
         id: "p1",
         project_code: "P1",
+        customer: { company_name: "PMS Company Ltd" },
+        real_customer_display_name: "PMS Customer Display Name",
         main_pm_id: "s1",
         n_team_type_id: "other",
         completion_photos: "//example.com/a.jpg",
@@ -153,6 +155,8 @@ test("Senior User sees assigned plus same-team photos, no unrelated projects", a
     "cases-photos",
   );
   assert.deepEqual(items.map((p) => p.id).sort(), ["p1", "p2"]);
+  assert.equal(items.find((p) => p.id === "p1").company_name, "PMS Company Ltd");
+  assert.equal(items.find((p) => p.id === "p2").company_name, null);
 });
 test("Admin order data is not truncated at 1000 rows", async () => {
   const orders = Array.from({ length: 1233 }, (_, i) => ({

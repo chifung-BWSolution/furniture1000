@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ModalContent, ModalRoot } from '@/components/ui/modal';
+import { Switch } from '@/components/ui/switch';
+import { fetchPmsBwdCompanyChop } from '@/lib/pmsPitchingQuoteDefaults';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import { quotePdf } from '@/lib/quotationLocale';
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
@@ -401,12 +403,44 @@ function useReactPdf(reloadToken = 0) {
 
 // ─── Exported Modal Component ────────────────────────────────────────────────
 
+async function prepareCompanyChop(labels: ReturnType<typeof quotePdf>): Promise<string> {
+  let url: string | null;
+  try {
+    url = await fetchPmsBwdCompanyChop();
+  } catch {
+    throw new Error(labels.companyChopLoadError);
+  }
+  if (!url) throw new Error(labels.companyChopMissing);
+
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error('Company chop asset request failed');
+    const image = await createImageBitmap(await response.blob());
+    try {
+      // React PDF embeds PNG/JPEG. Preserve transparency and constrain the image to print size.
+      const scale = Math.min(1, 440 / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Canvas unavailable');
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/png');
+    } finally {
+      image.close();
+    }
+  } catch {
+    throw new Error(labels.companyChopLoadError);
+  }
+}
+
 interface QuotationPDFPreviewProps {
   open: boolean;
   onClose: () => void;
   data: QuotationPDFData;
   /** Show the「加入人民幣總額」toggle. Customer portal passes false. */
   showCnyToggle?: boolean;
+  allowCompanyChop?: boolean;
 }
 
 export function QuotationPDFPreviewModal({
@@ -414,9 +448,12 @@ export function QuotationPDFPreviewModal({
   onClose,
   data,
   showCnyToggle = true,
+  allowCompanyChop = false,
 }: QuotationPDFPreviewProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [showCnyTotal, setShowCnyTotal] = useState(false);
+  const [showCompanyChop, setShowCompanyChop] = useState(false);
+  const includeCompanyChop = allowCompanyChop && showCompanyChop;
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [previewPages, setPreviewPages] = useState<QuotePdfPreviewPage[]>([]);
   const [renderError, setRenderError] = useState<string | null>(null);
@@ -439,7 +476,10 @@ export function QuotationPDFPreviewModal({
   }, [data]);
 
   useEffect(() => {
-    if (open) setShowCnyTotal(false);
+    if (open) {
+      setShowCnyTotal(false);
+      setShowCompanyChop(false);
+    }
   }, [open]);
 
   const dataKey = useMemo(() => JSON.stringify(data), [data]);
@@ -462,11 +502,14 @@ export function QuotationPDFPreviewModal({
       const catalogPages = pdfData.catalogPages ?? [];
       prefetchQuoteCatalogAppendix(catalogPages);
       // 先把圖片原始比例與字體量測準備好 —— 分頁與圖例排版都依賴它們。
-      await ensureMeasureFont();
-      await preloadImageSizes(collectQuotationPdfImageUrls(pdfData), { timeoutMs: 8000, concurrency: 4 });
+      const [companyChop] = await Promise.all([
+        includeCompanyChop ? prepareCompanyChop(labels) : undefined,
+        ensureMeasureFont(),
+        preloadImageSizes(collectQuotationPdfImageUrls(pdfData), { timeoutMs: 8000, concurrency: 4 }),
+      ]);
       const blob = await Promise.race([
         pdfMod
-          .pdf(<QuotationDocument data={pdfData} pdfMod={pdfMod} showCnyTotal={showCnyTotal} />)
+          .pdf(<QuotationDocument data={pdfData} pdfMod={pdfMod} showCnyTotal={showCnyTotal} companyChop={companyChop} />)
           .toBlob(),
         new Promise<never>((_, reject) => {
           timer = window.setTimeout(
@@ -489,7 +532,7 @@ export function QuotationPDFPreviewModal({
     } finally {
       if (timer !== undefined) window.clearTimeout(timer);
     }
-  }, [pdfMod, showCnyTotal]);
+  }, [pdfMod, showCnyTotal, includeCompanyChop, labels]);
 
   useEffect(() => {
     if (!open || !pdfMod || !dataKey) return;
@@ -500,7 +543,7 @@ export function QuotationPDFPreviewModal({
 
     // 同一份資料再開一次預覽：直接重用上一次的 PDF 與頁面圖。
     const cached = previewCache;
-    if (cached && cached.key === cacheKey) {
+    if (!includeCompanyChop && cached && cached.key === cacheKey) {
       setRenderError(null);
       setPageProgress(null);
       setPhase(null);
@@ -556,7 +599,7 @@ export function QuotationPDFPreviewModal({
         });
         if (cancelled) return;
         setPreviewPages(pages);
-        previewCache = { key: cacheKey, blob, pages };
+        if (!includeCompanyChop) previewCache = { key: cacheKey, blob, pages };
       } catch (err) {
         if (!cancelled && !isAbortError(err)) {
           setRenderError(renderFailureMessage(err));
@@ -573,7 +616,7 @@ export function QuotationPDFPreviewModal({
       cancelled = true;
       controller.abort();
     };
-  }, [open, pdfMod, dataKey, renderAttempt, showCnyTotal, buildPreviewBlob]);
+  }, [open, pdfMod, dataKey, renderAttempt, showCnyTotal, includeCompanyChop, buildPreviewBlob]);
 
   useEffect(() => {
     if (!open) return;
@@ -630,12 +673,25 @@ export function QuotationPDFPreviewModal({
         style={{ height: '92vh', width: '90vw' }}
       >
         {/* Modal Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
           <div>
             <h2 className="font-display text-lg font-bold text-foreground">{labels.modalTitle}</h2>
             <p className="font-body text-xs text-muted-foreground">{labels.modalSubtitle}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {allowCompanyChop && (
+              <label className="inline-flex items-center gap-2 text-sm font-medium">
+                <Switch
+                  checked={showCompanyChop}
+                  onCheckedChange={(checked) => {
+                    setPreviewBlob(null);
+                    setPreviewPages([]);
+                    setShowCompanyChop(checked);
+                  }}
+                />
+                {labels.showCompanyChop}
+              </label>
+            )}
             {showCnyToggle ? (
               <button
                 type="button"

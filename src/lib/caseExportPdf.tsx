@@ -3,7 +3,7 @@
  *
  * - 復用報價單 PDF 的字體載入管線（QuotationPDFPreview.ensureQuotationPdfModule）。
  * - 相片先抓取並壓成 JPEG dataURL（與入選一致，不靜默截斷），避免 PDF 過大或 CORS 問題。
- * - 版面刻意簡單：封面（標題＋合作品牌 Logo 牆）→ 逐案例（標題、說明、PM 可選、相片格）。
+ * - 完工相片只輸出 PMS 公司名稱和入選圖片。
  * - 內容一律來自 CaseExportItem（結構上已脫敏，見 caseExport.ts）。
  */
 
@@ -264,15 +264,16 @@ export async function buildCaseShowcasePdf(
 
   const elements: JSX.Element[] = [];
 
-  // 封面
-  elements.push(
-    <Text key="cover-title" style={styles.coverTitle}>
-      成功案例集
-    </Text>,
-    <Text key="cover-meta" style={styles.coverMeta}>
-      {today}　·　B&W Furniture
-    </Text>,
-  );
+  if (orderItems.length || brandItems.length) {
+    elements.push(
+      <Text key="cover-title" style={styles.coverTitle}>
+        成功案例集
+      </Text>,
+      <Text key="cover-meta" style={styles.coverMeta}>
+        {today}　·　B&W Furniture
+      </Text>,
+    );
+  }
 
   const withLogos = brandLogos.filter((b) => b.logo);
   if (withLogos.length) {
@@ -292,25 +293,17 @@ export async function buildCaseShowcasePdf(
 
   // 完工相片案例
   for (const album of photoAlbums) {
+    if (!album.photos.length) continue;
     const item = album.item;
+    const companyName = item.photoProject?.company_name?.trim();
     elements.push(
-      <View key={`case-${item.key}`} wrap={false}>
-        <Text style={styles.caseTitle}>{item.title}</Text>
-        {item.note ? <Text style={styles.caseNote}>{item.note}</Text> : null}
-        {item.showPm && item.photoProject?.pm_name ? (
-          <Text style={styles.casePm}>PM：{item.photoProject.pm_name}</Text>
+      <View key={`case-${item.key}`}>
+        {companyName ? (
+          <Text style={styles.caseTitle} minPresenceAhead={PDF_PHOTO_CELL_HEIGHT + PDF_PHOTO_GAP}>
+            {companyName}
+          </Text>
         ) : null}
-        {item.showDates && item.photoProject?.handover_date
-          ? (() => {
-              const d = safeCaseDate(item.photoProject.handover_date);
-              return d ? <Text style={styles.casePm}>交付日期：{d}</Text> : null;
-            })()
-          : null}
-      </View>,
-    );
-    if (album.photos.length) {
-      elements.push(
-        <View key={`photos-${item.key}`} style={styles.photoGrid} wrap>
+        <View style={styles.photoGrid} wrap>
           {album.photos.map((photo, index) => (
             <View key={`${item.key}-${index}`} style={styles.photoCell}>
               <Image
@@ -319,9 +312,9 @@ export async function buildCaseShowcasePdf(
               />
             </View>
           ))}
-        </View>,
-      );
-    }
+        </View>
+      </View>,
+    );
   }
 
   // 訂單數據案例：產品明細表＋完工相片

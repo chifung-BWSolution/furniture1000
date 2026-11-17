@@ -119,17 +119,6 @@ function linesToParagraphsCompact(text: string): string {
     .join("");
 }
 
-function hasInlineDeliveryAddressLine(html: string): boolean {
-  if (typeof DOMParser !== "undefined") {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    for (const p of doc.querySelectorAll("p")) {
-      if (p.textContent?.includes("送貨地址") && p.querySelector("u")) return true;
-    }
-    return false;
-  }
-  return /送貨地址[\s\S]*?<u/i.test(html);
-}
-
 function hasBoldSectionHeaders(html: string): boolean {
   const boldTag = (n: number) =>
     new RegExp(`<(?:strong|b)>\\s*${n}(?:&nbsp;|\\s)`, "i").test(html);
@@ -146,7 +135,7 @@ function hasBoldBankLabels(html: string): boolean {
 export function isCurrentTermsFormat(terms?: SavedTermsContent | null): boolean {
   const html = terms?.fullHtml?.trim();
   if (!html || !html.includes("送貨地址")) return false;
-  if (!hasInlineDeliveryAddressLine(html)) return false;
+  if (readDeliveryAddressLine(html) === undefined) return false;
   if (/<h3>\s*[2-6]/i.test(html)) return false;
   if (!hasBoldSectionHeaders(html)) return false;
   if (!hasBoldBankLabels(html)) return false;
@@ -208,7 +197,7 @@ export function migrateTermsContentToCurrent(
 
   if (isLatestSaved) {
     let fullHtml = saved!.fullHtml!;
-    if (address && !extractDeliveryAddressFromTermsHtml(fullHtml)) {
+    if (address && address !== addressFromTerms) {
       fullHtml = injectDeliveryAddressIntoTermsHtml(fullHtml, address);
     }
     return buildResolvedTerms(fullHtml, saved);
@@ -231,88 +220,57 @@ export function migrateTermsContentToCurrent(
 
 function normalizeUnderlineText(raw: string): string {
   return raw
-    .replace(/&nbsp;/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
     .replace(/\u00a0/g, " ")
     .replace(/<[^>]+>/g, "")
-    .replace(/_+/g, "")
+    .replace(/&(nbsp|amp|lt|gt|quot|#39);/g, (entity) => ({
+      "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
+      "&quot;": '"', "&#39;": "'",
+    })[entity] ?? entity)
+    .replace(/^\s*_+\s*$/, "")
     .trim();
 }
 
-function extractAddressTextAfterLabel(text: string): string {
-  const normalized = text.replace(/&nbsp;/gi, " ").replace(/\u00a0/g, " ");
-  const match = normalized.match(/送貨地址\s*[:：]?\s*(.+)/s);
-  if (!match) return "";
-  return match[1].replace(/_+/g, "").trim();
-}
+const DELIVERY_ADDRESS_LABEL = /^(?:1[.．、]?\s*)?(送貨地址|Delivery\s*Address)\s*[:：]?\s*/i;
 
-function extractDecoratedAddressFromParagraph(p: Element): string {
-  const underline = p.querySelector("u");
-  if (underline) {
-    const fromUnderline = normalizeUnderlineText(underline.innerHTML);
-    if (fromUnderline) return fromUnderline;
+/** Undefined means the template has no address line. An empty line returns "". */
+export function readDeliveryAddressLine(html: string): string | undefined {
+  for (const match of html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)) {
+    const line = normalizeUnderlineText(match[1]);
+    const label = line.match(DELIVERY_ADDRESS_LABEL);
+    if (label) return line.slice(label[0].length).replace(/^_+$/, "");
   }
-  for (const el of p.querySelectorAll('[style*="underline"]')) {
-    const fromSpan = normalizeUnderlineText(el.innerHTML);
-    if (fromSpan) return fromSpan;
-  }
-  return extractAddressTextAfterLabel(p.textContent || "");
 }
 
-/** Section-1 address label in ZH or EN terms HTML. */
-function paragraphHasDeliveryAddressLabel(text: string | null | undefined): boolean {
-  const t = text || "";
-  return t.includes("送貨地址") || /Delivery\s*Address/i.test(t);
-}
-
-/** Read user input from the underline blank on section 1 送貨地址 / Delivery Address. */
 export function extractDeliveryAddressFromTermsHtml(html: string): string {
-  if (!html) return "";
-  if (typeof DOMParser !== "undefined") {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    for (const p of doc.querySelectorAll("p")) {
-      if (!paragraphHasDeliveryAddressLabel(p.textContent)) continue;
-      const fromParagraph = extractDecoratedAddressFromParagraph(p);
-      if (fromParagraph) return fromParagraph;
-    }
-    const underline = doc.querySelector("u");
-    if (underline) {
-      const fromUnderline = normalizeUnderlineText(underline.innerHTML);
-      if (fromUnderline) return fromUnderline;
-    }
-  }
-  const labeledMatch = html.match(
-    /(?:送貨地址|Delivery\s*Address)[\s\S]*?<\/(?:strong|b)>\s*(?:&nbsp;|\s)*([^<]+)/i,
-  );
-  if (labeledMatch) {
-    const fromLabeled = normalizeUnderlineText(labeledMatch[1]);
-    if (fromLabeled) return fromLabeled;
-  }
-  const match = html.match(/<u[^>]*>([\s\S]*?)<\/u>/i);
-  return match ? normalizeUnderlineText(match[1]) : "";
+  return readDeliveryAddressLine(html) ?? "";
 }
 
 export function injectDeliveryAddressIntoTermsHtml(
   html: string,
   address: string,
 ): string {
-  const trimmed = address.trim();
-  if (!trimmed || !html) return html;
-  const escaped = trimmed
+  const escaped = address.trim()
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  if (typeof DOMParser !== "undefined") {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    for (const p of doc.querySelectorAll("p")) {
-      if (!paragraphHasDeliveryAddressLabel(p.textContent)) continue;
-      const underline = p.querySelector("u");
-      if (underline) {
-        underline.innerHTML = escaped;
-        return doc.body.innerHTML;
-      }
-    }
+    .replace(/>/g, "&gt;")
+    .replace(/\r?\n/g, "<br>");
+  for (const match of html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)) {
+    const label = normalizeUnderlineText(match[1]).match(DELIVERY_ADDRESS_LABEL);
+    if (!label) continue;
+    const underline = `<u>${escaped || DELIVERY_ADDRESS_BLANK}</u>`;
+    const opening = match[0].slice(0, match[0].indexOf(">") + 1);
+    const labelText = label[0].trim().replace(/[:：]$/, "").trim();
+    const existingUnderline = match[1].match(/<u\b[^>]*>[\s\S]*?<\/u>\s*$/i);
+    const prefix = existingUnderline && match[1].slice(0, existingUnderline.index);
+    const content = prefix && !normalizeUnderlineText(prefix).replace(DELIVERY_ADDRESS_LABEL, "")
+      ? prefix + underline
+      : `<strong>${labelText} :</strong>&nbsp;${underline}`;
+    return html.slice(0, match.index) +
+      opening + content + "</p>" +
+      html.slice(match.index + match[0].length);
   }
-  return html.replace(/<u[^>]*>[\s\S]*?<\/u>/i, `<u>${escaped}</u>`);
+  return html;
 }
 
 export function resolveDeliveryAddress(

@@ -146,6 +146,7 @@ export type ViewType =
   // 分析報表
   | 'report-factory'
   | 'report-product'
+  | 'report-quote-cost'
   /** @deprecated Removed — redirects to report-factory */
   | 'report-sales'
   // 設定
@@ -197,6 +198,7 @@ export type ViewType =
   | 'fds2-publish-similar'
   | 'fds2-report-factory'
   | 'fds2-report-product'
+  | 'fds2-report-quote-cost'
   | 'fds2-report-upload-log'
   | 'fds2-admin-users'
   | 'fds2-admin-logins'

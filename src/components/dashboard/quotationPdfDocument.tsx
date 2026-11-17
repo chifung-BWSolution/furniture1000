@@ -5,8 +5,7 @@
  * 1. 由「一個 Page 交給 react-pdf 自動分頁」改為「先量測、再分頁、逐頁輸出」。
  *    每個區塊（Item 列、總金額、圖片組、條款段落…）都有量測好的高度，
  *    所以首頁／續頁的表頭、頁碼、金額不被拆頁都可以精確控制。
- * 2. Item 的圖例不再是固定高度的窄圖框，而是依 1–3 張圖片的原始比例
- *    自適應排版（不裁切、不變形）。
+ * 2. Item 圖例將首張主圖放大，後續圖片依序置於下方，保留原始比例。
  * 3. 續頁重複表頭、頁尾 Page X / Y、長文字按行分頁。
  *
  * 資料來源完全不變：Item、金額、條款仍沿用既有欄位；圖片只多了「合併」步驟
@@ -17,7 +16,7 @@ import { Fragment } from 'react';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
 import { pdfDisplayText } from '@/lib/quotationPdfGlyphs';
-import { quoteCnyTotalFromHkd, quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
+import { QUOTE_FREE_INSTALLATION_MIN_HKD, quoteCnyTotalFromHkd, quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 import {
   formatSectionTitleLabel,
   sectionTitleOrdinalAt,
@@ -25,13 +24,12 @@ import {
 import { quoteItemSerialLabel } from '@/lib/quoteZone';
 import { UNZONED_QUOTE_IMAGE_KEY } from '@/lib/quoteFloorPlan';
 import { parseRemarksContent } from '@/lib/remarksContent';
-import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
+import { getChineseColorLabel } from '@/constants/color-map';
 import { looksLikeMaterialHtml } from '@/lib/quotationMaterialHtml';
 import { quoteZoneTotals } from '@/lib/quoteFormatSettings';
 import { parseHtmlForPdf, type PdfHtmlBlock } from '@/lib/quotationPdfHtml';
 import {
-  layoutItemImages,
-  type PdfImageGallery,
+  imageRatio,
   type PdfImageSource,
 } from '@/lib/quotationPdfImages';
 import {
@@ -40,6 +38,7 @@ import {
   PDF_CONTENT_WIDTH_PT,
   PDF_FOOTER_BOTTOM_PT,
   PDF_FOOTER_HEIGHT_PT,
+  PDF_IMAGE_LIMITS,
   PDF_PAGE_MARGIN,
   PDF_TABLE,
   PDF_TYPE,
@@ -89,6 +88,7 @@ const ROW_PAD = PDF_TABLE.rowPaddingPt;
  * 每列多保留這幾 pt，讓文字行盒不必貼齊容器。
  */
 const ROW_SLACK_PT = 3;
+const SECTION_ROW_HEIGHT_PT = 22;
 
 type QuotePdfItem = QuotationPDFData['items'][number];
 
@@ -110,6 +110,7 @@ type Ctx = {
   columns: Record<PdfColumnKey, number>;
   showCnyTotal: boolean;
   logoUrl: string;
+  companyChop?: string;
   quoteNumber: string;
   today: string;
   totalAmount: number;
@@ -281,33 +282,20 @@ function itemImageSources(item: QuotePdfItem): PdfImageSource[] {
   return sources;
 }
 
-function renderGalleryRow(
-  images: PdfImageGallery['images'],
-  heightPt: number,
-  widthPt: number,
-  P: PdfRenderer,
-) {
-  return (
-    <P.View style={{ width: widthPt, height: heightPt, position: 'relative' }}>
-      {images.map((image, index) => (
-        <P.View
-          key={`${image.url}-${index}`}
-          style={{
-            position: 'absolute',
-            left: image.leftPt,
-            top: image.topPt,
-            width: image.widthPt,
-            height: image.heightPt,
-          }}
-        >
-          <P.Image
-            src={image.url}
-            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-          />
+function buildItemImageStrips(item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
+  return itemImageSources(item).map((image, index) => {
+    const maxHeight = index === 0 ? PDF_IMAGE_LIMITS.itemPrimaryFrameHeightPt : PDF_IMAGE_LIMITS.itemSecondaryFrameHeightPt;
+    const ratio = imageRatio(image);
+    const height = Math.min(maxHeight, widthPt / ratio);
+    return {
+      heightPt: height + PDF_IMAGE_LIMITS.gapPt,
+      node: (
+        <P.View style={{ position: 'relative', width: widthPt, height }}>
+          <P.Image src={image.url} style={fittedImageBox(widthPt, height, ratio, 'contain', 0.5, 0.5, 1)} />
         </P.View>
-      ))}
-    </P.View>
-  );
+      ),
+    };
+  });
 }
 
 // ─── 頁首 ───────────────────────────────────────────────────────────────────
@@ -446,7 +434,6 @@ function buildTableHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: J
   const cells: Array<{ key: PdfColumnKey; label: string }> = [
     { key: 'no', label: labels.colNo },
     { key: 'desc', label: labels.colDesc },
-    { key: 'spec', label: labels.descDimensions },
     { key: 'material', label: labels.colMaterial },
     { key: 'image', label: labels.colImage },
     { key: 'qty', label: labels.colQty },
@@ -533,84 +520,38 @@ function buildDescStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: PdfRe
   return strips;
 }
 
-/** 顏色 → 色點 + 名稱（參考圖的規格欄樣式）。 */
-function colorEntries(color: string | undefined, locale: PdfLocale) {
-  return (color || '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .map((value) => ({
-      hex: getColorHex(value),
-      label: locale === 'en' ? value : getChineseColorLabel(value) || value,
-    }));
-}
-
-/** 規格欄：尺寸別 + 尺寸數值 + 顏色。 */
-function buildSpecStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
+/** 優先使用自訂規格，否則顯示尺寸。 */
+function buildSpecStrips(item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
   if (item.referenceSpec) return plainLines(item.referenceSpec, widthPt, PDF_TYPE.descValue.size).map((line) =>
     textStrip(line, { size: PDF_TYPE.descValue.size, linePt: PDF_TYPE.descValue.line }, P));
   const values = item.dimensionMode === 'dh'
     ? [['DIA', item.dimensionLMm], ['H', item.dimensionHMm]]
     : [['W', item.dimensionLMm], ['D', item.dimensionWMm], ['H', item.dimensionHMm]];
   const dimensions = values.filter(([, value]) => value != null && String(value).trim());
-  const text = dimensions.map(([label, value], index) =>
-    `${label} ${value}${index < dimensions.length - 1 ? ' \u00d7' : ''}`).join('\n');
+  const text = dimensions.map(([label, value], index) => {
+    const dimension = String(value).trim();
+    const unit = /\d$/.test(dimension) ? ' mm' : '';
+    const separator = index < dimensions.length - 1 ? ' ×' : '';
+    return `${label} ${dimension}${unit}${separator}`;
+  }).join('\n');
   return plainLines(text, widthPt, PDF_TYPE.descValue.size).map((line) =>
     textStrip(line, { size: PDF_TYPE.descValue.size, linePt: PDF_TYPE.descValue.line }, P));
 }
 
 function buildColorStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
-  const strips: Strip[] = [];
-  const colors = colorEntries(item.color, ctx.locale);
-  if (colors.length) {
-    const dotSize = 7;
-    const dotGap = 2.5;
-    const perRow = Math.max(1, Math.floor((widthPt + dotGap) / (dotSize + dotGap)));
-    const dotRows = Math.ceil(colors.length / perRow);
-    const labelLines = plainLines(colors.map((entry) => entry.label).join('、'), widthPt, 6.5);
-    const heightPt = 4 + dotRows * (dotSize + 1) + labelLines.length * 8.6 + 1;
-
-    strips.push({
-      heightPt,
-      node: (
-        <P.View style={{ width: '100%', height: heightPt, paddingTop: 4 }}>
-          {Array.from({ length: dotRows }, (_, rowIndex) => (
-            <P.View
-              key={`dots-${rowIndex}`}
-              style={{ height: dotSize + 1, flexDirection: 'row', alignItems: 'center' }}
-            >
-              {colors.slice(rowIndex * perRow, rowIndex * perRow + perRow).map((entry, index) => (
-                <P.View
-                  key={`${entry.label}-${index}`}
-                  style={{
-                    width: dotSize,
-                    height: dotSize,
-                    borderRadius: dotSize / 2,
-                    backgroundColor: entry.hex,
-                    borderWidth: 0.5,
-                    borderColor: '#8a93a0',
-                    marginRight: dotGap,
-                  }}
-                />
-              ))}
-            </P.View>
-          ))}
-          {labelLines.map((line, index) => (
-            <P.View key={`color-${index}`} style={{ height: 8.6, justifyContent: 'center' }}>
-              <P.Text
-                wrap={false}
-                style={{ fontSize: 6.5, lineHeight: 1.25, color: PDF_COLORS.muted }}
-              >
-                {line.text}
-              </P.Text>
-            </P.View>
-          ))}
-        </P.View>
-      ),
-    });
-  }
-
-  return strips;
+  const colors = (item.color || '').split(',').map((value) => value.trim()).filter(Boolean);
+  const labels = colors.map((value) => {
+    if (value.toUpperCase() === 'TBC') {
+      return ctx.locale === 'en' ? `${ctx.labels.descColor}: TBC` : `${ctx.labels.descColor}：TBC`;
+    }
+    return pdfDisplayText(ctx.locale === 'en' ? value : getChineseColorLabel(value) || value);
+  });
+  if (!labels.length) return [];
+  const text = labels.join(ctx.locale === 'en' ? ', ' : '、');
+  return wrapPdfSegments([{ text }], widthPt, PDF_TYPE.descValue.size)
+    .map((line) => textStrip(line, {
+      size: PDF_TYPE.descValue.size, linePt: PDF_TYPE.descValue.line, color: PDF_COLORS.muted,
+    }, P));
 }
 
 function materialSegments(raw: string): PdfHtmlBlock[] {
@@ -624,8 +565,8 @@ function materialSegments(raw: string): PdfHtmlBlock[] {
     .map((line) => ({ type: 'text' as const, segments: [{ text: line }] }));
 }
 
-/** 材質及明細欄：逐行量測，含備註（備註併入此欄，PRD 3.1）。 */
-function buildMaterialStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
+/** 材質及明細欄：逐行量測。 */
+function buildMaterialStrips(item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
   const strips: Strip[] = [];
   const size = PDF_TYPE.material.size;
   const line = PDF_TYPE.material.line;
@@ -647,6 +588,11 @@ function buildMaterialStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: P
     strips.push(spacer(2));
   }
 
+  return strips;
+}
+
+function buildRemarksStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
+  const strips: Strip[] = [];
   const remarksBlocks = parseRemarksContent(item.remarks, undefined).filter(
     (block): block is { type: 'text'; content: string; id: string } =>
       block.type === 'text' && Boolean(block.content.trim()),
@@ -677,23 +623,23 @@ function buildMaterialStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: P
 }
 
 /** 把一個 Item 排成一列（或超長時多段）。圖例按原樣式放在列內圖片欄。 */
-function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock[] {
+function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string, followsSection: boolean): PdfBlock[] {
   const { labels, P } = ctx;
   const columns = pdfColumnWidths(ctx.locale);
-  const customWidth = columns.desc + columns.spec + columns.material + columns.image;
+  const customWidth = columns.desc + columns.material + columns.image;
+  const descWidth = columns.desc - 4;
+  const remarks = item.isCustomTerm ? [] : buildRemarksStrips(ctx, item, descWidth, P);
+  const remarkStrips = new Set(remarks);
   let desc = item.isCustomTerm
     ? plainLines(item.name || '', customWidth - 8, PDF_TYPE.material.size).map((line) =>
       textStrip(line, { size: PDF_TYPE.material.size, linePt: PDF_TYPE.material.line }, P))
-    : [...buildDescStrips(ctx, item, columns.desc - 4, P),
-      ...buildColorStrips(ctx, item, columns.desc - 4, P)];
-  let spec = item.isCustomTerm ? [] : buildSpecStrips(ctx, item, columns.spec - 4, P);
-  let material = item.isCustomTerm ? [] : buildMaterialStrips(ctx, item, columns.material - 6, P);
+    : [...buildDescStrips(ctx, item, descWidth, P),
+      ...buildSpecStrips(item, descWidth, P),
+      ...buildColorStrips(ctx, item, descWidth, P),
+      ...remarks];
+  let material = item.isCustomTerm ? [] : buildMaterialStrips(item, columns.material - 6, P);
 
-  // 圖例欄：產品圖／參考圖／備註圖自適應排版（原樣式：圖片在列內圖片欄）。
-  const galleryWidth = itemImageColumnWidthPt(ctx.locale);
-  const gallery = item.isCustomTerm
-    ? null
-    : layoutItemImages(itemImageSources(item), { widthPt: galleryWidth });
+  let images = item.isCustomTerm ? [] : buildItemImageStrips(item, itemImageColumnWidthPt(ctx.locale), P);
 
   const priceValues: Array<{ key: PdfColumnKey; text: string; bold?: boolean; align: 'center' | 'right' }> = [
     { key: 'qty', text: String(item.quantity ?? 0), align: 'center' },
@@ -710,21 +656,27 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
   const tableHeight = buildTableHeader(ctx, P).heightPt;
   const capacity = PDF_CONTENT_HEIGHT_PT - Math.max(buildHeader(ctx, P).heightPt,
     buildCompactHeader(ctx, P).heightPt) - tableHeight - PDF_FOOTER_HEIGHT_PT - 5;
+  const firstCapacity = followsSection ? capacity - SECTION_ROW_HEIGHT_PT : capacity;
   const rowStyle = { flexDirection: 'row' as const, borderTopWidth: BORDER,
     borderLeftWidth: BORDER, borderRightWidth: BORDER, borderColor: RULE };
   const blocks: PdfBlock[] = [];
   let first = true;
   do {
     const continuationHeight = first ? 0 : PDF_TYPE.descLabel.line;
-    const available = Math.max(40, capacity - ROW_PAD * 2 - ROW_SLACK_PT - continuationHeight);
+    const available = Math.max(40, (first ? firstCapacity : capacity) - ROW_PAD * 2 - ROW_SLACK_PT - continuationHeight);
     const d = takeStrips(desc, available);
-    const sp = takeStrips(spec, available);
     const m = takeStrips(material, available);
-    desc = d.rest; spec = sp.rest; material = m.rest;
-    const heightPt = Math.max(sumHeight(d.taken) + continuationHeight, sumHeight(sp.taken),
+    const photos = takeStrips(images, available);
+    desc = d.rest;
+    material = m.rest;
+    images = photos.rest;
+    const descHeight = sumHeight(d.taken) + continuationHeight;
+    const contentHeight = Math.max(descHeight,
       sumHeight(m.taken), first ? priceHeight : 0,
-      first && gallery ? gallery.heightPt : 0, PDF_TABLE.minRowHeightPt - ROW_PAD * 2)
-      + ROW_PAD * 2 + ROW_SLACK_PT;
+      sumHeight(photos.taken), PDF_TABLE.minRowHeightPt - ROW_PAD * 2);
+    const heightPt = contentHeight + ROW_PAD * 2 + ROW_SLACK_PT;
+    const remarksIndex = d.taken.findIndex((strip) => remarkStrips.has(strip));
+    const descStrips = remarksIndex < 0 ? d.taken : d.taken.slice(0, remarksIndex);
     const showPrices = first;
     const continued = !first;
     blocks.push({
@@ -737,13 +689,13 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
           {continued ? <P.View style={{ height: continuationHeight }}>
             <P.Text style={{ fontSize: PDF_TYPE.descLabel.size, color: PDF_COLORS.muted }}>{labels.itemContinued}</P.Text>
           </P.View> : null}
-          {stackNode(d.taken, P)}
+          {stackNode(descStrips, P)}
+          {remarksIndex >= 0 && stackNode(d.taken.slice(remarksIndex), P, { marginTop: contentHeight - descHeight })}
         </P.View>
         {!item.isCustomTerm ? <>
-          <P.View style={cellStyle(columns.spec)}>{stackNode(sp.taken, P)}</P.View>
           <P.View style={{ ...cellStyle(columns.material), paddingHorizontal: 3 }}>{stackNode(m.taken, P)}</P.View>
-          <P.View style={cellStyle(columns.image, { center: true })}>
-            {gallery && first ? renderGalleryRow(gallery.images, gallery.heightPt, galleryWidth, P) : null}
+          <P.View style={cellStyle(columns.image)}>
+            {stackNode(photos.taken, P)}
           </P.View>
         </> : null}
         {prices.map((cell, index) => <P.View key={cell.key}
@@ -759,11 +711,11 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string): PdfBlock
       </P.View>,
     });
     first = false;
-  } while (desc.length || spec.length || material.length);
+  } while (desc.length || material.length || images.length);
 
   // Keep the description and its photos together whenever the full item fits a page.
   const heightPt = blocks.reduce((sum, block) => sum + block.heightPt, 0);
-  if (heightPt <= capacity) {
+  if (heightPt <= firstCapacity) {
     return [{ key: `item-${serial}`, heightPt, table: true,
       node: <P.View>{blocks.map((block) => <P.View key={block.key} style={{ height: block.heightPt }}>{block.node}</P.View>)}</P.View> }];
   }
@@ -843,7 +795,7 @@ function buildLeadImageBlock(ctx: Ctx, imageUrls: string[] | undefined, key: str
 
 function buildSectionBlock(ctx: Ctx, text: string, index: number): PdfBlock {
   const P = ctx.P;
-  const heightPt = 22;
+  const heightPt = SECTION_ROW_HEIGHT_PT;
   return {
     key: `section-${index}-${text}`,
     heightPt,
@@ -859,7 +811,7 @@ function buildSectionBlock(ctx: Ctx, text: string, index: number): PdfBlock {
           borderColor: RULE,
         }}
       >
-        <P.View style={{ height: 22, justifyContent: 'center', paddingHorizontal: 6 }}>
+        <P.View style={{ height: heightPt, justifyContent: 'center', paddingHorizontal: 6 }}>
           <P.Text style={{ fontSize: 9, fontWeight: 700 }}>{text}</P.Text>
         </P.View>
       </P.View>
@@ -901,7 +853,7 @@ function buildZoneBlock(ctx: Ctx, name: string, amount: number): PdfBlock {
 function buildInstallBlock(ctx: Ctx): PdfBlock {
   const { columns, data, labels, locale } = ctx;
   const P = ctx.P;
-  const leadWidth = columns.no + columns.desc + columns.spec + columns.material;
+  const leadWidth = columns.no + columns.desc + columns.material;
   const conditionWidth = columns.image + columns.qty + columns.unit;
   const title = pdfDisplayText(data.installationFee?.title || labels.installTitle);
   const subtitle = pdfDisplayText(data.installationFee?.subtitle || labels.installSubtitle);
@@ -1503,6 +1455,14 @@ function buildSignatureBlock(ctx: Ctx): PdfBlock {
             {pdfDisplayText(labels.dateOfSignature)}
           </P.Text>
         </P.View>
+        {ctx.companyChop && (
+          <P.View style={{ marginLeft: 32, alignItems: 'center' }}>
+            <P.Text style={{ fontSize: 9, fontWeight: 700, marginBottom: 5 }}>
+              {pdfDisplayText(labels.companyChop)}
+            </P.Text>
+            <P.Image src={ctx.companyChop} style={{ width: 132, height: 62, objectFit: 'contain' }} />
+          </P.View>
+        )}
       </P.View>
     ),
   };
@@ -1516,6 +1476,7 @@ export type QuotationPdfDocumentProps = {
   showCnyTotal?: boolean;
   /** Logo（預設同源 /assets/bwf-logo.png）。 */
   logoUrl?: string;
+  companyChop?: string;
 };
 
 /**
@@ -1549,6 +1510,7 @@ export function QuotationDocument({
   pdfMod,
   showCnyTotal = false,
   logoUrl,
+  companyChop,
 }: QuotationPdfDocumentProps) {
   const { Document, Page, Text, View, Image } = pdfMod;
 
@@ -1583,7 +1545,7 @@ export function QuotationDocument({
     const parsed = parseFloat(String(raw));
     return Number.isNaN(parsed) ? 0 : parsed;
   })();
-  const isFreeInstallation = (data.subtotal || 0) >= 12000;
+  const isFreeInstallation = (data.subtotal || 0) >= QUOTE_FREE_INSTALLATION_MIN_HKD;
   const installationAmount = isFreeInstallation ? 0 : data.installationFee?.amount ?? 0;
   const totalAmount = Math.max(0, (data.subtotal || 0) - discountValue + installationAmount);
 
@@ -1595,6 +1557,7 @@ export function QuotationDocument({
     columns,
     showCnyTotal,
     logoUrl: logoUrl || `${baseUrl}/assets/bwf-logo.png`,
+    companyChop,
     quoteNumber,
     today,
     totalAmount,
@@ -1637,24 +1600,22 @@ export function QuotationDocument({
   items.forEach((item, index) => {
     if (item.isSectionTitle) {
       pushUnzoned();
-      tableBlocks.push(
-        buildSectionBlock(
-          ctx,
-          pdfDisplayText(
-            formatSectionTitleLabel(
-              sectionTitleOrdinalAt(items, index),
-              item.name || '',
-            ),
-          ),
-          index,
-        ),
+      const section = buildSectionBlock(
+        ctx,
+        pdfDisplayText(formatSectionTitleLabel(sectionTitleOrdinalAt(items, index), item.name || '')),
+        index,
       );
+      tableBlocks.push(section);
+      const afterSection = tableBlocks.length;
       const zone = zoneEndAt.get(index);
       if (zone && showZoneSubtotal) tableBlocks.push(buildZoneBlock(ctx, zone.name, zone.amount));
       if (zone) pushZoneMedia(index);
+      const nextItem = items[index + 1];
+      section.keepWithNext = tableBlocks.length > afterSection || Boolean(nextItem && !nextItem.isSectionTitle);
       return;
     }
-    tableBlocks.push(...buildItemBlocks(ctx, item, quoteItemSerialLabel(items, index)));
+    tableBlocks.push(...buildItemBlocks(ctx, item, quoteItemSerialLabel(items, index),
+      Boolean(items[index - 1]?.isSectionTitle)));
     const zone = zoneEndAt.get(index);
     if (zone && showZoneSubtotal) tableBlocks.push(buildZoneBlock(ctx, zone.name, zone.amount));
     if (zone) {
