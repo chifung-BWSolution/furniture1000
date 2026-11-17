@@ -3246,6 +3246,7 @@ export function QuotationDraftEditor({
         ? savedInstallationFee.amount
         : null,
   });
+  const installationFeeAmountEdited = useRef(false);
 
   const savedGpSummary = copyPayload
     ? copyPayload.gpSummary
@@ -5161,10 +5162,16 @@ export function QuotationDraftEditor({
         if (typeof cached.deliveryDetailsEn === "string" && cached.deliveryDetailsEn) {
           setDeliveryDetailsEn(cached.deliveryDetailsEn);
         }
-        if (cachedRecord.installationFee) {
-          setInstallationFee(
-            cachedRecord.installationFee as typeof installationFee,
-          );
+        if (cached.installationFee) {
+          const draftFee = cached.installationFee as Partial<typeof installationFee>;
+          const explicitlyEdited = cached.installationFeeAmountEdited === true;
+          installationFeeAmountEdited.current = explicitlyEdited;
+          setInstallationFee((saved) => ({
+            ...saved,
+            ...draftFee,
+            // Older drafts could capture the empty default before the saved quote loaded.
+            amount: draftFee.amount ?? (explicitlyEdited ? null : saved.amount),
+          }));
         }
         if (typeof cachedRecord.discountNote === "string") {
           setDiscountNote(
@@ -5274,6 +5281,7 @@ export function QuotationDraftEditor({
       subtotal,
       discountNote,
       installationFee,
+      installationFeeAmountEdited: installationFeeAmountEdited.current,
       gpSummary,
       priceMultiplier: parseFloat(priceMultiplier) || 1,
       quotePhotoLayouts: quotePhotoLayouts as unknown as Record<string, unknown>[],
@@ -7310,6 +7318,7 @@ export function QuotationDraftEditor({
                                 placeholder={installationFee.freeLabel || "另議"}
                                 onChange={(e) => {
                                   const raw = e.target.value;
+                                  installationFeeAmountEdited.current = true;
                                   setInstallationFee((prev) => ({
                                     ...prev,
                                     amount: raw === "" ? null : Math.max(0, parseFloat(raw) || 0),
