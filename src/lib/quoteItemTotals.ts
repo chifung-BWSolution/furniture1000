@@ -1,5 +1,7 @@
 /** Billable totals for quote items (excludes optional / 可選產品 lines). */
 
+export const QUOTE_FREE_INSTALLATION_MIN_HKD = 12_000;
+
 export type QuoteLineItem = {
   unitPrice?: number;
   quantity?: number;

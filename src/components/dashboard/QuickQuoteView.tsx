@@ -1015,6 +1015,7 @@ export function QuickQuoteView({
             open
             onClose={() => setPdfPreviewData(null)}
             data={pdfPreviewData}
+            allowCompanyChop
           />
         </Suspense>
       )}

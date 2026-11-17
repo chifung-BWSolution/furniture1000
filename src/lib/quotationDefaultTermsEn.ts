@@ -87,7 +87,7 @@ function escapeHtml(s: string): string {
 export function buildDefaultTermsFullHtmlEn(deliveryAddress?: string): string {
   const addr = (deliveryAddress || '').trim();
   const underlineInner = addr
-    ? escapeHtml(addr)
+    ? escapeHtml(addr).replace(/\r?\n/g, '<br>')
     : DELIVERY_ADDRESS_BLANK;
   const terms = DEFAULT_QUOTATION_TERMS_EN;
   return [

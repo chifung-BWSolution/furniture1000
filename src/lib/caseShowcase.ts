@@ -45,6 +45,7 @@ export interface CaseOrder extends CaseProjectListFields {
 }
 export interface CasePhotoProject extends CaseProjectListFields {
   id: string;
+  company_name?: string | null;
   project_code: string | null;
   project_name: string | null;
   status: string | null;

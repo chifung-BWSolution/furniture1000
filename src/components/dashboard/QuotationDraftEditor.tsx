@@ -182,7 +182,7 @@ import {
   writeResumeQuote,
 } from "@/lib/quickQuoteSession";
 import {
-  extractDeliveryAddressFromTermsHtml,
+  readDeliveryAddressLine,
   injectDeliveryAddressIntoTermsHtml,
   migrateTermsContentToCurrent,
   resolveDeliveryAddress,
@@ -195,7 +195,7 @@ import {
   exchangeRateInputDisplay,
 } from "@/lib/quoteCostExchange";
 import { parseGpSummary } from "@/lib/quoteGpSummary";
-import { quoteBillableProductCost, quoteBillableSubtotal, quoteItemLineSubtotal } from "@/lib/quoteItemTotals";
+import { QUOTE_FREE_INSTALLATION_MIN_HKD, quoteBillableProductCost, quoteBillableSubtotal, quoteItemLineSubtotal } from "@/lib/quoteItemTotals";
 import {
   findQuoteCostMismatches,
   quoteDerivedHkdCost,
@@ -250,8 +250,6 @@ import {
   fetchProductCategoryPairs,
   findProductCategoryPairById,
   resolveProductCategoryId,
-  uniqueLevel1InOrder,
-  uniqueLevel2InOrder,
   type ProductCategoryPair,
 } from "@/lib/productCategoryOptions";
 import {
@@ -1255,10 +1253,6 @@ function QuoteProductItemCard({
   duplicateItem,
   removeItem,
   onOpenProductLink,
-  onRegistryLevel1Change,
-  onRegistryLevel2Change,
-  categoryPairs,
-  categoryPairsLoading,
   factories,
   factoriesLoading,
   quoteImageScope,
@@ -1296,10 +1290,6 @@ function QuoteProductItemCard({
   duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
   onOpenProductLink: (item: QuotationItem) => void;
-  onRegistryLevel1Change: (id: string, level1: string) => void;
-  onRegistryLevel2Change: (id: string, level2: string) => void;
-  categoryPairs: ProductCategoryPair[];
-  categoryPairsLoading: boolean;
   factories: string[];
   factoriesLoading: boolean;
   /** Scope for Supabase Storage paths (quote id or draft key). */
@@ -1316,12 +1306,6 @@ function QuoteProductItemCard({
   zoneHighlight?: boolean;
 }) {
   const dimensionMode = item.dimensionMode ?? 'lwh';
-  const level1Value = item.registryLevel1?.trim() || '';
-  const level2Value = item.registryLevel2?.trim() || '';
-  const level1Options = uniqueLevel1InOrder(categoryPairs);
-  const level2Options = uniqueLevel2InOrder(categoryPairs, level1Value);
-  const registrySelectClass =
-    "h-[34px] w-full min-w-0 cursor-pointer rounded-md border border-border bg-background px-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60";
   const isDiameterHeight = dimensionMode === 'dh';
   const unitLocale = labels.unit === 'Unit' ? 'en' : 'zh';
   const uploadProductImage = useCallback(
@@ -1407,62 +1391,6 @@ function QuoteProductItemCard({
                 aria-label={labels.productNamePlaceholder}
               />
             </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.level1Category}>
-            <Select
-              value={level1Value || "__none__"}
-              disabled={categoryPairsLoading}
-              onValueChange={(value) =>
-                onRegistryLevel1Change(
-                  item.id,
-                  value === "__none__" ? "" : value,
-                )
-              }
-            >
-              <SelectTrigger
-                className={registrySelectClass}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="z-[300]">
-                <SelectItem value="__none__">—</SelectItem>
-                {level1Options.map((l1) => (
-                  <SelectItem key={l1} value={l1}>
-                    {l1}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label={labels.level2Category}>
-            <Select
-              value={level2Value || "__none__"}
-              disabled={
-                categoryPairsLoading ||
-                !level1Value ||
-                level2Options.length === 0
-              }
-              onValueChange={(value) =>
-                onRegistryLevel2Change(
-                  item.id,
-                  value === "__none__" ? "" : value,
-                )
-              }
-            >
-              <SelectTrigger
-                className={registrySelectClass}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="z-[300]">
-                <SelectItem value="__none__">—</SelectItem>
-                {level2Options.map((l2) => (
-                  <SelectItem key={l2} value={l2}>
-                    {l2}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </QuoteFieldBlock>
           </QuoteCardGroup>
           <QuoteCardGroup label={labels.dimensionsMm} icon={<Ruler />}>
             <div className="min-w-0">
@@ -2769,12 +2697,14 @@ function CostBreakdownHoverCard({
   unpricedCount,
   total,
   english,
+  align = "start",
 }: {
   children: ReactElement;
   lines: CostBreakdownLine[];
   unpricedCount: number;
   total: number;
   english: boolean;
+  align?: "start" | "end";
 }) {
   const label = (zh: string, en: string) => (english ? en : zh);
   return (
@@ -2782,7 +2712,7 @@ function CostBreakdownHoverCard({
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
       <HoverCardContent
         side="bottom"
-        align="start"
+        align={align}
         sideOffset={8}
         collisionPadding={12}
         className="group w-[min(92vw,20rem)] border-0 bg-transparent p-0 shadow-none"
@@ -2790,11 +2720,17 @@ function CostBreakdownHoverCard({
         {/* 小三角：旋轉 45° 的方塊；上半在卡片外，下半與 header / footer 同色，視覺上與卡片連成一體 */}
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute left-6 top-0 hidden h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-l border-t border-[hsl(var(--border))] bg-muted group-data-[side=bottom]:block"
+          className={cn(
+            "pointer-events-none absolute top-0 hidden h-2.5 w-2.5 -translate-y-1/2 rotate-45 border-l border-t border-[hsl(var(--border))] bg-muted group-data-[side=bottom]:block",
+            align === "end" ? "right-6" : "left-6 -translate-x-1/2",
+          )}
         />
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute bottom-0 left-6 hidden h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rotate-45 border-b border-r border-[hsl(var(--border))] bg-popover group-data-[side=top]:block"
+          className={cn(
+            "pointer-events-none absolute bottom-0 hidden h-2.5 w-2.5 translate-y-1/2 rotate-45 border-b border-r border-[hsl(var(--border))] bg-popover group-data-[side=top]:block",
+            align === "end" ? "right-6" : "left-6 -translate-x-1/2",
+          )}
         />
         <div className="flex max-h-[min(70vh,24rem)] w-full flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-[0_18px_45px_-12px_rgba(15,23,42,0.4),0_4px_12px_-4px_rgba(15,23,42,0.22)]">
           <div className="border-b bg-muted px-3 py-2">
@@ -2929,12 +2865,12 @@ export function QuotationDraftEditor({
     | undefined;
 
   // Basic information is immediately editable in the unified editor.
-  const [collapseCompany, setCollapseCompany] = useState(false);
-  const [collapseProject, setCollapseProject] = useState(false);
-  const [collapseClient, setCollapseClient] = useState(false);
-  const [collapseQuoteMeta, setCollapseQuoteMeta] = useState(false);
+  const [collapseCompany, setCollapseCompany] = useState(true);
+  const [collapseProject, setCollapseProject] = useState(true);
+  const [collapseClient, setCollapseClient] = useState(true);
+  const [collapseQuoteMeta, setCollapseQuoteMeta] = useState(true);
   const [summaryEditing, setSummaryEditing] = useState(true);
-  const [activeNav, setActiveNav] = useState<"basic" | "content" | "fees" | "photos" | "terms">("basic");
+  const [activeNav, setActiveNav] = useState<"basic" | "content" | "fees" | "photos" | "terms">("content");
   /** Section-title row currently at the top of 報價內容 — highlights its zone in the nav. */
   const [activeContentZoneId, setActiveContentZoneId] = useState<string | null>(null);
   const chromeRef = useRef<HTMLDivElement | null>(null);
@@ -3192,12 +3128,16 @@ export function QuotationDraftEditor({
   });
 
   // Quote meta (editable) — pitching code is read-only from PMS
+  const savedDeliveryAddress = savedQuoteMeta?.deliveryAddress?.trim()
+    || readDeliveryAddressLine(copyPayload?.termsContent?.fullHtml ?? savedTermsContent?.fullHtml ?? "")
+    || readDeliveryAddressLine(copyPayload?.termsContentEn?.fullHtml ?? savedTermsContentEn?.fullHtml ?? "")
+    || "";
   const [quoteMeta, setQuoteMeta] = useState({
     pmName: savedQuoteMeta?.pmName || formData.projectManager,
     // Always show today in the editor; persist only on 保存現有版本 / 版本審核.
     date: todayQuoteDateIso(),
     validity: savedQuoteMeta?.validity || formData.validityDays || "30",
-    deliveryAddress: savedQuoteMeta?.deliveryAddress || "",
+    deliveryAddress: savedDeliveryAddress,
   });
   const resolveEditorQuoteId = useCallback(
     (meta?: Record<string, unknown> | null) => {
@@ -3332,19 +3272,21 @@ export function QuotationDraftEditor({
       (copyPayload?.termsContent ?? savedTermsContent) as
         | SavedTermsContent
         | undefined,
-      savedQuoteMeta?.deliveryAddress,
+      savedDeliveryAddress,
     ),
   );
   const [termsContentEn, setTermsContentEn] = useState(() => {
     const saved =
       (copyPayload?.termsContentEn as SavedTermsContent | undefined) ??
       savedTermsContentEn;
-    const defaults = englishTermsContentForPdf(savedQuoteMeta?.deliveryAddress);
+    const defaults = englishTermsContentForPdf(savedDeliveryAddress);
     if (saved?.fullHtml?.trim()) {
       return {
         ...defaults,
         ...saved,
-        fullHtml: saved.fullHtml,
+        fullHtml: savedDeliveryAddress
+          ? injectDeliveryAddressIntoTermsHtml(saved.fullHtml, savedDeliveryAddress)
+          : saved.fullHtml,
       };
     }
     return defaults;
@@ -3352,6 +3294,35 @@ export function QuotationDraftEditor({
   const [termsEditMode, setTermsEditMode] = useState(false);
   const [quoteLocale, setQuoteLocale] = useState<QuoteLocale>('zh');
   const t = quoteUi(quoteLocale);
+
+  const updateDeliveryAddress = (deliveryAddress: string, editedLocale?: QuoteLocale) => {
+    setQuoteMeta((prev) => ({ ...prev, deliveryAddress }));
+    if (editedLocale !== "zh") {
+      setTermsContent((prev) => ({
+        ...prev,
+        fullHtml: injectDeliveryAddressIntoTermsHtml(prev.fullHtml, deliveryAddress),
+      }));
+    }
+    if (editedLocale !== "en") {
+      setTermsContentEn((prev) => ({
+        ...prev,
+        fullHtml: injectDeliveryAddressIntoTermsHtml(prev.fullHtml, deliveryAddress),
+      }));
+    }
+  };
+
+  const handleTermsChange = (locale: QuoteLocale, html: string) => {
+    const previousHtml = locale === "en" ? termsContentEn.fullHtml : termsContent.fullHtml;
+    if (locale === "en") {
+      setTermsContentEn((prev) => ({ ...prev, fullHtml: html }));
+    } else {
+      setTermsContent((prev) => ({ ...prev, fullHtml: html }));
+    }
+    const address = readDeliveryAddressLine(html);
+    if (address !== undefined && address !== readDeliveryAddressLine(previousHtml)) {
+      updateDeliveryAddress(address, locale);
+    }
+  };
 
   const finishTermsEdit = () => {
     setTermsEditMode(false);
@@ -3387,7 +3358,6 @@ export function QuotationDraftEditor({
   const [factories, setFactories] = useState<string[]>([]);
   const [factoriesLoading, setFactoriesLoading] = useState(false);
   const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
-  const [categoryPairsLoading, setCategoryPairsLoading] = useState(false);
   const [items, setItems] = useState<QuotationItem[]>(() => {
     if (copyPayload?.items?.length) {
       return copyPayload.items.map((item) => mapInputToQuotationItem(item));
@@ -3639,13 +3609,9 @@ export function QuotationDraftEditor({
 
   useEffect(() => {
     let cancelled = false;
-    setCategoryPairsLoading(true);
     fetchProductCategoryPairs()
       .then((pairs) => {
         if (!cancelled) setCategoryPairs(pairs);
-      })
-      .finally(() => {
-        if (!cancelled) setCategoryPairsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -3826,59 +3792,6 @@ export function QuotationDraftEditor({
       }),
     );
   };
-
-  const onRegistryLevel1Change = useCallback(
-    (id: string, level1: string) => {
-      itemsUserEditedRef.current = true;
-      setItems((prev) =>
-        prev.map((item) => {
-          if (item.id !== id) return item;
-          const l2Options = uniqueLevel2InOrder(categoryPairs, level1);
-          const l2 =
-            item.registryLevel2 && l2Options.includes(item.registryLevel2)
-              ? item.registryLevel2
-              : "";
-          const productCategoryId = resolveProductCategoryId(
-            categoryPairs,
-            level1,
-            l2,
-          );
-          return {
-            ...item,
-            registryLevel1: level1,
-            registryLevel2: l2,
-            category: l2 || level1,
-            productCategoryId,
-          };
-        }),
-      );
-    },
-    [categoryPairs],
-  );
-
-  const onRegistryLevel2Change = useCallback(
-    (id: string, level2: string) => {
-      itemsUserEditedRef.current = true;
-      setItems((prev) =>
-        prev.map((item) => {
-          if (item.id !== id) return item;
-          const l1 = item.registryLevel1?.trim() || "";
-          const productCategoryId = resolveProductCategoryId(
-            categoryPairs,
-            l1,
-            level2,
-          );
-          return {
-            ...item,
-            registryLevel2: level2,
-            category: level2 || l1,
-            productCategoryId,
-          };
-        }),
-      );
-    },
-    [categoryPairs],
-  );
 
   const updateExchangeRate = (id: string, raw: string) => {
     itemsUserEditedRef.current = true;
@@ -4120,7 +4033,7 @@ export function QuotationDraftEditor({
     const n = parseFloat(discountNote);
     return isNaN(n) ? 0 : n;
   })();
-  const isFreeInstallation = subtotal >= 12000;
+  const isFreeInstallation = subtotal >= QUOTE_FREE_INSTALLATION_MIN_HKD;
   const installationAmount = isFreeInstallation ? 0 : (installationFee.amount ?? 0);
   /** Live editor total — persisted only as `bwf_quote.total_amount` (not in project_data). */
   const totalAmount = Math.max(0, subtotal - discountValue + installationAmount);
@@ -5214,7 +5127,16 @@ export function QuotationDraftEditor({
         if (cached.clientInfo) {
           setClientInfo(cached.clientInfo as typeof clientInfo);
         }
-        if (cached.quoteMeta) {
+        const cachedTermsZh = cached.termsContent as SavedTermsContent | undefined;
+        const cachedTermsEn = cached.termsContentEn as SavedTermsContent | undefined;
+        const cachedAddress = typeof cached.quoteMeta?.deliveryAddress === "string"
+          ? cached.quoteMeta.deliveryAddress.trim()
+          : "";
+        const restoredDeliveryAddress = cachedAddress
+          || readDeliveryAddressLine(cachedTermsZh?.fullHtml ?? "")
+          || readDeliveryAddressLine(cachedTermsEn?.fullHtml ?? "")
+          || "";
+        if (cached.quoteMeta || restoredDeliveryAddress) {
           const meta = cached.quoteMeta as {
             pmName?: string;
             validity?: string;
@@ -5223,10 +5145,10 @@ export function QuotationDraftEditor({
             date?: string;
           };
           setQuoteMeta({
-            pmName: meta.pmName || quoteMeta.pmName,
+            pmName: meta?.pmName || quoteMeta.pmName,
             date: todayQuoteDateIso(),
-            validity: meta.validity || quoteMeta.validity,
-            deliveryAddress: meta.deliveryAddress || "",
+            validity: meta?.validity || quoteMeta.validity,
+            deliveryAddress: restoredDeliveryAddress,
           });
         }
         if (cached.deliveryDetails) {
@@ -5274,22 +5196,24 @@ export function QuotationDraftEditor({
         if ("catalogPageAttachments" in cachedRecord) {
           setCatalogPages(parseQuoteCatalogPages(cachedRecord.catalogPageAttachments));
         }
-        if (cached.termsContent) {
-          const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
-          setTermsContent(
-            migrateTermsContentToCurrent(
-              cached.termsContent as SavedTermsContent,
-              cachedMeta?.deliveryAddress,
-            ),
+        if (cachedTermsZh || cached.quoteMeta) {
+          setTermsContent((prev) => cachedTermsZh
+            ? migrateTermsContentToCurrent(cachedTermsZh, restoredDeliveryAddress)
+            : {
+                ...prev,
+                fullHtml: injectDeliveryAddressIntoTermsHtml(prev.fullHtml, restoredDeliveryAddress),
+              },
           );
         }
-        if (cached.termsContentEn) {
-          const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
-          const defaults = englishTermsContentForPdf(cachedMeta?.deliveryAddress);
-          const savedEn = cached.termsContentEn as SavedTermsContent;
+        if (cachedTermsEn || cached.quoteMeta) {
+          const defaults = englishTermsContentForPdf(restoredDeliveryAddress);
           setTermsContentEn(
-            savedEn.fullHtml?.trim()
-              ? { ...defaults, ...savedEn, fullHtml: savedEn.fullHtml }
+            cachedTermsEn?.fullHtml?.trim()
+              ? {
+                  ...defaults,
+                  ...cachedTermsEn,
+                  fullHtml: injectDeliveryAddressIntoTermsHtml(cachedTermsEn.fullHtml, restoredDeliveryAddress),
+                }
               : defaults,
           );
         }
@@ -6054,7 +5978,7 @@ export function QuotationDraftEditor({
   const shownVersion = existingQuote?.version
     ? displayQuoteVersion(existingQuote.version)
     : "—";
-  const scrollToElement = useCallback((elementId: string) => {
+  const scrollToElement = useCallback((elementId: string, behavior: ScrollBehavior = "smooth") => {
     const root = editorScrollRootRef.current;
     const el = document.getElementById(elementId);
     if (!root || !el) return;
@@ -6067,8 +5991,12 @@ export function QuotationDraftEditor({
       root.scrollTop -
       chrome -
       8;
-    root.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    root.scrollTo({ top: Math.max(0, top), behavior });
   }, []);
+
+  useLayoutEffect(() => {
+    scrollToElement("quote-sec-content", "instant");
+  }, [scrollToElement]);
 
   const scrollToNav = useCallback(
     (nav: "basic" | "content" | "fees" | "photos" | "terms") => {
@@ -6766,20 +6694,7 @@ export function QuotationDraftEditor({
                   </label>
                   <textarea
                     value={quoteMeta.deliveryAddress}
-                    onChange={(e) => {
-                      const deliveryAddress = e.target.value;
-                      setQuoteMeta((p) => ({
-                        ...p,
-                        deliveryAddress,
-                      }));
-                      setTermsContent((prev) => ({
-                        ...prev,
-                        fullHtml: injectDeliveryAddressIntoTermsHtml(
-                          prev.fullHtml,
-                          deliveryAddress,
-                        ),
-                      }));
-                    }}
+                    onChange={(e) => updateDeliveryAddress(e.target.value)}
                     placeholder={t.deliveryAddressPlaceholder}
                     rows={3}
                     className="min-h-[4.75rem] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
@@ -7095,10 +7010,6 @@ export function QuotationDraftEditor({
                           duplicateItem={duplicateItem}
                           removeItem={removeItem}
                           onOpenProductLink={openQuoteItemProductLink}
-                          onRegistryLevel1Change={onRegistryLevel1Change}
-                          onRegistryLevel2Change={onRegistryLevel2Change}
-                          categoryPairs={categoryPairs}
-                          categoryPairsLoading={categoryPairsLoading}
                           factories={factories}
                           factoriesLoading={factoriesLoading}
                           quoteImageScope={quoteImageScope}
@@ -7161,7 +7072,10 @@ export function QuotationDraftEditor({
               <section id="quote-sec-fees" className="order-4 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
                 <h2 className="font-display text-base font-bold text-foreground">{t.feesAndTotal}</h2>
                 <p className="mb-3 mt-1 font-body text-sm text-muted-foreground">
-                  合約金額、成本、運費、安裝、折扣與合計在「報價摘要」，與這裡同一組數字。
+                  {ui(
+                    "運費成本與安裝成本計入 GP 毛利。傢俱小計扣除折扣，再加上應收安裝費，得出合約金額。",
+                    "Shipping and installation costs affect gross profit. The contract sum is the furniture subtotal less discounts plus any installation fee charged.",
+                  )}
                 </p>
                 {costMismatches.length > 0 ? (
                   <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 sm:p-4">
@@ -7227,19 +7141,42 @@ export function QuotationDraftEditor({
                       </label>
                     </div>
                     <div className="quote-fee-body text-sm">
-                      {/* 左：報價帳目流（方案 B） */}
                       <div className="quote-fee-ledger">
                         <div className="quote-lrow">
                           <span className="quote-lrow-op" aria-hidden="true">·</span>
                           <span className="quote-lrow-label">
-                            <Wallet className="h-3.5 w-3.5" /> Contract Sum 合約金額
+                            <Wallet className="h-3.5 w-3.5" /> {ui("傢俱小計", "Furniture subtotal")}
                           </span>
-                          <span className="quote-lrow-value font-mono-data">HKD ${totalAmount.toLocaleString()}</span>
+                          <span className="quote-lrow-value font-mono-data">HKD ${subtotal.toLocaleString()}</span>
+                        </div>
+                        <div className="quote-lrow">
+                          <span aria-hidden="true" />
+                          <span className="quote-lrow-label">
+                            <Wallet className="h-3.5 w-3.5" /> Cost 成本
+                          </span>
+                          <CostBreakdownHoverCard
+                            lines={costBreakdown}
+                            unpricedCount={costBreakdownUnpricedCount}
+                            total={totalProductCost}
+                            english={quoteLocale === 'en'}
+                            align="end"
+                          >
+                            <span
+                              className="quote-lrow-value is-cost cursor-help font-mono-data outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              tabIndex={0}
+                              aria-label={ui(
+                                `成本 $${totalProductCost.toLocaleString()}，查看每項成本`,
+                                `Cost $${totalProductCost.toLocaleString()} — view per-item cost`,
+                              )}
+                            >
+                              HKD ${totalProductCost.toLocaleString()}
+                            </span>
+                          </CostBreakdownHoverCard>
                         </div>
                         <label className="quote-lrow">
-                          <span className="quote-lrow-op" aria-hidden="true">＋</span>
+                          <span aria-hidden="true" />
                           <span className="quote-lrow-label">
-                            <Truck className="h-3.5 w-3.5" /> Ship 運費
+                            <Truck className="h-3.5 w-3.5" /> {ui("運費成本", "Shipping cost")}
                           </span>
                           <input
                             type="number"
@@ -7257,8 +7194,8 @@ export function QuotationDraftEditor({
                           />
                         </label>
                         <label className="quote-lrow">
-                          <span className="quote-lrow-op" aria-hidden="true">＋</span>
-                          <span className="quote-lrow-label">Installation 安裝費</span>
+                          <span aria-hidden="true" />
+                          <span className="quote-lrow-label">{ui("安裝成本", "Installation cost")}</span>
                           <input
                             type="number"
                             min={0}
@@ -7288,51 +7225,34 @@ export function QuotationDraftEditor({
                             className="w-28 rounded-lg border border-border bg-background px-2 py-1 text-right font-mono-data text-xs read-only:bg-muted/40"
                           />
                         </label>
+                        {installationAmount > 0 && (
+                          <div className="quote-lrow">
+                            <span className="quote-lrow-op" aria-hidden="true">＋</span>
+                            <span className="quote-lrow-label">{ui("應收安裝費", "Installation fee charged")}</span>
+                            <span className="quote-lrow-value font-mono-data">HKD ${installationAmount.toLocaleString()}</span>
+                          </div>
+                        )}
                         <div className="quote-lrow quote-lrow-sum">
                           <span className="quote-lrow-op" aria-hidden="true">＝</span>
                           <span className="quote-lrow-label quote-sum-label">
-                            <Wallet className="h-4 w-4" /> {t.grandTotal}
+                            <Wallet className="h-4 w-4" /> {ui("合約金額（合計）", "Contract sum (total)")}
                           </span>
                           <span className="quote-sum-value font-mono-data">
                             <small>HKD</small>${totalAmount.toLocaleString()}
                           </span>
                         </div>
-                        {/* 成本與毛利：放在合計下面並排，兩欄對齊 */}
-                        <div className="quote-fee-split">
-                          <CostBreakdownHoverCard
-                            lines={costBreakdown}
-                            unpricedCount={costBreakdownUnpricedCount}
-                            total={totalProductCost}
-                            english={quoteLocale === 'en'}
-                          >
-                            <div
-                              className="quote-fee-split-sec cursor-help outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              tabIndex={0}
-                              aria-label={ui(
-                                `成本 $${totalProductCost.toLocaleString()}，查看每項成本`,
-                                `Cost $${totalProductCost.toLocaleString()} — view per-item cost`,
-                              )}
-                            >
-                              <span className="quote-lrow-label">
-                                <Wallet className="h-3.5 w-3.5" /> Cost 成本
-                              </span>
-                              <div className="quote-side-big font-mono-data">HKD ${totalProductCost.toLocaleString()}</div>
-                            </div>
-                          </CostBreakdownHoverCard>
-                          <div className="quote-fee-split-sec">
-                            <span className="quote-lrow-label">GP 毛利</span>
-                            <div className="quote-side-big font-mono-data text-emerald-700">
-                              HKD ${gpValue.toLocaleString()}
-                              <span className="quote-gp-pct">（{Math.round(gpPercent)}%）</span>
-                            </div>
-                            <div className="quote-gp-bar" role="img" aria-label={`GP ${Math.round(gpPercent)}%`}>
-                              <i style={{ width: `${Math.min(100, Math.max(0, gpPercent))}%` }} />
-                            </div>
+                      </div>
+                      <aside className="quote-fee-side">
+                        <div className="quote-fee-note">
+                          <span className="quote-lrow-label">GP 毛利</span>
+                          <div className="quote-side-big font-mono-data text-emerald-700">
+                            HKD ${gpValue.toLocaleString()}
+                            <span className="quote-gp-pct">（{Math.round(gpPercent)}%）</span>
+                          </div>
+                          <div className="quote-gp-bar" role="img" aria-label={`GP ${Math.round(gpPercent)}%`}>
+                            <i style={{ width: `${Math.min(100, Math.max(0, gpPercent))}%` }} />
                           </div>
                         </div>
-                      </div>
-                      {/* 右：結果欄 — 安裝費與單價換算 */}
-                      <aside className="quote-fee-side">
                         <div className="quote-fee-note">
                           <input
                             type="text"
@@ -7367,7 +7287,11 @@ export function QuotationDraftEditor({
                             </span>
                             {isFreeInstallation ? (
                               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                                FREE
+                                {installationFee.amount != null
+                                  ? (quoteLocale === "en"
+                                      ? `FREE · Saved fee HK$${installationFee.amount.toLocaleString()}`
+                                      : `免費 · 已設定 HK$${installationFee.amount.toLocaleString()}`)
+                                  : "FREE"}
                               </span>
                             ) : (
                               <input
@@ -7510,31 +7434,14 @@ export function QuotationDraftEditor({
                   <TermsRichEditor
                     key="terms-en"
                     value={termsContentEn.fullHtml || ''}
-                    onChange={(html) => {
-                      setTermsContentEn((prev) => ({ ...prev, fullHtml: html }));
-                      const deliveryAddress =
-                        extractDeliveryAddressFromTermsHtml(html);
-                      setQuoteMeta((prev) =>
-                        prev.deliveryAddress === deliveryAddress
-                          ? prev
-                          : { ...prev, deliveryAddress },
-                      );
-                    }}
+                    onChange={(html) => handleTermsChange("en", html)}
                     editable={termsEditMode}
                   />
                 ) : (
                 <TermsRichEditor
                   key="terms-zh"
                   value={termsContent.fullHtml}
-                  onChange={(html) => {
-                    setTermsContent((prev) => ({ ...prev, fullHtml: html }));
-                    const deliveryAddress = extractDeliveryAddressFromTermsHtml(html);
-                    setQuoteMeta((prev) =>
-                      prev.deliveryAddress === deliveryAddress
-                        ? prev
-                        : { ...prev, deliveryAddress },
-                    );
-                  }}
+                  onChange={(html) => handleTermsChange("zh", html)}
                   editable={termsEditMode}
                 />
                 )}

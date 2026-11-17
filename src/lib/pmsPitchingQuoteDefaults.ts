@@ -104,3 +104,18 @@ export async function fetchPmsPitchingQuoteDefaults(options?: {
     return null;
   }
 }
+
+/** Read the current BWD company chop from PMS for a staff PDF export. */
+export async function fetchPmsBwdCompanyChop(): Promise<string | null> {
+  const { data, error } = await supabase.functions.invoke<{ company_chop?: string | null }>(
+    'supabase-functions-fetch-pms-pitching-quote-defaults',
+    { body: { company_chop_only: true } },
+  );
+  if (error || !data || !('company_chop' in data)) {
+    throw new Error('Could not load the BWD company chop from PMS');
+  }
+  const url = data.company_chop?.trim();
+  if (!url) return null;
+  if (new URL(url).protocol !== 'https:') throw new Error('Invalid PMS company chop URL');
+  return url;
+}

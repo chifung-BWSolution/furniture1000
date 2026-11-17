@@ -414,7 +414,7 @@ export async function fetchCaseShowcase(
   if (visible?.length === 0) return { items: [] };
   const projectCols =
     action === "cases-photos"
-      ? `id, project_code, project_name, main_pm_id, n_financial_year_id, completion_photos, handover_date, modified_date, site_address, ${PROJECT_LIST_COLUMNS}`
+      ? `id, project_code, project_name, main_pm_id, n_financial_year_id, completion_photos, handover_date, modified_date, site_address, customer:customers!fk_bwf_projects_customer_id(company_name), ${PROJECT_LIST_COLUMNS}`
       : `id, project_code, project_name, main_pm_id, completion_photos, ${PROJECT_LIST_COLUMNS}`;
   const projects =
     visible === null
@@ -451,8 +451,9 @@ export async function fetchCaseShowcase(
     );
     return {
       items: withPhotos
-        .map((p) => ({
+        .map(({ customer, ...p }) => ({
           ...p,
+          company_name: customer?.company_name ?? null,
           pm_name: names.get(p.main_pm_id) || null,
           designer_name: names.get(p.main_designer_id) || null,
           financial_year: yearNames.get(p.n_financial_year_id) || null,

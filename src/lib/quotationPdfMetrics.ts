@@ -43,7 +43,6 @@ export const PDF_FOOTER_BOTTOM_PT = 35;
 export type PdfColumnKey =
   | 'no'
   | 'desc'
-  | 'spec'
   | 'material'
   | 'image'
   | 'qty'
@@ -52,18 +51,16 @@ export type PdfColumnKey =
   | 'total';
 
 /**
- * Item 表格欄寬比例（總和 = 1），依參考報價單 BWF-SH26-114 R7 的 9 欄結構。
+ * Item 表格欄寬比例（總和 = 1），依參考報價單 BWF-SH26-114 R7 的 8 欄結構。
  *
- * 序號／產品及說明／規格(mm)／材質及明細／圖片／數量／單位／單價／總額。
- * 圖片欄 18%（內容寬 538pt → 約 97pt／34mm）；備註不另設欄，併入材質及明細。
- * 英文版把「產品及說明」加寬、材質收窄，讓 “Dimensions (mm)” 等標籤不折行。
+ * 序號／說明及規格(mm)／材質及明細／圖片／數量／單位／單價／總額。
+ * 圖片欄 18%（內容寬 538pt → 約 97pt／34mm）；文字備註放在說明及規格欄。
  */
 export const PDF_COLUMN_PCT: Record<PdfLocale, Record<PdfColumnKey, number>> = {
   zh: {
     no: 0.035,
-    desc: 0.155,
-    spec: 0.1,
-    material: 0.27,
+    desc: 0.16,
+    material: 0.365,
     image: 0.18,
     qty: 0.04,
     unit: 0.04,
@@ -73,8 +70,7 @@ export const PDF_COLUMN_PCT: Record<PdfLocale, Record<PdfColumnKey, number>> = {
   en: {
     no: 0.035,
     desc: 0.18,
-    spec: 0.1,
-    material: 0.245,
+    material: 0.345,
     image: 0.18,
     qty: 0.04,
     unit: 0.04,
@@ -96,13 +92,12 @@ export function pdfColumnWidths(locale: PdfLocale): Record<PdfColumnKey, number>
   );
 }
 
-/** Item 資料列使用八欄；圖片移到下方跨欄展示，其他區塊沿用原有欄寬。 */
+/** 圖片移到下方跨欄展示時的欄寬。 */
 export function pdfItemColumnWidths(locale: PdfLocale): Record<PdfColumnKey, number> {
   const columns = pdfColumnWidths(locale);
   return {
     ...columns,
-    desc: columns.desc + columns.image * 0.25,
-    spec: columns.spec + columns.image * 0.15,
+    desc: columns.desc + columns.image * 0.4,
     material: columns.material + columns.image * 0.6,
     image: 0,
   };
@@ -163,6 +158,9 @@ export const PDF_COLORS = {
 // ─── 圖片排版限制（PRD 4.5）─────────────────────────────────────────────────
 
 export const PDF_IMAGE_LIMITS = {
+  /** 報價明細圖例的首張主圖及後續參考圖框高。 */
+  itemPrimaryFrameHeightPt: 90,
+  itemSecondaryFrameHeightPt: 66,
   /** 單張圖片最大高度：45mm。 */
   maxSingleImageHeightPt: 45 * PT_PER_MM,
   /** 圖片組（整個圖例欄）最大高度，避免一行 Item 被圖片拉得過高。 */

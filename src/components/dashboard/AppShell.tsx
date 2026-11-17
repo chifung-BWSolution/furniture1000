@@ -136,6 +136,9 @@ const SimilarProductsView = lazy(() =>
 const FactoryReportView = lazy(() =>
   import("./reports/FactoryReportView").then((mod) => ({ default: mod.FactoryReportView }))
 );
+const QuoteCostReportView = lazy(() =>
+  import("./reports/QuoteCostReportView").then((mod) => ({ default: mod.QuoteCostReportView }))
+);
 const ProductReportView = lazy(() =>
   import("./reports/ProductReportView").then((mod) => ({ default: mod.ProductReportView }))
 );
@@ -338,6 +341,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-factory-login",
   "report-factory",
   "report-product",
+  "report-quote-cost",
   "user-management",
   "login-history",
   "upload-product-log",
@@ -1393,6 +1397,8 @@ function AppShellContent() {
         return <PublishedProductsView />;
       case "abnormal-price-products":
         return <PublishedProductsView mode="price-audit" />;
+      case "report-quote-cost":
+        return <QuoteCostReportView />;
       case "report-factory":
         return <FactoryReportView />;
       case "report-product":

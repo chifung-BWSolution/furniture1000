@@ -165,6 +165,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'fds2-report-factory', label: '廠家報告', icon: Building2 },
       { view: 'fds2-report-product', label: '報價單產品報告', icon: BarChart2 },
+      { view: 'fds2-report-quote-cost', label: '運輸及安裝成本', icon: BarChart2 },
       { view: 'fds2-report-upload-log', label: 'Shopify 上載產品紀錄', icon: ClipboardList, adminOnly: true },
     ],
   },
@@ -272,6 +273,7 @@ const MOVED_PAGES: { sitemap: ViewType; legacy: ViewType; primary?: boolean }[] 
   { sitemap: 'fds2-publish-done', legacy: 'published-products', primary: true },
   { sitemap: 'fds2-publish-abnormal', legacy: 'abnormal-price-products', primary: true },
   { sitemap: 'fds2-report-factory', legacy: 'report-factory', primary: true },
+  { sitemap: 'fds2-report-quote-cost', legacy: 'report-quote-cost', primary: true },
   { sitemap: 'fds2-report-product', legacy: 'report-product', primary: true },
   { sitemap: 'fds2-report-upload-log', legacy: 'upload-product-log', primary: true },
   { sitemap: 'fds2-admin-users', legacy: 'user-management', primary: true },

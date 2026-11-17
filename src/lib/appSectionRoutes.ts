@@ -102,6 +102,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-publish-similar', path: `${FDS_BASE}/publish/similar` },
   { view: 'fds2-report-factory', path: `${FDS_BASE}/reports/factory` },
   { view: 'fds2-report-product', path: `${FDS_BASE}/reports/product` },
+  { view: 'fds2-report-quote-cost', path: `${FDS_BASE}/reports/quote-cost` },
   { view: 'fds2-report-upload-log', path: `${FDS_BASE}/reports/upload-log` },
   { view: 'fds2-admin-users', path: `${FDS_BASE}/settings/users` },
   { view: 'fds2-admin-logins', path: `${FDS_BASE}/settings/login-history` },

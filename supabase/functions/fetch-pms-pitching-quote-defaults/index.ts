@@ -156,7 +156,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
-  let body: { pitching_id?: string; project_id?: string } = {};
+  let body: { pitching_id?: string; project_id?: string; company_chop_only?: boolean } = {};
   try {
     body = await req.json();
   } catch {
@@ -177,6 +177,22 @@ Deno.serve(async (req: Request) => {
     const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    if (body.company_chop_only === true) {
+      const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", {
+        p_roles: ["admin", "uploader", "pm"],
+      });
+      if (roleError || !allowed) return jsonResponse({ error: "Forbidden" }, 403);
+
+      // Branding Works Design Limited issues Furniture 1000 quotations.
+      const { data: centre, error: centreError } = await pmsAdmin
+        .from("cost_centres")
+        .select("company_chop")
+        .eq("bu_code", "BWD")
+        .maybeSingle();
+      if (centreError) throw new Error(`BWD company chop lookup failed: ${centreError.message}`);
+      return jsonResponse({ company_chop: centre?.company_chop?.trim() || null });
+    }
 
     const { data: industryRows, error: industryError } = await pmsAdmin
       .from("nos_customer_tags")
