@@ -607,7 +607,7 @@ export async function loadPresentationQuote(
     let fallback = zones[0]?.id;
     if (!fallback) {
       fallback = crypto.randomUUID();
-      zones.push(zoneDraft(fallback, '報價項目', null, ''));
+      zones.push(zoneDraft(fallback, '報價項目', [], ''));
     }
     zoneIdByKey.set('__fallback__', fallback);
   }
