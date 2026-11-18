@@ -628,13 +628,15 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string, followsSe
   const columns = pdfColumnWidths(ctx.locale);
   const customWidth = columns.desc + columns.material + columns.image;
   const descWidth = columns.desc - 4;
+  const remarks = item.isCustomTerm ? [] : buildRemarksStrips(ctx, item, descWidth, P);
+  const remarkStrips = new Set(remarks);
   let desc = item.isCustomTerm
     ? plainLines(item.name || '', customWidth - 8, PDF_TYPE.material.size).map((line) =>
       textStrip(line, { size: PDF_TYPE.material.size, linePt: PDF_TYPE.material.line }, P))
     : [...buildDescStrips(ctx, item, descWidth, P),
       ...buildSpecStrips(item, descWidth, P),
       ...buildColorStrips(ctx, item, descWidth, P),
-      ...buildRemarksStrips(ctx, item, descWidth, P)];
+      ...remarks];
   let material = item.isCustomTerm ? [] : buildMaterialStrips(item, columns.material - 6, P);
 
   let images = item.isCustomTerm ? [] : buildItemImageStrips(item, itemImageColumnWidthPt(ctx.locale), P);
@@ -673,6 +675,9 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string, followsSe
       sumHeight(m.taken), first ? priceHeight : 0,
       sumHeight(photos.taken), PDF_TABLE.minRowHeightPt - ROW_PAD * 2);
     const heightPt = contentHeight + ROW_PAD * 2 + ROW_SLACK_PT;
+    const remarksIndex = d.taken.findIndex((strip) => remarkStrips.has(strip));
+    const descStrips = remarksIndex < 0 ? d.taken : d.taken.slice(0, remarksIndex);
+    const rowRemarks = remarksIndex < 0 ? [] : d.taken.slice(remarksIndex);
     const showPrices = first;
     const continued = !first;
     blocks.push({
@@ -685,7 +690,18 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string, followsSe
           {continued ? <P.View style={{ height: continuationHeight }}>
             <P.Text style={{ fontSize: PDF_TYPE.descLabel.size, color: PDF_COLORS.muted }}>{labels.itemContinued}</P.Text>
           </P.View> : null}
-          {stackNode(d.taken, P)}
+          {stackNode(descStrips, P)}
+          {rowRemarks.length > 0 && (
+            <P.View style={{
+              position: 'absolute',
+              left: 2,
+              right: 2,
+              bottom: ROW_PAD + ROW_SLACK_PT,
+              height: sumHeight(rowRemarks),
+            }}>
+              {stackNode(rowRemarks, P)}
+            </P.View>
+          )}
         </P.View>
         {!item.isCustomTerm ? <>
           <P.View style={{ ...cellStyle(columns.material), paddingHorizontal: 3 }}>{stackNode(m.taken, P)}</P.View>
