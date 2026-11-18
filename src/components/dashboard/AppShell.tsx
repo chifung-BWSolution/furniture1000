@@ -73,7 +73,7 @@ import { PublishModal } from "./PublishModal";
 import { FurnitureGroupCheckView } from "./publish/FurnitureGroupCheckView";
 import { ReadyToPublishView } from "./publish/ReadyToPublishView";
 import { Construction, WifiOff, RefreshCw } from "lucide-react";
-import { findSection, isAdminOnlyView, getFirstVisibleView, getViewMeta, isSitemapPlaceholderView, isDirectImplementedView, implementedPage, isImplementedLegacyView, isSolutionPageInQuote, isPmBlockedQuoteView } from "./navConfig";
+import { findSection, isAdminOnlyView, getFirstVisibleView, getViewMeta, isSitemapPlaceholderView, isDirectImplementedView, implementedPage, isImplementedLegacyView, isSolutionPageInQuote, isPmBlockedQuoteView, QUOTE_EMAIL_SETTINGS_ROLES } from "./navConfig";
 import { PlannedPage } from "./PlannedPage";
 import { type PrimarySection, type ViewType } from "@/types/product";
 import { addToCatalog } from "@/lib/catalogStore";
@@ -239,6 +239,9 @@ const PackagePricingView = lazy(() =>
 const ProPdfView = lazy(() =>
   import("./ProPdfView").then((mod) => ({ default: mod.ProPdfView }))
 );
+const QuoteEmailSettingsView = lazy(() =>
+  import("./QuoteEmailSettingsView").then((mod) => ({ default: mod.QuoteEmailSettingsView }))
+);
 const QuoteFormatView = lazy(() =>
   import("./QuoteFormatView").then((mod) => ({ default: mod.QuoteFormatView }))
 );
@@ -330,6 +333,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-pm-pro-pdf",
   "fds2-factory-sales",
   "fds2-quote-format",
+  "fds2-quote-email-settings",
   "fds2-quote-photos",
   "fds2-admin-email",
   "fds2-admin-usage",
@@ -1154,6 +1158,10 @@ function AppShellContent() {
     if (store.currentView === 'fds2-pm-package') return <PackagePricingView />;
     if (store.currentView === 'fds2-pm-pro-pdf') return <ProPdfView />;
     if (store.currentView === 'fds2-factory-sales') return <FactoryReportView />;
+    if (store.currentView === 'fds2-quote-email-settings') {
+      if (roleLoading) return null;
+      return QUOTE_EMAIL_SETTINGS_ROLES.includes(profileRole ?? '') ? <QuoteEmailSettingsView /> : null;
+    }
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;
     if (store.currentView === 'fds2-quote-photos') return <QuotePhotoLibraryView />;
     if (store.currentView === 'fds2-admin-email') return <EmailNotificationsView />;

@@ -5,6 +5,7 @@
  * always reflects the latest intro/custom sections stored on the quote.
  */
 
+import { renderQuoteEmailFooterHtml, type QuoteEmailFooterText } from "./quoteEmailFooter.ts";
 import { escapeHtml } from "./escapeHtml.ts";
 import {
   companyFooterText,
@@ -23,6 +24,7 @@ export interface QuoteCustomerEmailInput {
   totalAmount: number;
   sampleItems?: string | null;
   shareUrl: string;
+  footer?: QuoteEmailFooterText | null;
 }
 
 export interface BuiltEmail {
@@ -89,7 +91,7 @@ export function buildQuoteCustomerEmail(input: QuoteCustomerEmailInput): BuiltEm
     ? "報價已更新，您仍可加單、改數量或替換款式。"
     : "點擊下方按鈕查看報價、加單或調整數量。";
   const ctaLabel = isFollowUp ? "查看最新報價" : "查看報價及加單";
-  const disclaimer = "此為系統發出的參考報價通知，正式報價以雙方確認的版本為準。";
+  const footer = input.footer?.["zh-Hant"] ?? "此為系統發出的參考報價通知，正式報價以雙方確認的版本為準。";
 
   const text = [
     summary,
@@ -97,7 +99,7 @@ export function buildQuoteCustomerEmail(input: QuoteCustomerEmailInput): BuiltEm
     `如對方案有任何問題，可致電 ${phone} 與負責同事聯絡。`,
     link ? `需要加單、改數量或替換款式，請用這個連結提交：${link}` : "",
     ...sections.map((section) => [section.title, section.body].filter(Boolean).join("\n")),
-    disclaimer,
+    footer,
     "",
     companyFooterText(),
   ].filter((line) => line !== "").join("\n\n");
@@ -121,7 +123,7 @@ export function buildQuoteCustomerEmail(input: QuoteCustomerEmailInput): BuiltEm
     heading,
     subheading,
     contentHtml,
-    noteHtml: escapeHtml(disclaimer),
+    noteHtml: renderQuoteEmailFooterHtml(footer),
   });
 
   return { subject, text, html };

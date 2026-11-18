@@ -1,6 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { isSafeEmail, sendEmail } from "../_shared/email.ts";
+import { pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
+import type { QuoteEmailFooterText } from "../_shared/quoteEmailFooter.ts";
+import { resolveQuoteEmailFooter } from "../_shared/resolveQuoteEmailFooter.ts";
 import { buildQuoteCustomerEmail } from "../_shared/quoteCustomerEmail.ts";
 
 /**
@@ -90,12 +93,13 @@ function shareUrl(token: string | null): string {
   return `${base}/customer?quote_share=${encodeURIComponent(token)}`;
 }
 
-function buildMessage(row: ClaimedEmail): { subject: string; text: string; html: string } {
+function buildMessage(row: ClaimedEmail, footer: QuoteEmailFooterText | null): { subject: string; text: string; html: string } {
   return buildQuoteCustomerEmail({
     kind: row.kind,
     quoteId: row.quote_id,
     introText: row.intro_text,
     contactPhone: row.contact_phone,
+    footer,
     customSections: row.custom_sections,
     itemCount: row.item_count,
     totalAmount: row.total_amount,
@@ -156,6 +160,9 @@ Deno.serve(async (req: Request) => {
   const rows = (Array.isArray(claimed) ? claimed : []) as ClaimedEmail[];
   const results: Array<{ id: string; status: string; error?: string }> = [];
 
+  const pmsKey = pmsServiceRoleKey();
+  const pms = pmsKey ? createClient(pmsProjectUrl(), pmsKey, { auth: { persistSession: false } }) : null;
+
   for (const row of rows) {
     const to = String(row.to_email ?? "").trim();
     if (!isSafeEmail(to)) {
@@ -183,7 +190,8 @@ Deno.serve(async (req: Request) => {
         results.push({ id: row.id, status: "cancelled_before_send" });
         continue;
       }
-      const message = buildMessage(row);
+      const footer = await resolveQuoteEmailFooter(admin, row.quote_uuid, pms);
+      const message = buildMessage(row, footer);
       const sent = await sendEmail({ to: [to], ...message });
       await recordLog(admin, row, "success", { provider: sent.provider, messageId: sent.id });
       await admin.rpc("fds_quote_email_mark", {
