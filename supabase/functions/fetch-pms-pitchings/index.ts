@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 import { fetchPresentationLookup } from "../_shared/presentationLookup.ts";
+import { reportProjectManagerOtcId } from "../_shared/reportProjectManager.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -332,13 +333,14 @@ Deno.serve(async (req: Request) => {
     ];
 
     const staffNameById = new Map<string, string>();
+    const pmOtcIdByStaffId = new Map<string, string>();
     // OTC staff.work_phone is mirrored onto PMS staff.work_phone (the work mobile).
     // private_phone stays off this response.
     const staffWorkPhoneById = new Map<string, string>();
     if (staffIds.length > 0) {
       const { data: staffRows, error: staffError } = await pmsAdmin
         .from("staff")
-        .select("id, name, work_phone")
+        .select("id, name, work_phone, position, status, otc_staff_id")
         .in("id", staffIds);
       if (staffError) {
         console.warn("[fetch-pms-pitchings] staff lookup:", staffError.message);
@@ -348,6 +350,8 @@ Deno.serve(async (req: Request) => {
           const phone = String(s.work_phone || "").trim();
           if (s.id && name) staffNameById.set(s.id as string, name);
           if (s.id && phone) staffWorkPhoneById.set(s.id as string, phone);
+          const otcId = reportProjectManagerOtcId(s);
+          if (s.id && otcId) pmOtcIdByStaffId.set(s.id as string, otcId);
         }
       }
     }
@@ -469,6 +473,7 @@ Deno.serve(async (req: Request) => {
         customer_name: customerName,
         main_pm_id: pmId,
         main_pm_name: pmId ? staffNameById.get(pmId) || null : null,
+        main_pm_otc_id: pmId ? pmOtcIdByStaffId.get(pmId) ?? null : null,
         main_pm_phone: pmId ? staffWorkPhoneById.get(pmId) || null : null,
         main_designer_id: designerId,
         main_designer_name: designerId
