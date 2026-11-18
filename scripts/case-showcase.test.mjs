@@ -4,7 +4,7 @@ import {
   fetchCaseShowcase,
   CaseAccessError,
 } from "../supabase/functions/_shared/caseShowcase.ts";
-import { reportProjectManagerOtcId } from "../supabase/functions/_shared/reportProjectManager.ts";
+import { isMissingOtcStaffColumn, reportProjectManagerFilterKey } from "../supabase/functions/_shared/reportProjectManager.ts";
 
 const user = {
   id: "auth-1",
@@ -14,10 +14,13 @@ const user = {
 
 test("report filters identify linked active project managers by OTC ID", () => {
   const activePm = { position: "PM", status: "Active", otc_staff_id: "48" };
-  assert.equal(reportProjectManagerOtcId(activePm), "48");
-  assert.equal(reportProjectManagerOtcId({ ...activePm, status: "Inactive" }), null);
-  assert.equal(reportProjectManagerOtcId({ ...activePm, position: "Company" }), null);
-  assert.equal(reportProjectManagerOtcId({ ...activePm, otc_staff_id: null }), null);
+  assert.equal(reportProjectManagerFilterKey(activePm), "48");
+  assert.equal(reportProjectManagerFilterKey({ ...activePm, status: "Inactive" }), null);
+  assert.equal(reportProjectManagerFilterKey({ ...activePm, position: "Company" }), null);
+  assert.equal(reportProjectManagerFilterKey({ ...activePm, otc_staff_id: null }), null);
+  assert.equal(reportProjectManagerFilterKey({ name: " Rachel  Zhu ", position: "PM", status: "Active" }), "pms-name:rachel zhu");
+  assert.equal(isMissingOtcStaffColumn("column staff.otc_staff_id does not exist"), true);
+  assert.equal(isMissingOtcStaffColumn("permission denied for column otc_staff_id"), false);
 });
 function database({
   role = "User",
