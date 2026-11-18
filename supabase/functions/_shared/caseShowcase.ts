@@ -1,5 +1,5 @@
 import type { SupabaseClient, User } from "jsr:@supabase/supabase-js@2";
-import { reportProjectManagerOtcId } from "./reportProjectManager.ts";
+import { isMissingOtcStaffColumn, reportProjectManagerFilterKey } from "./reportProjectManager.ts";
 
 // Read the existing PMS contracts; never copy customer/order data into FDS.
 const BRAND_TAG = "63175251-2c31-46e6-b107-cbe0140983d8";
@@ -421,14 +421,16 @@ export async function fetchCaseShowcase(
     visible === null
       ? await all(() => db.from("bwf_projects").select(projectCols))
       : await byIds(db, "bwf_projects", projectCols, visible);
-  const people = await byIds(
-    db,
-    "staff",
-    action === "cases-orders" ? "id, name, position, status, otc_staff_id" : "id, name",
-    projects.flatMap((p) => [p.main_pm_id, p.main_designer_id]),
-  );
+  const peopleIds = projects.flatMap((p) => [p.main_pm_id, p.main_designer_id]);
+  const staffColumns = "id, name, position, status";
+  const people = action === "cases-orders"
+    ? await byIds(db, "staff", `${staffColumns}, otc_staff_id`, peopleIds).catch((error) => {
+      if (!isMissingOtcStaffColumn(error?.message)) throw error;
+      return byIds(db, "staff", staffColumns, peopleIds);
+    })
+    : await byIds(db, "staff", "id, name", peopleIds);
   const names = new Map(people.map((p) => [p.id, p.name]));
-  const pmOtcIds = new Map(people.map((p) => [p.id, reportProjectManagerOtcId(p)]));
+  const pmFilterKeys = new Map(people.map((p) => [p.id, reportProjectManagerFilterKey(p)]));
   const { serviceById, buById } = await serviceAndBu(db, projects);
   const { industriesByCustomer, famousByCustomer } = await customerFacets(
     db,
@@ -534,7 +536,7 @@ export async function fetchCaseShowcase(
           project_code: p?.project_code,
           project_name: p?.project_name,
           pm_name: names.get(p?.main_pm_id) || null,
-          pm_otc_id: pmOtcIds.get(p?.main_pm_id) ?? null,
+          pm_otc_id: pmFilterKeys.get(p?.main_pm_id) ?? null,
           completion_photos: p?.completion_photos ?? null,
           ...projectListFields(
             p,
