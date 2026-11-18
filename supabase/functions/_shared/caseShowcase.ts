@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from "jsr:@supabase/supabase-js@2";
+import { reportProjectManagerOtcId } from "./reportProjectManager.ts";
 
 // Read the existing PMS contracts; never copy customer/order data into FDS.
 const BRAND_TAG = "63175251-2c31-46e6-b107-cbe0140983d8";
@@ -415,7 +416,7 @@ export async function fetchCaseShowcase(
   const projectCols =
     action === "cases-photos"
       ? `id, project_code, project_name, main_pm_id, n_financial_year_id, completion_photos, handover_date, modified_date, site_address, customer:customers!fk_bwf_projects_customer_id(company_name), ${PROJECT_LIST_COLUMNS}`
-      : `id, project_code, project_name, main_pm_id, completion_photos, ${PROJECT_LIST_COLUMNS}`;
+      : `id, project_code, project_name, bwf_pitching_id, main_pm_id, completion_photos, ${PROJECT_LIST_COLUMNS}`;
   const projects =
     visible === null
       ? await all(() => db.from("bwf_projects").select(projectCols))
@@ -423,10 +424,11 @@ export async function fetchCaseShowcase(
   const people = await byIds(
     db,
     "staff",
-    "id, name",
+    action === "cases-orders" ? "id, name, position, status, otc_staff_id" : "id, name",
     projects.flatMap((p) => [p.main_pm_id, p.main_designer_id]),
   );
   const names = new Map(people.map((p) => [p.id, p.name]));
+  const pmOtcIds = new Map(people.map((p) => [p.id, reportProjectManagerOtcId(p)]));
   const { serviceById, buById } = await serviceAndBu(db, projects);
   const { industriesByCustomer, famousByCustomer } = await customerFacets(
     db,
@@ -475,7 +477,7 @@ export async function fetchCaseShowcase(
   }
   const projectMap = new Map(projects.map((p) => [p.id, p]));
   const orderColumns =
-    "id, bwf_project_id, product_id, factory_id, quantity, o_order_status, production_start_date, production_finish_date_est, production_finish_date, site_arrival_date_est, site_arrival_date, complete_installation_date_est, complete_installation_date, o_delivery_target, installation_team_id, installer_needed, remarks, created_date";
+    "id, bwf_project_id, product_id, factory_id, quantity, o_order_status, production_start_date, production_finish_date_est, production_finish_date, site_arrival_date_est, site_arrival_date, complete_installation_date_est, complete_installation_date, o_delivery_target, installation_team_id, warehouse_id, installer_needed, remarks, created_date";
   const orders: any[] = [];
   const ids = [...projectMap.keys()];
   for (let i = 0; i < ids.length; i += 150) {
@@ -512,7 +514,7 @@ export async function fetchCaseShowcase(
     db,
     "suppliers",
     "id, display_name, chinese_name, name",
-    orders.map((o) => o.installation_team_id),
+    orders.flatMap((o) => [o.installation_team_id, o.warehouse_id]),
   );
   const teamById = new Map(
     teams.map((t) => [t.id, t.display_name || t.chinese_name || t.name]),
@@ -528,9 +530,11 @@ export async function fetchCaseShowcase(
         return {
           id: o.id,
           project_id: o.bwf_project_id,
+          bwf_pitching_id: p?.bwf_pitching_id ?? null,
           project_code: p?.project_code,
           project_name: p?.project_name,
           pm_name: names.get(p?.main_pm_id) || null,
+          pm_otc_id: pmOtcIds.get(p?.main_pm_id) ?? null,
           completion_photos: p?.completion_photos ?? null,
           ...projectListFields(
             p,
@@ -555,6 +559,9 @@ export async function fetchCaseShowcase(
           actual_installation_date: o.complete_installation_date,
           delivery_target: o.o_delivery_target,
           installation_team_name: teamById.get(o.installation_team_id) || null,
+          installation_team_id: o.installation_team_id ?? null,
+          transport_supplier_id: o.warehouse_id ?? null,
+          transport_supplier_name: teamById.get(o.warehouse_id) || null,
           installer_needed:
             o.installer_needed === true || o.installer_needed === "true"
               ? true

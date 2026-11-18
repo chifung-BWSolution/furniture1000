@@ -4,12 +4,21 @@ import {
   fetchCaseShowcase,
   CaseAccessError,
 } from "../supabase/functions/_shared/caseShowcase.ts";
+import { reportProjectManagerOtcId } from "../supabase/functions/_shared/reportProjectManager.ts";
 
 const user = {
   id: "auth-1",
   email: "staff@example.com",
   email_confirmed_at: "2026-01-01",
 };
+
+test("report filters identify linked active project managers by OTC ID", () => {
+  const activePm = { position: "PM", status: "Active", otc_staff_id: "48" };
+  assert.equal(reportProjectManagerOtcId(activePm), "48");
+  assert.equal(reportProjectManagerOtcId({ ...activePm, status: "Inactive" }), null);
+  assert.equal(reportProjectManagerOtcId({ ...activePm, position: "Company" }), null);
+  assert.equal(reportProjectManagerOtcId({ ...activePm, otc_staff_id: null }), null);
+});
 function database({
   role = "User",
   staff = true,
@@ -30,12 +39,13 @@ function database({
         ]
       : [],
     staff: [
-      { id: "s1", name: "PM", role, status: "Active", n_team_type_id: "team1" },
+      { id: "s1", name: "PM", role, status: "Active", position: "PM", otc_staff_id: "48", n_team_type_id: "team1" },
     ],
     bwf_projects: [
       {
         id: "p1",
         project_code: "P1",
+        bwf_pitching_id: "pitch-1",
         customer: { company_name: "PMS Company Ltd" },
         real_customer_display_name: "PMS Customer Display Name",
         main_pm_id: "s1",
@@ -54,9 +64,13 @@ function database({
     ],
     project_bv: [{ id: "bv1", handler_id: "s1", bwf_project_id: "p1" }],
     bwf_orders: [
-      { id: "o1", bwf_project_id: "p1", quantity: 0 },
+      { id: "o1", bwf_project_id: "p1", quantity: 0, installation_team_id: "install-1", warehouse_id: "transport-1" },
       { id: "o2", bwf_project_id: "p2", quantity: 4 },
       { id: "o3", bwf_project_id: "p3" },
+    ],
+    suppliers: [
+      { id: "install-1", display_name: "Installer" },
+      { id: "transport-1", display_name: "Carrier" },
     ],
     ...tables,
   };
@@ -122,6 +136,15 @@ test("PMS identity is required before reading business data", async () => {
     db.calls.some((c) => c.table === "bwf_orders"),
     false,
   );
+});
+test("order assignments use PMS installation team and warehouse separately", async () => {
+  const { items: [order] } = await fetchCaseShowcase(database(), user, "cases-orders");
+  assert.equal(order.bwf_pitching_id, "pitch-1");
+  assert.equal(order.pm_otc_id, "48");
+  assert.equal(order.installation_team_id, "install-1");
+  assert.equal(order.installation_team_name, "Installer");
+  assert.equal(order.transport_supplier_id, "transport-1");
+  assert.equal(order.transport_supplier_name, "Carrier");
 });
 test("PMS page denial cannot be bypassed by an FDS role", async () => {
   const db = database({ permission: false, role: "Admin" });

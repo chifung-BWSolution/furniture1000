@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import { QUOTE_FREE_INSTALLATION_MIN_HKD } from '@/lib/quoteItemTotals';
 import { QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
+import type { CaseOrder } from '@/lib/caseShowcase';
+import { pitchingDisplayTitle, type PmsPitchingListItem } from '@/lib/pmsPitchings';
 
 type QuoteCostSource = {
   id: string;
@@ -8,6 +10,7 @@ type QuoteCostSource = {
   version: string | null;
   status: string | null;
   bwf_pitching_id: string | null;
+  bwf_project_id?: string | null;
   quote_date: string | null;
   total_amount: number | string | null;
   subtotal: number | string | null;
@@ -45,6 +48,7 @@ export function toQuoteCostRow(row: QuoteCostSource) {
     version: row.version,
     status: row.status?.trim() || '未設定',
     bwf_pitching_id: row.bwf_pitching_id,
+    bwf_project_id: row.bwf_project_id ?? null,
     date: readQuoteDate(row.quote_date),
     amount: readAmount(row.total_amount),
     billedInstallation,
@@ -55,6 +59,56 @@ export function toQuoteCostRow(row: QuoteCostSource) {
 }
 
 export type QuoteCostRow = ReturnType<typeof toQuoteCostRow>;
+
+type FilterOption = { value: string; label: string };
+
+function namedOption(id: string | null | undefined, name: string | null | undefined): FilterOption[] {
+  const label = name?.trim();
+  return label ? [{ value: id || `name:${label}`, label }] : [];
+}
+
+export function attachQuoteCostAssignments(
+  rows: (QuoteCostRow & { pitching: PmsPitchingListItem | null })[],
+  orders: CaseOrder[],
+) {
+  const byProject = new Map<string, CaseOrder[]>();
+  const byPitching = new Map<string, CaseOrder[]>();
+  const index = (map: Map<string, CaseOrder[]>, key: string, order: CaseOrder) => {
+    const group = map.get(key);
+    if (group) group.push(order);
+    else map.set(key, [order]);
+  };
+  for (const order of orders) {
+    index(byProject, order.project_id, order);
+    if (order.bwf_pitching_id) index(byPitching, order.bwf_pitching_id, order);
+  }
+  return rows.map((row) => {
+    const pitchingId = row.pitching?.id || row.bwf_pitching_id;
+    const related = (row.bwf_project_id
+      ? byProject.get(row.bwf_project_id)
+      : pitchingId ? byPitching.get(pitchingId) : undefined) ?? [];
+    const projectManagers = related.filter((order) => order.pm_name?.trim())
+      .map((order) => ({ otcId: order.pm_otc_id, name: order.pm_name }));
+    const assigned = projectManagers.length ? projectManagers
+      : [{ otcId: row.pitching?.main_pm_otc_id, name: row.pitching?.main_pm_name }];
+    return {
+      ...row,
+      projectName: related[0]?.project_name || (row.pitching && pitchingDisplayTitle(row.pitching)),
+      managerNames: [...new Set(assigned.flatMap(({ name }) => name?.trim() ? [name.trim()] : []))],
+      managers: assigned.flatMap(({ otcId, name }) => otcId ? namedOption(otcId, name) : []),
+      installations: related.flatMap((order) => namedOption(order.installation_team_id, order.installation_team_name)),
+      transports: related.flatMap((order) => namedOption(order.transport_supplier_id, order.transport_supplier_name)),
+    };
+  });
+}
+
+export type AssignedQuoteCostRow = ReturnType<typeof attachQuoteCostAssignments>[number];
+
+export function quoteCostAssignmentOptions(rows: AssignedQuoteCostRow[], key: 'managers' | 'installations' | 'transports') {
+  const options = new Map<string, FilterOption>();
+  for (const row of rows) for (const option of row[key]) options.set(option.value, option);
+  return [...options.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-HK'));
+}
 export const quoteCostMetrics = [
   { key: 'shipping', label: '運輸成本' },
   { key: 'installation', label: '安裝成本' },
@@ -95,7 +149,7 @@ export async function fetchQuoteCostRows(signal: AbortSignal): Promise<QuoteCost
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase
       .from('bwf_quote')
-      .select('id,quote_id,version,status,bwf_pitching_id,total_amount,quote_date:project_data->quoteMeta->>date,subtotal:project_data->>subtotal,installation_fee:project_data->installationFee->>amount,project_data->gpSummary')
+      .select('id,quote_id,version,status,bwf_pitching_id,bwf_project_id,total_amount,quote_date:project_data->quoteMeta->>date,subtotal:project_data->>subtotal,installation_fee:project_data->installationFee->>amount,project_data->gpSummary')
       .neq('status', QUOTE_TRASH_STATUS)
       .order('created_at', { ascending: false, nullsFirst: false })
       .order('id', { ascending: false })
