@@ -43,7 +43,12 @@ function count(value: number | null | undefined): number {
  */
 export async function loadQuoteReferenceCandidates(): Promise<QuoteReferenceCandidate[]> {
   const { data, error } = await supabase.rpc('fds_quote_reference_index');
-  if (error) throw error;
+  if (error) {
+    const message = error.message?.trim() || '無法載入過往報價';
+    throw new Error(
+      /statement timeout/i.test(message) ? '過往報價載入逾時，請再試一次' : message,
+    );
+  }
   const rows = (data || []) as QuoteReferenceIndexRow[];
   const pitchingIds = [
     ...new Set(rows.map((row) => row.bwf_pitching_id?.trim() || '').filter(Boolean)),
