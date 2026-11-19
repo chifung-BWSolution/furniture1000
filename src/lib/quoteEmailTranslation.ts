@@ -1,7 +1,6 @@
 import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import { supabase } from '@/lib/supabase';
-import type { QuoteEmailFooterText } from '../../supabase/functions/_shared/quoteEmailFooter.ts';
-type QuoteEmailLocale = keyof QuoteEmailFooterText;
+import type { QuoteEmailLocale } from '../../supabase/functions/_shared/quoteCustomerEmail.ts';
 
 export async function translateQuoteEmailDraft(
   texts: string[],

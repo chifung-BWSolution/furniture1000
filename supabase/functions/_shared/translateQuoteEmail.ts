@@ -1,5 +1,4 @@
-import type { QuoteEmailFooterText } from "./quoteEmailFooter.ts";
-type QuoteEmailLocale = keyof QuoteEmailFooterText;
+import type { QuoteEmailLocale } from "./quoteCustomerEmail.ts";
 
 const googleLanguage: Record<QuoteEmailLocale, string> = {
   "zh-Hant": "zh-TW",

@@ -22,6 +22,30 @@ function legacyPmQuoteEmailFooter(name: string, workPhone: string): QuoteEmailFo
   };
 }
 
+export const DEFAULT_QUOTE_EMAIL_BCC = "sale@bwteam-furniture.com";
+
+const phoneLabels = {
+  "zh-Hant": "電話：",
+  "zh-Hans": "电话：",
+  en: "Tel: ",
+} as const;
+
+const ROLE_LINE = /^(?:項目經理｜|项目经理｜|Project Manager \| )/;
+const PHONE_LINE = /^(?:電話：|电话：|Tel:\s*|mobile\s+|direct\s+)(.+)$/i;
+
+/** Company introduction and links, without the colleague's name or phone. */
+export function defaultQuoteEmailClosing(): string {
+  return [
+    "BW Office Furniture (since 2009)",
+    ...signatureLinks.map(([label, text]) => `${label}\n${text}`),
+  ].join("\n\n");
+}
+
+/** Phone stored for a PM: the mapped direct/mobile pair, otherwise the PMS work phone. */
+export function defaultQuoteEmailPhone(name: string, workPhone: string): string {
+  return resolveQuoteCompanyPhone({ name })?.trim() || workPhone.trim();
+}
+
 export function defaultPmQuoteEmailFooter(name: string, workPhone: string): QuoteEmailFooterText {
   const [direct, mobile] = resolveQuoteCompanyPhone({ name })?.split("/").map((part) => part.trim()) ?? [];
   const mobilePhone = mobile || workPhone.trim();
@@ -36,6 +60,128 @@ export function defaultPmQuoteEmailFooter(name: string, workPhone: string): Quot
     ...signatureLinks.map(([label, text]) => `${label}\n${text}`),
   ].join("\n\n");
   return { "zh-Hant": signature, "zh-Hans": signature, en: signature };
+}
+
+/**
+ * Older rows store the name and phone inside the signature text.
+ * A signature that does not start with the colleague's name is already just the closing.
+ */
+export function splitQuoteEmailClosing(body: string, name: string): { phone: string; closing: string } {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const trimmedName = name.trim();
+  if (!trimmedName || lines[0]?.trim() !== trimmedName) {
+    return { phone: "", closing: body.trim() };
+  }
+  let index = 1;
+  const phones: string[] = [];
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) {
+      index += 1;
+      continue;
+    }
+    if (ROLE_LINE.test(line)) {
+      index += 1;
+      continue;
+    }
+    const match = line.match(PHONE_LINE);
+    if (match) {
+      phones.push(match[1].trim());
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  while (index < lines.length && !lines[index].trim()) index += 1;
+  return {
+    phone: phones.filter(Boolean).join(" / "),
+    closing: lines.slice(index).join("\n").trim(),
+  };
+}
+
+export function presentQuoteEmailSignature(input: {
+  name: string;
+  phone: string;
+  body: string;
+  locale: keyof typeof phoneLabels;
+}): string {
+  const name = input.name.trim();
+  const split = splitQuoteEmailClosing(input.body, name);
+  const phone = input.phone.trim() || split.phone;
+  const head = [name, phone ? phoneLabels[input.locale] + phone : ""].filter(Boolean).join("\n");
+  if (!head) return split.closing;
+  if (!split.closing) return head;
+  return `${head}\n${split.closing}`;
+}
+
+export interface QuoteEmailSenderSource {
+  pm_name: string;
+  sender_name?: string | null;
+  phone?: string | null;
+  body_zh_hant: string;
+  body_zh_hans: string;
+  body_en: string;
+}
+
+export function materializeQuoteEmailFooter(row: QuoteEmailSenderSource): {
+  footer: QuoteEmailFooterText;
+  senderName: string;
+  phone: string;
+} {
+  const refreshed = refreshDefaultQuoteEmailFooter({
+    "zh-Hant": row.body_zh_hant,
+    "zh-Hans": row.body_zh_hans,
+    en: row.body_en,
+  });
+  const senderName = (row.sender_name || row.pm_name || "").trim();
+  const phone = (row.phone || splitQuoteEmailClosing(refreshed["zh-Hant"], senderName).phone).trim();
+  return {
+    senderName,
+    phone,
+    footer: {
+      "zh-Hant": presentQuoteEmailSignature({ name: senderName, phone, body: refreshed["zh-Hant"], locale: "zh-Hant" }),
+      "zh-Hans": presentQuoteEmailSignature({ name: senderName, phone, body: refreshed["zh-Hans"], locale: "zh-Hans" }),
+      en: presentQuoteEmailSignature({ name: senderName, phone, body: refreshed.en, locale: "en" }),
+    },
+  };
+}
+
+/** Fields shown in 電郵設定. The stored signature text keeps only the closing. */
+export function quoteEmailSenderDraft(row: QuoteEmailSenderSource): {
+  sender_name: string;
+  phone: string;
+  body_zh_hant: string;
+  body_zh_hans: string;
+  body_en: string;
+} {
+  const refreshed = refreshDefaultQuoteEmailFooter({
+    "zh-Hant": row.body_zh_hant,
+    "zh-Hans": row.body_zh_hans,
+    en: row.body_en,
+  });
+  const senderName = (row.sender_name || row.pm_name || "").trim();
+  const hant = splitQuoteEmailClosing(refreshed["zh-Hant"], senderName);
+  const hans = splitQuoteEmailClosing(refreshed["zh-Hans"], senderName);
+  const en = splitQuoteEmailClosing(refreshed.en, senderName);
+  return {
+    sender_name: senderName,
+    phone: (row.phone || hant.phone || hans.phone || en.phone).trim(),
+    body_zh_hant: hant.closing,
+    body_zh_hans: hans.closing,
+    body_en: en.closing,
+  };
+}
+
+export function quoteEmailFromHeader(senderName: string): string {
+  const name = senderName.replace(/[\r\n<>"]/g, "").trim().slice(0, 120);
+  const display = name ? `${name} | BW Furniture` : "BW Furniture";
+  return `${display} <sale@bwteam-furniture.com>`;
+}
+
+export function quoteEmailBccList(recipient: string, teamBcc: string): string[] {
+  const bcc = teamBcc.trim();
+  if (!bcc || bcc.toLowerCase() === recipient.trim().toLowerCase()) return [];
+  return [bcc];
 }
 
 export function refreshDefaultQuoteEmailFooter(footer: QuoteEmailFooterText): QuoteEmailFooterText {

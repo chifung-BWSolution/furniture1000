@@ -1,10 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { isSafeEmail, sendEmail } from "../_shared/email.ts";
+import { DEFAULT_QUOTE_EMAIL_BCC, quoteEmailBccList, quoteEmailFromHeader, type QuoteEmailFooterText } from "../_shared/quoteEmailFooter.ts";
+import { buildQuoteCustomerEmail, normalizeQuoteEmailLocale } from "../_shared/quoteCustomerEmail.ts";
+import { localizeEnglishSampleItems } from "../_shared/quoteSampleItems.ts";
+import { translateQuoteEmail } from "../_shared/translateQuoteEmail.ts";
 import { pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
-import type { QuoteEmailFooterText } from "../_shared/quoteEmailFooter.ts";
 import { resolveQuoteEmailFooter } from "../_shared/resolveQuoteEmailFooter.ts";
-import { buildQuoteCustomerEmail } from "../_shared/quoteCustomerEmail.ts";
 
 /**
  * FDS-15 郵件 worker。
@@ -12,7 +15,7 @@ import { buildQuoteCustomerEmail } from "../_shared/quoteCustomerEmail.ts";
  * 每次呼叫：
  *   1. 按 next_follow_up_at 排入到期跟進信（每單每 3 天一次，去重）
  *   2. claim 待發郵件（status = sending，attempts + 1）
- *   3. 用「發送當下」的模板組成固定三段 + 自訂段，交給共用發信服務
+ *   3. 用「發送當下」的模板組成客戶稱呼、報價摘要及自訂段，交給共用發信服務
  *   4. 成功 → mark sent（手動首封會開自動跟進，3 天後再寄）；
  *      失敗 → 交回 queue 重試，3 次後 failed，錯誤保留。
  *
@@ -36,7 +39,8 @@ type ClaimedEmail = {
   attempts: number;
   quote_id: string;
   intro_text: string;
-  contact_phone: string;
+  recipient_name: string | null;
+  locale: string;
   custom_sections: Array<{ title?: string; body?: string }>;
   settings_status: string;
   share_token: string | null;
@@ -93,12 +97,18 @@ function shareUrl(token: string | null): string {
   return `${base}/customer?quote_share=${encodeURIComponent(token)}`;
 }
 
+async function englishSampleItems(sample: string | null): Promise<string | null> {
+  const key = Deno.env.get("GOOGLE_TRANSLATION_API_KEY")?.trim() ?? "";
+  return localizeEnglishSampleItems(sample, (names) => translateQuoteEmail(names, "en", key));
+}
+
 function buildMessage(row: ClaimedEmail, footer: QuoteEmailFooterText | null): { subject: string; text: string; html: string } {
   return buildQuoteCustomerEmail({
     kind: row.kind,
     quoteId: row.quote_id,
     introText: row.intro_text,
-    contactPhone: row.contact_phone,
+    customerName: row.recipient_name,
+    locale: row.locale,
     footer,
     customSections: row.custom_sections,
     itemCount: row.item_count,
@@ -157,22 +167,25 @@ Deno.serve(async (req: Request) => {
   const { data: claimed, error: claimError } = await admin.rpc("fds_quote_email_claim", { p_limit: limit });
   if (claimError) return json({ error: claimError.message }, 500);
 
+  const pmsKey = pmsServiceRoleKey();
+  const pms = pmsKey ? createClient(pmsProjectUrl(), pmsKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  }) : null;
+
   const rows = (Array.isArray(claimed) ? claimed : []) as ClaimedEmail[];
   const results: Array<{ id: string; status: string; error?: string }> = [];
-
-  const pmsKey = pmsServiceRoleKey();
-  const pms = pmsKey ? createClient(pmsProjectUrl(), pmsKey, { auth: { persistSession: false } }) : null;
+  const { data: delivery, error: deliveryError } = await admin.from("bwf_quote_email_delivery")
+    .select("bcc_email")
+    .eq("id", true)
+    .maybeSingle();
+  if (deliveryError) console.warn("[send-quote-email] bcc lookup", deliveryError.message);
+  const teamBcc = deliveryError || !delivery ? DEFAULT_QUOTE_EMAIL_BCC : String(delivery.bcc_email ?? "");
 
   for (const row of rows) {
     const to = String(row.to_email ?? "").trim();
     if (!isSafeEmail(to)) {
       await admin.rpc("fds_quote_email_mark", { p_id: row.id, p_status: "failed", p_error: "invalid_recipient" });
       results.push({ id: row.id, status: "invalid_recipient" });
-      continue;
-    }
-    if (!row.contact_phone || !row.contact_phone.trim()) {
-      await admin.rpc("fds_quote_email_mark", { p_id: row.id, p_status: "failed", p_error: "contact_phone_missing" });
-      results.push({ id: row.id, status: "contact_phone_missing" });
       continue;
     }
     if (!row.share_token) {
@@ -182,6 +195,29 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
+      const [{ data: quote, error: quoteError }, resolved] = await Promise.all([
+        admin.from("bwf_quote")
+          .select("pm_name:project_data->formData->>projectManager")
+          .eq("id", row.quote_uuid)
+          .maybeSingle(),
+        resolveQuoteEmailFooter(admin, row.quote_uuid, pms),
+      ]);
+      if (quoteError) throw new Error(quoteError.message);
+      const senderName = resolved.senderName || quote?.pm_name?.trim() || "";
+      const resendFrom = quoteEmailFromHeader(senderName);
+      const footer = resolved.footer;
+      const { data: pdf, error: pdfError } = await admin.storage.from("quote-email-pdfs")
+        .download(`${row.quote_uuid}.pdf`);
+      // Quotes queued before attachments were introduced have no stored PDF.
+      if (pdfError && !/^object not found$/i.test(pdfError.message)
+        && !("status" in pdfError && pdfError.status === 404)) {
+        throw new Error(pdfError.message);
+      }
+      const attachment = pdf ? {
+        filename: `${(row.quote_id || "Quotation").replace(/[^a-zA-Z0-9_.-]/g, "-")}.pdf`,
+        content: encodeBase64(await pdf.arrayBuffer()),
+      } : undefined;
+
       // Race guard: the customer may have viewed (or the PM stopped follow-ups)
       // between claim and send. confirm_send re-checks and cancels the message.
       const { data: canSend, error: confirmError } = await admin.rpc("fds_quote_email_confirm_send", { p_id: row.id });
@@ -190,9 +226,12 @@ Deno.serve(async (req: Request) => {
         results.push({ id: row.id, status: "cancelled_before_send" });
         continue;
       }
-      const footer = await resolveQuoteEmailFooter(admin, row.quote_uuid, pms);
-      const message = buildMessage(row, footer);
-      const sent = await sendEmail({ to: [to], ...message });
+      const sampleItems = normalizeQuoteEmailLocale(row.locale) === "en"
+        ? await englishSampleItems(row.sample_items)
+        : row.sample_items;
+      const message = buildMessage({ ...row, sample_items: sampleItems }, footer);
+      const bcc = quoteEmailBccList(to, teamBcc);
+      const sent = await sendEmail({ to: [to], bcc, ...message, resendFrom, attachment });
       await recordLog(admin, row, "success", { provider: sent.provider, messageId: sent.id });
       await admin.rpc("fds_quote_email_mark", {
         p_id: row.id,

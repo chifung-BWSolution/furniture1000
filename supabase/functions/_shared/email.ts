@@ -3,14 +3,17 @@
  *
  * Same providers as the existing upload-log report: Resend when `RESEND_API_KEY`
  * is set, otherwise Gmail SMTP (`GMAIL_SMTP_USER` + `GMAIL_SMTP_APP_PASSWORD`).
- * The sender identity always comes from the environment, never from the browser.
+ * Sender settings come from the server, never from the browser.
  */
 
 export interface OutboundEmail {
   to: string[];
+  bcc?: string[];
   subject: string;
   text: string;
   html: string;
+  resendFrom?: string;
+  attachment?: { filename: string; content: string };
 }
 
 export interface SendResult {
@@ -75,7 +78,7 @@ async function sendViaGmailSmtp(email: OutboundEmail): Promise<SendResult> {
   }
 
   await sendLine(`MAIL FROM:<${user}>`);
-  for (const recipient of email.to) {
+  for (const recipient of [...email.to, ...(email.bcc ?? [])]) {
     const rcptResp = await sendLine(`RCPT TO:<${recipient}>`);
     if (!rcptResp.startsWith("250")) {
       conn.close();
@@ -84,11 +87,18 @@ async function sendViaGmailSmtp(email: OutboundEmail): Promise<SendResult> {
   }
   await sendLine("DATA");
   const boundary = `----=_Part_${Date.now()}`;
+  const mixedBoundary = `${boundary}_Mixed`;
+  const attachment = email.attachment;
   const body = [
     `From: ${emailFromAddress()}`,
     `To: ${email.to.join(", ")}`,
     `Subject: =?UTF-8?B?${toBase64(email.subject)}?=`,
     "MIME-Version: 1.0",
+    ...(attachment ? [
+      `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
+      "",
+      `--${mixedBoundary}`,
+    ] : []),
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
     `--${boundary}`,
@@ -104,9 +114,23 @@ async function sendViaGmailSmtp(email: OutboundEmail): Promise<SendResult> {
     toBase64(email.html),
     "",
     `--${boundary}--`,
+    ...(attachment ? [
+      `--${mixedBoundary}`,
+      "Content-Type: application/pdf",
+      `Content-Disposition: attachment; filename="${attachment.filename}"`,
+      "Content-Transfer-Encoding: base64",
+      "",
+      attachment.content.match(/.{1,76}/g)?.join("\r\n") ?? "",
+      `--${mixedBoundary}--`,
+    ] : []),
     ".",
   ].join("\r\n");
-  const dataResp = await sendLine(body);
+  const data = encoder.encode(`${body}\r\n`);
+  let written = 0;
+  while (written < data.length) {
+    written += await conn.write(data.subarray(written));
+  }
+  const dataResp = await readResponse();
   await sendLine("QUIT");
   conn.close();
   if (!dataResp.startsWith("250")) {
@@ -119,7 +143,7 @@ async function sendViaResend(email: OutboundEmail): Promise<SendResult> {
   const apiKey = Deno.env.get("RESEND_API_KEY") ?? "";
   if (!apiKey) throw new Error("RESEND_API_KEY is not configured");
   const payload: Record<string, unknown> = {
-    from: emailFromAddress(),
+    from: email.resendFrom ?? emailFromAddress(),
     to: email.to,
     subject: email.subject,
     text: email.text,
@@ -127,6 +151,8 @@ async function sendViaResend(email: OutboundEmail): Promise<SendResult> {
   };
   const replyTo = emailReplyTo();
   if (replyTo) payload.reply_to = replyTo;
+  if (email.bcc?.length) payload.bcc = email.bcc;
+  if (email.attachment) payload.attachments = [email.attachment];
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -146,7 +172,7 @@ async function sendViaResend(email: OutboundEmail): Promise<SendResult> {
 /** Send one email. Throws when no provider is configured or both providers fail. */
 export async function sendEmail(email: OutboundEmail): Promise<SendResult> {
   if (email.to.length === 0) throw new Error("no recipient");
-  for (const recipient of email.to) {
+  for (const recipient of [...email.to, ...(email.bcc ?? [])]) {
     if (!isSafeEmail(recipient)) throw new Error("invalid recipient");
   }
   const hasResend = Boolean(Deno.env.get("RESEND_API_KEY"));

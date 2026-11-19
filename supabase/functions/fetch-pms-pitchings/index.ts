@@ -3,7 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 import { fetchPresentationLookup } from "../_shared/presentationLookup.ts";
-import { defaultPmQuoteEmailFooter } from "../_shared/quoteEmailFooter.ts";
+import { defaultQuoteEmailClosing, defaultQuoteEmailPhone } from "../_shared/quoteEmailFooter.ts";
 import { resolveQuoteEmailFooter } from "../_shared/resolveQuoteEmailFooter.ts";
 import { isMissingOtcStaffColumn, reportProjectManagerFilterKey } from "../_shared/reportProjectManager.ts";
 
@@ -151,13 +151,15 @@ async function initializeQuoteEmailFooters(
   const rows = (staff ?? []).flatMap((pm) => {
     const name = String(pm.name ?? "").trim();
     if (!name || !pm.id) return [];
-    const footer = defaultPmQuoteEmailFooter(name, String(pm.work_phone ?? ""));
+    const closing = defaultQuoteEmailClosing();
     return [{
       pms_staff_id: pm.id,
       pm_name: name,
-      body_zh_hant: footer["zh-Hant"],
-      body_zh_hans: footer["zh-Hans"],
-      body_en: footer.en,
+      sender_name: name,
+      phone: defaultQuoteEmailPhone(name, String(pm.work_phone ?? "")),
+      body_zh_hant: closing,
+      body_zh_hans: closing,
+      body_en: closing,
     }];
   });
   if (rows.length) {
@@ -279,8 +281,8 @@ Deno.serve(async (req: Request) => {
       if (!body.quote_uuid || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(body.quote_uuid)) {
         return jsonResponse({ error: "無效的報價識別碼" }, 400);
       }
-      const footer = await resolveQuoteEmailFooter(furnitureClient, body.quote_uuid, pmsAdmin);
-      return jsonResponse({ footer });
+      const resolved = await resolveQuoteEmailFooter(furnitureClient, body.quote_uuid, pmsAdmin);
+      return jsonResponse({ footer: resolved.footer });
     }
 
     if (body.action?.startsWith("package_")) {
