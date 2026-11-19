@@ -169,19 +169,19 @@ test('a classification requires the same item to match category and color', () =
   const rows = [
     candidate({
       id: 'white-desk',
-      itemTraits: [{ category: '會議枱', color: '白色', material: '板材' }],
+      itemTraits: [{ category: '會議枱', colors: ['白'], materials: ['木皮'] }],
     }),
     candidate({
       id: 'mixed',
       itemTraits: [
-        { category: '會議枱', color: '黑色', material: '板材' },
-        { category: '辦公椅', color: '白色', material: '布' },
+        { category: '會議枱', colors: ['黑'], materials: ['木皮'] },
+        { category: '辦公椅', colors: ['白'], materials: ['布藝'] },
       ],
     }),
   ];
   const matches = matchQuoteReferences(rows, query({
     sizeBandId: null,
-    classifications: [{ category: '會議枱', colors: ['白色'], materials: [] }],
+    classifications: [{ category: '會議枱', colors: ['白'], materials: [] }],
   }));
   assert.deepEqual(matches.map((row) => row.candidate.id), ['white-desk']);
 });

@@ -38,11 +38,11 @@ export const QUOTE_SIZE_BANDS: QuoteReferenceBand[] = [
   { id: 'ge2000', label: '2000mm 以上', min: 2_000, max: null },
 ];
 
-/** One quoted furniture line: category, color and material stay on the same item. */
+/** One quoted furniture line. Colors and materials are the fixed tags, not the original text. */
 export interface QuoteItemTrait {
   category: string;
-  color: string;
-  material: string;
+  colors: string[];
+  materials: string[];
 }
 
 /** A selected 分類, with optional color and material narrowed to that same line. */
@@ -139,6 +139,11 @@ function traitKey(value: string): string {
   return value.trim().toLocaleLowerCase('zh-Hant');
 }
 
+function hasSelectedTag(selected: Set<string>, values: string[]): boolean {
+  if (selected.size === 0) return true;
+  return values.some((value) => selected.has(traitKey(value)));
+}
+
 function classificationHit(traits: QuoteItemTrait[], pick: QuoteReferenceClassification): boolean {
   const category = traitKey(pick.category);
   if (!category) return false;
@@ -146,8 +151,8 @@ function classificationHit(traits: QuoteItemTrait[], pick: QuoteReferenceClassif
   const materials = new Set(pick.materials.map(traitKey).filter(Boolean));
   return traits.some((trait) => {
     if (traitKey(trait.category) !== category) return false;
-    if (colors.size > 0 && !colors.has(traitKey(trait.color))) return false;
-    if (materials.size > 0 && !materials.has(traitKey(trait.material))) return false;
+    if (!hasSelectedTag(colors, trait.colors)) return false;
+    if (!hasSelectedTag(materials, trait.materials)) return false;
     return true;
   });
 }

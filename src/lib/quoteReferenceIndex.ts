@@ -29,13 +29,17 @@ function textList(value: string[] | null | undefined): string[] {
   return (value || []).map((item) => item.trim()).filter(Boolean);
 }
 
+function tagList(value: string): string[] {
+  return value.split('|').map((item) => item.trim()).filter(Boolean);
+}
+
 function itemTraits(value: string[] | null | undefined): QuoteItemTrait[] {
   const traits: QuoteItemTrait[] = [];
   for (const raw of value || []) {
-    const [category = '', color = '', material = ''] = raw.split('\u001f');
+    const [category = '', colors = '', materials = ''] = raw.split('\u001f');
     const name = category.trim();
     if (!name) continue;
-    traits.push({ category: name, color: color.trim(), material: material.trim() });
+    traits.push({ category: name, colors: tagList(colors), materials: tagList(materials) });
   }
   return traits;
 }

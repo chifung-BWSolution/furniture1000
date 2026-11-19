@@ -57,7 +57,7 @@ function tagClass(tone: QuoteReferenceTagTone): string {
 }
 
 const RESULT_ROW_HEIGHT = 56;
-const ITEM_ROW_HEIGHT = 56;
+const ITEM_ROW_HEIGHT = 72;
 const FACET_LIMIT = 40;
 const JUNK_FACETS = new Set(['可選', '待定', '待確認', '待定色', 'tbc', '如圖', '按圖', '見圖', '圖片', '圖片色', 'as shown', 'n/a', '-', '/', '色卡', '另議']);
 
@@ -162,9 +162,10 @@ function multiSelectOptions(values: string[]) {
   return values.map((value) => ({ value, label: value }));
 }
 
-function QuoteDetails({ match, copying, onClose, onCopy }: {
+function QuoteDetails({ match, copying, categoryById, onClose, onCopy }: {
   match: QuoteReferenceMatch;
   copying: boolean;
+  categoryById: Map<string, string>;
   onClose: () => void;
   onCopy: () => void;
 }) {
@@ -263,6 +264,11 @@ function QuoteDetails({ match, copying, onClose, onCopy }: {
                 {items.slice(start, start + pageSize).map((item, index) => {
                   const dimensions = [item.dimensionLMm, item.dimensionWMm, item.dimensionHMm].filter(Boolean).join(' × ');
                   const spec = [dimensions && `${dimensions} mm`, item.material, item.color].filter(Boolean).join(' · ');
+                  const tagLine = [
+                    item.productCategoryId ? categoryById.get(item.productCategoryId) : '',
+                    ...(item.colorTags ?? []),
+                    ...(item.materialTags ?? []),
+                  ].filter(Boolean).join(' · ');
                   const photos = [item.image, item.referenceImage, item.remarksImage].filter((url): url is string => Boolean(url?.trim()));
                   const itemName = item.name || '未命名項目';
                   return (
@@ -279,6 +285,7 @@ function QuoteDetails({ match, copying, onClose, onCopy }: {
                       <TableCell className="py-0">
                         <div className="truncate font-medium" title={item.name}>{itemName}</div>
                         {spec && <div className="truncate text-muted-foreground" title={spec}>{spec}</div>}
+                        {tagLine && <div className="truncate text-primary" title={tagLine}>{tagLine}</div>}
                       </TableCell>
                       <TableCell className="truncate px-1 py-0 text-right tabular-nums" title={`${item.quantity ?? '—'} ${item.unit ?? ''}`}>{item.quantity ?? '—'}</TableCell>
                       <TableCell className="truncate py-0 text-right tabular-nums" title={item.isOptional ? '選配項目' : money(quoteItemLineSubtotal(item))}>
@@ -416,6 +423,13 @@ export function QuoteReferenceSetup({
   }, [candidates, customerType, initialCustomerType]);
 
   const allIndustries = [...new Set([...industryOptions, ...selectedIndustries])];
+  const categoryById = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const pair of pairs) {
+      if (pair.id && pair.level2) names.set(pair.id, pair.level2);
+    }
+    return names;
+  }, [pairs]);
 
   const facetCounts = useMemo(() => {
     const colors = new Map<string, Map<string, number>>();
@@ -430,8 +444,10 @@ export function QuoteReferenceSetup({
       groups.set(key, counts);
     };
     for (const row of candidates) {
-      for (const trait of row.itemTraits ?? []) bump(colors, trait.category, trait.color);
-      for (const trait of row.itemTraits ?? []) bump(materials, trait.category, trait.material);
+      for (const trait of row.itemTraits ?? []) {
+        for (const color of trait.colors) bump(colors, trait.category, color);
+        for (const material of trait.materials) bump(materials, trait.category, material);
+      }
     }
     return { colors, materials };
   }, [candidates]);
@@ -721,6 +737,7 @@ export function QuoteReferenceSetup({
               key={activeMatch.candidate.id}
               match={activeMatch}
               copying={copyingId !== null}
+              categoryById={categoryById}
               onClose={() => { setActiveId(null); setPanel('results'); }}
               onCopy={() => void copyQuote(activeMatch.candidate.id)}
             />
