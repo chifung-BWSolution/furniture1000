@@ -1,4 +1,3 @@
-import { translateQuoteEmailDraft } from '@/lib/quoteEmailTranslation';
 import { useEffect, useState } from 'react';
 import { Mail } from 'lucide-react';
 import { toast } from 'sonner';
@@ -18,12 +17,6 @@ import {
   type QuoteEmailFooterRow,
 } from '@/lib/quoteEmailFooters';
 
-const footerFields = [
-  { key: 'body_zh_hant', label: '繁體', locale: 'zh-Hant' },
-  { key: 'body_zh_hans', label: '简体', locale: 'zh-Hans' },
-  { key: 'body_en', label: '英文', locale: 'en' },
-] as const;
-
 function closingPreview(text: string): string {
   const line = text.trim().split('\n').find((row) => row.trim()) ?? '';
   if (!line) return '—';
@@ -41,8 +34,7 @@ export function QuoteEmailSettingsView() {
   const [draft, setDraft] = useState<QuoteEmailFooterRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [translating, setTranslating] = useState(false);
-  const busy = saving || translating;
+  const busy = saving;
   const [error, setError] = useState('');
   const [loadVersion, setLoadVersion] = useState(0);
   const [bcc, setBcc] = useState('');
@@ -88,23 +80,6 @@ export function QuoteEmailSettingsView() {
     return () => { cancelled = true; };
   }, [loadVersion]);
 
-  const translateFooter = async (source: typeof footerFields[number]) => {
-    if (!draft || !canEdit || busy || !draft[source.key].trim()) return;
-    const targets = footerFields.filter(({ key }) => key !== source.key);
-    setTranslating(true);
-    try {
-      const results = await Promise.all(targets.map(async ({ key, locale }) => {
-        const [text] = await translateQuoteEmailDraft([draft[source.key]], locale, [2000]);
-        return [key, text] as const;
-      }));
-      setDraft({ ...draft, ...Object.fromEntries(results) });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '翻譯下款失敗');
-    } finally {
-      setTranslating(false);
-    }
-  };
-
   const save = async () => {
     if (!draft || !canEdit) return;
     if (!draft.sender_name.trim()) {
@@ -113,13 +88,14 @@ export function QuoteEmailSettingsView() {
     }
     setSaving(true);
     try {
+      const closing = draft.body_zh_hant.trim();
       const next = {
         ...draft,
         sender_name: draft.sender_name.trim(),
         phone: draft.phone.trim(),
-        body_zh_hant: draft.body_zh_hant.trim(),
-        body_zh_hans: draft.body_zh_hans.trim(),
-        body_en: draft.body_en.trim(),
+        body_zh_hant: closing,
+        body_zh_hans: closing,
+        body_en: closing,
       };
       await saveQuoteEmailFooter(next);
       setRows((current) => current.map((row) => row.pms_staff_id === next.pms_staff_id ? next : row));
@@ -296,31 +272,20 @@ export function QuoteEmailSettingsView() {
                 />
               </div>
             </div>
-            <p className="text-sm font-medium">下款</p>
-            {footerFields.map((field) => (
-              <div className="space-y-1.5 text-sm" key={field.key}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <label className="font-medium" htmlFor={'quote-email-footer-' + field.key}>{field.label}</label>
-                  {canEdit && (
-                    <Button type="button" size="sm" variant="ghost"
-                      disabled={busy || !draft[field.key].trim()} onClick={() => void translateFooter(field)}>
-                      {translating ? '翻譯中…' : '從' + field.label + '翻譯到其他版本'}
-                    </Button>
-                  )}
-                </div>
-                <Textarea
-                  id={'quote-email-footer-' + field.key}
-                  value={draft[field.key]}
-                  rows={5}
-                  maxLength={2000}
-                  readOnly={!canEdit || busy}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setDraft((current) => current ? { ...current, [field.key]: value } : current);
-                  }}
-                />
-              </div>
-            ))}
+            <div className="space-y-1.5 text-sm">
+              <label className="font-medium" htmlFor="quote-email-footer">下款</label>
+              <Textarea
+                id="quote-email-footer"
+                value={draft.body_zh_hant}
+                rows={8}
+                maxLength={2000}
+                readOnly={!canEdit || busy}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setDraft((current) => current ? { ...current, body_zh_hant: value } : current);
+                }}
+              />
+            </div>
           </div>
         )}
       </Modal>
