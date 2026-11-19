@@ -427,6 +427,7 @@ export function QuoteEmailFollowUpModal({
             <p className="truncate text-xs text-slate-500">收件：{recipient.trim() || '（未填收件電郵）'}</p>
           </div>
           <iframe
+            key={customerEmail.html}
             title="客戶收到的郵件"
             sandbox=""
             srcDoc={customerEmail.html}
