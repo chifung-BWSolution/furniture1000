@@ -114,6 +114,17 @@ export const QUOTE_EMAIL_PROBLEM_TEXT: Record<QuoteEmailProblem, string> = {
   share_link_missing: '這張報價還沒有有效的客戶連結。請先建立客戶分享連結，再加入郵件。',
 };
 
+const QUOTE_EMAIL_PROBLEM_TEXT_EN: Record<QuoteEmailProblem, string> = {
+  recipient_missing: 'Enter the customer email address.',
+  recipient_invalid: 'That email address is not valid.',
+  contact_phone_missing: 'Enter the colleague’s phone number. The email is not sent without one.',
+  share_link_missing: 'This quotation has no customer link yet. Create a share link before adding it to the email.',
+};
+
+export function quoteEmailProblemText(problem: QuoteEmailProblem, locale: 'zh' | 'en' = 'zh'): string {
+  return locale === 'en' ? QUOTE_EMAIL_PROBLEM_TEXT_EN[problem] : QUOTE_EMAIL_PROBLEM_TEXT[problem];
+}
+
 const EMAIL_PATTERN = /^[^@<>"\s]+@[^@<>"\s]+\.[^@<>"\s]+$/;
 
 /**
@@ -154,7 +165,7 @@ export async function loadQuoteEmailContactSource(quoteUuid: string): Promise<Qu
     )
     .eq('id', quoteUuid)
     .maybeSingle();
-  if (error) throw new Error(quoteEmailErrorMessage(error));
+  if (error) throw error;
   const row = (data ?? {}) as Record<string, unknown>;
   const clientEmail = String(row.client_info_email || row.form_email || '').trim();
   const companyPhone = String(row.company_phone || '').trim().slice(0, 40);
@@ -261,18 +272,19 @@ export function buildQuoteEmailSections(input: {
   ];
 }
 
-export function quoteEmailErrorMessage(error: unknown): string {
+export function quoteEmailErrorMessage(error: unknown, locale: 'zh' | 'en' = 'zh'): string {
   const raw = error instanceof Error ? error.message : String(error ?? '');
-  if (raw.includes('contact_phone_missing')) return QUOTE_EMAIL_PROBLEM_TEXT.contact_phone_missing;
-  if (raw.includes('share_link_missing')) return QUOTE_EMAIL_PROBLEM_TEXT.share_link_missing;
-  if (raw.includes('invalid_recipient')) return QUOTE_EMAIL_PROBLEM_TEXT.recipient_invalid;
-  if (raw.includes('quote_not_found')) return '找不到這張報價，可能已被移動或刪除。';
-  if (raw.includes('auto_follow_up_stopped')) return '這張報價已停止自動跟進，不會再自動發信。';
-  if (raw.includes('permission_denied') || raw.includes('42501')) return '沒有權限處理這張報價的郵件。';
+  const en = locale === 'en';
+  if (raw.includes('contact_phone_missing')) return quoteEmailProblemText('contact_phone_missing', locale);
+  if (raw.includes('share_link_missing')) return quoteEmailProblemText('share_link_missing', locale);
+  if (raw.includes('invalid_recipient')) return quoteEmailProblemText('recipient_invalid', locale);
+  if (raw.includes('quote_not_found')) return en ? 'This quotation could not be found. It may have been moved or deleted.' : '找不到這張報價，可能已被移動或刪除。';
+  if (raw.includes('auto_follow_up_stopped')) return en ? 'Auto follow-up is already stopped for this quotation.' : '這張報價已停止自動跟進，不會再自動發信。';
+  if (raw.includes('permission_denied') || raw.includes('42501')) return en ? 'You do not have permission to manage email for this quotation.' : '沒有權限處理這張報價的郵件。';
   if (raw.includes('PGRST202') || raw.includes('Could not find the function')) {
-    return '郵件功能尚未部署到這個環境，暫時不能使用。';
+    return en ? 'Email is not available in this environment yet.' : '郵件功能尚未部署到這個環境，暫時不能使用。';
   }
-  return raw || '沒有完成，請再試一次。';
+  return raw || (en ? 'That did not finish. Try again.' : '沒有完成，請再試一次。');
 }
 
 export async function loadQuoteEmailPreview(quoteUuid: string): Promise<{ count: number; items: QuoteEmailPreviewItem[] }> {
@@ -287,7 +299,7 @@ export async function loadQuoteEmailPreview(quoteUuid: string): Promise<{ count:
     .order('sort_order', { ascending: true })
     .limit(5);
   const { data, count, error } = await visible;
-  if (error) throw new Error(quoteEmailErrorMessage(error));
+  if (error) throw error;
   return {
     count: count ?? data?.length ?? 0,
     items: (data ?? []).map((row) => ({
@@ -302,7 +314,7 @@ export async function loadQuoteEmailPreview(quoteUuid: string): Promise<{ count:
 
 export async function loadQuoteEmailStatus(quoteUuid: string): Promise<QuoteEmailStatusData | null> {
   const { data, error } = await supabase.rpc('fds_quote_email_status', { p_quote_uuid: quoteUuid });
-  if (error) throw new Error(quoteEmailErrorMessage(error));
+  if (error) throw error;
   if (!data || typeof data !== 'object') return null;
   const row = data as Record<string, unknown>;
   return {
@@ -361,7 +373,7 @@ export async function saveQuoteEmailTemplate(input: {
     p_greeting: input.greeting.trim().slice(0, 200),
     p_locale: input.locale === 'zh-Hans' || input.locale === 'en' ? input.locale : 'zh-Hant',
   });
-  if (error) throw new Error(quoteEmailErrorMessage(error));
+  if (error) throw error;
 }
 
 export async function scheduleQuoteEmail(input: {
@@ -374,7 +386,7 @@ export async function scheduleQuoteEmail(input: {
     p_to: input.to.trim(),
     p_kind: input.kind ?? 'manual',
   });
-  if (error) throw new Error(quoteEmailErrorMessage(error));
+  if (error) throw error;
   return data ? String(data) : null;
 }
 
@@ -423,7 +435,7 @@ export async function stopQuoteEmail(quoteUuid: string, reason = 'manual'): Prom
     p_quote_uuid: quoteUuid,
     p_reason: reason,
   });
-  if (error) throw new Error(quoteEmailErrorMessage(error));
+  if (error) throw error;
 }
 
 /**

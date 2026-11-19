@@ -4891,7 +4891,7 @@ export function QuotationDraftEditor({
       label: `${index + 1}·${position.label}`,
       color: floorPlanZoneColor(index),
       zoneName: zone.name,
-      description: `${zone.name} · ${position.label} · ${position.category} · ${position.angle === null ? '方向未知' : `${position.angle}°`}`,
+      description: `${zone.name} · ${position.label} · ${position.category} · ${position.angle === null ? (quoteLocale === 'en' ? 'Direction unknown' : '方向未知') : `${position.angle}°`}`,
     })),
   );
   const furnitureGroupName = (category: string) => {
@@ -7304,7 +7304,7 @@ export function QuotationDraftEditor({
                           aiChoices={quoteAiChoices}
                           photoZones={quotePhotoZones}
                           zoneRegionCount={items.find(row => row.id === zoneTitleIdAt(items, index))?.quantity ?? 0}
-                          placementField={hasFloorPlanPreview ? <ProductPlacementPicker positions={floorPlan?.placements?.positions[zoneTitleIdAt(items, index) || ''] || []} values={floorPlan?.placements?.assignments[item.id] || []} quantity={item.quantity} canSelect={Boolean(floorPlan && floorPlan.regions.some(r => r.zoneId === zoneTitleIdAt(items, index)))} unavailableReason={!zoneTitleIdAt(items, index) ? 'no-zone' : 'no-region'} onManageZones={openZoneManager} onRequestZone={() => flashZoneSelect(item.id)} onChange={(positionIndex, positionId) => { const zoneId = zoneTitleIdAt(items, index); if (zoneId) setProductPlacement(zoneId, item.id, positionIndex, positionId); }} onPickOnPlan={positionIndex => { const zoneId = zoneTitleIdAt(items, index); if (!zoneId) return; setPickingPlacement({ zoneId, itemId: item.id, index: positionIndex }); }} /> : null}
+                          placementField={hasFloorPlanPreview ? <ProductPlacementPicker locale={quoteLocale} positions={floorPlan?.placements?.positions[zoneTitleIdAt(items, index) || ''] || []} values={floorPlan?.placements?.assignments[item.id] || []} quantity={item.quantity} canSelect={Boolean(floorPlan && floorPlan.regions.some(r => r.zoneId === zoneTitleIdAt(items, index)))} unavailableReason={!zoneTitleIdAt(items, index) ? 'no-zone' : 'no-region'} onManageZones={openZoneManager} onRequestZone={() => flashZoneSelect(item.id)} onChange={(positionIndex, positionId) => { const zoneId = zoneTitleIdAt(items, index); if (zoneId) setProductPlacement(zoneId, item.id, positionIndex, positionId); }} onPickOnPlan={positionIndex => { const zoneId = zoneTitleIdAt(items, index); if (!zoneId) return; setPickingPlacement({ zoneId, itemId: item.id, index: positionIndex }); }} /> : null}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
                           cutItemId={cutItemId}
@@ -7679,6 +7679,7 @@ export function QuotationDraftEditor({
               <section id="quote-sec-photos" className="order-5 scroll-mt-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
                 <h2 className="mb-3 font-display text-base font-bold text-foreground">{t.quotePhotos}</h2>
                 <QuotePhotoPages
+                  locale={quoteLocale}
                   layouts={quotePhotoLayouts}
                   assets={quotePhotoAssets}
                   productPhotos={quoteProductPhotos}
@@ -8119,7 +8120,10 @@ export function QuotationDraftEditor({
         size="md"
         icon={<QrCode className="h-6 w-6" />}
         title={t.quoteShareLink}
-        description="掃描 QR Code 或複製連結後，可免登入進入客戶專區查看此報價單，並瀏覽產品搜尋、傢俬訂製、付款+送貨、訂單狀況、成功案例、服務一覽、公司資料及聯絡我們等頁面（不含機構採購帳號）。"
+        description={ui(
+          '掃描 QR Code 或複製連結後，可免登入進入客戶專區查看此報價單，並瀏覽產品搜尋、傢俬訂製、付款+送貨、訂單狀況、成功案例、服務一覽、公司資料及聯絡我們等頁面（不含機構採購帳號）。',
+          'Scan the QR code or copy the link to open this quotation without signing in. The customer area also includes product search, custom furniture, payment and delivery, order status, case studies, services, company details and contact (organisation purchasing accounts are not included).',
+        )}
         footer={
           <ModalButton
             variant="secondary"
@@ -8128,9 +8132,9 @@ export function QuotationDraftEditor({
               try {
                 await navigator.clipboard.writeText(shareUrl);
                 setShareCopied(true);
-                toast.success("已複製連結");
+                toast.success(ui('已複製連結', 'Link copied'));
               } catch {
-                toast.error("複製失敗");
+                toast.error(ui('複製失敗', 'Could not copy'));
               }
             }}
           >
@@ -8139,7 +8143,7 @@ export function QuotationDraftEditor({
             ) : (
               <Copy className="h-4 w-4" />
             )}
-            {shareCopied ? "已複製" : "複製連結"}
+            {shareCopied ? ui('已複製', 'Copied') : ui('複製連結', 'Copy link')}
           </ModalButton>
         }
       >
@@ -8169,7 +8173,7 @@ export function QuotationDraftEditor({
             />
       </Modal>
 
-      {pickingPlacement && floorPlan ? <FurniturePlacementDialog key={`${pickingPlacement.itemId}:${pickingPlacement.index}`} plan={floorPlan} zoneId={pickingPlacement.zoneId} zoneName={items.find(i => i.id === pickingPlacement.zoneId)?.name || '分區'} productName={items.find(i => i.id === pickingPlacement.itemId)?.name || items.find(i => i.id === pickingPlacement.itemId)?.category || '傢俬'} productCategory={items.find(i => i.id === pickingPlacement.itemId)?.category} productSku={items.find(i => i.id === pickingPlacement.itemId)?.sku} productImage={items.find(i => i.id === pickingPlacement.itemId)?.image} quantity={items.find(i => i.id === pickingPlacement.itemId)?.quantity || 0} values={floorPlan.placements?.assignments[pickingPlacement.itemId]} occupiedIds={Object.entries(floorPlan.placements?.assignments || {}).filter(([id]) => id !== pickingPlacement.itemId).flatMap(([, ids]) => ids.filter(Boolean))} onClose={() => setPickingPlacement(null)} onSave={selections => {
+      {pickingPlacement && floorPlan ? <FurniturePlacementDialog locale={quoteLocale} key={`${pickingPlacement.itemId}:${pickingPlacement.index}`} plan={floorPlan} zoneId={pickingPlacement.zoneId} zoneName={items.find(i => i.id === pickingPlacement.zoneId)?.name || ui('分區', 'Zone')} productName={items.find(i => i.id === pickingPlacement.itemId)?.name || items.find(i => i.id === pickingPlacement.itemId)?.category || ui('傢俬', 'Furniture')} productCategory={items.find(i => i.id === pickingPlacement.itemId)?.category} productSku={items.find(i => i.id === pickingPlacement.itemId)?.sku} productImage={items.find(i => i.id === pickingPlacement.itemId)?.image} quantity={items.find(i => i.id === pickingPlacement.itemId)?.quantity || 0} values={floorPlan.placements?.assignments[pickingPlacement.itemId]} occupiedIds={Object.entries(floorPlan.placements?.assignments || {}).filter(([id]) => id !== pickingPlacement.itemId).flatMap(([, ids]) => ids.filter(Boolean))} onClose={() => setPickingPlacement(null)} onSave={selections => {
         const target = pickingPlacement;
         const zone = layoutZones(itemsRef.current).find(z => z.id === target.zoneId);
         const product = zone?.products.find(p => p.id === target.itemId);
@@ -8321,8 +8325,8 @@ export function QuotationDraftEditor({
           </div>
         ) : zoneRenderPreview?.error ? <p role="alert" className="text-sm text-destructive">{zoneRenderPreview.error}</p> : null}
       </Modal>
-      {layoutRenderOpen && floorPlan ? <QuoteLayoutRenderDialog title="渲染圖設置" products={layoutZones(items).flatMap(zone => zone.products)} plan={floorPlan} onChange={next => setFloorPlan(current => current ? { ...current, rendering: next.rendering } : current)} onClose={() => setLayoutRenderOpen(false)} /> : null}
-      <Modal open={!!newFurnitureRect} onOpenChange={open => { if (!open) setNewFurnitureRect(null); }} title="新增傢俬位置" description="選擇所屬分區和傢俬名稱；可選擇對應的報價產品。" footer={<><ModalButton variant="secondary" onClick={() => setNewFurnitureRect(null)}>取消</ModalButton><ModalButton disabled={!newFurnitureZone || !newFurnitureCategory.trim()} onClick={() => {
+      {layoutRenderOpen && floorPlan ? <QuoteLayoutRenderDialog locale={quoteLocale} title={ui('渲染圖設置', 'Render settings')} products={layoutZones(items).flatMap(zone => zone.products)} plan={floorPlan} onChange={next => setFloorPlan(current => current ? { ...current, rendering: next.rendering } : current)} onClose={() => setLayoutRenderOpen(false)} /> : null}
+      <Modal open={!!newFurnitureRect} onOpenChange={open => { if (!open) setNewFurnitureRect(null); }} title={ui('新增傢俬位置', 'Add a furniture position')} description={ui('選擇所屬分區和傢俬名稱；可選擇對應的報價產品。', 'Choose the zone and furniture name. You can also link a quote product.')} footer={<><ModalButton variant="secondary" onClick={() => setNewFurnitureRect(null)}>{ui('取消', 'Cancel')}</ModalButton><ModalButton disabled={!newFurnitureZone || !newFurnitureCategory.trim()} onClick={() => {
         if (!newFurnitureRect) return;
         rememberZoneEdit();
         const rect = newFurnitureRect;
@@ -8343,15 +8347,16 @@ export function QuotationDraftEditor({
           return { ...current, placements: next };
         });
         setNewFurnitureRect(null);
-      }}>新增</ModalButton></>}>
+      }}>{ui('新增', 'Add')}</ModalButton></>}>
         <div className="space-y-4">
-          <label className="block space-y-2"><span className="text-sm font-medium">所屬分區</span><Select value={newFurnitureZone} onValueChange={value => { setNewFurnitureZone(value); setNewFurnitureProduct('__none__'); }}><SelectTrigger><SelectValue placeholder="選擇分區" /></SelectTrigger><SelectContent>{zoneManagerDraft.map(zone => <SelectItem key={zone.id} value={zone.id}>{zone.name || '未命名空間'}</SelectItem>)}</SelectContent></Select></label>
-          <label className="block space-y-2"><span className="text-sm font-medium">傢俬名稱</span><Input value={newFurnitureCategory} onChange={event => setNewFurnitureCategory(event.target.value)} placeholder="例如：辦公椅" /></label>
-          <label className="block space-y-2"><span className="text-sm font-medium">對應報價產品（選填）</span><Select value={newFurnitureProduct} onValueChange={setNewFurnitureProduct}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__none__">暫不配對</SelectItem>{(layoutZones(items).find(zone => zone.id === newFurnitureZone)?.products || []).filter(product => (floorPlan?.placements?.assignments[product.id] || []).filter(Boolean).length < Math.floor(product.quantity)).map(product => <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>)}</SelectContent></Select></label>
+          <label className="block space-y-2"><span className="text-sm font-medium">{ui('所屬分區', 'Zone')}</span><Select value={newFurnitureZone} onValueChange={value => { setNewFurnitureZone(value); setNewFurnitureProduct('__none__'); }}><SelectTrigger><SelectValue placeholder={ui('選擇分區', 'Select a zone')} /></SelectTrigger><SelectContent>{zoneManagerDraft.map(zone => <SelectItem key={zone.id} value={zone.id}>{zone.name || ui('未命名空間', 'Untitled space')}</SelectItem>)}</SelectContent></Select></label>
+          <label className="block space-y-2"><span className="text-sm font-medium">{ui('傢俬名稱', 'Furniture name')}</span><Input value={newFurnitureCategory} onChange={event => setNewFurnitureCategory(event.target.value)} placeholder={ui('例如：辦公椅', 'e.g. Office chair')} /></label>
+          <label className="block space-y-2"><span className="text-sm font-medium">{ui('對應報價產品（選填）', 'Matching quote product (optional)')}</span><Select value={newFurnitureProduct} onValueChange={setNewFurnitureProduct}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__none__">{ui('暫不配對', 'Do not link yet')}</SelectItem>{(layoutZones(items).find(zone => zone.id === newFurnitureZone)?.products || []).filter(product => (floorPlan?.placements?.assignments[product.id] || []).filter(Boolean).length < Math.floor(product.quantity)).map(product => <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>)}</SelectContent></Select></label>
         </div>
       </Modal>
       {zoneLayoutEditor ? (
         <QuotePhotoLayoutEditor
+          locale={quoteLocale}
           layouts={zonePhotoLayouts[zoneLayoutEditor.zoneId] ?? []}
           groupId={zoneLayoutEditor.groupId}
           assets={photoLibrary}
@@ -8449,7 +8454,7 @@ export function QuotationDraftEditor({
               {t.addZoneSpace}
             </ModalButton>}
             <ModalButton variant="secondary" disabled={!floorPlan || zoneRecognitionActive} onClick={() => setLayoutRenderOpen(true)}>
-              渲染圖設置
+              {ui('渲染圖設置', 'Render settings')}
             </ModalButton>
             </div>
             <ModalButton variant="secondary" onClick={() => setZoneManagerOpen(false)}>
@@ -8525,18 +8530,18 @@ export function QuotationDraftEditor({
                 }}
               >
                 <Tabs className="absolute left-3 top-3 z-30" value={zoneCanvasEditing ? 'edit' : 'view'} onValueChange={value => setZoneCanvasEditing(value === 'edit')}>
-                  <TabsList aria-label="畫布模式" className="border border-border bg-background/95 shadow-sm">
-                    <TabsTrigger value="view" disabled={!hasFloorPlanPreview || zoneRecognitionActive} className="px-2 text-xs data-[state=active]:!text-primary-foreground [&>span[aria-hidden=true]]:!bg-primary">查看模式</TabsTrigger>
-                    <TabsTrigger value="edit" disabled={!hasFloorPlanPreview || zoneRecognitionActive} className="px-2 text-xs data-[state=active]:!text-primary-foreground [&>span[aria-hidden=true]]:!bg-primary">編輯模式</TabsTrigger>
+                  <TabsList aria-label={ui('畫布模式', 'Canvas mode')} className="border border-border bg-background/95 shadow-sm">
+                    <TabsTrigger value="view" disabled={!hasFloorPlanPreview || zoneRecognitionActive} className="px-2 text-xs data-[state=active]:!text-primary-foreground [&>span[aria-hidden=true]]:!bg-primary">{ui('查看模式', 'View')}</TabsTrigger>
+                    <TabsTrigger value="edit" disabled={!hasFloorPlanPreview || zoneRecognitionActive} className="px-2 text-xs data-[state=active]:!text-primary-foreground [&>span[aria-hidden=true]]:!bg-primary">{ui('編輯模式', 'Edit')}</TabsTrigger>
                   </TabsList>
                 </Tabs>
                 <Tabs className="absolute right-3 top-3 z-30" value={showRecognizedFurniture ? 'furniture' : 'plan'} onValueChange={value => {
                   if (value === 'furniture') setFloorPlan(current => current?.placements ? { ...current, placements: reassignFurnitureZones(current.placements, regionsFromZoneRows(zoneManagerDraft), layoutZones(applyZoneManager(items, zoneManagerDraft))) } : current);
                   setShowRecognizedFurniture(value === 'furniture');
                 }}>
-                  <TabsList aria-label="識別類型" className="border border-border bg-background/95 shadow-sm">
-                    <TabsTrigger value="plan" disabled={!hasFloorPlanPreview || zoneRecognitionActive} className="px-2 text-xs data-[state=active]:!text-primary-foreground [&>span[aria-hidden=true]]:!bg-primary">平面識別</TabsTrigger>
-                    <TabsTrigger value="furniture" disabled={!hasFloorPlanPreview || zoneRecognitionActive} className="px-2 text-xs data-[state=active]:!text-primary-foreground [&>span[aria-hidden=true]]:!bg-primary">傢俬識別</TabsTrigger>
+                  <TabsList aria-label={ui('識別類型', 'Recognition')} className="border border-border bg-background/95 shadow-sm">
+                    <TabsTrigger value="plan" disabled={!hasFloorPlanPreview || zoneRecognitionActive} className="px-2 text-xs data-[state=active]:!text-primary-foreground [&>span[aria-hidden=true]]:!bg-primary">{ui('平面識別', 'Floor plan')}</TabsTrigger>
+                    <TabsTrigger value="furniture" disabled={!hasFloorPlanPreview || zoneRecognitionActive} className="px-2 text-xs data-[state=active]:!text-primary-foreground [&>span[aria-hidden=true]]:!bg-primary">{ui('傢俬識別', 'Furniture')}</TabsTrigger>
                   </TabsList>
                 </Tabs>
                 {hasFloorPlanPreview ? (
@@ -8604,19 +8609,19 @@ export function QuotationDraftEditor({
           <div className="min-w-0 space-y-3">
           {showRecognizedFurniture ? (
             <div className="flex h-[496px] flex-col gap-3">
-              <div className="flex items-center justify-between"><p className="text-sm font-semibold">傢俬分區</p><span className="text-xs text-muted-foreground">共 {recognizedFurnitureMarkers.length} 件</span></div>
-              <p className="text-xs leading-5 text-muted-foreground">包含尚未配對報價的傢俬。有識別範圍時顯示框線，只有座標時顯示位置標記。</p>
+              <div className="flex items-center justify-between"><p className="text-sm font-semibold">{ui('傢俬分區', 'Furniture by zone')}</p><span className="text-xs text-muted-foreground">{ui(`共 ${recognizedFurnitureMarkers.length} 件`, `${recognizedFurnitureMarkers.length} items`)}</span></div>
+              <p className="text-xs leading-5 text-muted-foreground">{ui('包含尚未配對報價的傢俬。有識別範圍時顯示框線，只有座標時顯示位置標記。', 'Includes furniture that is not linked to a quote line. A box is shown when a region was recognized; a marker is shown when only a point was found.')}</p>
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto" aria-live="polite">
                 {furnitureGroups.length ? furnitureGroups.map(group => <div key={`${group[0].zoneId}:${group[0].category}`} className="space-y-2 rounded-lg border p-3">
                   <p className="text-sm font-medium">{group[0].zoneName} · {furnitureGroupName(group[0].category)}（{group.length}）</p>
                   {group.map(marker => <div key={marker.id} className="flex items-center gap-2">
                     <button type="button" onClick={() => { setActiveFurnitureMarkerId(marker.id); setFurnitureFocusRequest(value => value + 1); }} aria-pressed={activeFurnitureMarkerId === marker.id} className={`shrink-0 rounded px-2 py-1 text-xs font-semibold text-white ${activeFurnitureMarkerId === marker.id ? 'ring-2 ring-foreground ring-offset-2' : ''}`} style={{ background: marker.color }}>{marker.label}</button>
-                    <span className="flex flex-1 items-center gap-1.5 text-sm font-semibold text-foreground">{marker.angle === null ? '方向未知' : <><span aria-hidden className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted text-xl font-bold leading-none" style={{ transform: `rotate(${marker.angle}deg)` }}>↑</span><span>{marker.angle}°</span></>}</span>
-                    <Button type="button" variant="outline" size="sm" disabled={!zoneCanvasEditing || zoneRecognitionActive} onClick={() => editFurnitureMarker(marker.zoneId, marker.positionId, false)}>轉向 90°</Button>
-                    <Button type="button" variant="outline" size="sm" disabled={!zoneCanvasEditing || zoneRecognitionActive} onClick={() => copyFurnitureMarker(marker.zoneId, marker.positionId)} aria-label={`複製 ${marker.label}`}><Copy className="h-4 w-4" /></Button>
-                    <Button type="button" variant="outline" size="sm" disabled={!zoneCanvasEditing || zoneRecognitionActive} aria-label={`刪除 ${marker.label}`} onClick={() => editFurnitureMarker(marker.zoneId, marker.positionId, true)}><Trash2 className="h-4 w-4" /></Button>
+                    <span className="flex flex-1 items-center gap-1.5 text-sm font-semibold text-foreground">{marker.angle === null ? ui('方向未知', 'Direction unknown') : <><span aria-hidden className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted text-xl font-bold leading-none" style={{ transform: `rotate(${marker.angle}deg)` }}>↑</span><span>{marker.angle}°</span></>}</span>
+                    <Button type="button" variant="outline" size="sm" disabled={!zoneCanvasEditing || zoneRecognitionActive} onClick={() => editFurnitureMarker(marker.zoneId, marker.positionId, false)}>{ui('轉向 90°', 'Rotate 90°')}</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={!zoneCanvasEditing || zoneRecognitionActive} onClick={() => copyFurnitureMarker(marker.zoneId, marker.positionId)} aria-label={ui(`複製 ${marker.label}`, `Copy ${marker.label}`)}><Copy className="h-4 w-4" /></Button>
+                    <Button type="button" variant="outline" size="sm" disabled={!zoneCanvasEditing || zoneRecognitionActive} aria-label={ui(`刪除 ${marker.label}`, `Delete ${marker.label}`)} onClick={() => editFurnitureMarker(marker.zoneId, marker.positionId, true)}><Trash2 className="h-4 w-4" /></Button>
                   </div>)}
-                </div>) : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">尚未有傢俬識別資料，請上傳平面圖進行識別。</p>}
+                </div>) : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">{ui('尚未有傢俬識別資料，請上傳平面圖進行識別。', 'No furniture has been recognized yet. Upload a floor plan to detect it.')}</p>}
               </div>
             </div>
           ) : zoneManagerDraft.length === 0 ? (

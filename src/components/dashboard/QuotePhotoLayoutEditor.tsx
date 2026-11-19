@@ -43,6 +43,8 @@ import {
 import { QuotePhotoGenerateDialog, type GenerateChoice, type QuotePhotoZone } from '@/components/dashboard/QuotePhotoGenerateDialog';
 import { usePasteFiles } from '@/hooks/use-paste-files';
 import { QUOTE_ZONE_SCOPE_MESSAGES } from '@/lib/quoteZoneScope';
+import type { QuoteLocale } from '@/lib/quotationLocale';
+import { photoLayoutCopy } from '@/lib/quoteSurfaceCopy';
 import { supabase } from '@/lib/supabase';
 import {
   AI_REFERENCE_LABEL,
@@ -52,8 +54,9 @@ import {
   MAX_LAYOUT_PHOTOS,
   PDF_CONTENT_WIDTH_MM,
   PHOTO_RATIOS,
-  PHOTO_RATIO_LABELS,
   PHOTO_TEMPLATES,
+  photoRatioLabel,
+  photoTemplateText,
   countPlacements,
   defaultPlacement,
   groupGeometry,
@@ -61,7 +64,6 @@ import {
   ratioValue,
   slotIdsFor,
   switchTemplate,
-  templateById,
   templateGeometry,
   type PhotoLayoutGroup,
   type PhotoPlacement,
@@ -89,13 +91,7 @@ type DragPayload = { kind: 'asset'; assetId: string } | { kind: 'slot'; slotId: 
 type NaturalSize = { w: number; h: number };
 type CountFilter = 'all' | '1' | '2' | '3' | '4+';
 
-const COUNT_FILTERS: Array<{ id: CountFilter; label: string }> = [
-  { id: 'all', label: '全部' },
-  { id: '1', label: '1 張' },
-  { id: '2', label: '2 張' },
-  { id: '3', label: '3 張' },
-  { id: '4+', label: '4 張以上' },
-];
+const COUNT_FILTERS: CountFilter[] = ['all', '1', '2', '3', '4+'];
 
 function matchesCount(count: number, filter: CountFilter) {
   if (filter === 'all') return true;
@@ -124,6 +120,7 @@ export function PhotoConfirmButton({
   title,
   description,
   confirmLabel = '確定',
+  cancelLabel = '取消',
   onConfirm,
   disabled,
   className,
@@ -133,6 +130,7 @@ export function PhotoConfirmButton({
   title: string;
   description: string;
   confirmLabel?: string;
+  cancelLabel?: string;
   onConfirm: () => void;
   disabled?: boolean;
   className?: string;
@@ -152,7 +150,7 @@ export function PhotoConfirmButton({
           <AlertDialogDescription className="break-words leading-6">{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction onClick={onConfirm}>{confirmLabel}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -165,6 +163,7 @@ function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  cancelLabel = '取消',
   onConfirm,
   onCancel,
 }: {
@@ -172,6 +171,7 @@ function ConfirmDialog({
   title: string;
   description: string;
   confirmLabel: string;
+  cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -183,7 +183,7 @@ function ConfirmDialog({
           <AlertDialogDescription className="break-words leading-6">{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction onClick={onConfirm}>{confirmLabel}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -244,6 +244,7 @@ function CropDialog({
   placement,
   photo,
   caption,
+  locale = 'zh',
   onApply,
   onCancel,
 }: {
@@ -252,9 +253,11 @@ function CropDialog({
   placement: PhotoPlacement;
   photo: LayoutPhotoSource;
   caption: 'shown' | 'hidden' | null;
+  locale?: QuoteLocale;
   onApply: (next: PhotoPlacement) => void;
   onCancel: () => void;
 }) {
+  const copy = photoLayoutCopy(locale);
   const [draft, setDraft] = useState(placement);
   const [natural, setNatural] = useState<NaturalSize | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
@@ -330,7 +333,7 @@ function CropDialog({
       onOpenChange={(next) => {
         if (!next) onCancel();
       }}
-      title="裁剪圖片"
+      title={copy.cropTitle}
       description={photo.title}
       size="3xl"
       footer={
@@ -342,18 +345,18 @@ function CropDialog({
               onClick={() => setDraft({ ...draft, ratio: slot.ratio, fitMode: 'contain', scale: 1, offsetX: 0.5, offsetY: 0.5 })}
             >
               <RotateCcw className="mr-1.5 h-4 w-4" />
-              重設
+              {copy.reset}
             </Button>
             <Button type="button" variant="outline" aria-pressed={showOriginal} onClick={() => setShowOriginal((value) => !value)}>
-              {showOriginal ? '返回裁剪' : '原圖對照'}
+              {showOriginal ? copy.backToCrop : copy.compare}
             </Button>
           </div>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={onCancel}>
-              取消
+              {copy.cancel}
             </Button>
             <Button type="button" onClick={() => onApply(draft)}>
-              套用裁剪
+              {copy.applyCrop}
             </Button>
           </div>
         </div>
@@ -377,7 +380,7 @@ function CropDialog({
             >
               {imageFailed ? (
                 <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white">
-                  圖片載入失敗
+                  {copy.imageFailed}
                 </p>
               ) : null}
               {!imageFailed && showOriginal ? (
@@ -414,13 +417,13 @@ function CropDialog({
                 </div>
               ) : null}
               <span className="absolute left-3 top-3 rounded-md bg-slate-950/70 px-2 py-1 text-xs font-semibold text-white">
-                {showOriginal ? '原圖' : cover ? `裁剪 ${draft.ratio}・拖動調整位置` : '完整顯示'}
+                {showOriginal ? copy.original : cover ? copy.cropHint(draft.ratio) : copy.contain}
               </span>
             </div>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <div>
-                <p className="text-xs font-semibold text-muted-foreground">顯示方式</p>
+                <p className="text-xs font-semibold text-muted-foreground">{copy.display}</p>
                 <div className="mt-1.5 inline-flex rounded-xl border border-border bg-muted/40 p-1">
                   {(['contain', 'cover'] as const).map((mode) => (
                     <button
@@ -432,13 +435,13 @@ function CropDialog({
                         draft.fitMode === mode ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'
                       }`}
                     >
-                      {mode === 'contain' ? '完整顯示' : '裁滿'}
+                      {mode === 'contain' ? copy.contain : copy.cover}
                     </button>
                   ))}
                 </div>
               </div>
               <div>
-                <p className="text-xs font-semibold text-muted-foreground">裁剪比例</p>
+                <p className="text-xs font-semibold text-muted-foreground">{copy.cropRatio}</p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {PHOTO_RATIOS.map((ratio) => (
                     <button
@@ -446,26 +449,26 @@ function CropDialog({
                       type="button"
                       disabled={!cover}
                       aria-pressed={draft.ratio === ratio}
-                      title={PHOTO_RATIO_LABELS[ratio]}
+                      title={photoRatioLabel(ratio, locale)}
                       onClick={() => setDraft((current) => ({ ...current, ratio, offsetX: 0.5, offsetY: 0.5 }))}
                       className={`rounded-lg border px-2.5 py-1 text-sm font-semibold disabled:opacity-40 ${
                         draft.ratio === ratio ? 'border-primary bg-primary/10 text-primary' : 'border-border text-foreground/80'
                       }`}
                     >
                       {ratio}
-                      {ratio === slot.ratio ? <span className="ml-1 text-xs font-normal text-muted-foreground">建議</span> : null}
+                      {ratio === slot.ratio ? <span className="ml-1 text-xs font-normal text-muted-foreground">{copy.suggested}</span> : null}
                     </button>
                   ))}
                 </div>
               </div>
               <div className="sm:col-span-2">
-                <p className="text-xs font-semibold text-muted-foreground">縮放</p>
+                <p className="text-xs font-semibold text-muted-foreground">{copy.zoom}</p>
                 <div className="mt-1.5 flex items-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
-                    aria-label="縮小"
+                    aria-label={copy.zoomOut}
                     disabled={!cover || draft.scale <= 1}
                     onClick={() => setScale(draft.scale - 0.1)}
                   >
@@ -478,7 +481,7 @@ function CropDialog({
                     step={5}
                     value={Math.round(draft.scale * 100)}
                     disabled={!cover}
-                    aria-label="縮放比例"
+                    aria-label={copy.zoomLevel}
                     onChange={(event) => setScale(Number(event.target.value) / 100)}
                     className="h-2 min-w-0 flex-1 accent-primary"
                   />
@@ -486,7 +489,7 @@ function CropDialog({
                     type="button"
                     variant="outline"
                     size="icon"
-                    aria-label="放大"
+                    aria-label={copy.zoomIn}
                     disabled={!cover || draft.scale >= 3}
                     onClick={() => setScale(draft.scale + 0.1)}
                   >
@@ -500,26 +503,24 @@ function CropDialog({
             </div>
             {caption ? (
               <label className="mt-4 block text-xs font-semibold text-muted-foreground">
-                圖片說明
+                {copy.caption}
                 <input
                   value={draft.caption ?? ''}
                   maxLength={CAPTION_MAX}
-                  placeholder="例如：大堂入口現況"
+                  placeholder={copy.captionExample}
                   onChange={(event) => setDraft((current) => ({ ...current, caption: event.target.value }))}
                   className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal text-foreground"
                 />
                 <span className="mt-1 block font-normal text-muted-foreground/80">
-                  {caption === 'shown'
-                    ? `印在圖片下方，最多 ${CAPTION_MAX} 字。`
-                    : '這一組未開啟「顯示圖片說明」，開啟後才會印出。'}
+                  {caption === 'shown' ? copy.captionPrint(CAPTION_MAX) : copy.captionOff}
                 </span>
               </label>
             ) : null}
             <div className="mt-3 space-y-1">
-              {hidden ? <p className="text-xs text-amber-700">超出框外的部分不會印在報價單上。</p> : null}
-              {lowRes ? (
+              {hidden ? <p className="text-xs text-amber-700">{copy.cropOverflow}</p> : null}
+              {lowRes && natural ? (
                 <p className="text-xs text-amber-700">
-                  這張圖不夠清晰（{natural?.w}×{natural?.h}），印出來可能會糊。
+                  {copy.softPrint(natural.w, natural.h)}
                 </p>
               ) : null}
             </div>
@@ -545,6 +546,7 @@ export function QuotePhotoLayoutEditor({
   quoteUuid = null,
   photos,
   canManage,
+  locale = 'zh',
   onUploaded,
   onSave,
   onClose,
@@ -564,10 +566,12 @@ export function QuotePhotoLayoutEditor({
   /** 這張報價已選的圖片，用來餵素材區。 */
   photos: QuotePhotoRef[];
   canManage: boolean;
+  locale?: QuoteLocale;
   onUploaded?: (asset: QuotePhotoAsset) => void;
   onSave: (groups: PhotoLayoutGroup[], usedAssets: QuotePhotoAsset[]) => void;
   onClose: () => void;
 }) {
+  const copy = photoLayoutCopy(locale);
   const existing = groupId ? layouts.find((group) => group.id === groupId) : undefined;
   const [initial] = useState<PhotoLayoutGroup | null>(existing ?? null);
   const [group, setGroup] = useState<PhotoLayoutGroup>(
@@ -652,7 +656,7 @@ export function QuotePhotoLayoutEditor({
       if (result.missingTable) {
         setLibraryNote(quotePhotoErrorText(new Error('quote_photo_library_unavailable')));
       } else if (result.error) {
-        setLibraryNote('圖片庫暫時讀不到，請稍後再試。');
+        setLibraryNote(copy.libraryNote);
       } else {
         setLibrary((current) => mergeQuotePhotoLibrary(current, result.assets));
         setLibraryNote(null);
@@ -670,17 +674,17 @@ export function QuotePhotoLayoutEditor({
       LayoutPhotoSource & { asset?: QuotePhotoAsset; product?: boolean; generated?: boolean }
     >();
     for (const photo of productPhotos) {
-      if (photo.url) map.set(photo.id, { title: photo.title || '產品圖', previewUrl: photo.url, product: true });
+      if (photo.url) map.set(photo.id, { title: photo.title || copy.productPhoto, previewUrl: photo.url, product: true });
     }
     for (const photo of photos) {
       if (!photo.assetId) continue;
       const url = quotePhotoObjectUrl(photo.objectPath);
-      if (url) map.set(photo.assetId, { title: photo.title || '圖片', previewUrl: url });
+      if (url) map.set(photo.assetId, { title: photo.title || copy.photo, previewUrl: url });
     }
     for (const asset of library) {
       map.set(asset.id, {
         ...asset,
-        title: asset.title || '圖片',
+        title: asset.title || copy.photo,
         previewUrl: asset.url,
         generated: asset.isGenerated,
       });
@@ -720,7 +724,7 @@ export function QuotePhotoLayoutEditor({
     const { group: next, displaced } = switchTemplate(group, templateId);
     setGroup(next);
     setSelectedSlot(null);
-    if (displaced.length > 0) toast.info(`${displaced.length} 張圖片放不下新佈局，已留在素材區。`);
+    if (displaced.length > 0) toast.info(copy.displaced(displaced.length));
   }
 
   function place(slotId: string, assetId: string) {
@@ -728,7 +732,7 @@ export function QuotePhotoLayoutEditor({
     if (!slot) return;
     const occupied = placementAt(slotId);
     if (!occupied && othersCount + group.placements.length >= MAX_LAYOUT_PHOTOS) {
-      toast.error(`一張報價最多 ${MAX_LAYOUT_PHOTOS} 張圖片`);
+      toast.error(copy.maxPhotos(MAX_LAYOUT_PHOTOS));
       return;
     }
     setGroup((current) => ({
@@ -740,7 +744,7 @@ export function QuotePhotoLayoutEditor({
 
   function requestPlace(slotId: string, assetId: string) {
     if (!chosen) {
-      toast.info('請先選擇一個佈局。');
+      toast.info(copy.chooseLayoutFirst);
       return;
     }
     const occupied = placementAt(slotId);
@@ -753,7 +757,7 @@ export function QuotePhotoLayoutEditor({
     const target = selectedSlot && !placementAt(selectedSlot) ? selectedSlot : slotIds.find((slotId) => !placementAt(slotId));
     if (target) requestPlace(target, assetId);
     else if (selectedSlot) requestPlace(selectedSlot, assetId);
-    else toast.info('每個位置都已有圖片。請先在畫布點選要換掉的那一格。');
+    else toast.info(copy.slotsFull);
   }
 
   function swap(from: string, to: string) {
@@ -842,7 +846,7 @@ export function QuotePhotoLayoutEditor({
     if (added.length === 0) return;
     // 上載後放入素材區。
     addToTray(added);
-    toast.success(`已上載 ${added.length} 張圖片`);
+    toast.success(copy.uploaded(added.length));
   }
 
   /** 參考圖片候選：只限報價明細帶來的產品圖，AI 按產品圖把產品放進場景。 */
@@ -850,7 +854,7 @@ export function QuotePhotoLayoutEditor({
     () =>
       productPhotos.flatMap((photo) => {
         const url = (photo.url || '').trim();
-        return url ? [{ id: photo.id, title: photo.title || '產品圖', previewUrl: url, referenceUrl: url }] : [];
+        return url ? [{ id: photo.id, title: photo.title || copy.productPhoto, previewUrl: url, referenceUrl: url }] : [];
       }),
     [productPhotos],
   );
@@ -866,7 +870,7 @@ export function QuotePhotoLayoutEditor({
     setConfirm(null);
     if (group.placements.length === 0) {
       if (!existing) {
-        toast.error('請最少放入一張圖片才套用。');
+        toast.error(copy.needOne);
         return;
       }
       onSave(layouts.filter((entry) => entry.id !== group.id), []);
@@ -901,7 +905,7 @@ export function QuotePhotoLayoutEditor({
       <div
         role="button"
         tabIndex={0}
-        aria-label={placement ? `位置 ${index}：${photo?.title ?? '圖片'}，按一下可裁剪` : `位置 ${index}：還沒有圖片，按一下可選取`}
+        aria-label={copy.slotLabel(index, placement ? (photo?.title ?? copy.photo) : null)}
         draggable={Boolean(placement)}
         onDragStart={(event) => {
           event.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ kind: 'slot', slotId: slot.id } satisfies DragPayload));
@@ -937,14 +941,14 @@ export function QuotePhotoLayoutEditor({
         {content ?? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-1 border-2 border-dashed border-border bg-muted/40 p-1 text-center text-xs text-muted-foreground">
             <ImagePlus className="h-4 w-4" aria-hidden />
-            <span>拖入照片</span>
+            <span>{copy.dropPhoto}</span>
           </div>
         )}
         <span className="absolute left-1 top-1 rounded bg-slate-950/70 px-1.5 text-xs font-semibold text-white">{index}</span>
         {placement ? (
           <span className="pointer-events-none absolute bottom-1 right-1 inline-flex items-center gap-1 rounded bg-card/90 px-1.5 py-0.5 text-xs font-semibold text-foreground opacity-0 shadow-sm transition group-hover:opacity-100 group-focus-visible:opacity-100">
             <Crop className="h-3 w-3" aria-hidden />
-            {placement.fitMode === 'cover' ? placement.ratio : '完整'}
+            {placement.fitMode === 'cover' ? placement.ratio : copy.contain}
           </span>
         ) : null}
         {placement ? (
@@ -955,10 +959,11 @@ export function QuotePhotoLayoutEditor({
           >
             <PhotoConfirmButton
               className="h-7 w-7 rounded-md bg-card/95 text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-              ariaLabel={`移出位置 ${index}`}
-              title="移出這個位置"
-              confirmLabel="移出"
-              description={`把「${quotePhotoShortTitle(photo?.title ?? '圖片')}」從位置 ${index} 移出。圖片會留在旁邊的素材區，按「套用到報價單」後才會更新。`}
+              ariaLabel={copy.removeSlot(index)}
+              title={copy.removeSlotTitle}
+              confirmLabel={copy.removeSlotConfirm}
+              cancelLabel={copy.cancel}
+              description={copy.removeSlotDescription(quotePhotoShortTitle(photo?.title ?? copy.photo), index)}
               onConfirm={() => {
                 setGroup((current) => ({
                   ...current,
@@ -984,7 +989,7 @@ export function QuotePhotoLayoutEditor({
         if (!next) requestClose();
       }}
       variant="fullscreen"
-      title="報價單圖片排版"
+      title={copy.title}
       /* fullscreen 預設是透明底白字（給燈箱用）；排版編輯器要正常白色頁面。 */
       className="bg-background text-foreground"
       headerClassName="border-b border-border/80 bg-background text-foreground"
@@ -994,7 +999,7 @@ export function QuotePhotoLayoutEditor({
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-muted/30 p-4 xl:overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-xs font-semibold text-muted-foreground">這張圖怎樣顯示</span>
+            <span className="mr-1 text-xs font-semibold text-muted-foreground">{copy.howShown}</span>
             <button
               type="button"
               disabled={!selectedPlacement}
@@ -1006,7 +1011,7 @@ export function QuotePhotoLayoutEditor({
                   : 'border-border text-foreground/80'
               }`}
             >
-              完整顯示
+              {copy.contain}
             </button>
             {PHOTO_RATIOS.map((ratio) => {
               const active = selectedPlacement?.fitMode === 'cover' && selectedPlacement.ratio === ratio;
@@ -1016,7 +1021,7 @@ export function QuotePhotoLayoutEditor({
                   type="button"
                   disabled={!selectedPlacement}
                   aria-pressed={active}
-                  title={PHOTO_RATIO_LABELS[ratio]}
+                  title={photoRatioLabel(ratio, locale)}
                   onClick={() => setRatio(ratio)}
                   className={`rounded-lg border px-2.5 py-1 text-sm font-semibold disabled:opacity-40 ${
                     active ? 'border-primary bg-primary/10 text-primary' : 'border-border text-foreground/80'
@@ -1026,11 +1031,10 @@ export function QuotePhotoLayoutEditor({
                 </button>
               );
             })}
-            {!selectedPlacement ? <span className="ml-1 text-xs text-muted-foreground">先在畫布選取一張圖片</span> : null}
+            {!selectedPlacement ? <span className="ml-1 text-xs text-muted-foreground">{copy.pickFirst}</span> : null}
           </div>
           <p className="text-xs text-muted-foreground">
-            佈局 {layouts.length + (existing ? 0 : 1)} / {MAX_LAYOUT_GROUPS}・圖片 {othersCount + group.placements.length} /{' '}
-            {MAX_LAYOUT_PHOTOS}
+            {copy.layoutProgress(layouts.length + (existing ? 0 : 1), MAX_LAYOUT_GROUPS, othersCount + group.placements.length, MAX_LAYOUT_PHOTOS)}
           </p>
         </div>
 
@@ -1042,20 +1046,20 @@ export function QuotePhotoLayoutEditor({
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 id="photo-layout-presets" className="text-sm font-bold text-foreground">
-                預設佈局
+                {copy.presets}
               </h3>
               <div className="flex flex-wrap gap-1">
                 {COUNT_FILTERS.map((entry) => (
                   <button
-                    key={entry.id}
+                    key={entry}
                     type="button"
-                    aria-pressed={filter === entry.id}
-                    onClick={() => setFilter(entry.id)}
+                    aria-pressed={filter === entry}
+                    onClick={() => setFilter(entry)}
                     className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
-                      filter === entry.id ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
+                      filter === entry ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
                     }`}
                   >
-                    {entry.label}
+                    {copy.filters[entry]}
                   </button>
                 ))}
               </div>
@@ -1077,8 +1081,8 @@ export function QuotePhotoLayoutEditor({
                         }`}
                       >
                         <TemplateThumb templateId={template.id} samples={samples} />
-                        <span className="mt-auto block truncate pt-1.5 text-xs font-semibold text-foreground">{template.name}</span>
-                        <span className="block text-xs text-muted-foreground">{template.countLabel}</span>
+                        <span className="mt-auto block truncate pt-1.5 text-xs font-semibold text-foreground">{photoTemplateText(template.id, locale).name}</span>
+                        <span className="block text-xs text-muted-foreground">{photoTemplateText(template.id, locale).countLabel}</span>
                         {active ? (
                           <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
                             <Check className="h-3 w-3" />
@@ -1097,10 +1101,10 @@ export function QuotePhotoLayoutEditor({
             <section className="rounded-xl border border-border bg-card p-3" aria-labelledby="photo-layout-canvas">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 id="photo-layout-canvas" className="text-sm font-bold text-foreground">
-                  排版畫布
+                  {copy.canvas}
                   {chosen ? (
                     <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                      {templateById(group.templateId).name}
+                      {photoTemplateText(group.templateId, locale).name}
                     </span>
                   ) : null}
                 </h3>
@@ -1109,17 +1113,17 @@ export function QuotePhotoLayoutEditor({
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Switch
                         checked={Boolean(group.captions)}
-                        aria-label="顯示圖片說明"
+                        aria-label={copy.showCaptions}
                         onCheckedChange={(next) => setGroup((current) => ({ ...current, captions: next || undefined }))}
                       />
-                      顯示圖片說明
+                      {copy.showCaptions}
                     </label>
                   ) : null}
                   {chosen && group.templateId === 'L12' ? (
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      格數
+                      {copy.slots}
                       <Select value={String(group.gridSlots ?? 6)} onValueChange={(value) => setGridSlots(Number(value))}>
-                        <SelectTrigger className="h-8 w-[4.5rem] text-sm" aria-label="格數">
+                        <SelectTrigger className="h-8 w-[4.5rem] text-sm" aria-label={copy.slots}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1148,14 +1152,14 @@ export function QuotePhotoLayoutEditor({
                       placement?.title || placement?.caption ? (
                         <PhotoLayoutCaption placement={placement} />
                       ) : (
-                        <p className="text-xs text-muted-foreground">在下面填寫標題和說明</p>
+                        <p className="text-xs text-muted-foreground">{copy.fillTitle}</p>
                       )
                     }
                   />
                 ) : (
                   <div className="flex aspect-[178/80] flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-border text-sm text-muted-foreground">
                     <ImagePlus className="h-5 w-5" aria-hidden />
-                    先在左邊選擇一個佈局
+                    {copy.chooseLayout}
                   </div>
                 )}
               </div>
@@ -1165,12 +1169,12 @@ export function QuotePhotoLayoutEditor({
                     const placement = placementAt(slotId);
                     return (
                       <label key={slotId} className="text-xs font-semibold text-muted-foreground">
-                        圖 {index + 1} 說明
+                        {copy.captionOf(index + 1)}
                         <input
                           value={placement?.caption ?? ''}
                           maxLength={CAPTION_MAX}
                           disabled={!placement}
-                          placeholder={placement ? '例如：大堂入口現況' : '這個位置還沒有圖片'}
+                          placeholder={placement ? copy.captionPlaceholder : copy.emptySlot}
                           onChange={(event) => updatePlacement(slotId, { caption: event.target.value })}
                           className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-3 text-sm font-normal text-foreground disabled:bg-muted/50"
                         />
@@ -1178,14 +1182,14 @@ export function QuotePhotoLayoutEditor({
                     );
                   })}
                   <p className="text-xs text-muted-foreground sm:col-span-2">
-                    每張最多 {CAPTION_MAX} 字，印在圖片下方兩行內；留空只留白。
+                    {copy.captionHint(CAPTION_MAX)}
                   </p>
                 </div>
               ) : null}
               {chosen && group.templateId === 'L05' ? (
                 <div className="mt-3 grid gap-2">
                   <label className="text-xs font-semibold text-muted-foreground">
-                    標題
+                    {copy.sideTitle}
                     <input
                       value={placementAt('s1')?.title ?? ''}
                       maxLength={80}
@@ -1195,7 +1199,7 @@ export function QuotePhotoLayoutEditor({
                     />
                   </label>
                   <label className="text-xs font-semibold text-muted-foreground">
-                    說明
+                    {copy.sideCaption}
                     <textarea
                       value={placementAt('s1')?.caption ?? ''}
                       maxLength={240}
@@ -1205,7 +1209,7 @@ export function QuotePhotoLayoutEditor({
                       className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal text-foreground disabled:bg-muted/50"
                     />
                   </label>
-                  <p className="text-xs text-muted-foreground">標題和說明印在圖片右邊；留空只留白。</p>
+                  <p className="text-xs text-muted-foreground">{copy.sideHint}</p>
                 </div>
               ) : null}
             </section>
@@ -1236,9 +1240,9 @@ export function QuotePhotoLayoutEditor({
           >
             <div className="flex items-center justify-between gap-2">
               <h3 id="photo-layout-tray" className="min-w-0 text-sm font-bold text-foreground">
-                圖片素材
+                {copy.tray}
                 <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                  已放 {othersCount + group.placements.length} / {MAX_LAYOUT_PHOTOS}
+                  {copy.placed(othersCount + group.placements.length, MAX_LAYOUT_PHOTOS)}
                 </span>
               </h3>
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -1251,7 +1255,7 @@ export function QuotePhotoLayoutEditor({
                     setLibraryOpen(true);
                   }}
                 >
-                  從圖片庫加入
+                  {copy.fromLibrary}
                 </Button>
                 {zoneScopeBlocked ? (
                   <span className="max-w-[260px] text-right text-xs text-muted-foreground">{zoneScopeBlocked}</span>
@@ -1261,19 +1265,19 @@ export function QuotePhotoLayoutEditor({
                     variant="outline"
                     className="h-8 px-2.5 text-xs"
                     disabled={!canManage}
-                    title={canManage ? undefined : '只有管理員或上載員可以生成圖片'}
+                    title={canManage ? undefined : copy.aiDenied}
                     onClick={() => setGenerateOpen(true)}
                   >
                     <Sparkles className="mr-1 h-3.5 w-3.5" aria-hidden />
-                    AI 生成
+                    {copy.ai}
                   </Button>
                 )}
               </div>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {productPhotos.length > 0
-                ? `報價的 ${productPhotos.length} 張產品圖已預設加入。`
-                : 'JPG、PNG 或 WebP，每張最多 15 MB。'}
+                ? copy.productReady(productPhotos.length)
+                : copy.uploadHint}
             </p>
 
             {trayIds.length === 0 ? null : (
@@ -1311,8 +1315,8 @@ export function QuotePhotoLayoutEditor({
                             {photo.title}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {size ? `${size.w}×${size.h}` : '讀取中'}
-                            {ratio ? `・約 ${ratio}` : ''}
+                            {size ? `${size.w}×${size.h}` : copy.loadingSize}
+                            {ratio ? copy.aboutRatio(ratio) : ''}
                           </p>
                           <div className="mt-0.5 flex flex-wrap items-center gap-1">
                             <span
@@ -1320,10 +1324,10 @@ export function QuotePhotoLayoutEditor({
                                 used ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
                               }`}
                             >
-                              {used ? '已放入' : '未使用'}
+                              {used ? copy.used : copy.unused}
                             </span>
                             {photo.product ? (
-                              <span className="rounded bg-amber-50 px-1.5 text-xs font-semibold text-amber-700">產品圖</span>
+                              <span className="rounded bg-amber-50 px-1.5 text-xs font-semibold text-amber-700">{copy.product}</span>
                             ) : null}
                             {photo.generated ? (
                               <span
@@ -1331,13 +1335,13 @@ export function QuotePhotoLayoutEditor({
                                 title={AI_REFERENCE_LABEL}
                               >
                                 <Sparkles className="h-3 w-3" aria-hidden />
-                                AI 參考圖
+                                {copy.aiRef}
                               </span>
                             ) : null}
                             {lowRes ? (
-                              <span className="inline-flex items-center gap-0.5 text-xs text-amber-700" title="這張圖不夠清晰，印出來可能會糊">
+                              <span className="inline-flex items-center gap-0.5 text-xs text-amber-700" title={copy.lowResTitle}>
                                 <AlertTriangle className="h-3 w-3" aria-hidden />
-                                解析度低
+                                {copy.lowRes}
                               </span>
                             ) : null}
                           </div>
@@ -1346,10 +1350,10 @@ export function QuotePhotoLayoutEditor({
                           type="button"
                           variant="outline"
                           className="h-8 shrink-0 px-2 text-xs"
-                          aria-label={`放入「${photo.title}」`}
+                          aria-label={copy.placeNamed(photo.title)}
                           onClick={() => placeIntoNext(assetId)}
                         >
-                          放入
+                          {copy.place}
                         </Button>
                       </li>
                     );
@@ -1364,7 +1368,7 @@ export function QuotePhotoLayoutEditor({
               accept={QUOTE_PHOTO_ACCEPT}
               multiple
               className="sr-only"
-              aria-label="選擇圖片上載"
+              aria-label={copy.chooseUpload}
               onChange={(event) => {
                 void upload(event.target.files);
                 event.currentTarget.value = '';
@@ -1383,11 +1387,11 @@ export function QuotePhotoLayoutEditor({
               {uploading > 0 ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden /> : <ImagePlus className="h-5 w-5" aria-hidden />}
               {canManage
                 ? library.filter((asset) => !asset.isGenerated).length >= QUOTE_PHOTO_MANUAL_LIMIT
-                  ? `手動上載已達 ${QUOTE_PHOTO_MANUAL_LIMIT} 張上限，刪除不再用的圖後可再上載`
+                  ? copy.uploadLimit(QUOTE_PHOTO_MANUAL_LIMIT)
                   : trayIds.length === 0
-                    ? '點擊、拖放或貼上（Ctrl+V）圖片到這裡上載，或從圖片庫加入。'
-                    : '點擊、拖放或貼上（Ctrl+V）圖片到這裡上載'
-                : '只有管理員或上載員可以新增圖片'}
+                    ? copy.dropEmpty
+                    : copy.dropMore
+                : copy.uploadDenied}
             </button>
           </section>
         </div>
@@ -1395,14 +1399,14 @@ export function QuotePhotoLayoutEditor({
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/80 bg-card px-5 py-3">
         <p className="text-xs text-muted-foreground">
-          {!chosen ? '尚未選擇版面' : emptySlots > 0 ? `還有 ${emptySlots} 個空位` : '每個位置都已放入圖片'}
+          {!chosen ? copy.noLayout : emptySlots > 0 ? copy.emptySlots(emptySlots) : copy.full}
         </p>
         <div className="flex gap-2">
           <Button type="button" variant="outline" onClick={requestClose}>
-            取消
+            {copy.cancel}
           </Button>
           <Button type="button" disabled={!chosen || (group.placements.length === 0 && !existing)} onClick={onApplyClick}>
-            {existing && group.placements.length === 0 ? '從報價移除' : '套用到報價單'}
+            {existing && group.placements.length === 0 ? copy.removeFromQuote : copy.apply}
           </Button>
         </div>
       </div>
@@ -1415,6 +1419,7 @@ export function QuotePhotoLayoutEditor({
           placement={cropPlacement}
           photo={cropPhoto}
           caption={group.templateId === 'L05' ? null : group.captions ? 'shown' : 'hidden'}
+          locale={locale}
           onCancel={() => setCropSlot(null)}
           onApply={(next) => {
             updatePlacement(cropTarget.id, next);
@@ -1425,9 +1430,10 @@ export function QuotePhotoLayoutEditor({
 
       <ConfirmDialog
         open={pendingReplace !== null}
-        title="取代這個位置的圖片？"
-        description="這個位置已有圖片。放入後，原本那張會留在旁邊的素材區，不會從圖片庫刪除。"
-        confirmLabel="取代"
+        title={copy.replaceTitle}
+        description={copy.replaceDescription}
+        confirmLabel={copy.replace}
+        cancelLabel={copy.cancel}
         onCancel={() => setPendingReplace(null)}
         onConfirm={() => {
           if (pendingReplace) place(pendingReplace.slotId, pendingReplace.assetId);
@@ -1437,18 +1443,20 @@ export function QuotePhotoLayoutEditor({
 
       <ConfirmDialog
         open={confirm === 'empty'}
-        title="還有空位，仍要套用？"
-        description={`這個版面還有 ${emptySlots} 個空位，報價單上會留白。`}
-        confirmLabel="仍要套用"
+        title={copy.emptyTitle}
+        description={copy.emptyDescription(emptySlots)}
+        confirmLabel={copy.applyAnyway}
+        cancelLabel={copy.cancel}
         onCancel={() => setConfirm(null)}
         onConfirm={apply}
       />
 
       <ConfirmDialog
         open={confirm === 'close'}
-        title="放棄未套用的改動？"
-        description="離開後，這次排版的改動不會保存到報價單。"
-        confirmLabel="放棄改動"
+        title={copy.discardTitle}
+        description={copy.discardDescription}
+        confirmLabel={copy.discard}
+        cancelLabel={copy.cancel}
         onCancel={() => setConfirm(null)}
         onConfirm={onClose}
       />
@@ -1459,8 +1467,8 @@ export function QuotePhotoLayoutEditor({
           onOpenChange={(next) => {
             if (!next) setLibraryOpen(false);
           }}
-          title="從圖片庫加入"
-          description="點選已上載的圖片，再加入素材區。也可以在這裡上載新圖片。"
+          title={copy.libraryTitle}
+          description={copy.libraryDescription}
           size="4xl"
           footer={
             <>
@@ -1472,10 +1480,10 @@ export function QuotePhotoLayoutEditor({
                 onClick={() => fileRef.current?.click()}
               >
                 {uploading > 0 ? <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-1.5 h-4 w-4" />}
-                上載新圖片
+                {copy.uploadNew}
               </Button>
               <Button type="button" variant="outline" onClick={() => setLibraryOpen(false)}>
-                取消
+                {copy.cancel}
               </Button>
               <Button
                 type="button"
@@ -1486,7 +1494,7 @@ export function QuotePhotoLayoutEditor({
                   setLibraryOpen(false);
                 }}
               >
-                加入所選{libraryPicked.length > 0 ? `（${libraryPicked.length}）` : ''}
+                {copy.addSelected(libraryPicked.length)}
               </Button>
             </>
           }
@@ -1494,11 +1502,11 @@ export function QuotePhotoLayoutEditor({
                 {!libraryReady && libraryChoices.length === 0 ? (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
-                    正在讀取圖片庫…
+                    {copy.libraryLoading}
                   </p>
                 ) : libraryChoices.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    {libraryNote ?? '圖片庫沒有其他圖片。可先上載，再加入素材區。'}
+                    {libraryNote ?? copy.libraryEmpty}
                   </p>
                 ) : (
                   <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
@@ -1510,7 +1518,7 @@ export function QuotePhotoLayoutEditor({
                             type="button"
                             title={asset.title}
                             aria-pressed={selected}
-                            aria-label={`${selected ? '取消選取' : '選取'}「${asset.title}」`}
+                            aria-label={`${selected ? copy.unselect : copy.select} “${asset.title}”`}
                             onClick={() =>
                               setLibraryPicked((current) =>
                                 current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id],
