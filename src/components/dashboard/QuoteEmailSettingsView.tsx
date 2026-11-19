@@ -245,54 +245,52 @@ export function QuoteEmailSettingsView() {
         }
       >
         {draft && (
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]">
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5 text-sm">
-                  <label className="font-medium" htmlFor="quote-email-sender-name">姓名</label>
-                  <Input
-                    id="quote-email-sender-name"
-                    value={draft.sender_name}
-                    maxLength={120}
-                    readOnly={!canEdit || busy}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setDraft((current) => current ? { ...current, sender_name: value } : current);
-                    }}
-                  />
-                </div>
-                <div className="space-y-1.5 text-sm">
-                  <label className="font-medium" htmlFor="quote-email-sender-phone">電話</label>
-                  <Input
-                    id="quote-email-sender-phone"
-                    value={draft.phone}
-                    maxLength={80}
-                    readOnly={!canEdit || busy}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setDraft((current) => current ? { ...current, phone: value } : current);
-                    }}
-                  />
-                </div>
-              </div>
+          <div className="grid gap-x-6 gap-y-4 lg:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
               <div className="space-y-1.5 text-sm">
-                <label className="font-medium" htmlFor="quote-email-footer">下款</label>
-                <Textarea
-                  id="quote-email-footer"
-                  value={draft.body_zh_hant}
-                  rows={12}
-                  maxLength={2000}
+                <label className="font-medium" htmlFor="quote-email-sender-name">姓名</label>
+                <Input
+                  id="quote-email-sender-name"
+                  value={draft.sender_name}
+                  maxLength={120}
                   readOnly={!canEdit || busy}
                   onChange={(event) => {
                     const value = event.target.value;
-                    setDraft((current) => current ? { ...current, body_zh_hant: value } : current);
+                    setDraft((current) => current ? { ...current, sender_name: value } : current);
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5 text-sm">
+                <label className="font-medium" htmlFor="quote-email-sender-phone">電話</label>
+                <Input
+                  id="quote-email-sender-phone"
+                  value={draft.phone}
+                  maxLength={80}
+                  readOnly={!canEdit || busy}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setDraft((current) => current ? { ...current, phone: value } : current);
                   }}
                 />
               </div>
             </div>
-            <div className="space-y-1.5 text-sm">
+            <div className="flex flex-col gap-1.5 text-sm">
+              <label className="font-medium" htmlFor="quote-email-footer">下款</label>
+              <Textarea
+                id="quote-email-footer"
+                value={draft.body_zh_hant}
+                maxLength={2000}
+                readOnly={!canEdit || busy}
+                className="h-80 resize-none"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setDraft((current) => current ? { ...current, body_zh_hant: value } : current);
+                }}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5 text-sm">
               <p className="font-medium">合成後</p>
-              <div className="min-h-72 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 leading-6">
+              <div className="h-80 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 leading-6">
                 {presentQuoteEmailSignature({
                   name: draft.sender_name,
                   phone: draft.phone,

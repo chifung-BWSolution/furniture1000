@@ -126,9 +126,9 @@ test("splits a stored signature into name, phone and closing, then rebuilds the 
     body_en: draft.body_en,
   });
   assert.equal(sent.senderName, "Rachel Zhu");
-  assert.match(sent.footer["zh-Hant"], /^Rachel Zhu\n電話：9717 3545 \/ 6263 4365\nBW Office Furniture/);
-  assert.match(sent.footer["zh-Hans"], /^Rachel Zhu\n电话：9717 3545 \/ 6263 4365\n公司簡介/);
-  assert.match(sent.footer.en, /^Rachel Zhu\nTel: 9717 3545 \/ 6263 4365\n/);
+  assert.match(sent.footer["zh-Hant"], /^Rachel Zhu\nmobile 9717 3545\ndirect 6263 4365\nBW Office Furniture/);
+  assert.match(sent.footer["zh-Hans"], /^Rachel Zhu\nmobile 9717 3545\ndirect 6263 4365\n公司簡介/);
+  assert.match(sent.footer.en, /^Rachel Zhu\nmobile 9717 3545\ndirect 6263 4365\n/);
   assert.equal(quoteEmailFromHeader("陳大文"), "陳大文 | BW Furniture <sale@bwteam-furniture.com>");
   assert.equal(quoteEmailFromHeader("Name <bad>"), "Name bad | BW Furniture <sale@bwteam-furniture.com>");
   assert.deepEqual(quoteEmailBccList("client@example.com", "sale@bwteam-furniture.com"), ["sale@bwteam-furniture.com"]);
