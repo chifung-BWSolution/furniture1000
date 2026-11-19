@@ -1,7 +1,7 @@
 /**
  * Score historical furniture quotes for 報價參考分析.
  * Furniture coverage caps the score. Selected project factors determine
- * how much of the final 20% of that coverage the quote earns.
+ * how much of the final 10% of that coverage the quote earns.
  */
 
 const PROJECT_WEIGHTS = {
@@ -14,7 +14,7 @@ const PROJECT_WEIGHTS = {
 const CLASSIFICATION_WEIGHT = 70;
 const COLOR_WEIGHT = 15;
 const MATERIAL_WEIGHT = 15;
-const PROJECT_WEIGHT = 0.2;
+const PROJECT_WEIGHT = 0.1;
 
 export const QUOTE_REFERENCE_GRADES = ['基本傢俬', '傢俬採購'] as const;
 

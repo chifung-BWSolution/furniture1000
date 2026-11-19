@@ -120,8 +120,8 @@ test('a selected size earns no points when missing or unmatched', () => {
   const miss = matches.find((row) => row.candidate.id === 'miss');
   const unknown = matches.find((row) => row.candidate.id === 'unknown');
   assert.ok(miss && unknown);
-  assert.equal(miss.score, 80);
-  assert.equal(unknown.score, 80);
+  assert.equal(miss.score, 90);
+  assert.equal(unknown.score, 90);
   assert.equal(unknown.tags.find((item) => item.key === 'size')?.label, '尺寸 未記錄');
 });
 
@@ -254,9 +254,9 @@ test('a quote missing the executive desk only earns credit for the workstation g
   ], { ...filters, customerType: 'NGO' });
   assert.deepEqual(withCustomerFilter.map(({ candidate: row, score }) => [row.id, score]), [
     ['all-confirmed', 100],
-    ['both-customer-unknown', 80],
+    ['both-customer-unknown', 90],
     ['workstation-ngo', 50],
-    ['BWF-NGO26-098', 40],
+    ['BWF-NGO26-098', 45],
   ]);
   assert.ok(withCustomerFilter[3].tags.some(({ label }) => label === '客戶類型 未記錄'));
 });
@@ -272,4 +272,30 @@ test('color and material cannot combine across items of the same classification'
   ], query({ furnitureGroups: [furnitureGroup('辦公枱', '老闆枱', ['灰'], ['MFC'])] }));
   assert.equal(row.score, 85);
   assert.equal(row.completeGroups, 0);
+});
+
+test('matching workstation material outweighs matching customer type', () => {
+  const rows = matchQuoteReferences([
+    candidate({
+      id: 'ngo-with-wrong-material',
+      customerType: 'NGO',
+      itemTraits: [{ category: '工作枱', colors: [], materials: ['玻璃'] }],
+    }),
+    candidate({
+      id: 'mfc-with-unknown-customer',
+      customerType: null,
+      itemTraits: [{ category: '工作枱', colors: [], materials: ['MFC'] }],
+    }),
+  ], query({
+    furnitureGroups: [furnitureGroup('辦公枱', '工作枱', [], ['MFC'])],
+    customerType: 'NGO',
+    sizeBandId: null,
+    industries: [],
+    grade: null,
+    workPeriod: null,
+  }));
+  assert.deepEqual(rows.map(({ candidate: row, score }) => [row.id, score]), [
+    ['mfc-with-unknown-customer', 90],
+    ['ngo-with-wrong-material', 82],
+  ]);
 });
