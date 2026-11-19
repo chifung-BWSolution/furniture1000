@@ -8,6 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { confirm } from '@/components/ui/confirm-dialog';
 import { buildCustomerPortalQuoteShareUrl } from '@/lib/customerPortalRoutes';
 import { buildQuoteCustomerEmail } from '../../../supabase/functions/_shared/quoteCustomerEmail.ts';
+import { getQuoteEmailFooter } from '@/lib/quoteEmailFooters';
+import type { QuoteEmailFooterText } from '../../../supabase/functions/_shared/quoteEmailFooter.ts';
 import { fetchPmsPitchings } from '@/lib/pmsPitchings';
 import {
   QUOTE_EMAIL_PROBLEM_TEXT,
@@ -34,6 +36,8 @@ export interface QuoteEmailFollowUpQuote {
   quoteId: string;
   clientEmail?: string | null;
   clientName?: string | null;
+  /** 客戶聯絡人姓名。郵件開頭用這個，沒有才用公司名稱。 */
+  clientContactName?: string | null;
   /** 報價公司資訊裡的負責同事電話。編輯中尚未保存時由父層傳入。 */
   contactPhone?: string | null;
   /** PMS pitching id. Used to fill the PM work mobile when the quote has none. */
@@ -66,6 +70,7 @@ export function QuoteEmailFollowUpModal({
   const [sections, setSections] = useState<QuoteEmailCustomSection[]>([]);
   const [previewItems, setPreviewItems] = useState<QuoteEmailPreviewItem[]>([]);
   const [visibleCount, setVisibleCount] = useState<number | null>(null);
+  const [emailFooter, setEmailFooter] = useState<QuoteEmailFooterText | null>(null);
   const [viewHistoryOpen, setViewHistoryOpen] = useState(false);
   const viewHistoryButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -81,14 +86,17 @@ export function QuoteEmailFollowUpModal({
     setStatus(null);
     setPreviewItems([]);
     setVisibleCount(null);
+    setEmailFooter(null);
     void Promise.all([
       loadQuoteEmailStatus(quoteId),
       loadQuoteEmailContactSource(quoteId).catch(() => ({ clientEmail: '', companyPhone: '' })),
       loadQuoteEmailPreview(quoteId).catch(() => null),
+      getQuoteEmailFooter(quoteId).catch(() => null),
     ])
-      .then(async ([data, source, preview]) => {
+      .then(async ([data, source, preview, footer]) => {
         if (cancelled) return;
         setStatus(data);
+        setEmailFooter(footer);
         if (preview) {
           setPreviewItems(preview.items);
           setVisibleCount(preview.count);
@@ -139,15 +147,16 @@ export function QuoteEmailFollowUpModal({
   const customerEmail = useMemo(() => buildQuoteCustomerEmail({
     kind: 'manual',
     quoteId: quote?.quoteId || '',
+    customerName: quote?.clientContactName?.trim() || quote?.clientName?.trim() || '',
+    footer: emailFooter,
     introText: intro,
-    contactPhone: phone,
     customSections: sections,
     itemCount: visibleCount ?? status?.item_count ?? 0,
     totalAmount: status?.total_amount ?? 0,
     sampleItems: status?.sample_items ?? null,
     previewItems,
     shareUrl: quoteUrl,
-  }), [quote?.quoteId, intro, phone, sections, visibleCount, status?.item_count, status?.total_amount, status?.sample_items, previewItems, quoteUrl]);
+  }), [quote?.quoteId, quote?.clientContactName, quote?.clientName, emailFooter, intro, sections, visibleCount, status?.item_count, status?.total_amount, status?.sample_items, previewItems, quoteUrl]);
 
   const problem = quoteEmailReadiness({ recipient, contactPhone: phone, shareToken: status?.share_token ?? null });
   const statusLabel = QUOTE_EMAIL_STATUS_LABELS[status?.status ?? 'not_sent'];

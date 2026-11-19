@@ -137,12 +137,13 @@ function buildMessage(
   row: ClaimedEmail,
   footer: QuoteEmailFooterText | null,
   preview: { count: number; items: QuoteEmailPreviewItem[] } | null,
+  customerName = "",
 ): { subject: string; text: string; html: string } {
   return buildQuoteCustomerEmail({
     kind: row.kind,
     quoteId: row.quote_id,
     introText: row.intro_text,
-    customerName: row.recipient_name,
+    customerName: customerName || row.recipient_name,
     locale: row.locale,
     footer,
     customSections: row.custom_sections,
@@ -233,13 +234,16 @@ Deno.serve(async (req: Request) => {
     try {
       const [{ data: quote, error: quoteError }, resolved] = await Promise.all([
         admin.from("bwf_quote")
-          .select("pm_name:project_data->formData->>projectManager")
+          .select("pm_name:project_data->formData->>projectManager, contact_name:project_data->clientInfo->>contactName, form_contact:project_data->formData->>clientContactName, company_name:project_data->clientInfo->>name")
           .eq("id", row.quote_uuid)
           .maybeSingle(),
         resolveQuoteEmailFooter(admin, row.quote_uuid, pms),
       ]);
       if (quoteError) throw new Error(quoteError.message);
       const senderName = resolved.senderName || quote?.pm_name?.trim() || "";
+      const customerName = [quote?.contact_name, quote?.form_contact, quote?.company_name, row.recipient_name]
+        .map((value) => String(value ?? "").trim())
+        .find(Boolean) || "";
       const resendFrom = quoteEmailFromHeader(senderName);
       const footer = resolved.footer;
       const { data: pdf, error: pdfError } = await admin.storage.from("quote-email-pdfs")
@@ -278,6 +282,7 @@ Deno.serve(async (req: Request) => {
         { ...row, sample_items: sampleItems },
         footer,
         preview ? { count: preview.count, items: previewItems ?? [] } : null,
+        customerName,
       );
       const bcc = quoteEmailBccList(to, teamBcc);
       const sent = await sendEmail({ to: [to], bcc, ...message, resendFrom, attachment });
