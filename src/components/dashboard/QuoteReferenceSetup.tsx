@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Loader2, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { MultiSelect } from '@/components/ui/multi-select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   Select,
   SelectContent,
@@ -24,6 +26,9 @@ import {
 } from '@/lib/quoteReferenceMatch';
 import { formatListDate, formatListMoney } from '@/lib/listTableUtils';
 import { cn } from '@/lib/utils';
+import type { BwfQuoteItemInput } from '@/lib/bwfQuoteItems';
+import { loadQuoteLineItemsForPicker } from '@/lib/quoteCopy';
+import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 
 interface QuoteReferenceSetupProps {
   pitchingId: string | null;
@@ -43,14 +48,225 @@ interface QuoteReferenceSetupProps {
 const NONE = '__none__';
 
 function tagClass(tone: QuoteReferenceTagTone): string {
-  if (tone === 'teal') return 'bg-teal-50 text-teal-800';
-  if (tone === 'amber') return 'bg-amber-50 text-amber-800';
-  return 'bg-slate-100 text-slate-600';
+  if (tone === 'teal') return 'bg-teal-500/10 text-teal-800 dark:text-teal-300';
+  if (tone === 'amber') return 'bg-amber-500/10 text-amber-800 dark:text-amber-300';
+  return 'bg-muted text-muted-foreground';
 }
 
-function toggleValue(values: string[], value: string, on: boolean): string[] {
-  if (on) return values.includes(value) ? values : [...values, value];
-  return values.filter((item) => item !== value);
+const RESULT_ROW_HEIGHT = 56;
+const ITEM_ROW_HEIGHT = 48;
+
+type WorkspacePanel = 'filters' | 'results' | 'details';
+type MatchSort = 'score' | 'date' | 'amount';
+
+function money(value: number | null) {
+  return value === null ? '—' : `$${formatListMoney(value)}`;
+}
+
+function useRowsPerPage(rowHeight: number, maxRows: number, headerHeight = 0) {
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [pageSize, setPageSize] = useState(1);
+  useEffect(() => {
+    if (!element) return;
+    const update = () => {
+      if (element.clientHeight > 0) {
+        setPageSize(Math.max(1, Math.min(maxRows, Math.floor((element.clientHeight - headerHeight) / rowHeight))));
+      }
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, headerHeight, maxRows, rowHeight]);
+  return { ref: setElement, pageSize };
+}
+
+function PageControls({ page, pageCount, label, onChange }: {
+  page: number;
+  pageCount: number;
+  label: string;
+  onChange: (page: number) => void;
+}) {
+  return (
+    <nav aria-label={label} className="flex h-10 shrink-0 items-center justify-end gap-2 border-t px-2 text-xs text-muted-foreground">
+      {pageCount > 1 && (
+        <>
+          <Button type="button" size="icon" variant="ghost" className="h-8 w-8" aria-label={`${label}上一頁`} disabled={page === 0} onClick={() => onChange(page - 1)}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="tabular-nums" aria-live="polite">{page + 1} / {pageCount}</span>
+          <Button type="button" size="icon" variant="ghost" className="h-8 w-8" aria-label={`${label}下一頁`} disabled={page + 1 >= pageCount} onClick={() => onChange(page + 1)}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </>
+      )}
+    </nav>
+  );
+}
+
+function FilterSelect({ field, label, value, onChange, options, placeholder = '不限' }: {
+  field: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { id: string; label: string }[];
+  placeholder?: string;
+}) {
+  const id = `quote-ref-${field}`;
+  const selection = options.find((option) => option.id === value)?.label ?? placeholder;
+  return (
+    <div className="min-w-0 space-y-1">
+      <Label htmlFor={id}>{label}</Label>
+      <Select value={value || NONE} onValueChange={(next) => onChange(next === NONE ? '' : next)}>
+        <SelectTrigger id={id} title={selection} className="h-9 px-2 text-xs [&>span]:truncate"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE}>{placeholder}</SelectItem>
+          {options.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function selectOptions(values: readonly string[]) {
+  return values.map((value) => ({ id: value, label: value }));
+}
+
+function multiSelectOptions(values: string[]) {
+  return values.map((value) => ({ value, label: value }));
+}
+
+function QuoteDetails({ match, copying, onClose, onCopy }: {
+  match: QuoteReferenceMatch;
+  copying: boolean;
+  onClose: () => void;
+  onCopy: () => void;
+}) {
+  const { candidate, score, tags } = match;
+  const [items, setItems] = useState<BwfQuoteItemInput[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const { ref, pageSize } = useRowsPerPage(ITEM_ROW_HEIGHT, 12, 28);
+
+  useEffect(() => {
+    let active = true;
+    void loadQuoteLineItemsForPicker(candidate.id)
+      .then((rows) => {
+        if (active) setItems(rows.filter((row) => !row.isSectionTitle && !row.isCustomTerm && !row.isDivisionTitle));
+      })
+      .catch(() => {
+        if (active) setLoadFailed(true);
+      });
+    return () => { active = false; };
+  }, [candidate.id, attempt]);
+
+  const itemCount = items?.length ?? candidate.itemCount;
+  const pageCount = Math.max(1, Math.ceil(itemCount / pageSize));
+  const page = Math.min(Math.floor(offset / pageSize), pageCount - 1);
+  const start = page * pageSize;
+
+  return (
+    <>
+      <div className="shrink-0 border-b px-4 py-3">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate font-display text-lg font-bold" title={`${candidate.quoteId} ${candidate.version ?? ''}`}>
+              {candidate.quoteId} {candidate.version}
+            </h2>
+            <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+              {formatListDate(candidate.createdAt)}{candidate.workPeriod && ` · ${candidate.workPeriod}`}
+            </p>
+          </div>
+          <div className="rounded-lg bg-primary/10 px-2 py-1 text-center text-primary">
+            <div className="text-[11px] font-medium">匹配度</div>
+            <div className="text-lg font-bold leading-tight tabular-nums">{score}</div>
+          </div>
+          <Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="關閉報價詳情" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        {candidate.projectName && <p className="mt-1 truncate text-sm font-semibold" title={candidate.projectName}>{candidate.projectName}</p>}
+        <dl className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+          {[
+            ['傢俬類別', candidate.scopes.join('、')],
+            ['客戶產業', candidate.industries.join('、')],
+            ['客戶類型', candidate.customerType],
+          ].map(([label, value]) => value ? (
+            <div key={label} className="flex min-w-0 gap-2">
+              <dt className="shrink-0">{label}</dt>
+              <dd className="truncate text-foreground" title={value}>{value}</dd>
+            </div>
+          ) : null)}
+        </dl>
+      </div>
+
+      <div className="shrink-0 border-b px-4 py-2.5">
+        <h3 className="mb-1.5 text-sm font-semibold">匹配條件</h3>
+        <div className="flex flex-wrap gap-1">
+          {tags.map((tag) => (
+            <span key={tag.key} className={cn('rounded-full px-2 py-0.5 text-xs', tagClass(tag.tone))}>{tag.label}</span>
+          ))}
+        </div>
+      </div>
+
+      <section className="flex min-h-0 flex-1 flex-col px-3 pt-2.5" aria-label="報價項目">
+        <h3 className="mb-2 px-1 text-sm font-semibold">報價項目 <span className="font-normal text-muted-foreground">（{itemCount} 項）</span></h3>
+        <div ref={ref} className="min-h-0 flex-1">
+          {loadFailed ? (
+            <div className="flex flex-wrap items-center gap-2 px-1 text-sm">
+              <p role="alert" className="text-destructive">暫時無法載入項目</p>
+              <Button type="button" size="sm" variant="outline" onClick={() => { setLoadFailed(false); setAttempt((current) => current + 1); }}>重試</Button>
+            </div>
+          ) : items === null ? (
+            <p className="px-1 text-sm text-muted-foreground" role="status">載入報價項目…</p>
+          ) : items.length === 0 ? (
+            <p className="px-1 text-sm text-muted-foreground">沒有可預覽的報價項目。</p>
+          ) : (
+            <Table className="table-fixed text-xs">
+              <TableHeader className="bg-muted">
+                <TableRow>
+                  <TableHead className="h-7 w-[66%]">傢俬項目／規格</TableHead>
+                  <TableHead className="h-7 w-[12%] px-1 text-right">數量</TableHead>
+                  <TableHead className="h-7 w-[22%] text-right">小計</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.slice(start, start + pageSize).map((item, index) => {
+                  const dimensions = [item.dimensionLMm, item.dimensionWMm, item.dimensionHMm].filter(Boolean).join(' × ');
+                  const spec = [dimensions && `${dimensions} mm`, item.material, item.color].filter(Boolean).join(' · ');
+                  return (
+                    <TableRow key={item.id ?? start + index} style={{ height: ITEM_ROW_HEIGHT }}>
+                      <TableCell className="py-0">
+                        <div className="truncate font-medium" title={item.name}>{item.name || '未命名項目'}</div>
+                        {spec && <div className="truncate text-muted-foreground" title={spec}>{spec}</div>}
+                      </TableCell>
+                      <TableCell className="truncate px-1 py-0 text-right tabular-nums" title={`${item.quantity ?? '—'} ${item.unit ?? ''}`}>{item.quantity ?? '—'}</TableCell>
+                      <TableCell className="truncate py-0 text-right tabular-nums" title={item.isOptional ? '選配項目' : money(quoteItemLineSubtotal(item))}>
+                        {item.isOptional ? '選配' : money(quoteItemLineSubtotal(item))}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+        {items && items.length > 0 && <PageControls label="報價項目" page={page} pageCount={pageCount} onChange={(next) => setOffset(next * pageSize)} />}
+      </section>
+
+      <footer className="shrink-0 space-y-2 border-t px-4 py-3">
+        <div className="flex items-center justify-between gap-2 text-sm">
+          <span className="text-muted-foreground">報價總額（HKD）</span>
+          <span className="font-semibold tabular-nums">{money(candidate.totalAmount)}</span>
+        </div>
+        <Button type="button" className="w-full gap-2" disabled={copying} onClick={onCopy}>
+          {copying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+          {copying ? '複製中…' : '複製此報價'}
+        </Button>
+      </footer>
+    </>
+  );
 }
 
 export function QuoteReferenceSetup({
@@ -72,7 +288,6 @@ export function QuoteReferenceSetup({
   const [sizeBandId, setSizeBandId] = useState('');
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>(industries);
   const [industryHard, setIndustryHard] = useState(false);
-  const [industryFilter, setIndustryFilter] = useState('');
   const [customerType, setCustomerType] = useState(initialCustomerType.trim());
   const [grade, setGrade] = useState('');
   const [workPeriod, setWorkPeriod] = useState('');
@@ -81,6 +296,11 @@ export function QuoteReferenceSetup({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [results, setResults] = useState<QuoteReferenceMatch[] | null>(null);
   const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<WorkspacePanel>('filters');
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [sort, setSort] = useState<MatchSort>('score');
+  const [offset, setOffset] = useState(0);
+  const { ref: resultsRef, pageSize } = useRowsPerPage(RESULT_ROW_HEIGHT, 12);
   const seededIndustries = useRef(industries.length > 0);
   const seededCustomerType = useRef(Boolean(initialCustomerType.trim()));
 
@@ -144,16 +364,17 @@ export function QuoteReferenceSetup({
     return [...values].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   }, [candidates, customerType, initialCustomerType]);
 
-  const visibleIndustries = useMemo(() => {
-    const query = industryFilter.trim().toLocaleLowerCase('zh-Hant');
-    const options = [...industryOptions];
-    for (const value of selectedIndustries) {
-      if (!options.includes(value)) options.unshift(value);
-    }
-    const source = options.length > 0 ? options : selectedIndustries;
-    if (!query) return source;
-    return source.filter((option) => option.toLocaleLowerCase('zh-Hant').includes(query));
-  }, [industryFilter, industryOptions, selectedIndustries]);
+  const allIndustries = [...new Set([...industryOptions, ...selectedIndustries])];
+
+  const sortedResults = useMemo(() => {
+    if (!results || sort === 'score') return results ?? [];
+    return [...results].sort((a, b) => sort === 'date'
+      ? (b.candidate.createdAt ?? '').localeCompare(a.candidate.createdAt ?? '')
+      : (b.candidate.totalAmount ?? -Infinity) - (a.candidate.totalAmount ?? -Infinity));
+  }, [results, sort]);
+  const pageCount = Math.max(1, Math.ceil(sortedResults.length / pageSize));
+  const page = Math.min(Math.floor(offset / pageSize), pageCount - 1);
+  const activeMatch = sortedResults.find((row) => row.candidate.id === activeId);
 
   const budgetText = (() => {
     if (estimatedIncome == null || estimatedIncome === '') return null;
@@ -165,19 +386,40 @@ export function QuoteReferenceSetup({
 
   function runMatch() {
     if (!canMatch) return;
-    setResults(
-      matchQuoteReferences(candidates, {
-        categories: selectedCategories,
-        amountBandId,
-        sizeBandId: sizeBandId || null,
-        industries: selectedIndustries,
-        industryHard,
-        customerType: customerType || null,
-        grade: grade || null,
-        workPeriod: workPeriod || null,
-        excludeQuoteId,
-      }),
-    );
+    const matches = matchQuoteReferences(candidates, {
+      categories: selectedCategories,
+      amountBandId,
+      sizeBandId: sizeBandId || null,
+      industries: selectedIndustries,
+      industryHard,
+      customerType: customerType || null,
+      grade: grade || null,
+      workPeriod: workPeriod || null,
+      excludeQuoteId,
+    });
+    setResults(matches);
+    setOffset(0);
+    setSort('score');
+    setActiveId(matches[0]?.candidate.id ?? null);
+    setPanel('results');
+  }
+
+  function clearFilters() {
+    seededIndustries.current = true;
+    seededCustomerType.current = true;
+    setSelectedCategories([]);
+    setAmountBandId('');
+    setSizeBandId('');
+    setSelectedIndustries([]);
+    setIndustryHard(false);
+    setCustomerType('');
+    setGrade('');
+    setWorkPeriod('');
+    setResults(null);
+    setActiveId(null);
+    setOffset(0);
+    setSort('score');
+    setPanel('filters');
   }
 
   async function copyQuote(quoteUuid: string) {
@@ -193,245 +435,155 @@ export function QuoteReferenceSetup({
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-background fds-page-padding">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="font-display text-xl font-bold text-foreground">報價參考分析</h1>
-            <p className="mt-1 font-body text-sm text-muted-foreground">
-              {pitchingLabel ? `複製到 ${pitchingLabel}` : '複製到已綁定的 Pitching 或項目'}
-              {budgetText ? ` · 預計收入 ${budgetText}，只供參考` : ''}
-            </p>
-          </div>
-          <Button type="button" variant="outline" onClick={onChangePitching}>
-            重選 Pitching
-          </Button>
+    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden bg-muted/30 px-3 py-2 text-foreground sm:gap-3 sm:px-4">
+      <header className="flex shrink-0 items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="sr-only">參考過往報價</h1>
+          <p className="truncate text-sm font-medium" title={pitchingLabel ?? undefined}>
+            {pitchingLabel ? `複製到 ${pitchingLabel}` : '複製到已綁定的 Pitching 或項目'}
+          </p>
+          {budgetText && <p className="text-xs text-muted-foreground">預計收入 ${budgetText}</p>}
         </div>
+        <Button type="button" size="sm" variant="outline" className="shrink-0" disabled={copyingId !== null} onClick={onChangePitching}>重選 Pitching</Button>
+      </header>
 
-        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
-          <div className="grid gap-5">
-            <div>
-              <Label>傢俬類別</Label>
-              <p className="mb-2 mt-1 font-body text-xs text-muted-foreground">至少選一項。沒有交集的報價不會列出。</p>
-              {categoriesLoading ? (
-                <p className="font-body text-sm text-muted-foreground">載入類別…</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {categoryOptions.map((option) => {
-                    const selected = selectedCategories.includes(option);
-                    return (
-                      <button
-                        key={option}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => setSelectedCategories((current) => toggleValue(current, option, !selected))}
-                        className={cn(
-                          'rounded-full border px-3 py-1 font-body text-xs',
-                          selected
-                            ? 'border-primary bg-primary/10 text-foreground'
-                            : 'border-border bg-background text-muted-foreground',
-                        )}
-                      >
-                        {option}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+      <nav className="flex shrink-0 gap-1 rounded-lg border bg-card p-1 xl:hidden" aria-label="報價參考區域">
+        {([
+          ['filters', '篩選'],
+          ['results', '相符報價'],
+          ['details', '報價詳情'],
+        ] as const).map(([key, label]) => (
+          <Button
+            key={key}
+            type="button"
+            className="h-8 flex-1"
+            size="sm"
+            variant={panel === key ? 'secondary' : 'ghost'}
+            aria-pressed={panel === key}
+            disabled={key === 'details' && !activeMatch}
+            onClick={() => setPanel(key)}
+          >
+            {label}
+          </Button>
+        ))}
+      </nav>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="quote-ref-amount">金額區間</Label>
-                <Select value={amountBandId || NONE} onValueChange={(value) => setAmountBandId(value === NONE ? '' : value)}>
-                  <SelectTrigger id="quote-ref-amount" className="mt-2">
-                    <SelectValue placeholder="選擇金額區間" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>選擇金額區間</SelectItem>
-                    {QUOTE_AMOUNT_BANDS.map((band) => (
-                      <SelectItem key={band.id} value={band.id}>{band.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(180px,0.5fr)_minmax(0,0.92fr)_minmax(0,1.48fr)]">
+        <section className={cn('min-h-0 min-w-0 flex-col rounded-xl border bg-card xl:flex', panel === 'filters' ? 'flex' : 'hidden')} aria-labelledby="quote-ref-filters">
+          <div className="flex shrink-0 items-center justify-between gap-1 px-3 pb-1 pt-2">
+            <h2 id="quote-ref-filters" className="text-base font-semibold">篩選條件</h2>
+            <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-primary" onClick={clearFilters}>清除全部</Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2 xl:grid-cols-1 xl:[@media(max-height:840px)]:grid-cols-2">
+              <div className="col-span-full space-y-1">
+                <Label>傢俬類別</Label>
+                <MultiSelect compact label="傢俬類別" options={multiSelectOptions(categoryOptions)} value={selectedCategories} onValueChange={setSelectedCategories} disabled={categoriesLoading} placeholder={categoriesLoading ? '載入類別…' : '請選擇類別'} />
               </div>
-              <div>
-                <Label htmlFor="quote-ref-size">項目尺寸</Label>
-                <Select value={sizeBandId || NONE} onValueChange={(value) => setSizeBandId(value === NONE ? '' : value)}>
-                  <SelectTrigger id="quote-ref-size" className="mt-2">
-                    <SelectValue placeholder="未指定" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>未指定</SelectItem>
-                    {QUOTE_SIZE_BANDS.map((band) => (
-                      <SelectItem key={band.id} value={band.id}>{band.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="quote-ref-grade">傢俬級別</Label>
-                <Select value={grade || NONE} onValueChange={(value) => setGrade(value === NONE ? '' : value)}>
-                  <SelectTrigger id="quote-ref-grade" className="mt-2">
-                    <SelectValue placeholder="未指定" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>未指定</SelectItem>
-                    {QUOTE_REFERENCE_GRADES.map((option) => (
-                      <SelectItem key={option} value={option}>{option}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="quote-ref-period">工期</Label>
-                <Select value={workPeriod || NONE} onValueChange={(value) => setWorkPeriod(value === NONE ? '' : value)}>
-                  <SelectTrigger id="quote-ref-period" className="mt-2">
-                    <SelectValue placeholder="未指定" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>未指定</SelectItem>
-                    {workPeriodOptions.map((option) => (
-                      <SelectItem key={option} value={option}>{option}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="quote-ref-customer-type">客戶類型</Label>
-              <Select
-                value={customerType || NONE}
-                onValueChange={(value) => setCustomerType(value === NONE ? '' : value)}
-              >
-                <SelectTrigger id="quote-ref-customer-type" className="mt-2">
-                  <SelectValue placeholder="未指定" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>未指定</SelectItem>
-                  {customerTypeOptions.map((option) => (
-                    <SelectItem key={option} value={option}>{option}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Label htmlFor="quote-ref-industry-filter">客戶產業</Label>
-                <label className="flex items-center gap-2 font-body text-xs text-muted-foreground">
-                  <Checkbox
-                    checked={industryHard}
-                    onCheckedChange={(checked) => setIndustryHard(checked === true)}
-                    aria-label="只看相同產業"
-                  />
+              <FilterSelect field="amount" label="金額區間" value={amountBandId} onChange={setAmountBandId} options={QUOTE_AMOUNT_BANDS} placeholder="請選擇" />
+              <FilterSelect field="size" label="傢俬尺寸" value={sizeBandId} onChange={setSizeBandId} options={QUOTE_SIZE_BANDS} />
+              <FilterSelect field="grade" label="傢俬級別" value={grade} onChange={setGrade} options={selectOptions(QUOTE_REFERENCE_GRADES)} />
+              <FilterSelect field="period" label="工期" value={workPeriod} onChange={setWorkPeriod} options={selectOptions(workPeriodOptions)} />
+              <FilterSelect field="customer-type" label="客戶類型" value={customerType} onChange={setCustomerType} options={selectOptions(customerTypeOptions)} />
+              <div className="col-span-full space-y-1 border-t pt-2">
+                <Label>客戶產業</Label>
+                <MultiSelect compact label="客戶產業" options={multiSelectOptions(allIndustries)} value={selectedIndustries} onValueChange={setSelectedIndustries} placeholder="不限" />
+                <label className="flex min-h-7 items-center gap-2 text-xs text-muted-foreground">
+                  <Checkbox checked={industryHard} onCheckedChange={(checked) => setIndustryHard(checked === true)} />
                   只看相同產業
                 </label>
               </div>
-              <input
-                id="quote-ref-industry-filter"
-                value={industryFilter}
-                onChange={(event) => setIndustryFilter(event.target.value)}
-                placeholder="搜尋產業"
-                className="mt-2 h-9 w-full rounded-md border border-input bg-transparent px-3 font-body text-sm"
-              />
-              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-2">
-                {visibleIndustries.length === 0 ? (
-                  <p className="px-1 py-2 font-body text-xs text-muted-foreground">沒有相符的產業</p>
-                ) : (
-                  visibleIndustries.map((option) => (
-                    <label key={option} className="flex items-start gap-2 rounded px-1 py-1 font-body text-sm">
-                      <Checkbox
-                        checked={selectedIndustries.includes(option)}
-                        onCheckedChange={(checked) =>
-                          setSelectedIndustries((current) => toggleValue(current, option, checked === true))
-                        }
-                      />
-                      <span>{option}</span>
-                    </label>
-                  ))
-                )}
-              </div>
             </div>
-
-            <div className="flex items-center gap-3">
-              <Button type="button" onClick={runMatch} disabled={!canMatch}>
-                配對過往報價
-              </Button>
-              {loadingIndex ? (
-                <span className="inline-flex items-center gap-2 font-body text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  載入過往報價…
-                </span>
-              ) : null}
-              {loadError ? <span className="font-body text-xs text-destructive">{loadError}</span> : null}
-            </div>
+          </div>
+          <div className="shrink-0 space-y-1.5 border-t p-3">
+            {loadError && <p role="alert" className="text-xs text-destructive">{loadError}</p>}
+            <Button type="button" className="w-full gap-2" disabled={!canMatch || copyingId !== null} onClick={runMatch}>
+              {loadingIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              {loadingIndex ? '載入過往報價…' : '搜尋相符報價'}
+            </Button>
           </div>
         </section>
 
-        {results ? (
-          <section className="flex flex-col gap-3">
-            <h2 className="font-display text-base font-bold text-foreground">
-              {results.length === 0 ? '沒有符合的過往報價' : `${results.length} 張相符報價`}
+        <section className={cn('min-h-0 min-w-0 flex-col rounded-xl border bg-card xl:flex', panel === 'results' ? 'flex' : 'hidden')} aria-labelledby="quote-ref-results">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 p-3">
+            <h2 id="quote-ref-results" className="text-base font-semibold">
+              相符報價 {results && <span className="ml-1 tabular-nums text-muted-foreground" aria-live="polite">{results.length}</span>}
             </h2>
-            {results.length === 0 ? (
-              <p className="font-body text-sm text-muted-foreground">
-                請調整傢俬類別、金額區間或產業後再配對。
-              </p>
+            <Select value={sort} disabled={sortedResults.length === 0} onValueChange={(next: MatchSort) => { setSort(next); setOffset(0); }}>
+              <SelectTrigger className="h-8 w-auto gap-2 text-xs" aria-label="報價排序"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="score">匹配度由高至低</SelectItem>
+                <SelectItem value="date">日期由新至舊</SelectItem>
+                <SelectItem value="amount">金額由高至低</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,1fr)_3rem] gap-2 border-y bg-muted px-3 py-2 text-xs font-medium text-muted-foreground sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1.4fr)_minmax(0,.9fr)_3rem]">
+            <span>報價編號</span>
+            <span className="hidden sm:block">項目資料</span>
+            <span className="text-right">金額 (HKD)</span>
+            <span className="text-center">匹配度</span>
+          </div>
+          <div ref={resultsRef} className="min-h-0 flex-1">
+            {sortedResults.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground">{results ? '沒有相符的報價，請調整篩選條件後再搜尋。' : '選擇傢俬類別及金額區間後搜尋。'}</p>
             ) : (
-              results.map((row) => (
-                <article key={row.candidate.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-mono-data text-sm font-semibold text-foreground">
-                        {row.candidate.quoteId}
-                        {row.candidate.version ? ` ${row.candidate.version}` : ''}
-                      </div>
-                      <p className="mt-1 font-body text-xs text-muted-foreground">
-                        {formatListDate(row.candidate.createdAt)}
-                        {' · '}
-                        {formatListMoney(row.candidate.totalAmount)}
-                        {' · '}
-                        {row.candidate.itemCount} 項
-                      </p>
-                      <p className="mt-1 font-body text-xs text-foreground/80">
-                        {row.candidate.scopes.join('、') || '未記錄類別'}
-                        {row.candidate.industries.length > 0
-                          ? ` · ${row.candidate.industries.join('、')}`
-                          : ''}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-mono-data text-lg font-semibold text-foreground">{row.score}</div>
-                      <div className="font-body text-[11px] text-muted-foreground">配對排序</div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {row.tags.map((item) => (
-                      <span
-                        key={item.key}
-                        className={cn('rounded-full px-2 py-0.5 font-body text-[11px]', tagClass(item.tone))}
+              <ul aria-label="相符報價列表">
+                {sortedResults.slice(page * pageSize, (page + 1) * pageSize).map(({ candidate, score }) => {
+                  const quoteCode = `${candidate.quoteId} ${candidate.version ?? ''}`.trim();
+                  const project = candidate.projectName || candidate.scopes.join('、') || '未記錄項目資料';
+                  return (
+                    <li key={candidate.id}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        style={{ height: RESULT_ROW_HEIGHT }}
+                        className={cn(
+                          'grid w-full grid-cols-[minmax(0,2fr)_minmax(0,1fr)_3rem] gap-2 rounded-none border-b px-3 text-left font-normal focus-visible:ring-inset sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1.4fr)_minmax(0,.9fr)_3rem]',
+                          activeId === candidate.id && 'bg-primary/10 text-foreground hover:bg-primary/15',
+                        )}
+                        aria-label={`查看 ${quoteCode} 報價詳情`}
+                        aria-pressed={activeId === candidate.id}
+                        onClick={() => { setActiveId(candidate.id); setPanel('details'); }}
                       >
-                        {item.label}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="mt-3">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={copyingId !== null}
-                      onClick={() => void copyQuote(row.candidate.id)}
-                    >
-                      {copyingId === row.candidate.id ? '複製中…' : '複製這張報價'}
-                    </Button>
-                  </div>
-                </article>
-              ))
+                        <span className="block min-w-0">
+                          <span className="block truncate text-xs font-semibold tabular-nums sm:text-sm" title={candidate.quoteId}>{candidate.quoteId}</span>
+                          <span className="block truncate text-xs text-muted-foreground" title={project}>
+                            {candidate.version}<span className="sm:hidden">{candidate.version ? ' · ' : ''}{project}</span>
+                          </span>
+                        </span>
+                        <span className="hidden min-w-0 sm:block">
+                          <span className="block truncate text-xs font-medium" title={project}>{project}</span>
+                          <span className="block truncate text-xs tabular-nums text-muted-foreground">{formatListDate(candidate.createdAt)} · {candidate.itemCount} 項</span>
+                        </span>
+                        <span className="truncate text-right text-xs font-medium tabular-nums" title={money(candidate.totalAmount)}>{money(candidate.totalAmount)}</span>
+                        <span className={cn('justify-self-center rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums', activeId === candidate.id && 'bg-primary text-primary-foreground')}>{score}</span>
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-          </section>
-        ) : null}
+          </div>
+          <PageControls label="相符報價" page={page} pageCount={pageCount} onChange={(next) => setOffset(next * pageSize)} />
+        </section>
+
+        <aside className={cn('min-h-0 min-w-0 flex-col rounded-xl border bg-card xl:flex', panel === 'details' ? 'flex' : 'hidden')} aria-label="報價詳情">
+          {activeMatch ? (
+            <QuoteDetails
+              key={activeMatch.candidate.id}
+              match={activeMatch}
+              copying={copyingId !== null}
+              onClose={() => { setActiveId(null); setPanel('results'); }}
+              onCopy={() => void copyQuote(activeMatch.candidate.id)}
+            />
+          ) : (
+            <div className="p-4">
+              <h2 className="text-base font-semibold">報價詳情</h2>
+              <p className="mt-2 text-sm text-muted-foreground">選擇一張相符報價，查看項目及匹配條件。</p>
+            </div>
+          )}
+        </aside>
       </div>
     </div>
   );

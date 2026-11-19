@@ -11,7 +11,7 @@ export interface MultiSelectOption {
   description?: string;
 }
 
-export function MultiSelect({ options, value, onValueChange, label, placeholder = '請選擇', maxSelected, disabled }: {
+export function MultiSelect({ options, value, onValueChange, label, placeholder = '請選擇', maxSelected, disabled, compact = false }: {
   options: MultiSelectOption[];
   value: string[];
   onValueChange: (value: string[]) => void;
@@ -19,6 +19,7 @@ export function MultiSelect({ options, value, onValueChange, label, placeholder 
   placeholder?: string;
   maxSelected?: number;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -38,7 +39,11 @@ export function MultiSelect({ options, value, onValueChange, label, placeholder 
                 className="absolute inset-0 rounded-md focus-visible:outline-none disabled:cursor-not-allowed" />
             </PopoverTrigger>
             <div className="pointer-events-none relative min-w-0 flex-1">
-              {selected.length > 0 ? (
+              {compact && selected.length > 0 ? (
+                <span className="block truncate text-sm" title={selected.map((option) => option.label).join('、')}>
+                  {selected.length === 1 ? selected[0].label : `已選 ${selected.length} 項`}
+                </span>
+              ) : selected.length > 0 ? (
                 <ul aria-label={`已選${label}`} className="flex flex-wrap gap-1.5">
                   {selected.map((option) => (
                     <li key={option.value} className="flex max-w-full items-center gap-1 rounded-md bg-muted py-1 pl-2.5 pr-1 text-xs">

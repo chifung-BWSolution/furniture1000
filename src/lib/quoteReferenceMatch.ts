@@ -45,6 +45,7 @@ export interface QuoteReferenceCandidate {
   totalAmount: number | null;
   createdAt: string | null;
   pitchingId: string | null;
+  projectName?: string | null;
   industries: string[];
   scopes: string[];
   grades: string[];
