@@ -367,12 +367,13 @@ export function QuoteEmailFollowUpModal({
         </>
       }
     >
+      <div className="h-[min(72vh,760px)]">
       {loading ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <p className="flex h-full items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> 正在讀取郵件狀態
         </p>
       ) : (
-        <div className="grid h-[min(72vh,760px)] gap-4 lg:grid-cols-[minmax(280px,24rem)_minmax(0,1fr)]">
+        <div className="grid h-full gap-4 lg:grid-cols-[minmax(280px,24rem)_minmax(0,1fr)]">
         <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
           {error ? <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {!error && problem ? (
@@ -568,6 +569,7 @@ export function QuoteEmailFollowUpModal({
         </aside>
         </div>
       )}
+      </div>
       <Modal
         open={open && viewHistoryOpen}
         onOpenChange={setViewHistoryOpen}
