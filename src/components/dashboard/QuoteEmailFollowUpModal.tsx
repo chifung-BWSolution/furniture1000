@@ -349,7 +349,7 @@ export function QuoteEmailFollowUpModal({
       title="郵件模板與跟進"
       description={quote ? `${quote.quoteId}${quote.clientName ? ` · ${quote.clientName}` : ''}` : undefined}
       size="5xl"
-      className="max-w-6xl"
+      className="max-w-[1440px]"
       bodyClassName="overflow-hidden"
       footer={
         <>
@@ -372,7 +372,7 @@ export function QuoteEmailFollowUpModal({
           <Loader2 className="h-4 w-4 animate-spin" /> 正在讀取郵件狀態
         </p>
       ) : (
-        <div className="grid h-[min(70vh,720px)] gap-4 lg:grid-cols-[minmax(260px,20rem)_minmax(0,1fr)]">
+        <div className="grid h-[min(72vh,760px)] gap-4 lg:grid-cols-[minmax(280px,24rem)_minmax(0,1fr)]">
         <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
           {error ? <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {!error && problem ? (
