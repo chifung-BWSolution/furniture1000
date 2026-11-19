@@ -232,7 +232,7 @@ export function QuoteEmailSettingsView() {
         onOpenChange={(open) => { if (!open && !busy) setDraft(null); }}
         title="寄件人資料"
         description={draft?.pm_name}
-        size="lg"
+        size="5xl"
         footer={
           <>
             <Button type="button" variant="outline" disabled={busy} onClick={() => setDraft(null)}>關閉</Button>
@@ -245,42 +245,42 @@ export function QuoteEmailSettingsView() {
         }
       >
         {draft && (
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5 text-sm">
-                <label className="font-medium" htmlFor="quote-email-sender-name">姓名</label>
-                <Input
-                  id="quote-email-sender-name"
-                  value={draft.sender_name}
-                  maxLength={120}
-                  readOnly={!canEdit || busy}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setDraft((current) => current ? { ...current, sender_name: value } : current);
-                  }}
-                />
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]">
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5 text-sm">
+                  <label className="font-medium" htmlFor="quote-email-sender-name">姓名</label>
+                  <Input
+                    id="quote-email-sender-name"
+                    value={draft.sender_name}
+                    maxLength={120}
+                    readOnly={!canEdit || busy}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setDraft((current) => current ? { ...current, sender_name: value } : current);
+                    }}
+                  />
+                </div>
+                <div className="space-y-1.5 text-sm">
+                  <label className="font-medium" htmlFor="quote-email-sender-phone">電話</label>
+                  <Input
+                    id="quote-email-sender-phone"
+                    value={draft.phone}
+                    maxLength={80}
+                    readOnly={!canEdit || busy}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setDraft((current) => current ? { ...current, phone: value } : current);
+                    }}
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5 text-sm">
-                <label className="font-medium" htmlFor="quote-email-sender-phone">電話</label>
-                <Input
-                  id="quote-email-sender-phone"
-                  value={draft.phone}
-                  maxLength={80}
-                  readOnly={!canEdit || busy}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setDraft((current) => current ? { ...current, phone: value } : current);
-                  }}
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-1.5 text-sm">
                 <label className="font-medium" htmlFor="quote-email-footer">下款</label>
                 <Textarea
                   id="quote-email-footer"
                   value={draft.body_zh_hant}
-                  rows={10}
+                  rows={12}
                   maxLength={2000}
                   readOnly={!canEdit || busy}
                   onChange={(event) => {
@@ -289,16 +289,16 @@ export function QuoteEmailSettingsView() {
                   }}
                 />
               </div>
-              <div className="space-y-1.5 text-sm">
-                <p className="font-medium">合成後</p>
-                <div className="min-h-40 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 leading-6">
-                  {presentQuoteEmailSignature({
-                    name: draft.sender_name,
-                    phone: draft.phone,
-                    body: draft.body_zh_hant,
-                    locale: 'zh-Hant',
-                  }) || '填寫姓名、電話或下款後，這裡會顯示客戶看到的內容。'}
-                </div>
+            </div>
+            <div className="space-y-1.5 text-sm">
+              <p className="font-medium">合成後</p>
+              <div className="min-h-72 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 leading-6">
+                {presentQuoteEmailSignature({
+                  name: draft.sender_name,
+                  phone: draft.phone,
+                  body: draft.body_zh_hant,
+                  locale: 'zh-Hant',
+                }) || '填寫姓名、電話或下款後，這裡會顯示客戶看到的內容。'}
               </div>
             </div>
           </div>
