@@ -159,7 +159,7 @@ const FDS_PREFIX_DEFAULTS: { prefix: string; view: ViewType }[] = [
   { prefix: `${FDS_BASE}/designer`, view: 'fds2-designer-types' },
   { prefix: `${FDS_BASE}/pm`, view: 'fds2-pm-budget' },
   { prefix: `${FDS_BASE}/cases`, view: 'fds2-cases-orders' },
-  { prefix: `${FDS_BASE}/quote`, view: 'fds2-quote-quick' },
+  { prefix: `${FDS_BASE}/quote`, view: 'fds2-quote-list' },
   { prefix: `${FDS_BASE}/factories`, view: 'fds2-products-factories' },
   { prefix: `${FDS_BASE}/procurement`, view: 'fds2-procurement-rfqs' },
   { prefix: `${FDS_BASE}/products`, view: 'fds2-products-ai-review' },

@@ -104,9 +104,9 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '傢俬報價',
     icon: Calculator,
     children: [
+      { view: 'fds2-quote-list', label: '報價一覽', icon: ClipboardList },
       { view: 'fds2-quote-quick', label: '快速報價', icon: Calculator },
       { view: 'fds2-quote-common', label: '常用傢俬', icon: Heart },
-      { view: 'fds2-quote-list', label: '報價一覽', icon: ClipboardList },
       { view: 'fds2-quote-large', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
       { view: 'fds2-quote-trash', label: '報價回收桶', icon: Trash2, pinned: true },
       { view: 'fds2-quote-format', label: '報價單格式設定', icon: FileText },
