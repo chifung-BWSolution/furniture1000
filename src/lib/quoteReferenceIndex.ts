@@ -1,5 +1,6 @@
 import { fetchPmsPitchings } from '@/lib/pmsPitchings';
 import {
+  type QuoteItemTrait,
   type QuoteReferenceCandidate,
 } from '@/lib/quoteReferenceMatch';
 import { supabase } from '@/lib/supabase';
@@ -21,10 +22,22 @@ interface QuoteReferenceIndexRow {
   size_1200_1600: number | null;
   size_1600_2000: number | null;
   size_ge_2000: number | null;
+  item_traits: string[] | null;
 }
 
 function textList(value: string[] | null | undefined): string[] {
   return (value || []).map((item) => item.trim()).filter(Boolean);
+}
+
+function itemTraits(value: string[] | null | undefined): QuoteItemTrait[] {
+  const traits: QuoteItemTrait[] = [];
+  for (const raw of value || []) {
+    const [category = '', color = '', material = ''] = raw.split('\u001f');
+    const name = category.trim();
+    if (!name) continue;
+    traits.push({ category: name, color: color.trim(), material: material.trim() });
+  }
+  return traits;
 }
 
 function amount(value: number | string | null | undefined): number | null {
@@ -77,6 +90,7 @@ export async function loadQuoteReferenceCandidates(): Promise<QuoteReferenceCand
       size1600: count(row.size_1600_2000),
       sizeGe2000: count(row.size_ge_2000),
       customerType: pitching?.customer_type?.trim() || null,
+      itemTraits: itemTraits(row.item_traits),
     };
   });
 }

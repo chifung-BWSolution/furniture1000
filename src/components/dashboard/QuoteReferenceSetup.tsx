@@ -3,7 +3,9 @@ import { ChevronLeft, ChevronRight, Copy, Loader2, Search, X } from 'lucide-reac
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ImageLightbox } from '@/components/ui/image-lightbox';
 import { Label } from '@/components/ui/label';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -19,11 +21,12 @@ import {
   matchQuoteReferences,
   QUOTE_AMOUNT_BANDS,
   QUOTE_REFERENCE_GRADES,
-  QUOTE_SIZE_BANDS,
   type QuoteReferenceCandidate,
+  type QuoteReferenceClassification,
   type QuoteReferenceMatch,
   type QuoteReferenceTagTone,
 } from '@/lib/quoteReferenceMatch';
+import { fetchProductCategoryPairs, uniqueLevel2InOrder, type ProductCategoryPair } from '@/lib/productCategoryOptions';
 import { formatListDate, formatListMoney } from '@/lib/listTableUtils';
 import { cn } from '@/lib/utils';
 import type { BwfQuoteItemInput } from '@/lib/bwfQuoteItems';
@@ -54,7 +57,30 @@ function tagClass(tone: QuoteReferenceTagTone): string {
 }
 
 const RESULT_ROW_HEIGHT = 56;
-const ITEM_ROW_HEIGHT = 48;
+const ITEM_ROW_HEIGHT = 56;
+const FACET_LIMIT = 40;
+const JUNK_FACETS = new Set(['可選', '待定', '待確認', '待定色', 'tbc', '如圖', '按圖', '見圖', '圖片', '圖片色', 'as shown', 'n/a', '-', '/', '色卡', '另議']);
+
+interface ClassPick {
+  colors: string[];
+  materials: string[];
+}
+
+function classKey(level1: string, level2: string): string {
+  return `${level1}\u001f${level2}`;
+}
+
+function facetKey(value: string): string {
+  return value.trim().toLocaleLowerCase('zh-Hant');
+}
+
+function topFacetValues(counts: Map<string, number> | undefined): string[] {
+  if (!counts) return [];
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-Hant'))
+    .slice(0, FACET_LIMIT)
+    .map(([name]) => name);
+}
 
 type WorkspacePanel = 'filters' | 'results' | 'details';
 type MatchSort = 'score' | 'date' | 'amount';
@@ -147,6 +173,7 @@ function QuoteDetails({ match, copying, onClose, onCopy }: {
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [offset, setOffset] = useState(0);
+  const [preview, setPreview] = useState<{ images: string[]; title: string } | null>(null);
   const { ref, pageSize } = useRowsPerPage(ITEM_ROW_HEIGHT, 12, 28);
 
   useEffect(() => {
@@ -226,7 +253,8 @@ function QuoteDetails({ match, copying, onClose, onCopy }: {
             <Table className="table-fixed text-xs">
               <TableHeader className="bg-muted">
                 <TableRow>
-                  <TableHead className="h-7 w-[66%]">傢俬項目／規格</TableHead>
+                  <TableHead className="h-7 w-12 px-1"><span className="sr-only">圖片</span></TableHead>
+                  <TableHead className="h-7">傢俬項目／規格</TableHead>
                   <TableHead className="h-7 w-[12%] px-1 text-right">數量</TableHead>
                   <TableHead className="h-7 w-[22%] text-right">小計</TableHead>
                 </TableRow>
@@ -235,10 +263,21 @@ function QuoteDetails({ match, copying, onClose, onCopy }: {
                 {items.slice(start, start + pageSize).map((item, index) => {
                   const dimensions = [item.dimensionLMm, item.dimensionWMm, item.dimensionHMm].filter(Boolean).join(' × ');
                   const spec = [dimensions && `${dimensions} mm`, item.material, item.color].filter(Boolean).join(' · ');
+                  const photos = [item.image, item.referenceImage, item.remarksImage].filter((url): url is string => Boolean(url?.trim()));
+                  const itemName = item.name || '未命名項目';
                   return (
                     <TableRow key={item.id ?? start + index} style={{ height: ITEM_ROW_HEIGHT }}>
+                      <TableCell className="px-1 py-0">
+                        {photos.length > 0 ? (
+                          <button type="button" className="block" aria-label={`放大${itemName}圖片`} onClick={() => setPreview({ images: photos, title: itemName })}>
+                            <LoadingImage src={photos[0]} alt="" className="h-9 w-9 rounded" />
+                          </button>
+                        ) : (
+                          <span className="block h-9 w-9 rounded bg-muted" />
+                        )}
+                      </TableCell>
                       <TableCell className="py-0">
-                        <div className="truncate font-medium" title={item.name}>{item.name || '未命名項目'}</div>
+                        <div className="truncate font-medium" title={item.name}>{itemName}</div>
                         {spec && <div className="truncate text-muted-foreground" title={spec}>{spec}</div>}
                       </TableCell>
                       <TableCell className="truncate px-1 py-0 text-right tabular-nums" title={`${item.quantity ?? '—'} ${item.unit ?? ''}`}>{item.quantity ?? '—'}</TableCell>
@@ -254,6 +293,7 @@ function QuoteDetails({ match, copying, onClose, onCopy }: {
         </div>
         {items && items.length > 0 && <PageControls label="報價項目" page={page} pageCount={pageCount} onChange={(next) => setOffset(next * pageSize)} />}
       </section>
+      <ImageLightbox open={preview !== null} onClose={() => setPreview(null)} images={preview?.images ?? []} title={preview?.title} thumbWidth={96} />
 
       <footer className="shrink-0 space-y-2 border-t px-4 py-3">
         <div className="flex items-center justify-between gap-2 text-sm">
@@ -284,8 +324,9 @@ export function QuoteReferenceSetup({
   onCopyQuote,
 }: QuoteReferenceSetupProps) {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [picks, setPicks] = useState<Record<string, ClassPick>>({});
+  const [pairs, setPairs] = useState<ProductCategoryPair[]>([]);
   const [amountBandId, setAmountBandId] = useState('');
-  const [sizeBandId, setSizeBandId] = useState('');
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>(industries);
   const [industryHard, setIndustryHard] = useState(false);
   const [customerType, setCustomerType] = useState(initialCustomerType.trim());
@@ -303,6 +344,16 @@ export function QuoteReferenceSetup({
   const { ref: resultsRef, pageSize } = useRowsPerPage(RESULT_ROW_HEIGHT, 12);
   const seededIndustries = useRef(industries.length > 0);
   const seededCustomerType = useRef(Boolean(initialCustomerType.trim()));
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchProductCategoryPairs().then((rows) => {
+      if (!cancelled) setPairs(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (seededIndustries.current || industries.length === 0) return;
@@ -366,6 +417,25 @@ export function QuoteReferenceSetup({
 
   const allIndustries = [...new Set([...industryOptions, ...selectedIndustries])];
 
+  const facetCounts = useMemo(() => {
+    const colors = new Map<string, Map<string, number>>();
+    const materials = new Map<string, Map<string, number>>();
+    const bump = (groups: Map<string, Map<string, number>>, category: string, value: string) => {
+      const name = value.trim();
+      if (!name || JUNK_FACETS.has(facetKey(name))) return;
+      const key = facetKey(category);
+      if (!key) return;
+      const counts = groups.get(key) ?? new Map<string, number>();
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+      groups.set(key, counts);
+    };
+    for (const row of candidates) {
+      for (const trait of row.itemTraits ?? []) bump(colors, trait.category, trait.color);
+      for (const trait of row.itemTraits ?? []) bump(materials, trait.category, trait.material);
+    }
+    return { colors, materials };
+  }, [candidates]);
+
   const sortedResults = useMemo(() => {
     if (!results || sort === 'score') return results ?? [];
     return [...results].sort((a, b) => sort === 'date'
@@ -384,18 +454,32 @@ export function QuoteReferenceSetup({
 
   const canMatch = selectedCategories.length > 0 && Boolean(amountBandId) && !loadingIndex && !loadError;
 
+  function setCategories(next: string[]) {
+    const allowed = new Set(next);
+    setSelectedCategories(next);
+    setPicks((current) => Object.fromEntries(
+      Object.entries(current).filter(([key]) => allowed.has(key.split('\u001f')[0] ?? '')),
+    ));
+  }
+
   function runMatch() {
     if (!canMatch) return;
+    const classifications: QuoteReferenceClassification[] = Object.entries(picks).map(([key, pick]) => ({
+      category: key.split('\u001f')[1] ?? '',
+      colors: pick.colors,
+      materials: pick.materials,
+    })).filter((pick) => pick.category);
     const matches = matchQuoteReferences(candidates, {
       categories: selectedCategories,
       amountBandId,
-      sizeBandId: sizeBandId || null,
+      sizeBandId: null,
       industries: selectedIndustries,
       industryHard,
       customerType: customerType || null,
       grade: grade || null,
       workPeriod: workPeriod || null,
       excludeQuoteId,
+      classifications,
     });
     setResults(matches);
     setOffset(0);
@@ -408,8 +492,8 @@ export function QuoteReferenceSetup({
     seededIndustries.current = true;
     seededCustomerType.current = true;
     setSelectedCategories([]);
+    setPicks({});
     setAmountBandId('');
-    setSizeBandId('');
     setSelectedIndustries([]);
     setIndustryHard(false);
     setCustomerType('');
@@ -476,12 +560,75 @@ export function QuoteReferenceSetup({
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
             <div className="grid grid-cols-2 gap-x-3 gap-y-2 xl:grid-cols-1 xl:[@media(max-height:840px)]:grid-cols-2">
-              <div className="col-span-full space-y-1">
-                <Label>傢俬類別</Label>
-                <MultiSelect compact label="傢俬類別" options={multiSelectOptions(categoryOptions)} value={selectedCategories} onValueChange={setSelectedCategories} disabled={categoriesLoading} placeholder={categoriesLoading ? '載入類別…' : '請選擇類別'} />
+              <div className="col-span-full space-y-2">
+                <div className="space-y-1">
+                  <Label>傢俬類別</Label>
+                  <MultiSelect compact label="傢俬類別" options={multiSelectOptions(categoryOptions)} value={selectedCategories} onValueChange={setCategories} disabled={categoriesLoading} placeholder={categoriesLoading ? '載入類別…' : '請選擇類別'} />
+                </div>
+                {selectedCategories.map((level1) => {
+                  const level2s = uniqueLevel2InOrder(pairs, level1);
+                  return (
+                    <div key={level1} className="space-y-2 rounded-md border px-2 py-2">
+                      <p className="text-xs font-medium">{level1} 的分類</p>
+                      {level2s.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">這個類別沒有細分類</p>
+                      ) : level2s.map((level2) => {
+                        const key = classKey(level1, level2);
+                        const pick = picks[key];
+                        const colorOptions = topFacetValues(facetCounts.colors.get(facetKey(level2)));
+                        const materialOptions = topFacetValues(facetCounts.materials.get(facetKey(level2)));
+                        return (
+                          <div key={key} className="space-y-1">
+                            <label className="flex min-h-7 items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={Boolean(pick)}
+                                onCheckedChange={(checked) => {
+                                  setPicks((current) => {
+                                    const next = { ...current };
+                                    if (checked === true) next[key] = current[key] ?? { colors: [], materials: [] };
+                                    else delete next[key];
+                                    return next;
+                                  });
+                                }}
+                              />
+                              {level2}
+                            </label>
+                            {pick && (
+                              <div className="space-y-2 pl-6">
+                                {colorOptions.length > 0 ? (
+                                  <MultiSelect
+                                    compact
+                                    label={`${level2}顏色`}
+                                    options={multiSelectOptions(colorOptions)}
+                                    value={pick.colors}
+                                    onValueChange={(colors) => setPicks((current) => current[key] ? { ...current, [key]: { ...current[key], colors } } : current)}
+                                    placeholder="不限顏色"
+                                  />
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">暫無顏色紀錄</p>
+                                )}
+                                {materialOptions.length > 0 ? (
+                                  <MultiSelect
+                                    compact
+                                    label={`${level2}材質`}
+                                    options={multiSelectOptions(materialOptions)}
+                                    value={pick.materials}
+                                    onValueChange={(materials) => setPicks((current) => current[key] ? { ...current, [key]: { ...current[key], materials } } : current)}
+                                    placeholder="不限材質"
+                                  />
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">暫無材質紀錄</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
               <FilterSelect field="amount" label="金額區間" value={amountBandId} onChange={setAmountBandId} options={QUOTE_AMOUNT_BANDS} placeholder="請選擇" />
-              <FilterSelect field="size" label="傢俬尺寸" value={sizeBandId} onChange={setSizeBandId} options={QUOTE_SIZE_BANDS} />
               <FilterSelect field="grade" label="傢俬級別" value={grade} onChange={setGrade} options={selectOptions(QUOTE_REFERENCE_GRADES)} />
               <FilterSelect field="period" label="工期" value={workPeriod} onChange={setWorkPeriod} options={selectOptions(workPeriodOptions)} />
               <FilterSelect field="customer-type" label="客戶類型" value={customerType} onChange={setCustomerType} options={selectOptions(customerTypeOptions)} />

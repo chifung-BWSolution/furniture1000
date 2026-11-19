@@ -164,3 +164,24 @@ test('category coverage is partial when only some selected categories appear', (
   assert.equal(row.earned, 12.5);
   assert.equal(row.score, 50);
 });
+
+test('a classification requires the same item to match category and color', () => {
+  const rows = [
+    candidate({
+      id: 'white-desk',
+      itemTraits: [{ category: '會議枱', color: '白色', material: '板材' }],
+    }),
+    candidate({
+      id: 'mixed',
+      itemTraits: [
+        { category: '會議枱', color: '黑色', material: '板材' },
+        { category: '辦公椅', color: '白色', material: '布' },
+      ],
+    }),
+  ];
+  const matches = matchQuoteReferences(rows, query({
+    sizeBandId: null,
+    classifications: [{ category: '會議枱', colors: ['白色'], materials: [] }],
+  }));
+  assert.deepEqual(matches.map((row) => row.candidate.id), ['white-desk']);
+});

@@ -38,6 +38,20 @@ export const QUOTE_SIZE_BANDS: QuoteReferenceBand[] = [
   { id: 'ge2000', label: '2000mm 以上', min: 2_000, max: null },
 ];
 
+/** One quoted furniture line: category, color and material stay on the same item. */
+export interface QuoteItemTrait {
+  category: string;
+  color: string;
+  material: string;
+}
+
+/** A selected 分類, with optional color and material narrowed to that same line. */
+export interface QuoteReferenceClassification {
+  category: string;
+  colors: string[];
+  materials: string[];
+}
+
 export interface QuoteReferenceCandidate {
   id: string;
   quoteId: string;
@@ -57,6 +71,7 @@ export interface QuoteReferenceCandidate {
   size1600: number;
   sizeGe2000: number;
   customerType: string | null;
+  itemTraits?: QuoteItemTrait[];
 }
 
 export interface QuoteReferenceQuery {
@@ -69,6 +84,8 @@ export interface QuoteReferenceQuery {
   grade: string | null;
   workPeriod: string | null;
   excludeQuoteId?: string | null;
+  /** Empty or omitted means the level-1 category gate is enough. */
+  classifications?: QuoteReferenceClassification[];
 }
 
 export type QuoteReferenceTagTone = 'teal' | 'amber' | 'slate';
@@ -116,6 +133,23 @@ function uniqueKeys(values: string[], keyOf: (value: string) => string): string[
 
 function exactKey(value: string): string {
   return value.trim();
+}
+
+function traitKey(value: string): string {
+  return value.trim().toLocaleLowerCase('zh-Hant');
+}
+
+function classificationHit(traits: QuoteItemTrait[], pick: QuoteReferenceClassification): boolean {
+  const category = traitKey(pick.category);
+  if (!category) return false;
+  const colors = new Set(pick.colors.map(traitKey).filter(Boolean));
+  const materials = new Set(pick.materials.map(traitKey).filter(Boolean));
+  return traits.some((trait) => {
+    if (traitKey(trait.category) !== category) return false;
+    if (colors.size > 0 && !colors.has(traitKey(trait.color))) return false;
+    if (materials.size > 0 && !materials.has(traitKey(trait.material))) return false;
+    return true;
+  });
 }
 
 function coverage(selected: string[], candidate: string[], keyOf: (value: string) => string): {
@@ -183,6 +217,11 @@ function scoreCandidate(candidate: QuoteReferenceCandidate, query: QuoteReferenc
   earned += categoryRatio * QUOTE_REFERENCE_WEIGHTS.category;
   applicable += QUOTE_REFERENCE_WEIGHTS.category;
   tags.push(tag('category', '類別', ratioKind(categoryRatio)));
+
+  const picks = (query.classifications ?? []).filter((pick) => pick.category.trim());
+  if (picks.length > 0 && !picks.some((pick) => classificationHit(candidate.itemTraits ?? [], pick))) {
+    return { earned: 0, applicable: 0, tags, excluded: true };
+  }
 
   const amountBand = QUOTE_AMOUNT_BANDS.find((band) => band.id === query.amountBandId) ?? null;
   if (!valueInBand(candidate.totalAmount, amountBand)) {
