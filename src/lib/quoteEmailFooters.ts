@@ -1,8 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import { parseInvokeError } from '@/lib/edgeFunctionErrors';
-import { DEFAULT_QUOTE_EMAIL_BCC, quoteEmailSenderDraft, type QuoteEmailFooterText } from '../../supabase/functions/_shared/quoteEmailFooter.ts';
+import { DEFAULT_QUOTE_EMAIL_BCC, presentQuoteEmailSignature, quoteEmailSenderDraft, type QuoteEmailFooterText } from '../../supabase/functions/_shared/quoteEmailFooter.ts';
 
-export { quoteEmailSenderDraft };
+export { presentQuoteEmailSignature, quoteEmailSenderDraft };
 
 export interface QuoteEmailFooterRow {
   pms_staff_id: string;

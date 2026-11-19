@@ -12,16 +12,11 @@ import {
   listQuoteEmailFooters,
   loadQuoteEmailBcc,
   saveQuoteEmailBcc,
+  presentQuoteEmailSignature,
   quoteEmailSenderDraft,
   saveQuoteEmailFooter,
   type QuoteEmailFooterRow,
 } from '@/lib/quoteEmailFooters';
-
-function closingPreview(text: string): string {
-  const line = text.trim().split('\n').find((row) => row.trim()) ?? '';
-  if (!line) return '—';
-  return line.length > 72 ? `${line.slice(0, 72)}…` : line;
-}
 
 function senderDraft(row: QuoteEmailFooterRow): QuoteEmailFooterRow {
   return { ...row, ...quoteEmailSenderDraft(row) };
@@ -178,8 +173,15 @@ export function QuoteEmailSettingsView() {
                     <TableCell className="whitespace-normal align-top font-medium">{row.pm_name}</TableCell>
                     <TableCell className="whitespace-normal align-top">{shown.sender_name || '—'}</TableCell>
                     <TableCell className="whitespace-normal align-top">{shown.phone || '—'}</TableCell>
-                    <TableCell className="whitespace-normal break-words align-top text-muted-foreground">
-                      {closingPreview(shown.body_zh_hant)}
+                    <TableCell className="whitespace-pre-wrap break-words align-top text-muted-foreground">
+                      <span className="line-clamp-3">
+                        {presentQuoteEmailSignature({
+                          name: shown.sender_name,
+                          phone: shown.phone,
+                          body: shown.body_zh_hant,
+                          locale: 'zh-Hant',
+                        }) || '—'}
+                      </span>
                     </TableCell>
                     <TableCell className="text-right align-top">
                       <Button type="button" size="sm" variant="outline" onClick={() => setDraft(shown)}>
@@ -230,7 +232,7 @@ export function QuoteEmailSettingsView() {
         onOpenChange={(open) => { if (!open && !busy) setDraft(null); }}
         title="寄件人資料"
         description={draft?.pm_name}
-        size="md"
+        size="lg"
         footer={
           <>
             <Button type="button" variant="outline" disabled={busy} onClick={() => setDraft(null)}>關閉</Button>
@@ -272,19 +274,32 @@ export function QuoteEmailSettingsView() {
                 />
               </div>
             </div>
-            <div className="space-y-1.5 text-sm">
-              <label className="font-medium" htmlFor="quote-email-footer">下款</label>
-              <Textarea
-                id="quote-email-footer"
-                value={draft.body_zh_hant}
-                rows={8}
-                maxLength={2000}
-                readOnly={!canEdit || busy}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setDraft((current) => current ? { ...current, body_zh_hant: value } : current);
-                }}
-              />
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-1.5 text-sm">
+                <label className="font-medium" htmlFor="quote-email-footer">下款</label>
+                <Textarea
+                  id="quote-email-footer"
+                  value={draft.body_zh_hant}
+                  rows={10}
+                  maxLength={2000}
+                  readOnly={!canEdit || busy}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setDraft((current) => current ? { ...current, body_zh_hant: value } : current);
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5 text-sm">
+                <p className="font-medium">合成後</p>
+                <div className="min-h-40 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 leading-6">
+                  {presentQuoteEmailSignature({
+                    name: draft.sender_name,
+                    phone: draft.phone,
+                    body: draft.body_zh_hant,
+                    locale: 'zh-Hant',
+                  }) || '填寫姓名、電話或下款後，這裡會顯示客戶看到的內容。'}
+                </div>
+              </div>
             </div>
           </div>
         )}
