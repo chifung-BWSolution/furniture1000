@@ -1,5 +1,6 @@
 import { fetchPmsPitchings } from '@/lib/pmsPitchings';
 import {
+  type QuoteItemTrait,
   type QuoteReferenceCandidate,
 } from '@/lib/quoteReferenceMatch';
 import { supabase } from '@/lib/supabase';
@@ -21,10 +22,26 @@ interface QuoteReferenceIndexRow {
   size_1200_1600: number | null;
   size_1600_2000: number | null;
   size_ge_2000: number | null;
+  item_traits: string[] | null;
 }
 
 function textList(value: string[] | null | undefined): string[] {
   return (value || []).map((item) => item.trim()).filter(Boolean);
+}
+
+function tagList(value: string): string[] {
+  return value.split('|').map((item) => item.trim()).filter(Boolean);
+}
+
+function itemTraits(value: string[] | null | undefined): QuoteItemTrait[] {
+  const traits: QuoteItemTrait[] = [];
+  for (const raw of value || []) {
+    const [category = '', colors = '', materials = ''] = raw.split('\u001f');
+    const name = category.trim();
+    if (!name) continue;
+    traits.push({ category: name, colors: tagList(colors), materials: tagList(materials) });
+  }
+  return traits;
 }
 
 function amount(value: number | string | null | undefined): number | null {
@@ -43,35 +60,41 @@ function count(value: number | null | undefined): number {
  */
 export async function loadQuoteReferenceCandidates(): Promise<QuoteReferenceCandidate[]> {
   const { data, error } = await supabase.rpc('fds_quote_reference_index');
-  if (error) throw error;
+  if (error) {
+    const message = error.message?.trim() || '無法載入過往報價';
+    throw new Error(
+      /statement timeout/i.test(message) ? '過往報價載入逾時，請再試一次' : message,
+    );
+  }
   const rows = (data || []) as QuoteReferenceIndexRow[];
   const pitchingIds = [
     ...new Set(rows.map((row) => row.bwf_pitching_id?.trim() || '').filter(Boolean)),
   ];
   const pitchings = pitchingIds.length > 0 ? await fetchPmsPitchings({ ids: pitchingIds }) : [];
-  const customerTypeByPitching = new Map(
-    pitchings.map((row) => [row.id, row.customer_type?.trim() || null]),
-  );
+  const pitchingById = new Map(pitchings.map((row) => [row.id, row]));
 
-  return rows.map((row) => ({
-    id: row.id,
-    quoteId: row.quote_id,
-    version: row.version,
-    totalAmount: amount(row.total_amount),
-    createdAt: row.created_at,
-    pitchingId: row.bwf_pitching_id,
-    industries: textList(row.industries),
-    scopes: textList(row.scopes),
-    grades: textList(row.grades),
-    workPeriod: row.work_period?.trim() || null,
-    itemCount: count(row.item_count),
-    sizedItemCount: count(row.sized_item_count),
-    sizeLt1200: count(row.size_lt_1200),
-    size1200: count(row.size_1200_1600),
-    size1600: count(row.size_1600_2000),
-    sizeGe2000: count(row.size_ge_2000),
-    customerType: row.bwf_pitching_id
-      ? customerTypeByPitching.get(row.bwf_pitching_id) ?? null
-      : null,
-  }));
+  return rows.map((row) => {
+    const pitching = row.bwf_pitching_id ? pitchingById.get(row.bwf_pitching_id) : undefined;
+    return {
+      id: row.id,
+      quoteId: row.quote_id,
+      version: row.version,
+      totalAmount: amount(row.total_amount),
+      createdAt: row.created_at,
+      pitchingId: row.bwf_pitching_id,
+      projectName: pitching?.pitching_name?.trim() || null,
+      industries: textList(row.industries),
+      scopes: textList(row.scopes),
+      grades: textList(row.grades),
+      workPeriod: row.work_period?.trim() || null,
+      itemCount: count(row.item_count),
+      sizedItemCount: count(row.sized_item_count),
+      sizeLt1200: count(row.size_lt_1200),
+      size1200: count(row.size_1200_1600),
+      size1600: count(row.size_1600_2000),
+      sizeGe2000: count(row.size_ge_2000),
+      customerType: pitching?.customer_type?.trim() || null,
+      itemTraits: itemTraits(row.item_traits),
+    };
+  });
 }

@@ -58,6 +58,9 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
   productId?: string | null;
   /** FK to product_category.id (registry 一級/二級). */
   productCategoryId?: string | null;
+  colorTags?: string[];
+  materialTags?: string[];
+  tagsLocked?: boolean;
 };
 
 export type BwfQuoteItemRow = {
@@ -94,6 +97,9 @@ export type BwfQuoteItemRow = {
   sku?: string | null;
   product_id: string | null;
   product_category_id: string | null;
+  color_tags?: string[] | null;
+  material_tags?: string[] | null;
+  tags_locked?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -148,6 +154,9 @@ export function mapRowToItem(row: BwfQuoteItemRow): BwfQuoteItemInput {
     sku: row.sku || undefined,
     productId: row.product_id || undefined,
     productCategoryId: row.product_category_id || undefined,
+    colorTags: (row.color_tags || []).map((tag) => tag.trim()).filter(Boolean),
+    materialTags: (row.material_tags || []).map((tag) => tag.trim()).filter(Boolean),
+    tagsLocked: Boolean(row.tags_locked),
   };
 }
 

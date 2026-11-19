@@ -157,7 +157,9 @@ async function sha256Hex(file: File): Promise<string> {
 }
 
 function rpcErrorMessage(message: string): string {
-  if (message.includes('permission_denied')) return '沒有權限（只限 admin／傢俬組）';
+  if (message.includes('permission_denied')) return '沒有權限（只限 admin／傢俬組或你自己的廠家）';
+  if (message.includes('factory_mismatch')) return '只能上載自己廠家的文件，廠家編號不符。';
+  if (message.includes('storage_path_invalid')) return '檔案路徑不屬於你的廠家，請重新上載。';
   if (message.includes('storage_object_missing')) return '原始檔未成功上傳，請重試';
   if (message.includes('document_not_found')) return '找不到文件';
   return message;

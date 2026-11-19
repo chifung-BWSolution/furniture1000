@@ -38,6 +38,34 @@ test("english email summary prints the localized furniture names", () => {
     sampleItems: "Office desk, Office chair, Kosen Walnut Patterned Desk",
     shareUrl: "https://www.bwteam-furniture.com/customer?quote_share=test",
   });
-  assert.match(message.text, /Includes: Office desk, Office chair, Kosen Walnut Patterned Desk\./);
+  assert.match(message.text, /11 furniture items\./);
+  assert.match(message.text, /Office desk/);
+  assert.match(message.text, /8 more items\. See the quotation online/);
   assert.doesNotMatch(message.text, /辦公/);
+  assert.doesNotMatch(message.html, /Includes:/);
+});
+
+test("shows five furniture rows with pictures and keeps the rest as a count", () => {
+  const items = Array.from({ length: 7 }, (_, index) => ({
+    name: `椅子 ${index + 1}`,
+    image: index === 0 ? "https://cdn.example.com/chair.jpg" : "data:image/png;base64,abc",
+    quantity: index + 1,
+    unit: "張",
+    unitPrice: 100,
+  }));
+  const message = buildQuoteCustomerEmail({
+    kind: "manual",
+    quoteId: "Q-1",
+    itemCount: 7,
+    totalAmount: 2800,
+    previewItems: items,
+    shareUrl: "https://www.bwteam-furniture.com/customer?quote_share=test",
+  });
+  assert.match(message.html, />椅子 5<\/td>/);
+  assert.doesNotMatch(message.html, /椅子 6/);
+  assert.match(message.html, /src="https:\/\/cdn\.example\.com\/chair\.jpg"/);
+  assert.doesNotMatch(message.html, /data:image/);
+  assert.match(message.html, /另外還有 2 項/);
+  assert.match(message.text, /椅子 1 · 1 張 · HK\$ 100\.00/);
+  assert.doesNotMatch(message.text, /椅子 6/);
 });

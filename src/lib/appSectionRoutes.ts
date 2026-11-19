@@ -15,6 +15,10 @@ export const FDS_BASE = '/fds';
 /** 廠家目錄。詳情為 `${FACTORIES_PATH}/:code`，留在後台殼內。 */
 export const FACTORIES_PATH = `${FDS_BASE}/factories`;
 
+/** 採購 RFQ。列表、建立、詳情都在後台殼內。 */
+export const RFQ_LIST_PATH = `${FDS_BASE}/procurement/rfqs`;
+export const RFQ_NEW_PATH = `${RFQ_LIST_PATH}/new`;
+
 /** Segments under /fds/factories that are other pages, not a factory code. */
 const FACTORY_PATH_RESERVED = new Set(['sales', 'zones', 'login', 'info', 'upload-pdf']);
 
@@ -68,6 +72,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   /** 傢俬報價裡的廠家目錄已併入「廠家目錄」 */
   { view: 'fds2-quote-factories', path: `${FDS_BASE}/factories` },
   { view: 'fds2-quote-quick', path: `${FDS_BASE}/quote/quick` },
+  { view: 'fds2-quote-reference', path: `${FDS_BASE}/quote/reference` },
   { view: 'fds2-quote-common', path: `${FDS_BASE}/quote/common` },
   { view: 'fds2-quote-list', path: `${FDS_BASE}/quote/list` },
   { view: 'fds2-quote-large', path: `${FDS_BASE}/quote/large` },
@@ -83,6 +88,9 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-factory-login', path: `${FDS_BASE}/factories/login` },
   { view: 'fds2-products-factories', path: FACTORIES_PATH },
   { view: 'fds2-products-quote-pdf', path: `${FDS_BASE}/factories` },
+  { view: 'fds2-procurement-rfqs', path: RFQ_LIST_PATH },
+  { view: 'fds2-procurement-rfq-new', path: RFQ_NEW_PATH },
+  { view: 'fds2-procurement-rfq-detail', path: RFQ_LIST_PATH },
   { view: 'fds2-products-ai-review', path: `${FDS_BASE}/products/ai-review` },
   { view: 'fds2-products-pending', path: `${FDS_BASE}/products/pending` },
   { view: 'fds2-products-catalog', path: `${FDS_BASE}/products/catalog` },
@@ -134,7 +142,8 @@ const VIEW_BY_PATH = new Map(
       row.view !== 'fds2-quote-factories' &&
       row.view !== 'fds2-factory-info' &&
       row.view !== 'fds2-factory-upload' &&
-      row.view !== 'fds2-products-quote-pdf',
+      row.view !== 'fds2-products-quote-pdf' &&
+      row.view !== 'fds2-procurement-rfq-detail',
   ).map((row) => [row.path, row.view] as const),
 );
 
@@ -151,8 +160,9 @@ const FDS_PREFIX_DEFAULTS: { prefix: string; view: ViewType }[] = [
   { prefix: `${FDS_BASE}/designer`, view: 'fds2-designer-types' },
   { prefix: `${FDS_BASE}/pm`, view: 'fds2-pm-budget' },
   { prefix: `${FDS_BASE}/cases`, view: 'fds2-cases-orders' },
-  { prefix: `${FDS_BASE}/quote`, view: 'fds2-quote-quick' },
+  { prefix: `${FDS_BASE}/quote`, view: 'fds2-quote-list' },
   { prefix: `${FDS_BASE}/factories`, view: 'fds2-products-factories' },
+  { prefix: `${FDS_BASE}/procurement`, view: 'fds2-procurement-rfqs' },
   { prefix: `${FDS_BASE}/products`, view: 'fds2-products-ai-review' },
   { prefix: `${FDS_BASE}/publish`, view: 'fds2-publish-copy' },
   { prefix: `${FDS_BASE}/reports`, view: 'fds2-report-factory' },
@@ -211,6 +221,33 @@ export function factoryCodeFromPath(pathname: string): string | null {
   return code;
 }
 
+const RFQ_PATH_RESERVED = new Set(['new']);
+
+/** Shareable RFQ detail inside the app shell. */
+export function buildRfqDetailPath(rfqId: string): string {
+  const id = rfqId.trim();
+  if (!id || RFQ_PATH_RESERVED.has(id)) return RFQ_LIST_PATH;
+  return `${RFQ_LIST_PATH}/${encodeURIComponent(id)}`;
+}
+
+/** RFQ id from `/fds/procurement/rfqs/:id`, or null on list / new. */
+export function rfqIdFromPath(pathname: string): string | null {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  const prefix = `${RFQ_LIST_PATH}/`;
+  if (!path.startsWith(prefix)) return null;
+  const segment = path.slice(prefix.length);
+  if (!segment || segment.includes('/')) return null;
+  let id = segment;
+  try {
+    id = decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+  id = id.trim();
+  if (!id || RFQ_PATH_RESERVED.has(id)) return null;
+  return id;
+}
+
 /** Product id from `/fds/designer/types/:productId`, or null on the list. */
 export function designerProductIdFromPath(pathname: string): string | null {
   const path = pathname.replace(/\/+$/, '') || '/';
@@ -245,6 +282,14 @@ export function appViewFromPath(pathname: string): ViewType | null {
 
   const exact = VIEW_BY_PATH.get(path);
   if (exact) return exact;
+
+  // /fds/procurement/rfqs/new and /fds/procurement/rfqs/:id
+  if (path === RFQ_NEW_PATH) return 'fds2-procurement-rfq-new';
+  if (path.startsWith(`${RFQ_LIST_PATH}/`)) {
+    return rfqIdFromPath(path)
+      ? 'fds2-procurement-rfq-detail'
+      : 'fds2-procurement-rfqs';
+  }
 
   // /project/design-projects/<uuid>
   if (path.startsWith(`${PROJECT_BASE}/design-projects/`)) {

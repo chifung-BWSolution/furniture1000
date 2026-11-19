@@ -20,18 +20,15 @@ import {
 
 interface CustomerCompanyInfoViewProps {
   onOpenProject?: (projectId: string) => void;
+  /** Supplier portal hosts this inside its own shell, so skip title/padding/badge. */
+  embedded?: boolean;
 }
 
-export function CustomerCompanyInfoView(
-  _props: CustomerCompanyInfoViewProps,
-) {
-  return (
-    <PortalPageShell
-      title="公司資料"
-      badge="Client Portal"
-      subtitle="公司介紹、資質、公開客戶案例、工廠資料與已核實紀錄，建立報價以外的完整信任。"
-      maxWidthClass="max-w-none"
-    >
+export function CustomerCompanyInfoView({
+  embedded = false,
+}: CustomerCompanyInfoViewProps) {
+  const content = (
+    <>
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="p-6 lg:p-8">
           <p className="text-sm font-semibold text-primary">ABOUT BW FURNITURE</p>
@@ -110,6 +107,19 @@ export function CustomerCompanyInfoView(
           ))}
         </div>
       </CorporateSection>
+    </>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <PortalPageShell
+      title="公司資料"
+      badge="Client Portal"
+      subtitle="公司介紹、資質、公開客戶案例、工廠資料與已核實紀錄，建立報價以外的完整信任。"
+      maxWidthClass="max-w-none"
+    >
+      {content}
     </PortalPageShell>
   );
 }

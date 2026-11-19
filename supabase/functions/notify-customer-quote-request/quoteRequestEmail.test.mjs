@@ -24,9 +24,10 @@ function build(overrides = {}) {
 test("renders the branded PM submission email with selected lines and CTA", () => {
   const message = build();
 
-  assert.equal(message.subject, `客戶提交報價選擇：${QUOTE_ID}`);
-  assert.match(message.html, /客戶已提交報價選擇/);
-  assert.match(message.html, /客戶已在報價頁面提交報價選擇，請確認後處理正式報價。/);
+  assert.equal(message.subject, `【FDS 測試】${QUOTE_ID} 客戶提交報價選擇`);
+  assert.match(message.html, /【FDS 測試】/);
+  assert.match(message.html, /Dear 同事 FDS 測試，/);
+  assert.match(message.html, /客戶已在報價頁面提交報價選擇，請你確認後處理正式報價。/);
   assert.match(message.html, /員工椅/);
   assert.match(message.html, /想換淺色/);
   assert.doesNotMatch(message.html, /未勾選項目/);
@@ -61,7 +62,7 @@ test("labels additions and replacements in the change email", () => {
     ],
   });
 
-  assert.equal(message.subject, `客戶提交加選／換款變更：${QUOTE_ID} v2`);
+  assert.equal(message.subject, `【FDS 測試】${QUOTE_ID} v2 客戶提交加選／換款變更`);
   assert.match(message.html, />加選</);
   assert.match(message.html, />換款</);
   assert.match(message.html, /原項目：員工椅/);
@@ -78,8 +79,8 @@ test("renders a confirmation receipt without line items", () => {
     totalCents: 0,
   });
 
-  assert.equal(message.subject, `客戶確認報價版本：${QUOTE_ID} v3`);
-  assert.match(message.html, /客戶已就這個報價版本作出決定，沒有附加項目。/);
+  assert.equal(message.subject, `【FDS 測試】${QUOTE_ID} v3 客戶確認報價版本`);
+  assert.match(message.html, /客戶已就這個報價版本作出決定。/);
   assert.doesNotMatch(message.html, /選品合計/);
   assert.match(message.text, /- 客戶已就這個報價版本作出決定。/);
 });
@@ -92,8 +93,8 @@ test("renders a rejection receipt", () => {
     totalCents: 0,
   });
 
-  assert.equal(message.subject, `客戶不接受報價版本：${QUOTE_ID} v4`);
-  assert.match(message.html, /客戶已就這個報價版本作出決定，沒有附加項目。/);
+  assert.equal(message.subject, `【FDS 測試】${QUOTE_ID} v4 客戶不接受報價版本`);
+  assert.match(message.html, /客戶已就這個報價版本作出決定。/);
 });
 
 test("escapes line names and customer notes", () => {
@@ -107,5 +108,6 @@ test("escapes line names and customer notes", () => {
   assert.doesNotMatch(message.html, /<img src=x/);
   assert.match(message.html, /&lt;script&gt;alert\(&quot;line&quot;\)&lt;\/script&gt;/);
   assert.match(message.html, /&lt;img src=x onerror=alert\(2\)&gt;/);
-  assert.match(message.html, /&lt;b&gt;pm&lt;\/b&gt;/);
+  assert.match(message.html, /Dear 同事 &lt;b&gt;pm&lt;\/b&gt;，/);
+  assert.match(message.subject, /【<b>pm<\/b>】/);
 });

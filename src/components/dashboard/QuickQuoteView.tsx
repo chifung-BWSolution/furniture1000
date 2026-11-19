@@ -20,10 +20,7 @@ import {
   writeQuickQuoteStep,
 } from '@/lib/quickQuoteSession';
 import { loadQuoteCopyPayload, type QuoteCopyPayload } from '@/lib/quoteCopy';
-import {
-  QuoteReferenceSetup,
-  type QuoteReferenceSetupMode,
-} from '@/components/dashboard/QuoteReferenceSetup';
+import { QuoteReferenceSetup } from '@/components/dashboard/QuoteReferenceSetup';
 import {
   compareQuoteVersion,
   maxQuoteVersion,
@@ -115,6 +112,11 @@ const WORK_PERIODS = [
 ];
 
 interface QuickQuoteViewProps {
+  /**
+   * `blank`：快速報價，選定 Pitching 後直接開空白編輯器。
+   * `reference`：側欄「報價參考分析」，先列 Pitching，再進配對頁。
+   */
+  entry?: 'blank' | 'reference';
   editingQuoteId?: string | null;
   /** When set, open this specific version row (bwf_quote.id). */
   editingQuoteUuid?: string | null;
@@ -165,13 +167,19 @@ function normalizeQuoteFormData(
 }
 
 /** Sync read of PMS deep-link prefill (avoids gate flash on /quote/quick?pmsProjectId=...). */
-function readUrlPrefill(): {
+function readUrlPrefill(referenceEntry = false): {
   form: QuoteFormData;
   label: string | null;
   applied: boolean;
 } {
   if (typeof window === 'undefined') {
     return { form: DEFAULT_FORM_DATA(), label: null, applied: false };
+  }
+  if (referenceEntry) {
+    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    if (!path.endsWith('/quote/reference')) {
+      return { form: DEFAULT_FORM_DATA(), label: null, applied: false };
+    }
   }
   const prefill = parsePmsQuotePrefill(new URLSearchParams(window.location.search));
   if (!prefill?.pmsPitchingId && !prefill?.pmsProjectId) {
@@ -206,6 +214,7 @@ function readUrlPrefill(): {
 }
 
 export function QuickQuoteView({
+  entry = 'blank',
   editingQuoteId,
   editingQuoteUuid,
   editingQuoteVersion,
@@ -216,7 +225,7 @@ export function QuickQuoteView({
 }: QuickQuoteViewProps) {
   const { user, loading: authLoading } = useAuth();
   const userEmail = user?.email ?? null;
-  const initialUrlPrefillRef = useRef(readUrlPrefill());
+  const initialUrlPrefillRef = useRef(readUrlPrefill(entry === 'reference'));
   const pmsPrefillAppliedRef = useRef(initialUrlPrefillRef.current.applied);
 
   const [currentStep, setCurrentStep] = useState(1);
@@ -250,7 +259,6 @@ export function QuickQuoteView({
   const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
   const [copyPayload, setCopyPayload] = useState<QuoteCopyPayload | null>(null);
   const [isLoadingCopy, setIsLoadingCopy] = useState(false);
-  const [setupMode, setSetupMode] = useState<QuoteReferenceSetupMode>('choose');
   const [referenceCopyActive, setReferenceCopyActive] = useState(false);
   const [boundCustomerType, setBoundCustomerType] = useState('');
   const [boundBudget, setBoundBudget] = useState<number | string | null>(null);
@@ -310,7 +318,7 @@ export function QuickQuoteView({
       userEmail,
     ],
   );
-  const copyFromUuid = readQuickQuoteCopyFrom(userEmail);
+  const copyFromUuid = entry === 'reference' ? null : readQuickQuoteCopyFrom(userEmail);
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
   const [industryOptions, setIndustryOptions] = useState<string[]>(FALLBACK_INDUSTRIES);
   const [industrySearchQuery, setIndustrySearchQuery] = useState('');
@@ -328,6 +336,7 @@ export function QuickQuoteView({
   const quoteRequestPending =
     quoteRequestKey !== null && (authLoading || resolvedQuoteKey !== quoteRequestKey);
   const quoteSessionResumePending =
+    entry !== 'reference' &&
     !editingQuoteId && !loadedQuoteData && !authLoading && userEmail &&
     freshSessionKey === 0 && !initialUrlPrefillRef.current.applied &&
     Boolean(readQuickQuoteEditingId(userEmail));
@@ -345,6 +354,10 @@ export function QuickQuoteView({
   // PMS SSO / deep-link prefill: /quote/quick?pmsPitchingId=... and/or pmsProjectId=...
   const applyPmsPrefillFromUrl = useCallback(() => {
     if (typeof window === 'undefined') return false;
+    if (entry === 'reference') {
+      const path = window.location.pathname.replace(/\/+$/, '') || '/';
+      if (!path.endsWith('/quote/reference')) return false;
+    }
     const prefill = parsePmsQuotePrefill(new URLSearchParams(window.location.search));
     // Skip gate when either PMS id is present (project always resolves to a pitching).
     if (!prefill?.pmsPitchingId && !prefill?.pmsProjectId) return false;
@@ -377,7 +390,7 @@ export function QuickQuoteView({
     pmsPrefillAppliedRef.current = true;
     sessionRestoredRef.current = true;
     return true;
-  }, []);
+  }, [entry]);
 
   useEffect(() => {
     if (editingQuoteId) return;
@@ -386,6 +399,7 @@ export function QuickQuoteView({
   }, [editingQuoteId, freshSessionKey, applyPmsPrefillFromUrl]);
 
   useEffect(() => {
+    if (entry === 'reference') return;
     if (authLoading || editingQuoteId || freshSessionKey > 0) return;
     if (!userEmail) return;
     // AppShell restores the saved quote id/UUID. Don't mount an empty editor
@@ -411,7 +425,7 @@ export function QuickQuoteView({
     } catch {
       // ignore
     }
-  }, [authLoading, userEmail, editingQuoteId, freshSessionKey]);
+  }, [authLoading, userEmail, editingQuoteId, freshSessionKey, entry]);
 
   useEffect(() => {
     let cancelled = false;
@@ -436,7 +450,6 @@ export function QuickQuoteView({
     setLoadedQuoteData(null);
     setQuoteLoadError(null);
     setCopyPayload(null);
-    setSetupMode('choose');
     setReferenceCopyActive(false);
     setBoundCustomerType('');
     setBoundBudget(null);
@@ -454,7 +467,6 @@ export function QuickQuoteView({
     setSelectedPitchingLabel(formatPmsPitchingLabel(item));
     setBoundCustomerType(item.customer_type?.trim() || '');
     setBoundBudget(item.estimated_income ?? null);
-    setSetupMode('choose');
     setReferenceCopyActive(false);
     pmsDefaultsLoadedForRef.current = null;
     setIsLoadingPmsDefaults(true);
@@ -478,7 +490,6 @@ export function QuickQuoteView({
     setSelectedPitchingLabel(null);
     setBoundCustomerType('');
     setBoundBudget(null);
-    setSetupMode('choose');
     setReferenceCopyActive(false);
     pmsDefaultsLoadedForRef.current = null;
     setCurrentStep(1);
@@ -610,13 +621,14 @@ export function QuickQuoteView({
   }, [editingQuoteId, formData.pmsPitchingId, formData.pmsProjectId]);
 
   useEffect(() => {
+    if (entry === 'reference') return;
     if (typeof window === 'undefined') return;
     try {
       sessionStorage.setItem(quickQuoteFormKey(userEmail), JSON.stringify(formData));
     } catch {
       // ignore
     }
-  }, [formData, userEmail]);
+  }, [formData, userEmail, entry]);
 
   // Load existing quote when editingQuoteId is provided.
   // Important: do NOT clear loadedQuoteData when editingQuoteId is null — a brand-new
@@ -879,16 +891,20 @@ export function QuickQuoteView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onAssignEditingQuoteId is only used for legacy draft migration
   }, [editingQuoteId, editingQuoteUuid, editingQuoteVersion, quoteRequestKey, resolvedQuoteKey, userEmail, authLoading]);
 
-  // List 「複製報價單」 still opens the editor as soon as a pitching is bound.
-  // A new quote stops here so the user can choose a blank draft or reference match.
+  // 快速報價：選定 Pitching 後直接開空白編輯器。複製報價單會先載入原單。
+  // 報價參考分析停在配對頁，不在這裡開編輯器。
   const preparingEditorRef = useRef(false);
   useEffect(() => {
+    if (entry === 'reference') return;
     if (currentStep === 3 || pmsDefaultsPendingRef.current || isLoadingPmsDefaults || isLoadingCopy || quoteLoadError) return;
     if (editingQuoteId || loadedQuoteData) return;
     if (!formData.pmsPitchingId && !formData.pmsProjectId) return;
     if (!formData.quoteId.trim() || preparingEditorRef.current) return;
     const sourceUuid = readQuickQuoteCopyFrom(userEmail);
-    if (!sourceUuid) return;
+    if (!sourceUuid) {
+      enterEditorStep();
+      return;
+    }
     preparingEditorRef.current = true;
     const prepare = async () => {
       try {
@@ -905,7 +921,7 @@ export function QuickQuoteView({
       }
     };
     void prepare();
-  }, [currentStep, isLoadingPmsDefaults, isLoadingCopy, quoteLoadError, editingQuoteId, loadedQuoteData, formData.pmsPitchingId, formData.pmsProjectId, formData.quoteId, enterEditorStep, userEmail]);
+  }, [entry, currentStep, isLoadingPmsDefaults, isLoadingCopy, quoteLoadError, editingQuoteId, loadedQuoteData, formData.pmsPitchingId, formData.pmsProjectId, formData.quoteId, enterEditorStep, userEmail]);
 
   const copyReferenceQuote = useCallback(async (quoteUuid: string) => {
     const payload = await loadQuoteCopyPayload(quoteUuid);
@@ -923,8 +939,15 @@ export function QuickQuoteView({
     !quoteLoadError &&
     currentStep !== 3 &&
     Boolean(formData.pmsPitchingId || formData.pmsProjectId);
+  const waitingToOpenBlankEditor =
+    entry !== 'reference' &&
+    !editingQuoteId &&
+    !loadedQuoteData &&
+    !quoteLoadError &&
+    currentStep !== 3 &&
+    Boolean(formData.pmsPitchingId?.trim() || formData.pmsProjectId?.trim());
   const blockUiForInitialLoad =
-    quoteRequestPending || quoteSessionResumePending || waitingForListCopy ||
+    quoteRequestPending || quoteSessionResumePending || waitingForListCopy || waitingToOpenBlankEditor ||
     ((isLoadingCopy || isLoadingPmsDefaults) && !loadedQuoteData && !quoteLoadError && currentStep !== 3);
   if (blockUiForInitialLoad) {
     return (
@@ -983,20 +1006,23 @@ export function QuickQuoteView({
     return (
       <PmsPitchingGate
         onSelect={handleSelectPitching}
-        title={copyFromUuid ? '複製報價單' : undefined}
+        title={entry === 'reference' ? '報價參考分析' : copyFromUuid ? '複製報價單' : undefined}
         subtitle={
-          copyFromUuid
-            ? '選擇 PMS Pitching 後，將帶入新專案資料並複製原報價的產品內容與條款'
-            : undefined
+          entry === 'reference'
+            ? '選擇現有 Pitching，再按類別、金額和尺寸配對過往報價'
+            : copyFromUuid
+              ? '選擇 PMS Pitching 後，將帶入新專案資料並複製原報價的產品內容與條款'
+              : undefined
         }
+        rowHint={entry === 'reference' ? '點擊任一列即可配對過往報價' : undefined}
       />
     );
   }
 
   const showReferenceSetup =
+    entry === 'reference' &&
     !editingQuoteId &&
     !loadedQuoteData &&
-    !copyFromUuid &&
     Boolean(formData.pmsPitchingId?.trim() || formData.pmsProjectId?.trim());
 
   return (
@@ -1005,7 +1031,6 @@ export function QuickQuoteView({
       {showReferenceSetup ? (
         <div className={cn('h-full min-h-0', currentStep === 3 && 'hidden')}>
           <QuoteReferenceSetup
-            mode={setupMode}
             pitchingId={formData.pmsPitchingId?.trim() || null}
             pitchingLabel={selectedPitchingLabel}
             initialCustomerType={boundCustomerType}
@@ -1016,9 +1041,6 @@ export function QuickQuoteView({
             categoriesLoading={level1CategoriesLoading}
             workPeriodOptions={WORK_PERIODS}
             excludeQuoteId={editingQuoteUuid}
-            onBlankQuote={() => enterEditorStep()}
-            onOpenReference={() => setSetupMode('reference')}
-            onBackToChoice={() => setSetupMode('choose')}
             onChangePitching={handleChangePitching}
             onCopyQuote={copyReferenceQuote}
           />
@@ -1043,8 +1065,7 @@ export function QuickQuoteView({
                   setReferenceCopyActive(false);
                   setCurrentStep(1);
                   setIsQuotationReady(false);
-                  setSetupMode('reference');
-                  writeQuickQuoteStep(userEmail, 1);
+                  if (entry !== 'reference') writeQuickQuoteStep(userEmail, 1);
                   return;
                 }
                 onClearEditingQuote?.();

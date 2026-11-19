@@ -1,17 +1,20 @@
 /**
  * Score historical furniture quotes for 報價參考分析.
- * Category overlap and amount band are hard gates. Other factors only rank
- * the quotes that pass, and a missing value is left out of the denominator.
+ * Furniture coverage caps the score. Selected project factors determine
+ * how much of the final 10% of that coverage the quote earns.
  */
 
-export const QUOTE_REFERENCE_WEIGHTS = {
-  category: 25,
+const PROJECT_WEIGHTS = {
   size: 25,
   industry: 20,
   customerType: 15,
   grade: 10,
   leadTime: 5,
 } as const;
+const CLASSIFICATION_WEIGHT = 70;
+const COLOR_WEIGHT = 15;
+const MATERIAL_WEIGHT = 15;
+const PROJECT_WEIGHT = 0.1;
 
 export const QUOTE_REFERENCE_GRADES = ['基本傢俬', '傢俬採購'] as const;
 
@@ -38,6 +41,21 @@ export const QUOTE_SIZE_BANDS: QuoteReferenceBand[] = [
   { id: 'ge2000', label: '2000mm 以上', min: 2_000, max: null },
 ];
 
+/** One quoted furniture line. Colors and materials are the fixed tags, not the original text. */
+export interface QuoteItemTrait {
+  category: string;
+  colors: string[];
+  materials: string[];
+}
+
+/** A selected 類別 and optional 分類, color and material. */
+export interface QuoteReferenceFurnitureGroup {
+  scope: string;
+  classification: string;
+  colors: string[];
+  materials: string[];
+}
+
 export interface QuoteReferenceCandidate {
   id: string;
   quoteId: string;
@@ -45,6 +63,7 @@ export interface QuoteReferenceCandidate {
   totalAmount: number | null;
   createdAt: string | null;
   pitchingId: string | null;
+  projectName?: string | null;
   industries: string[];
   scopes: string[];
   grades: string[];
@@ -56,10 +75,11 @@ export interface QuoteReferenceCandidate {
   size1600: number;
   sizeGe2000: number;
   customerType: string | null;
+  itemTraits?: QuoteItemTrait[];
 }
 
 export interface QuoteReferenceQuery {
-  categories: string[];
+  furnitureGroups: QuoteReferenceFurnitureGroup[];
   amountBandId: string;
   sizeBandId: string | null;
   industries: string[];
@@ -80,10 +100,10 @@ export interface QuoteReferenceTag {
 
 export interface QuoteReferenceMatch {
   candidate: QuoteReferenceCandidate;
-  /** 0–100, earned weight divided by the weight of factors both sides recorded. */
+  /** Display percentage, with 100 reserved for a complete match. */
   score: number;
-  earned: number;
-  applicable: number;
+  completeGroups: number;
+  totalGroups: number;
   tags: QuoteReferenceTag[];
 }
 
@@ -117,6 +137,41 @@ function exactKey(value: string): string {
   return value.trim();
 }
 
+function traitKey(value: string): string {
+  return value.trim().toLocaleLowerCase('zh-Hant');
+}
+
+function specificationStatus(selected: string[], values: string[]): FactorKind {
+  const recorded = uniqueKeys(values, traitKey);
+  if (!recorded.length) return 'unknown';
+  return recorded.some((value) => selected.includes(value)) ? 'match' : 'mismatch';
+}
+
+function bestSpecificationMatch(traits: QuoteItemTrait[], group: QuoteReferenceFurnitureGroup) {
+  const colors = uniqueKeys(group.colors, traitKey);
+  const materials = uniqueKeys(group.materials, traitKey);
+  const colorWeight = colors.length ? COLOR_WEIGHT : 0;
+  const materialWeight = materials.length ? MATERIAL_WEIGHT : 0;
+  if (colorWeight + materialWeight === 0) return { points: 100, checks: [] };
+
+  let best: { earned: number; recorded: number; checks: Array<{ name: string; kind: FactorKind; weight: number }> } | undefined;
+  for (const trait of traits) {
+    const checks: Array<{ name: string; kind: FactorKind; weight: number }> = [];
+    if (colorWeight) checks.push({ name: '顏色', kind: specificationStatus(colors, trait.colors), weight: colorWeight });
+    if (materialWeight) checks.push({ name: '材質', kind: specificationStatus(materials, trait.materials), weight: materialWeight });
+    const earned = checks.reduce((sum, check) => sum + (check.kind === 'match' ? check.weight : 0), CLASSIFICATION_WEIGHT);
+    const recorded = checks.filter((check) => check.kind !== 'unknown').length;
+    if (!best || earned > best.earned || (earned === best.earned && recorded > best.recorded)) {
+      best = { earned, recorded, checks };
+    }
+  }
+  const possible = CLASSIFICATION_WEIGHT + colorWeight + materialWeight;
+  return {
+    points: ((best?.earned ?? 0) / possible) * 100,
+    checks: best?.checks ?? [],
+  };
+}
+
 function coverage(selected: string[], candidate: string[], keyOf: (value: string) => string): {
   hit: number;
   asked: number;
@@ -146,12 +201,16 @@ function sizeCount(candidate: QuoteReferenceCandidate, bandId: string): number |
   }
 }
 
-function tag(key: string, name: string, kind: FactorKind): QuoteReferenceTag {
+function statusLabel(name: string, kind: FactorKind): string {
   const suffix =
     kind === 'match' ? '相符' : kind === 'partial' ? '部分相符' : kind === 'mismatch' ? '不符' : '未記錄';
+  return `${name} ${suffix}`;
+}
+
+function tag(key: string, name: string, kind: FactorKind): QuoteReferenceTag {
   return {
     key,
-    label: `${name} ${suffix}`,
+    label: statusLabel(name, kind),
     tone: kind === 'match' ? 'teal' : kind === 'unknown' ? 'slate' : 'amber',
   };
 }
@@ -162,129 +221,147 @@ function ratioKind(ratio: number): FactorKind {
   return 'mismatch';
 }
 
-interface ScoreParts {
-  earned: number;
-  applicable: number;
-  tags: QuoteReferenceTag[];
-  excluded: boolean;
-}
-
-function scoreCandidate(candidate: QuoteReferenceCandidate, query: QuoteReferenceQuery): ScoreParts {
+function scoreCandidate(
+  candidate: QuoteReferenceCandidate,
+  query: QuoteReferenceQuery,
+  groups: QuoteReferenceFurnitureGroup[],
+): QuoteReferenceMatch | null {
   const tags: QuoteReferenceTag[] = [];
+  const amountBand = QUOTE_AMOUNT_BANDS.find((band) => band.id === query.amountBandId) ?? null;
+  if (amountBand && !valueInBand(candidate.totalAmount, amountBand)) return null;
+  const industries = coverage(query.industries, candidate.industries, industryKey);
+  if (query.industryHard && industries.asked > 0 && industries.hit === 0) return null;
+
+  const scopes = new Set(candidate.scopes.map(exactKey));
+  let furniturePoints = 0;
+  let completeGroups = 0;
+  for (const [index, group] of groups.entries()) {
+    const key = `furnitureGroup-${index}`;
+    const name = group.classification || group.scope;
+    if (!scopes.has(group.scope)) {
+      tags.push(tag(key, name, 'mismatch'));
+      continue;
+    }
+    if (!group.classification) {
+      furniturePoints += 100;
+      completeGroups += 1;
+      tags.push(tag(key, name, 'match'));
+      continue;
+    }
+    const classification = traitKey(group.classification);
+    const matchingItems = (candidate.itemTraits ?? []).filter((item) => traitKey(item.category) === classification);
+    if (matchingItems.length === 0) {
+      tags.push(tag(key, name, 'mismatch'));
+      continue;
+    }
+    const specs = bestSpecificationMatch(matchingItems, group);
+    furniturePoints += specs.points;
+    if (specs.points === 100) completeGroups += 1;
+    tags.push({
+      key,
+      label: [statusLabel(name, 'match'), ...specs.checks.map((check) => statusLabel(check.name, check.kind))].join(' · '),
+      tone: specs.points === 100 ? 'teal' : 'amber',
+    });
+  }
+  if (furniturePoints === 0) return null;
+
+  if (amountBand) tags.push(tag('amount', '金額', 'match'));
   let earned = 0;
   let applicable = 0;
 
-  const categories = coverage(query.categories, candidate.scopes, exactKey);
-  if (categories.asked === 0 || categories.hit === 0) {
-    return { earned: 0, applicable: 0, tags, excluded: true };
-  }
-  const categoryRatio = categories.hit / categories.asked;
-  earned += categoryRatio * QUOTE_REFERENCE_WEIGHTS.category;
-  applicable += QUOTE_REFERENCE_WEIGHTS.category;
-  tags.push(tag('category', '類別', ratioKind(categoryRatio)));
-
-  const amountBand = QUOTE_AMOUNT_BANDS.find((band) => band.id === query.amountBandId) ?? null;
-  if (!valueInBand(candidate.totalAmount, amountBand)) {
-    return { earned: 0, applicable: 0, tags, excluded: true };
-  }
-  tags.push(tag('amount', '金額', 'match'));
-
   const sizeBandId = query.sizeBandId?.trim() || '';
   if (sizeBandId) {
+    applicable += PROJECT_WEIGHTS.size;
     const matched = sizeCount(candidate, sizeBandId);
     if (matched == null) {
       tags.push(tag('size', '尺寸', 'unknown'));
     } else {
       const ratio = matched / candidate.sizedItemCount;
-      earned += ratio * QUOTE_REFERENCE_WEIGHTS.size;
-      applicable += QUOTE_REFERENCE_WEIGHTS.size;
+      earned += ratio * PROJECT_WEIGHTS.size;
       tags.push(tag('size', '尺寸', ratioKind(ratio)));
     }
   }
 
-  const industries = coverage(query.industries, candidate.industries, industryKey);
   if (industries.asked > 0) {
     const candidateKeys = uniqueKeys(candidate.industries, industryKey);
-    if (query.industryHard && (candidateKeys.length === 0 || industries.hit === 0)) {
-      return { earned: 0, applicable: 0, tags, excluded: true };
+    const ratio = industries.hit / industries.asked;
+    if (!query.industryHard) {
+      applicable += PROJECT_WEIGHTS.industry;
+      earned += ratio * PROJECT_WEIGHTS.industry;
     }
     if (candidateKeys.length === 0) {
       tags.push(tag('industry', '產業', 'unknown'));
     } else {
-      const ratio = industries.hit / industries.asked;
-      earned += ratio * QUOTE_REFERENCE_WEIGHTS.industry;
-      applicable += QUOTE_REFERENCE_WEIGHTS.industry;
       tags.push(tag('industry', '產業', ratioKind(ratio)));
     }
   }
 
   const customerType = query.customerType?.trim() || '';
   if (customerType) {
+    applicable += PROJECT_WEIGHTS.customerType;
     const historical = candidate.customerType?.trim() || '';
     if (!historical) {
       tags.push(tag('customerType', '客戶類型', 'unknown'));
     } else if (historical === customerType) {
-      earned += QUOTE_REFERENCE_WEIGHTS.customerType;
-      applicable += QUOTE_REFERENCE_WEIGHTS.customerType;
+      earned += PROJECT_WEIGHTS.customerType;
       tags.push(tag('customerType', '客戶類型', 'match'));
     } else {
-      applicable += QUOTE_REFERENCE_WEIGHTS.customerType;
       tags.push(tag('customerType', '客戶類型', 'mismatch'));
     }
   }
 
   const grade = query.grade?.trim() || '';
   if (grade) {
+    applicable += PROJECT_WEIGHTS.grade;
     const historical = uniqueKeys(candidate.grades, exactKey);
     if (historical.length === 0) {
       tags.push(tag('grade', '級別', 'unknown'));
     } else if (historical.includes(grade)) {
-      earned += QUOTE_REFERENCE_WEIGHTS.grade;
-      applicable += QUOTE_REFERENCE_WEIGHTS.grade;
+      earned += PROJECT_WEIGHTS.grade;
       tags.push(tag('grade', '級別', 'match'));
     } else {
-      applicable += QUOTE_REFERENCE_WEIGHTS.grade;
       tags.push(tag('grade', '級別', 'mismatch'));
     }
   }
 
   const workPeriod = query.workPeriod?.trim() || '';
   if (workPeriod) {
+    applicable += PROJECT_WEIGHTS.leadTime;
     const historical = candidate.workPeriod?.trim() || '';
     if (!historical) {
       tags.push(tag('leadTime', '工期', 'unknown'));
     } else if (historical === workPeriod) {
-      earned += QUOTE_REFERENCE_WEIGHTS.leadTime;
-      applicable += QUOTE_REFERENCE_WEIGHTS.leadTime;
+      earned += PROJECT_WEIGHTS.leadTime;
       tags.push(tag('leadTime', '工期', 'match'));
     } else {
-      applicable += QUOTE_REFERENCE_WEIGHTS.leadTime;
       tags.push(tag('leadTime', '工期', 'mismatch'));
     }
   }
 
-  return { earned, applicable, tags, excluded: false };
+  const projectRatio = applicable > 0 ? earned / applicable : 1;
+  const score = (furniturePoints / groups.length) * (1 - PROJECT_WEIGHT * (1 - projectRatio));
+  return { candidate, score, completeGroups, totalGroups: groups.length, tags };
 }
 
 export function matchQuoteReferences(
   candidates: QuoteReferenceCandidate[],
   query: QuoteReferenceQuery,
 ): QuoteReferenceMatch[] {
+  const groupsBySelection = new Map<string, QuoteReferenceFurnitureGroup>();
+  for (const group of query.furnitureGroups) {
+    const scope = group.scope.trim();
+    const classification = group.classification.trim();
+    if (!scope) continue;
+    groupsBySelection.set(JSON.stringify([scope, classification]), { ...group, scope, classification });
+  }
+  const groups = [...groupsBySelection.values()];
   const excludeId = query.excludeQuoteId?.trim() || '';
   const matches: QuoteReferenceMatch[] = [];
   for (const candidate of candidates) {
     if (excludeId && candidate.id === excludeId) continue;
     if (candidate.itemCount <= 0) continue;
-    const scored = scoreCandidate(candidate, query);
-    if (scored.excluded || scored.applicable <= 0) continue;
-    const score = Math.round((scored.earned / scored.applicable) * 100);
-    matches.push({
-      candidate,
-      score,
-      earned: scored.earned,
-      applicable: scored.applicable,
-      tags: scored.tags,
-    });
+    const scored = scoreCandidate(candidate, query, groups);
+    if (scored) matches.push(scored);
   }
   matches.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
@@ -293,5 +370,8 @@ export function matchQuoteReferences(
     if (bTime !== aTime) return bTime - aTime;
     return a.candidate.id.localeCompare(b.candidate.id);
   });
-  return matches;
+  return matches.map((match) => ({
+    ...match,
+    score: match.score === 100 ? 100 : Math.min(99, Math.round(match.score)),
+  }));
 }

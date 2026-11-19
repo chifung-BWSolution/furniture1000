@@ -24,12 +24,6 @@ function legacyPmQuoteEmailFooter(name: string, workPhone: string): QuoteEmailFo
 
 export const DEFAULT_QUOTE_EMAIL_BCC = "sale@bwteam-furniture.com";
 
-const phoneLabels = {
-  "zh-Hant": "電話：",
-  "zh-Hans": "电话：",
-  en: "Tel: ",
-} as const;
-
 const ROLE_LINE = /^(?:項目經理｜|项目经理｜|Project Manager \| )/;
 const PHONE_LINE = /^(?:電話：|电话：|Tel:\s*|mobile\s+|direct\s+)(.+)$/i;
 
@@ -99,16 +93,44 @@ export function splitQuoteEmailClosing(body: string, name: string): { phone: str
   };
 }
 
+function phoneNumbers(value: string): string[] {
+  return value.split(/[/／\n]/).map((part) => part.replace(/^(?:mobile|direct|電話：|电话：|Tel:)\s*/i, "").trim()).filter(Boolean);
+}
+
+function samePhoneSet(left: string, right: string): boolean {
+  const digits = (value: string) => phoneNumbers(value).map((part) => part.replace(/\D/g, "")).filter(Boolean).sort().join(",");
+  const key = digits(left);
+  return key !== "" && key === digits(right);
+}
+
+/** Email signatures list the mobile line, then the direct line. */
+export function signaturePhoneLines(name: string, phone: string): string[] {
+  const raw = phone.trim();
+  if (!raw) return [];
+  const labeled = raw.split(/\n/).map((line) => line.trim()).filter((line) => /^(?:mobile|direct)\s/i.test(line));
+  if (labeled.length) {
+    return labeled.map((line) => line.replace(/^(mobile|direct)\s+/i, (_, label: string) => label.toLowerCase() + " "));
+  }
+  const mapped = resolveQuoteCompanyPhone({ name }) ?? "";
+  const canonical = mapped && samePhoneSet(mapped, raw) ? mapped : raw;
+  const parts = phoneNumbers(canonical);
+  if (parts.length >= 2) {
+    const [direct, mobile] = parts;
+    return [`mobile ${mobile}`, `direct ${direct}`];
+  }
+  return parts.length === 1 ? [`mobile ${parts[0]}`] : [];
+}
+
 export function presentQuoteEmailSignature(input: {
   name: string;
   phone: string;
   body: string;
-  locale: keyof typeof phoneLabels;
+  locale?: string;
 }): string {
   const name = input.name.trim();
   const split = splitQuoteEmailClosing(input.body, name);
   const phone = input.phone.trim() || split.phone;
-  const head = [name, phone ? phoneLabels[input.locale] + phone : ""].filter(Boolean).join("\n");
+  const head = [name, ...signaturePhoneLines(name, phone)].filter(Boolean).join("\n");
   if (!head) return split.closing;
   if (!split.closing) return head;
   return `${head}\n${split.closing}`;

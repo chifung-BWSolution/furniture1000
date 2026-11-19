@@ -17,14 +17,19 @@ test("renders the branded quote-view email with logo and company footer", () => 
   const message = buildQuoteViewEmail({
     quoteId: QUOTE_ID,
     viewedAtIso: VIEWED_AT,
+    pmName: "陳大文",
+    quoteUrl: `https://www.bwteam-furniture.com/quote/${QUOTE_ID}`,
   });
   const plainHtml = message.html.replace(/<wbr>/g, "");
+  const title = `【陳大文】${QUOTE_ID} 客戶已查看報價`;
 
-  assert.equal(message.subject, `客戶已查看報價：${QUOTE_ID}`);
-  assert.match(message.html, /客戶已查看報價/);
-  assert.match(message.html, /您的報價單已被客戶開啟，系統已自動停用該報價的進度提醒。/);
+  assert.equal(message.subject, title);
+  assert.match(message.html, new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(message.html, /Dear 同事 陳大文，/);
+  assert.match(message.html, /客戶已開啟這張報價。系統已停止這張報價的進度提醒，其他報價不受影響。/);
   assert.match(plainHtml, new RegExp(QUOTE_ID));
   assert.match(plainHtml, /2026-10-29 06:04 \(GMT\+8\)/);
+  assert.match(plainHtml, /開啟報價/);
   assert.match(plainHtml, new RegExp(LOGO_URL.replace(/\./g, "\\.")));
   assert.match(plainHtml, /Room D-G, 5\/F, Wah Lik Industrial Centre/);
   assert.match(plainHtml, /459-469 Castle Peak Road/);
@@ -32,7 +37,8 @@ test("renders the branded quote-view email with logo and company footer", () => 
   assert.match(plainHtml, /電話：\(\+852\) 2127 4839/);
   assert.match(plainHtml, /手機 WhatsApp: \(\+852\) 9717 3545/);
   assert.match(plainHtml, /sales@brandingworks-furniture\.com/);
-  assert.match(plainHtml, /此為系統自動發送的通知郵件，請勿回覆。/);
+  assert.match(plainHtml, /這是系統通知，請勿回覆。/);
+  assert.match(message.text, /Dear 同事 陳大文，/);
 });
 
 test("escapes quote ids before injecting them into HTML", () => {
@@ -43,4 +49,6 @@ test("escapes quote ids before injecting them into HTML", () => {
   assert.doesNotMatch(message.html, /<script>/);
   assert.match(message.html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
   assert.match(message.text, /報價編號：<script>alert\("x"\)<\/script>/);
+  assert.match(message.subject, /【同事】/);
+  assert.match(message.html, /Dear 同事，/);
 });

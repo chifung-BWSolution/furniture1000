@@ -142,6 +142,47 @@ export function templateById(id: PhotoTemplateId) {
   return PHOTO_TEMPLATES.find((template) => template.id === id) ?? PHOTO_TEMPLATES[0];
 }
 
+const PHOTO_TEMPLATE_EN: Record<PhotoTemplateId, { name: string; countLabel: string }> = {
+  L18: { name: "Full page, one photo", countLabel: "1 photo" },
+  L20: { name: "Full page, two photos", countLabel: "2 photos" },
+  L19: { name: "Half page, one photo", countLabel: "1 photo" },
+  L21: { name: "Half page, two photos", countLabel: "2 photos" },
+  L01: { name: "One large photo", countLabel: "1 photo" },
+  L02: { name: "Two side by side", countLabel: "2 photos" },
+  L03: { name: "Main + 2 small", countLabel: "3 photos" },
+  L04: { name: "4-up grid", countLabel: "4 photos" },
+  L05: { name: "Photo with text", countLabel: "1 photo" },
+  L06: { name: "Mixed layout", countLabel: "5 photos" },
+  L07: { name: "Three in a row", countLabel: "3 photos" },
+  L08: { name: "Two stacked", countLabel: "2 photos" },
+  L13: { name: "Large left, small right", countLabel: "2 photos" },
+  L14: { name: "Small left, large right", countLabel: "2 photos" },
+  L09: { name: "Main above, two below", countLabel: "3 photos" },
+  L10: { name: "Main + 3 small", countLabel: "4 photos" },
+  L11: { name: "6-up grid", countLabel: "6 photos" },
+  L12: { name: "Continuous grid", countLabel: "3–12 photos" },
+  L15: { name: "Main right + 2 small", countLabel: "3 photos" },
+  L16: { name: "Two above, main below", countLabel: "3 photos" },
+  L17: { name: "Main above, three below", countLabel: "4 photos" },
+};
+
+const PHOTO_RATIO_EN: Record<PhotoRatio, string> = {
+  "1:1": "Square",
+  "3:4": "Portrait",
+  "4:3": "Landscape",
+  "16:9": "Widescreen",
+  "9:16": "Tall",
+};
+
+export function photoTemplateText(id: PhotoTemplateId, locale: "zh" | "en" = "zh") {
+  const template = templateById(id);
+  return locale === "en" ? PHOTO_TEMPLATE_EN[template.id] : { name: template.name, countLabel: template.countLabel };
+}
+
+export function photoRatioLabel(ratio: PhotoRatio, locale: "zh" | "en" = "zh") {
+  return locale === "en" ? PHOTO_RATIO_EN[ratio] : PHOTO_RATIO_LABELS[ratio];
+}
+
 /** Slot ids for the continuous grid. */
 export function gridSlotId(index: number) {
   return `g${index + 1}`;

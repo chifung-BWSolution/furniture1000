@@ -38,6 +38,8 @@ interface PmsPitchingGateProps {
   onSelect: (item: PmsPitchingListItem) => void;
   title?: string;
   subtitle?: string;
+  /** Replaces the default “點擊任一列即可開始報價”. */
+  rowHint?: string;
 }
 
 type SortKey =
@@ -65,7 +67,7 @@ function staffLabel(item: PmsPitchingListItem): string {
  * Pitching picker for 傢俬報價的快速報價.
  * Overlays 預計收入／毛利 from `bwf_quote`. PM報價 pages must not use this component.
  */
-export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGateProps) {
+export function PmsPitchingGate({ onSelect, title, subtitle, rowHint }: PmsPitchingGateProps) {
   const [search, setSearch] = useState('');
   const [items, setItems] = useState<PmsPitchingListItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -212,7 +214,7 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
       <ListTableCard
         footer={
           !loading && sortedItems.length > 0
-            ? `第 ${currentPage} 頁 · ${hasMore ? '還有更多結果' : '已到最後一頁'} · 點擊任一列即可開始報價`
+            ? `第 ${currentPage} 頁 · ${hasMore ? '還有更多結果' : '已到最後一頁'} · ${rowHint || '點擊任一列即可開始報價'}`
             : null
         }
       >

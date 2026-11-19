@@ -232,7 +232,7 @@ export function QuoteEmailSettingsView() {
         onOpenChange={(open) => { if (!open && !busy) setDraft(null); }}
         title="寄件人資料"
         description={draft?.pm_name}
-        size="lg"
+        size="5xl"
         footer={
           <>
             <Button type="button" variant="outline" disabled={busy} onClick={() => setDraft(null)}>關閉</Button>
@@ -245,8 +245,8 @@ export function QuoteEmailSettingsView() {
         }
       >
         {draft && (
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-x-6 gap-y-4 lg:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
               <div className="space-y-1.5 text-sm">
                 <label className="font-medium" htmlFor="quote-email-sender-name">姓名</label>
                 <Input
@@ -274,31 +274,29 @@ export function QuoteEmailSettingsView() {
                 />
               </div>
             </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="space-y-1.5 text-sm">
-                <label className="font-medium" htmlFor="quote-email-footer">下款</label>
-                <Textarea
-                  id="quote-email-footer"
-                  value={draft.body_zh_hant}
-                  rows={10}
-                  maxLength={2000}
-                  readOnly={!canEdit || busy}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setDraft((current) => current ? { ...current, body_zh_hant: value } : current);
-                  }}
-                />
-              </div>
-              <div className="space-y-1.5 text-sm">
-                <p className="font-medium">合成後</p>
-                <div className="min-h-40 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 leading-6">
-                  {presentQuoteEmailSignature({
-                    name: draft.sender_name,
-                    phone: draft.phone,
-                    body: draft.body_zh_hant,
-                    locale: 'zh-Hant',
-                  }) || '填寫姓名、電話或下款後，這裡會顯示客戶看到的內容。'}
-                </div>
+            <div className="flex flex-col gap-1.5 text-sm">
+              <label className="font-medium" htmlFor="quote-email-footer">下款</label>
+              <Textarea
+                id="quote-email-footer"
+                value={draft.body_zh_hant}
+                maxLength={2000}
+                readOnly={!canEdit || busy}
+                className="h-80 resize-none"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setDraft((current) => current ? { ...current, body_zh_hant: value } : current);
+                }}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5 text-sm">
+              <p className="font-medium">合成後</p>
+              <div className="h-80 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 leading-6">
+                {presentQuoteEmailSignature({
+                  name: draft.sender_name,
+                  phone: draft.phone,
+                  body: draft.body_zh_hant,
+                  locale: 'zh-Hant',
+                }) || '填寫姓名、電話或下款後，這裡會顯示客戶看到的內容。'}
               </div>
             </div>
           </div>

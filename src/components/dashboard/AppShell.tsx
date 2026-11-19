@@ -61,6 +61,7 @@ import {
   factoryCodeFromPath,
   isAppSectionPath,
   pathFromAppView,
+  rfqIdFromPath,
 } from "@/lib/appSectionRoutes";
 import { SidebarNav } from "./SidebarNav";
 import { PrimaryTopNav } from "./PrimaryTopNav";
@@ -72,7 +73,7 @@ import { PublishModal } from "./PublishModal";
 import { FurnitureGroupCheckView } from "./publish/FurnitureGroupCheckView";
 import { ReadyToPublishView } from "./publish/ReadyToPublishView";
 import { Construction, WifiOff, RefreshCw } from "lucide-react";
-import { findSection, isAdminOnlyView, getFirstVisibleView, getViewMeta, isSitemapPlaceholderView, implementedPage, isImplementedLegacyView, isSolutionPageInQuote, isPmBlockedQuoteView, QUOTE_EMAIL_SETTINGS_ROLES } from "./navConfig";
+import { findSection, isAdminOnlyView, getFirstVisibleView, getViewMeta, isSitemapPlaceholderView, isDirectImplementedView, implementedPage, isImplementedLegacyView, isSolutionPageInQuote, isPmBlockedQuoteView, QUOTE_EMAIL_SETTINGS_ROLES } from "./navConfig";
 import { PlannedPage } from "./PlannedPage";
 import { type PrimarySection, type ViewType } from "@/types/product";
 import { addToCatalog } from "@/lib/catalogStore";
@@ -268,6 +269,18 @@ const FactoryZonesView = lazy(() =>
 const FactoryLoginView = lazy(() =>
   import("./FactoryLoginView").then((mod) => ({ default: mod.FactoryLoginView }))
 );
+const RfqListView = lazy(() =>
+  import("./RfqListView").then((mod) => ({ default: mod.RfqListView }))
+);
+const RfqEditorView = lazy(() =>
+  import("./RfqEditorView").then((mod) => ({ default: mod.RfqEditorView }))
+);
+const RfqDetailView = lazy(() =>
+  import("./RfqDetailView").then((mod) => ({ default: mod.RfqDetailView }))
+);
+const SupplierPortalView = lazy(() =>
+  import("@/components/supplier/SupplierPortal").then((mod) => ({ default: mod.SupplierPortal }))
+);
 const UsageStatsView = lazy(() =>
   import("./admin/UsageStatsView").then((mod) => ({ default: mod.UsageStatsView }))
 );
@@ -280,6 +293,9 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "product-catalog",
   "manufacturer-catalog",
   "factory-detail",
+  "fds2-procurement-rfqs",
+  "fds2-procurement-rfq-new",
+  "fds2-procurement-rfq-detail",
   "category-management",
   "category-registry",
   // Quote routes must render on refresh even while the product catalog is still loading.
@@ -319,6 +335,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-quote-format",
   "fds2-quote-email-settings",
   "fds2-quote-photos",
+  "fds2-quote-reference",
   "fds2-admin-email",
   "fds2-admin-usage",
   "fds2-cases-orders",
@@ -452,13 +469,11 @@ function AppShellContent() {
 
   useEffect(() => {
     if (roleLoading || !isSupplier) return;
-    if (store.currentView !== 'fds2-factory-login') {
-      store.setCurrentView('fds2-factory-login');
+    const supplierPath = location.pathname.replace(/\/+$/, '');
+    if (supplierPath !== '/fds/supplier' && !supplierPath.startsWith('/fds/supplier/')) {
+      navigate('/fds/supplier', { replace: true });
     }
-    if (location.pathname !== '/fds/factories/login') {
-      navigate('/fds/factories/login', { replace: true });
-    }
-  }, [roleLoading, isSupplier, store, location.pathname, navigate]);
+  }, [roleLoading, isSupplier, location.pathname, navigate]);
 
   useEffect(() => {
     if (!quoteShareToken || isStaffAccount) return;
@@ -568,6 +583,7 @@ function AppShellContent() {
       store.currentView !== 'dashboard' &&
       store.currentView !== 'factory-detail' &&
       store.currentView !== 'ai-processor' &&
+      !isDirectImplementedView(store.currentView) &&
       !isSitemapPlaceholderView(store.currentView) &&
       !isImplementedLegacyView(store.currentView) &&
       !implementedPage(store.currentView) &&
@@ -876,6 +892,8 @@ function AppShellContent() {
       lastSyncedLocationRef.current = incomingLocation;
       return;
     }
+    // The supplier portal owns its own /fds/supplier/* URLs; never rewrite them from currentView.
+    if (isSupplier) return;
     let target: string | null = null;
     const token =
       new URLSearchParams(location.search).get('portal_token') ||
@@ -942,6 +960,11 @@ function AppShellContent() {
       factoryCodeFromPath(location.pathname)
     ) {
       // Factory detail owns /fds/factories/:code inside the shell.
+    } else if (
+      store.currentView === 'fds2-procurement-rfq-detail' &&
+      rfqIdFromPath(location.pathname)
+    ) {
+      // RFQ detail owns /fds/procurement/rfqs/:id inside the shell.
     } else {
       const sectionPath = pathFromAppView(store.currentView);
       if (sectionPath) {
@@ -984,6 +1007,7 @@ function AppShellContent() {
     quoteShareGuestActive,
     isStaffAccount,
     invitePortalActive,
+    isSupplier,
   ]);
   // 方案 D: Supabase health monitoring (warning only — never treat the site as down)
   const [dbUnhealthy, setDbUnhealthy] = useState(false);
@@ -1141,6 +1165,18 @@ function AppShellContent() {
     }
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;
     if (store.currentView === 'fds2-quote-photos') return <QuotePhotoLibraryView />;
+    if (store.currentView === 'fds2-quote-reference') {
+      return (
+        <QuickQuoteView
+          key="quote-reference"
+          entry="reference"
+          onEditingQuotePersisted={(quoteId, quoteUuid, version) => {
+            store.setCurrentView('quick-quote');
+            handleEditingQuotePersisted(quoteId, quoteUuid, version);
+          }}
+        />
+      );
+    }
     if (store.currentView === 'fds2-admin-email') return <EmailNotificationsView />;
     if (store.currentView === 'fds2-admin-skp-workers') return <SkpWorkersView />;
     if (store.currentView === 'fds2-cases-orders') return <CaseOrdersView />;
@@ -1149,6 +1185,9 @@ function AppShellContent() {
     if (store.currentView === 'fds2-factory-zones') return <FactoryZonesView />;
     if (store.currentView === 'fds2-quote-report') return <ProductReportView />;
     if (store.currentView === 'fds2-factory-login') return <FactoryLoginView />;
+    if (store.currentView === 'fds2-procurement-rfqs') return <RfqListView />;
+    if (store.currentView === 'fds2-procurement-rfq-new') return <RfqEditorView mode="create" />;
+    if (store.currentView === 'fds2-procurement-rfq-detail') return <RfqDetailView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
@@ -1596,6 +1635,24 @@ function AppShellContent() {
     });
     if (target) handleViewChange(target);
   };
+
+  // Suppliers get their own portal chrome. They must never see the internal
+  // top navigation, 廠家目錄 sidebar, 產品管理, 分析報表 or 系統設定.
+  if (!roleLoading && isSupplier) {
+    return (
+      <ConfirmProvider>
+        <Suspense
+          fallback={
+            <div className="grid h-screen place-items-center text-sm text-muted-foreground">
+              載入廠家專區…
+            </div>
+          }
+        >
+          <SupplierPortalView />
+        </Suspense>
+      </ConfirmProvider>
+    );
+  }
 
   return (
     <ConfirmProvider>

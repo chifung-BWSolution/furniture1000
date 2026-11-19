@@ -2,10 +2,10 @@ import {
   Users, Calculator, Package, Globe, BarChart3, Settings as SettingsIcon,
   LayoutDashboard, Search, PenTool, Boxes, BookOpen, FileText, FileUp,
   Sofa, BadgeDollarSign, Sparkles, Wallet, Images, Star, Trash2,
-  BookOpenText, ListChecks, Gauge,
+  BookOpenText, ListChecks, Gauge, Copy,
   Building2, BarChart2, Map, LogIn, Mail, FolderTree, History,
   UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film, Monitor,
-  Briefcase, Phone, Landmark, Heart, Combine, Presentation,
+  Briefcase, Phone, Landmark, Heart, Combine, Presentation, ShoppingCart,
   type LucideIcon,
 } from 'lucide-react';
 import { type PrimarySection, type ViewType } from '@/types/product';
@@ -32,6 +32,8 @@ export interface PrimaryItem {
   label: string;
   icon: LucideIcon;
   children: SecondaryItem[];
+  /** When set, the whole section is visible only to these platform roles. */
+  visibleTo?: readonly string[];
 }
 
 /** Roles that can open SKP Worker and approve or revoke a computer. */
@@ -102,9 +104,10 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '傢俬報價',
     icon: Calculator,
     children: [
-      { view: 'fds2-quote-quick', label: '快速報價', icon: Calculator },
-      { view: 'fds2-quote-common', label: '常用傢俬', icon: Heart },
       { view: 'fds2-quote-list', label: '報價一覽', icon: ClipboardList },
+      { view: 'fds2-quote-quick', label: '快速報價', icon: Calculator },
+      { view: 'fds2-quote-reference', label: '報價參考分析', icon: Copy },
+      { view: 'fds2-quote-common', label: '常用傢俬', icon: Heart },
       { view: 'fds2-quote-large', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
       { view: 'fds2-quote-trash', label: '報價回收桶', icon: Trash2, pinned: true },
       { view: 'fds2-quote-format', label: '報價單格式設定', icon: FileText },
@@ -117,10 +120,21 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '廠家目錄',
     icon: Building2,
     children: [
+      { view: 'fds2-factory-login', label: '邀請廠家', icon: LogIn },
       { view: 'fds2-products-factories', label: '廠家目錄', icon: BookOpen },
       { view: 'fds2-factory-sales', label: '銷售表現', icon: BarChart2 },
       { view: 'fds2-factory-zones', label: '廠家分區', icon: Map, hidden: true },
-      { view: 'fds2-factory-login', label: '廠家登入', icon: LogIn, hidden: true },
+    ],
+  },
+  {
+    id: 'procurement',
+    label: '採購',
+    icon: ShoppingCart,
+    visibleTo: ['admin', 'uploader', 'pm'],
+    children: [
+      { view: 'fds2-procurement-rfqs', label: 'RFQ 採購', icon: ClipboardList },
+      { view: 'fds2-procurement-rfq-new', label: '建立 RFQ', icon: FileUp, hidden: true },
+      { view: 'fds2-procurement-rfq-detail', label: 'RFQ 詳情', icon: FileText, hidden: true },
     ],
   },
   {
@@ -329,6 +343,10 @@ export function isPmBlockedQuoteView(view: ViewType): boolean {
  */
 const NAV_ACTIVE_EQUIVALENTS: Partial<Record<ViewType, readonly ViewType[]>> = {
   'fds2-pm-budget': ['fds2-pm-quick'],
+  'fds2-procurement-rfqs': [
+    'fds2-procurement-rfq-new',
+    'fds2-procurement-rfq-detail',
+  ],
 };
 
 export function navItemIsActive(itemView: ViewType, currentView: ViewType): boolean {
@@ -338,7 +356,21 @@ export function navItemIsActive(itemView: ViewType, currentView: ViewType): bool
   return legacy !== null && legacy === currentView;
 }
 
+/** FDS 2.0 views implemented directly, not as a placeholder and not a legacy redirect. */
+const DIRECT_IMPLEMENTED_VIEWS = new Set<ViewType>([
+  'fds2-quote-reference',
+  'fds2-quote-email-settings',
+  'fds2-procurement-rfqs',
+  'fds2-procurement-rfq-new',
+  'fds2-procurement-rfq-detail',
+]);
+
+export function isDirectImplementedView(view: ViewType): boolean {
+  return DIRECT_IMPLEMENTED_VIEWS.has(view);
+}
+
 export function isSitemapPlaceholderView(view: ViewType): boolean {
+  if (isDirectImplementedView(view)) return false;
   return view.startsWith('fds2-') && LEGACY_BY_SITEMAP[view] == null;
 }
 

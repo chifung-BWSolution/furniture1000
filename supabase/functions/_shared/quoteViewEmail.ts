@@ -3,18 +3,24 @@
  */
 
 import {
-  breakableQuoteId,
   companyFooterText,
   EMAIL_FONT_STACK,
   renderBrandedEmail,
+  renderCtaButton,
   renderDetailBox,
 } from "./brandedEmail.ts";
+import { escapeHtml } from "./escapeHtml.ts";
+import { pmNoticeGreeting, pmNoticeTitle } from "./quotePmNotice.ts";
 
 export interface QuoteViewEmailInput {
   /** Quotation number shown in the subject and detail table. */
   quoteId: string;
   /** Raw `viewed_at` timestamp from `bwf_quote_share_view`. */
   viewedAtIso: string;
+  /** Quote owner. The subject and greeting use this name. */
+  pmName?: string | null;
+  /** Staff quote editor. Omitted when the app URL is not configured. */
+  quoteUrl?: string | null;
 }
 
 export interface BuiltEmail {
@@ -40,46 +46,51 @@ export function formatHongKongTime(value: string): string {
   return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")} (GMT+8)`;
 }
 
+const VIEW_ACTION = "客戶已查看報價";
+const VIEW_BODY = "客戶已開啟這張報價。系統已停止這張報價的進度提醒，其他報價不受影響。";
+
 export function buildQuoteViewEmail(input: QuoteViewEmailInput): BuiltEmail {
   const quoteId = String(input.quoteId ?? "").trim() || "未命名報價";
   const viewedAt = formatHongKongTime(String(input.viewedAtIso ?? ""));
-  const subject = `客戶已查看報價：${quoteId}`;
-  const subheading = "您的報價單已被客戶開啟，系統已自動停用該報價的進度提醒。";
+  const quoteUrl = String(input.quoteUrl ?? "").trim();
+  const greeting = pmNoticeGreeting(input.pmName);
+  const title = pmNoticeTitle(input.pmName, quoteId, VIEW_ACTION);
 
   const text = [
-    subheading,
+    greeting,
     "",
-    `報價單 ${quoteId} 已於以下時間被客戶查看，`,
-    "我們已自動停止針對該報價的後續進度提醒，其他報價單的提醒設定不受影響。",
+    VIEW_BODY,
     "",
     `報價編號：${quoteId}`,
     `查看時間：${viewedAt}`,
     "查看方式：客戶開啟報價頁面",
+    ...(quoteUrl ? ["", `開啟報價：${quoteUrl}`] : []),
     "",
-    "此為系統自動發送的通知郵件，請勿回覆。",
-    "如有任何疑問，請聯絡項目負責人或系統管理員。",
+    "這是系統通知，請勿回覆。",
+    "如需跟進，請直接聯絡客戶。",
     "",
     companyFooterText(),
   ].join("\n");
 
   const contentHtml = `<div style="font-family:${EMAIL_FONT_STACK};font-size:16px;line-height:1.95;color:#1D2939;padding-top:26px;">
-    報價單 <span style="color:#0E1B3A;font-weight:600;word-break:normal;overflow-wrap:anywhere;">${breakableQuoteId(quoteId)}</span> 已於以下時間被客戶查看，<br>
-    我們已自動停止針對該報價的後續進度提醒，其他報價單的提醒設定不受影響。
+    <p style="margin:0 0 16px;font-weight:600;color:#0E1B3A;">${escapeHtml(greeting)}</p>
+    <p style="margin:0;">${VIEW_BODY}</p>
   </div>
 
   ${renderDetailBox([
     { label: "報價編號", value: quoteId, breakable: true },
     { label: "查看時間", value: viewedAt },
     { label: "查看方式", value: "客戶開啟報價頁面" },
-  ])}`;
+  ])}
+
+  ${quoteUrl ? renderCtaButton("開啟報價", quoteUrl) : ""}`;
 
   const html = renderBrandedEmail({
-    preheader: subheading,
-    heading: "客戶已查看報價",
-    subheading,
+    preheader: VIEW_BODY,
+    heading: title,
     contentHtml,
-    noteHtml: "此為系統自動發送的通知郵件，請勿回覆。<br>如有任何疑問，請聯絡項目負責人或系統管理員。",
+    noteHtml: "這是系統通知，請勿回覆。<br>如需跟進，請直接聯絡客戶。",
   });
 
-  return { subject, text, html };
+  return { subject: title, text, html };
 }

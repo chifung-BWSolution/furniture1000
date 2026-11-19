@@ -41,13 +41,11 @@ export function englishSampleFallback(sample: string | null | undefined): string
   return names.map((name) => englishNameInSample(name) ?? name).join(", ");
 }
 
-export async function localizeEnglishSampleItems(
-  sample: string | null | undefined,
+export async function localizeEnglishItemNames(
+  names: string[],
   translate: (names: string[]) => Promise<string[]>,
-): Promise<string | null> {
-  const names = splitSampleItemNames(String(sample ?? ""));
-  if (!names.length) return null;
-  const pending = names.filter((name) => englishNameInSample(name) === null);
+): Promise<string[]> {
+  const pending = names.filter((name) => englishNameInSample(name) === null && HAN.test(name));
   const translated = new Map<string, string>();
   if (pending.length) {
     const results = await translate(pending);
@@ -59,5 +57,15 @@ export async function localizeEnglishSampleItems(
       if (text) translated.set(name, text);
     });
   }
-  return names.map((name) => englishNameInSample(name) ?? translated.get(name) ?? name).join(", ");
+  return names.map((name) => englishNameInSample(name) ?? translated.get(name) ?? name);
+}
+
+export async function localizeEnglishSampleItems(
+  sample: string | null | undefined,
+  translate: (names: string[]) => Promise<string[]>,
+): Promise<string | null> {
+  const names = splitSampleItemNames(String(sample ?? ""));
+  if (!names.length) return null;
+  const localized = await localizeEnglishItemNames(names, translate);
+  return localized.join(", ");
 }

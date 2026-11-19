@@ -15,9 +15,11 @@ import {
   MAX_LAYOUT_PHOTOS,
   countPlacements,
   groupGeometry,
-  templateById,
+  photoTemplateText,
   type PhotoLayoutGroup,
 } from '@/lib/quotePhotoLayouts';
+import type { QuoteLocale } from '@/lib/quotationLocale';
+import { photoPagesCopy } from '@/lib/quoteSurfaceCopy';
 
 /**
  * 報價單圖片（排版版）：排在總價之後、訂單確認及交付細節之前。
@@ -32,6 +34,7 @@ export function QuotePhotoPages({
   photoZones = [],
   canManage,
   disabled = false,
+  locale = 'zh',
   onChange,
 }: {
   layouts: PhotoLayoutGroup[];
@@ -42,8 +45,10 @@ export function QuotePhotoPages({
   photoZones?: QuotePhotoZone[];
   canManage: boolean;
   disabled?: boolean;
+  locale?: QuoteLocale;
   onChange: (layouts: PhotoLayoutGroup[], usedAssets: QuotePhotoAssetRef[]) => void;
 }) {
+  const copy = photoPagesCopy(locale);
   const [library, setLibrary] = useState<QuotePhotoAsset[]>([]);
   const [editor, setEditor] = useState<{ groupId: string | null } | null>(null);
   const editable = !disabled;
@@ -113,7 +118,7 @@ export function QuotePhotoPages({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="mt-1 text-sm text-muted-foreground">
-            圖片放在總價之後、訂單確認及交付細節之前；每個佈局完整放在同一頁，放不下會移到下一頁。
+            {copy.hint}
           </p>
         </div>
         {editable ? (
@@ -124,7 +129,7 @@ export function QuotePhotoPages({
             onClick={() => setEditor({ groupId: layouts[0]?.id ?? null })}
           >
             <Pencil className="mr-1.5 h-4 w-4" />
-            排版
+            {copy.arrange}
           </Button>
         ) : null}
       </div>
@@ -135,9 +140,9 @@ export function QuotePhotoPages({
             <li key={group.id} className="min-w-0">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-foreground">
-                  佈局 {index + 1}
+                  {copy.layout(index + 1)}
                   <span className="ml-1.5 font-normal text-muted-foreground">
-                    {templateById(group.templateId).name}・{group.placements.length} 張
+                    {photoTemplateText(group.templateId, locale).name} · {copy.photoCount(group.placements.length)}
                   </span>
                 </p>
                 {editable ? (
@@ -146,8 +151,8 @@ export function QuotePhotoPages({
                       type="button"
                       variant="outline"
                       size="icon"
-                      aria-label={`編輯佈局 ${index + 1}`}
-                      title="編輯佈局"
+                      aria-label={copy.editLayout(index + 1)}
+                      title={copy.edit}
                       onClick={() => setEditor({ groupId: group.id })}
                     >
                       <Pencil className="h-4 w-4" />
@@ -156,8 +161,8 @@ export function QuotePhotoPages({
                       type="button"
                       variant="outline"
                       size="icon"
-                      aria-label={`上移佈局 ${index + 1}`}
-                      title="上移"
+                      aria-label={copy.moveUpLabel(index + 1)}
+                      title={copy.moveUp}
                       disabled={index === 0}
                       onClick={() => move(index, -1)}
                     >
@@ -167,8 +172,8 @@ export function QuotePhotoPages({
                       type="button"
                       variant="outline"
                       size="icon"
-                      aria-label={`下移佈局 ${index + 1}`}
-                      title="下移"
+                      aria-label={copy.moveDownLabel(index + 1)}
+                      title={copy.moveDown}
                       disabled={index === layouts.length - 1}
                       onClick={() => move(index, 1)}
                     >
@@ -176,10 +181,10 @@ export function QuotePhotoPages({
                     </Button>
                     <PhotoConfirmButton
                       className="text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-                      ariaLabel={`刪除佈局 ${index + 1}`}
-                      title="刪除佈局"
-                      confirmLabel="刪除"
-                      description={`從這張報價刪除「佈局 ${index + 1}・${templateById(group.templateId).name}」及其中 ${group.placements.length} 張圖片的排版。圖片仍保留在圖片庫。`}
+                      ariaLabel={copy.deleteLabel(index + 1)}
+                      title={copy.delete}
+                      confirmLabel={copy.deleteConfirm}
+                      description={copy.deleteDescription(index + 1, photoTemplateText(group.templateId, locale).name, group.placements.length)}
                       onConfirm={() => onChange(layouts.filter((entry) => entry.id !== group.id), assets)}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -211,7 +216,7 @@ export function QuotePhotoPages({
             className="mt-4 flex w-full flex-col items-center gap-1 rounded-xl border-2 border-dashed border-border py-8 text-sm text-muted-foreground transition hover:border-primary/60 hover:text-primary"
           >
             <ImagePlus className="h-5 w-5" aria-hidden />
-            尚未加入圖片，按此選擇佈局
+            {copy.empty}
           </button>
         ) : (
           <Button
@@ -219,11 +224,11 @@ export function QuotePhotoPages({
             variant="outline"
             className="mt-4"
             disabled={!canAdd}
-            title={canAdd ? undefined : `一張報價最多 ${MAX_LAYOUT_GROUPS} 個佈局、合計 ${MAX_LAYOUT_PHOTOS} 張圖片`}
+            title={canAdd ? undefined : copy.max(MAX_LAYOUT_GROUPS, MAX_LAYOUT_PHOTOS)}
             onClick={() => setEditor({ groupId: null })}
           >
             <Plus className="mr-1.5 h-4 w-4" />
-            新增佈局
+            {copy.add}
           </Button>
         )
       ) : null}
@@ -241,6 +246,7 @@ export function QuotePhotoPages({
             objectPath: quotePhotoRefUrl(asset),
           }))}
           canManage={canManage}
+          locale={locale}
           onUploaded={(asset) => setLibrary((current) => (current.some((row) => row.id === asset.id) ? current : [...current, asset]))}
           onSave={(groups, usedAssets) => {
             onChange(groups, snapshot(groups, usedAssets));

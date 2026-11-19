@@ -1153,7 +1153,11 @@ export function QuotationListView({
           clientName: emailTarget.project_data?.clientInfo?.name
             ?? emailTarget.project_data?.formData?.clientName
             ?? null,
+          clientContactName: emailTarget.project_data?.clientInfo?.contactName
+            ?? emailTarget.project_data?.formData?.clientContactName
+            ?? null,
           pitchingId: emailTarget.pitching?.id ?? emailTarget.bwf_pitching_id ?? null,
+          documentLocale: (emailTarget.project_data as { quoteLocale?: unknown } | null)?.quoteLocale === 'en' ? 'en' : 'zh',
         } : null}
         onOpenChange={(open) => {
           if (!open) setEmailTarget(null);
