@@ -236,7 +236,6 @@ export type PrimarySection =
   | 'customers'
   | 'quote'
   | 'factories'
-  | 'procurement'
   | 'products'
   | 'publish'
   | 'reports'

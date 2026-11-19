@@ -5,7 +5,7 @@ import {
   BookOpenText, ListChecks, Gauge, Copy,
   Building2, BarChart2, Map, LogIn, Mail, FolderTree, History,
   UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film, Monitor,
-  Briefcase, Phone, Landmark, Heart, Combine, Presentation, ShoppingCart,
+  Briefcase, Phone, Landmark, Heart, Combine, Presentation,
   type LucideIcon,
 } from 'lucide-react';
 import { type PrimarySection, type ViewType } from '@/types/product';
@@ -123,18 +123,10 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-factory-login', label: '邀請廠家', icon: LogIn },
       { view: 'fds2-products-factories', label: '廠家目錄', icon: BookOpen },
       { view: 'fds2-factory-sales', label: '銷售表現', icon: BarChart2 },
-      { view: 'fds2-factory-zones', label: '廠家分區', icon: Map, hidden: true },
-    ],
-  },
-  {
-    id: 'procurement',
-    label: '採購',
-    icon: ShoppingCart,
-    visibleTo: ['admin', 'uploader', 'pm'],
-    children: [
-      { view: 'fds2-procurement-rfqs', label: 'RFQ 採購', icon: ClipboardList },
+      { view: 'fds2-procurement-rfqs', label: 'RFQ 採購', icon: ClipboardList, visibleTo: ['admin', 'uploader', 'pm'] },
       { view: 'fds2-procurement-rfq-new', label: '建立 RFQ', icon: FileUp, hidden: true },
       { view: 'fds2-procurement-rfq-detail', label: 'RFQ 詳情', icon: FileText, hidden: true },
+      { view: 'fds2-factory-zones', label: '廠家分區', icon: Map, hidden: true },
     ],
   },
   {
