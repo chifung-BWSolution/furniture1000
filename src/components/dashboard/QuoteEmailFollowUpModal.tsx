@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { confirm } from '@/components/ui/confirm-dialog';
 import { buildCustomerPortalQuoteShareUrl } from '@/lib/customerPortalRoutes';
 import { buildQuoteCustomerEmail, defaultQuoteEmailGreeting, QUOTE_EMAIL_LOCALES, quoteEmailAddressee, type QuoteEmailLocale } from '../../../supabase/functions/_shared/quoteCustomerEmail.ts';
-import { localizeEnglishItemNames } from '../../../supabase/functions/_shared/quoteSampleItems.ts';
+import { cleanTranslatedName, englishNameInSample } from '../../../supabase/functions/_shared/quoteSampleItems.ts';
 import { translateQuoteEmailDraft } from '@/lib/quoteEmailTranslation';
 import { getQuoteEmailFooter } from '@/lib/quoteEmailFooters';
 import type { QuoteEmailFooterText } from '../../../supabase/functions/_shared/quoteEmailFooter.ts';
@@ -70,6 +70,9 @@ export function QuoteEmailFollowUpModal({
   const [error, setError] = useState('');
   const [intro, setIntro] = useState('');
   const [greeting, setGreeting] = useState('');
+  const [previewIntro, setPreviewIntro] = useState('');
+  const [previewGreeting, setPreviewGreeting] = useState('');
+  const [previewSections, setPreviewSections] = useState<QuoteEmailCustomSection[]>([]);
   const [locale, setLocale] = useState<QuoteEmailLocale>('zh-Hant');
   const [englishItems, setEnglishItems] = useState<QuoteEmailPreviewItem[] | null>(null);
   const [translatingItems, setTranslatingItems] = useState(false);
@@ -113,9 +116,16 @@ export function QuoteEmailFollowUpModal({
           setPreviewItems(preview.items);
           setVisibleCount(preview.count);
         }
+        const nextGreeting = copy.greeting || defaultQuoteEmailGreeting(quoteEmailAddressee(quote?.clientContactName, quote?.clientName), copy.locale);
+        const nextIntro = data?.intro_text ?? '';
+        const nextSections = normalizeCustomQuoteEmailSections(data?.custom_sections);
         setLocale(copy.locale);
-        setGreeting(copy.greeting || defaultQuoteEmailGreeting(quoteEmailAddressee(quote?.clientContactName, quote?.clientName), copy.locale));
-        setIntro(data?.intro_text ?? '');
+        setGreeting(nextGreeting);
+        setPreviewGreeting(nextGreeting);
+        setIntro(nextIntro);
+        setPreviewIntro(nextIntro);
+        setSections(nextSections);
+        setPreviewSections(nextSections);
         const companyPhone = quote?.contactPhone?.trim() || source.companyPhone;
         const fromQuote = resolveQuoteEmailPhone({
           templatePhone: data?.contact_phone,
@@ -136,7 +146,6 @@ export function QuoteEmailFollowUpModal({
           editorEmail: quote?.clientEmail,
           storedEmail: source.clientEmail,
         }));
-        setSections(normalizeCustomQuoteEmailSections(data?.custom_sections));
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(quoteEmailErrorMessage(err));
@@ -158,7 +167,15 @@ export function QuoteEmailFollowUpModal({
     return origin ? buildCustomerPortalQuoteShareUrl(origin, status.share_token) : '';
   }, [status?.share_token]);
 
-  const shownPreviewItems = locale === 'en' && englishItems ? englishItems : previewItems;
+  const localEnglishItems = useMemo(() => (
+    locale === 'en'
+      ? previewItems.map((item) => ({
+        ...item,
+        name: englishNameInSample(item.name) ?? item.name,
+      }))
+      : previewItems
+  ), [locale, previewItems]);
+  const shownPreviewItems = locale === 'en' ? (englishItems ?? localEnglishItems) : previewItems;
 
   useEffect(() => {
     if (!open || locale !== 'en' || previewItems.length === 0) {
@@ -166,18 +183,30 @@ export function QuoteEmailFollowUpModal({
       setTranslatingItems(false);
       return;
     }
+    const pending = previewItems.flatMap((item, index) => (
+      englishNameInSample(item.name) === null && /\p{Script=Han}/u.test(item.name)
+        ? [{ index, name: item.name }]
+        : []
+    ));
+    if (!pending.length) {
+      setEnglishItems(null);
+      setTranslatingItems(false);
+      return;
+    }
     let cancelled = false;
-    setEnglishItems(null);
     setTranslatingItems(true);
-    void localizeEnglishItemNames(
-      previewItems.map((item) => item.name),
-      (names) => translateQuoteEmailDraft(names, 'en', names.map(() => 240)),
+    void translateQuoteEmailDraft(
+      pending.map((item) => item.name),
+      'en',
+      pending.map(() => 240),
     ).then((names) => {
       if (cancelled) return;
-      setEnglishItems(previewItems.map((item, index) => ({
-        ...item,
-        name: names[index] || item.name,
-      })));
+      const next = localEnglishItems.map((item) => ({ ...item }));
+      pending.forEach((item, resultIndex) => {
+        const text = cleanTranslatedName(names[resultIndex] ?? '');
+        if (text) next[item.index] = { ...next[item.index], name: text };
+      });
+      setEnglishItems(next);
     }).catch(() => {
       if (!cancelled) setEnglishItems(null);
     }).finally(() => {
@@ -186,30 +215,32 @@ export function QuoteEmailFollowUpModal({
     return () => {
       cancelled = true;
     };
-  }, [open, locale, previewItems]);
+  }, [open, locale, previewItems, localEnglishItems]);
 
   const customerEmail = useMemo(() => buildQuoteCustomerEmail({
     kind: 'manual',
     quoteId: quote?.quoteId || '',
-    greeting,
+    greeting: previewGreeting,
     locale,
     footer: emailFooter,
-    introText: intro,
-    customSections: sections,
+    introText: previewIntro,
+    customSections: previewSections,
     itemCount: visibleCount ?? status?.item_count ?? 0,
     totalAmount: status?.total_amount ?? 0,
     sampleItems: status?.sample_items ?? null,
     previewItems: shownPreviewItems,
     shareUrl: quoteUrl,
-  }), [quote?.quoteId, greeting, locale, emailFooter, intro, sections, visibleCount, status?.item_count, status?.total_amount, status?.sample_items, shownPreviewItems, quoteUrl]);
+  }), [quote?.quoteId, previewGreeting, locale, emailFooter, previewIntro, previewSections, visibleCount, status?.item_count, status?.total_amount, status?.sample_items, shownPreviewItems, quoteUrl]);
 
   const chooseLocale = (next: QuoteEmailLocale) => {
     const person = quoteEmailAddressee(quote?.clientContactName, quote?.clientName);
     const defaults = (Object.keys(QUOTE_EMAIL_LOCALES) as QuoteEmailLocale[])
       .map((key) => defaultQuoteEmailGreeting(person, key));
-    setGreeting((current) => (
-      defaults.includes(current.trim()) ? defaultQuoteEmailGreeting(person, next) : current
-    ));
+    const updatedGreeting = defaults.includes(greeting.trim())
+      ? defaultQuoteEmailGreeting(person, next)
+      : greeting;
+    setGreeting(updatedGreeting);
+    setPreviewGreeting(updatedGreeting);
     setLocale(next);
   };
 
@@ -408,6 +439,7 @@ export function QuoteEmailFollowUpModal({
               value={greeting}
               maxLength={200}
               onChange={(event) => setGreeting(event.target.value)}
+              onBlur={(event) => setPreviewGreeting(event.target.value)}
               placeholder="例如：Angela Fung 您好，"
               autoComplete="off"
             />
@@ -421,6 +453,7 @@ export function QuoteEmailFollowUpModal({
               value={intro}
               maxLength={2000}
               onChange={(event) => setIntro(event.target.value)}
+              onBlur={(event) => setPreviewIntro(event.target.value)}
               placeholder="例如：以下是按你提供的平面圖整理的傢俬方案。"
             />
           </label>
@@ -433,7 +466,10 @@ export function QuoteEmailFollowUpModal({
                 size="sm"
                 variant="outline"
                 disabled={sections.length >= 10}
-                onClick={() => setSections((current) => [...current, { title: '', body: '' }])}
+                onClick={() => {
+                  setSections((current) => [...current, { title: '', body: '' }]);
+                  setPreviewSections((current) => [...current, { title: '', body: '' }]);
+                }}
               >
                 <Plus className="mr-1 h-3.5 w-3.5" />
                 加一段
@@ -448,6 +484,7 @@ export function QuoteEmailFollowUpModal({
                     value={section.title}
                     maxLength={60}
                     onChange={(event) => setSections((current) => current.map((row, i) => (i === index ? { ...row, title: event.target.value } : row)))}
+                    onBlur={(event) => setPreviewSections((current) => current.map((row, i) => (i === index ? { ...row, title: event.target.value } : row)))}
                     placeholder="段落標題"
                   />
                   <Button
@@ -455,7 +492,10 @@ export function QuoteEmailFollowUpModal({
                     size="sm"
                     variant="ghost"
                     aria-label="移除這一段"
-                    onClick={() => setSections((current) => current.filter((_, i) => i !== index))}
+                    onClick={() => {
+                      setSections((current) => current.filter((_, i) => i !== index));
+                      setPreviewSections((current) => current.filter((_, i) => i !== index));
+                    }}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -465,6 +505,7 @@ export function QuoteEmailFollowUpModal({
                   value={section.body}
                   maxLength={800}
                   onChange={(event) => setSections((current) => current.map((row, i) => (i === index ? { ...row, body: event.target.value } : row)))}
+                  onBlur={(event) => setPreviewSections((current) => current.map((row, i) => (i === index ? { ...row, body: event.target.value } : row)))}
                   placeholder="例如：送貨及安裝日期會另行確認。"
                 />
               </div>
