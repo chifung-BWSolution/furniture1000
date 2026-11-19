@@ -335,6 +335,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-quote-format",
   "fds2-quote-email-settings",
   "fds2-quote-photos",
+  "fds2-quote-reference",
   "fds2-admin-email",
   "fds2-admin-usage",
   "fds2-cases-orders",
@@ -1164,6 +1165,18 @@ function AppShellContent() {
     }
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;
     if (store.currentView === 'fds2-quote-photos') return <QuotePhotoLibraryView />;
+    if (store.currentView === 'fds2-quote-reference') {
+      return (
+        <QuickQuoteView
+          key="quote-reference"
+          entry="reference"
+          onEditingQuotePersisted={(quoteId, quoteUuid, version) => {
+            store.setCurrentView('quick-quote');
+            handleEditingQuotePersisted(quoteId, quoteUuid, version);
+          }}
+        />
+      );
+    }
     if (store.currentView === 'fds2-admin-email') return <EmailNotificationsView />;
     if (store.currentView === 'fds2-admin-skp-workers') return <SkpWorkersView />;
     if (store.currentView === 'fds2-cases-orders') return <CaseOrdersView />;

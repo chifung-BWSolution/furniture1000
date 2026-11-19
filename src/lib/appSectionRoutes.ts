@@ -72,6 +72,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   /** 傢俬報價裡的廠家目錄已併入「廠家目錄」 */
   { view: 'fds2-quote-factories', path: `${FDS_BASE}/factories` },
   { view: 'fds2-quote-quick', path: `${FDS_BASE}/quote/quick` },
+  { view: 'fds2-quote-reference', path: `${FDS_BASE}/quote/reference` },
   { view: 'fds2-quote-common', path: `${FDS_BASE}/quote/common` },
   { view: 'fds2-quote-list', path: `${FDS_BASE}/quote/list` },
   { view: 'fds2-quote-large', path: `${FDS_BASE}/quote/large` },

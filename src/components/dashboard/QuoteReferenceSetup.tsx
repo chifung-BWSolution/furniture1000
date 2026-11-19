@@ -25,10 +25,7 @@ import {
 import { formatListDate, formatListMoney } from '@/lib/listTableUtils';
 import { cn } from '@/lib/utils';
 
-export type QuoteReferenceSetupMode = 'choose' | 'reference';
-
 interface QuoteReferenceSetupProps {
-  mode: QuoteReferenceSetupMode;
   pitchingId: string | null;
   pitchingLabel: string | null;
   initialCustomerType: string;
@@ -39,9 +36,6 @@ interface QuoteReferenceSetupProps {
   categoriesLoading: boolean;
   workPeriodOptions: string[];
   excludeQuoteId?: string | null;
-  onBlankQuote: () => void;
-  onOpenReference: () => void;
-  onBackToChoice: () => void;
   onChangePitching: () => void;
   onCopyQuote: (quoteUuid: string) => Promise<void>;
 }
@@ -60,7 +54,6 @@ function toggleValue(values: string[], value: string, on: boolean): string[] {
 }
 
 export function QuoteReferenceSetup({
-  mode,
   pitchingId,
   pitchingLabel,
   initialCustomerType,
@@ -71,9 +64,6 @@ export function QuoteReferenceSetup({
   categoriesLoading,
   workPeriodOptions,
   excludeQuoteId,
-  onBlankQuote,
-  onOpenReference,
-  onBackToChoice,
   onChangePitching,
   onCopyQuote,
 }: QuoteReferenceSetupProps) {
@@ -124,7 +114,6 @@ export function QuoteReferenceSetup({
   }, [pitchingId]);
 
   useEffect(() => {
-    if (mode !== 'reference') return;
     let cancelled = false;
     setLoadingIndex(true);
     setLoadError(null);
@@ -142,7 +131,7 @@ export function QuoteReferenceSetup({
     return () => {
       cancelled = true;
     };
-  }, [mode]);
+  }, []);
 
   const customerTypeOptions = useMemo(() => {
     const values = new Set<string>();
@@ -203,46 +192,6 @@ export function QuoteReferenceSetup({
     }
   }
 
-  if (mode === 'choose') {
-    return (
-      <div className="h-full overflow-y-auto bg-background fds-page-padding">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-          <div>
-            <h1 className="font-display text-xl font-bold text-foreground">建立報價</h1>
-            <p className="mt-1 font-body text-sm text-muted-foreground">
-              {pitchingLabel ? `已綁定 ${pitchingLabel}` : '已綁定 Pitching 或項目'}
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={onBlankQuote}
-              className="rounded-2xl border border-border bg-card p-5 text-left shadow-sm transition-colors hover:border-primary/40"
-            >
-              <div className="font-display text-base font-bold text-foreground">空白報價</div>
-              <p className="mt-2 font-body text-sm text-muted-foreground">
-                直接打開編輯器，從空白明細開始。
-              </p>
-            </button>
-            <button
-              type="button"
-              onClick={onOpenReference}
-              className="rounded-2xl border border-border bg-card p-5 text-left shadow-sm transition-colors hover:border-primary/40"
-            >
-              <div className="font-display text-base font-bold text-foreground">參考過往報價</div>
-              <p className="mt-2 font-body text-sm text-muted-foreground">
-                按類別、金額和尺寸配對過往報價，再把內容複製到這張新單。
-              </p>
-            </button>
-          </div>
-          <Button type="button" variant="ghost" className="self-start px-0" onClick={onChangePitching}>
-            重選 Pitching
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-full overflow-y-auto bg-background fds-page-padding">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -254,14 +203,9 @@ export function QuoteReferenceSetup({
               {budgetText ? ` · 預計收入 ${budgetText}，只供參考` : ''}
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={onBackToChoice}>
-              返回
-            </Button>
-            <Button type="button" variant="ghost" onClick={onChangePitching}>
-              重選 Pitching
-            </Button>
-          </div>
+          <Button type="button" variant="outline" onClick={onChangePitching}>
+            重選 Pitching
+          </Button>
         </div>
 
         <section className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">

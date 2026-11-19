@@ -2,7 +2,7 @@ import {
   Users, Calculator, Package, Globe, BarChart3, Settings as SettingsIcon,
   LayoutDashboard, Search, PenTool, Boxes, BookOpen, FileText, FileUp,
   Sofa, BadgeDollarSign, Sparkles, Wallet, Images, Star, Trash2,
-  BookOpenText, ListChecks, Gauge,
+  BookOpenText, ListChecks, Gauge, Copy,
   Building2, BarChart2, Map, LogIn, Mail, FolderTree, History,
   UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film, Monitor,
   Briefcase, Phone, Landmark, Heart, Combine, Presentation, ShoppingCart,
@@ -106,6 +106,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'fds2-quote-list', label: '報價一覽', icon: ClipboardList },
       { view: 'fds2-quote-quick', label: '快速報價', icon: Calculator },
+      { view: 'fds2-quote-reference', label: '參考過往報價', icon: Copy },
       { view: 'fds2-quote-common', label: '常用傢俬', icon: Heart },
       { view: 'fds2-quote-large', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
       { view: 'fds2-quote-trash', label: '報價回收桶', icon: Trash2, pinned: true },
@@ -357,6 +358,7 @@ export function navItemIsActive(itemView: ViewType, currentView: ViewType): bool
 
 /** FDS 2.0 views implemented directly, not as a placeholder and not a legacy redirect. */
 const DIRECT_IMPLEMENTED_VIEWS = new Set<ViewType>([
+  'fds2-quote-reference',
   'fds2-quote-email-settings',
   'fds2-procurement-rfqs',
   'fds2-procurement-rfq-new',

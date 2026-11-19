@@ -172,6 +172,7 @@ export type ViewType =
   | 'fds2-cases-clients'
   | 'fds2-quote-factories'
   | 'fds2-quote-quick'
+  | 'fds2-quote-reference'
   | 'fds2-quote-common'
   | 'fds2-quote-report'
   | 'fds2-quote-list'
