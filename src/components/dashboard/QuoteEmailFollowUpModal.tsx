@@ -126,13 +126,12 @@ export function QuoteEmailFollowUpModal({
     kind: 'manual',
     quoteId: quote?.quoteId || '',
     introText: intro,
-    contactPhone: phone,
     customSections: sections,
     itemCount: status?.item_count ?? 0,
     totalAmount: status?.total_amount ?? 0,
     sampleItems: status?.sample_items ?? null,
     shareUrl: quoteUrl,
-  }), [quote?.quoteId, intro, phone, sections, status?.item_count, status?.total_amount, status?.sample_items, quoteUrl]);
+  }), [quote?.quoteId, intro, sections, status?.item_count, status?.total_amount, status?.sample_items, quoteUrl]);
 
   const problem = quoteEmailReadiness({ recipient, contactPhone: phone, shareToken: status?.share_token ?? null });
   const statusLabel = QUOTE_EMAIL_STATUS_LABELS[status?.status ?? 'not_sent'];
