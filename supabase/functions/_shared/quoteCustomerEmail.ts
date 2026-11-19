@@ -27,6 +27,24 @@ export function normalizeQuoteEmailLocale(value: unknown): QuoteEmailLocale {
   return value === "zh-Hans" || value === "en" ? value : "zh-Hant";
 }
 
+/** Use the contact person. Drop a company name that was stored in the same field. */
+export function quoteEmailAddressee(contact?: string | null, company?: string | null): string {
+  const person = String(contact ?? "").replace(/\s+/g, " ").trim();
+  const organization = String(company ?? "").replace(/\s+/g, " ").trim();
+  if (person && organization && person.includes(organization)) {
+    const withoutOrganization = person.replace(organization, " ").replace(/\s+/g, " ").trim();
+    return withoutOrganization || person;
+  }
+  return person || organization;
+}
+
+export function defaultQuoteEmailGreeting(name: string, locale: QuoteEmailLocale = "zh-Hant"): string {
+  const who = name.trim();
+  if (!who) return "";
+  if (locale === "en") return `Dear ${who},`;
+  return `${who} 您好，`;
+}
+
 const copyByLocale = {
   "zh-Hant": {
     quote: "傢俬方案",
@@ -99,6 +117,8 @@ export interface QuoteCustomerEmailInput {
   quoteId: string;
   introText?: string;
   customerName?: string | null;
+  /** Exact opening line. An empty string leaves the greeting out. Omit it to build one from the customer name. */
+  greeting?: string | null;
   locale?: string;
   footer?: QuoteEmailFooterText | null;
   customSections?: Array<{ title?: string; body?: string }>;
@@ -221,7 +241,9 @@ export function buildQuoteCustomerEmail(input: QuoteCustomerEmailInput): BuiltEm
   const quoteId = String(input.quoteId ?? "").trim() || copy.quote;
   const intro = String(input.introText ?? "").trim();
   const customerName = String(input.customerName ?? "").trim().slice(0, 200);
-  const greeting = customerName ? "Dear " + customerName + "," : "";
+  const greeting = input.greeting == null
+    ? defaultQuoteEmailGreeting(customerName, locale)
+    : String(input.greeting).trim().slice(0, 200);
   const link = String(input.shareUrl ?? "").trim();
   const count = Math.max(0, Number(input.itemCount) || 0);
   const total = Math.max(0, Number(input.totalAmount) || 0);
@@ -230,8 +252,14 @@ export function buildQuoteCustomerEmail(input: QuoteCustomerEmailInput): BuiltEm
   const hiddenCount = Math.max(0, count - rows.length);
 
   const summaryParts: string[] = [];
-  if (count > 0) summaryParts.push(copy.count(count));
-  if (total > 0) summaryParts.push(copy.total(money(total)));
+  if (locale === "zh-Hant" && count > 0 && total > 0) {
+    summaryParts.push(`這次方案共 ${count} 項傢俬，參考總額 ${money(total)}。`);
+  } else if (locale === "zh-Hans" && count > 0 && total > 0) {
+    summaryParts.push(`这次方案共 ${count} 项家具，参考总额 ${money(total)}。`);
+  } else {
+    if (count > 0) summaryParts.push(copy.count(count));
+    if (total > 0) summaryParts.push(copy.total(money(total)));
+  }
   if (summaryParts.length === 0 && rows.length === 0) summaryParts.push(copy.emptySummary);
   const summary = [
     summaryParts.join(" "),

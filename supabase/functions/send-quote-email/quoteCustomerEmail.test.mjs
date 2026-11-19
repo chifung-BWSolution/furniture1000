@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defaultPmQuoteEmailFooter, materializeQuoteEmailFooter, quoteEmailBccList, quoteEmailFromHeader, quoteEmailSenderDraft, refreshDefaultQuoteEmailFooter } from "../_shared/quoteEmailFooter.ts";
-import { buildQuoteCustomerEmail } from "../_shared/quoteCustomerEmail.ts";
+import { buildQuoteCustomerEmail, quoteEmailAddressee } from "../_shared/quoteCustomerEmail.ts";
 
 const QUOTE_ID = "FDS15-SEND-TEST-17932533188893";
 const SHARE_URL = "https://www.bwteam-furniture.com/customer?quote_share=test-token";
@@ -28,13 +28,14 @@ test("renders the branded customer quote email with CTA and company footer", () 
 
   assert.equal(message.subject, `${QUOTE_ID} 報價及加單連結`);
   assert.match(message.html, /您的傢俬方案報價/);
-  assert.match(plainHtml, /共 1 項傢俬。/);
   assert.match(message.html, /<th[^>]*>傢俬<\/th>/);
   assert.match(plainHtml, /員工椅/);
   assert.doesNotMatch(plainHtml, /包括：/);
   assert.match(plainHtml, /參考總額 HK\$ 1,600\.00。/);
-  assert.match(plainHtml, /Dear 陳小姐,/);
-  assert.match(message.text, /^Dear 陳小姐,/);
+  assert.match(plainHtml, /陳小姐 您好，/);
+  assert.match(message.text, /^陳小姐 您好，/);
+  assert.match(plainHtml, /這次方案共 1 項傢俬，參考總額 HK\$ 1,600\.00。/);
+  assert.doesNotMatch(plainHtml, /Dear /);
   assert.doesNotMatch(plainHtml, /與負責同事聯絡/);
   assert.match(message.html, /網上查看報價及修改需求/);
   assert.match(message.html, /https:\/\/www\.bwteam-furniture\.com\/customer\?quote_share=test-token/);
@@ -42,6 +43,24 @@ test("renders the branded customer quote email with CTA and company footer", () 
   assert.match(plainHtml, /Room D-G, 5\/F, Wah Lik Industrial Centre/);
   assert.match(plainHtml, /sales@brandingworks-furniture\.com/);
   assert.match(message.text, /網上查看報價及修改需求: https:\/\/www\.bwteam-furniture\.com/);
+});
+
+test("greets the contact person and leaves the company name out of the opening", () => {
+  assert.equal(
+    quoteEmailAddressee("Angela Fung 基督教勵行會 朗屏服務中心", "基督教勵行會 朗屏服務中心"),
+    "Angela Fung",
+  );
+  const message = buildQuoteCustomerEmail({
+    kind: "manual",
+    quoteId: "Q-1",
+    customerName: "Angela Fung",
+    itemCount: 11,
+    totalAmount: 188918,
+    shareUrl: SHARE_URL,
+  });
+  assert.match(message.text, /^Angela Fung 您好，/);
+  assert.doesNotMatch(message.text, /朗屏服務中心/);
+  assert.match(message.text, /這次方案共 11 項傢俬，參考總額 HK\$ 188,918\.00。/);
 });
 
 test("uses the follow-up wording for the 3-day reminder", () => {
@@ -60,7 +79,7 @@ test("escapes customer-provided intro and section text", () => {
   });
 
   assert.doesNotMatch(message.html, /<script>/);
-  assert.match(message.html, /Dear &lt;b&gt;Customer&lt;\/b&gt;,/);
+  assert.match(message.html, /&lt;b&gt;Customer&lt;\/b&gt; 您好，/);
   assert.doesNotMatch(message.html, /<img src=x/);
   assert.match(message.html, /&lt;script&gt;alert\(&quot;intro&quot;\)&lt;\/script&gt;/);
   assert.match(message.html, /&lt;b&gt;title&lt;\/b&gt;/);
@@ -77,7 +96,7 @@ test("localizes system copy in the selected language for manual and follow-up em
   const simplified = manual({ locale: "zh-Hans" });
   assert.match(simplified.html, /lang="zh-Hans"/);
   assert.match(simplified.subject, /报价及加单链接/);
-  assert.match(simplified.text, /共 1 项家具。/);
+  assert.match(simplified.text, /这次方案共 1 项家具，参考总额 HK\$ 1,600\.00。/);
   assert.match(simplified.html, /<th[^>]*>家具<\/th>/);
   assert.match(simplified.html, /网上查看报价及修改需求/);
 

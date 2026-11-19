@@ -327,10 +327,30 @@ export async function loadQuoteEmailStatus(quoteUuid: string): Promise<QuoteEmai
   };
 }
 
+export interface QuoteEmailCopy {
+  /** 已保存的稱呼。沒有保存時為 null，預覽改用自動稱呼。 */
+  greeting: string | null;
+  locale: 'zh-Hant' | 'zh-Hans' | 'en';
+}
+
+/** 稱呼與寄出語言。欄位尚未建立或讀取失敗時用自動稱呼、繁體。 */
+export async function loadQuoteEmailCopy(quoteUuid: string): Promise<QuoteEmailCopy> {
+  const { data, error } = await supabase.from('bwf_quote_email_template')
+    .select('greeting_text, locale')
+    .eq('quote_uuid', quoteUuid)
+    .maybeSingle();
+  const locale = data?.locale === 'zh-Hans' || data?.locale === 'en' ? data.locale : 'zh-Hant';
+  if (error || !data) return { greeting: null, locale: 'zh-Hant' };
+  const greeting = String(data.greeting_text ?? '').trim();
+  return { greeting: greeting || null, locale };
+}
+
 export async function saveQuoteEmailTemplate(input: {
   quoteUuid: string;
   introText: string;
   contactPhone: string;
+  greeting: string;
+  locale?: 'zh-Hant' | 'zh-Hans' | 'en';
   customSections: QuoteEmailCustomSection[];
 }): Promise<void> {
   const { error } = await supabase.rpc('fds_quote_email_template_save', {
@@ -338,6 +358,8 @@ export async function saveQuoteEmailTemplate(input: {
     p_intro: input.introText.slice(0, 2000),
     p_contact_phone: input.contactPhone.trim().slice(0, 40),
     p_custom_sections: normalizeCustomQuoteEmailSections(input.customSections),
+    p_greeting: input.greeting.trim().slice(0, 200),
+    p_locale: input.locale === 'zh-Hans' || input.locale === 'en' ? input.locale : 'zh-Hant',
   });
   if (error) throw new Error(quoteEmailErrorMessage(error));
 }

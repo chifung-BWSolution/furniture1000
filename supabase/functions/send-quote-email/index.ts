@@ -3,7 +3,7 @@ import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { isSafeEmail, sendEmail } from "../_shared/email.ts";
 import { DEFAULT_QUOTE_EMAIL_BCC, quoteEmailBccList, quoteEmailFromHeader, type QuoteEmailFooterText } from "../_shared/quoteEmailFooter.ts";
-import { buildQuoteCustomerEmail, normalizeQuoteEmailLocale, type QuoteEmailPreviewItem } from "../_shared/quoteCustomerEmail.ts";
+import { buildQuoteCustomerEmail, normalizeQuoteEmailLocale, quoteEmailAddressee, type QuoteEmailPreviewItem } from "../_shared/quoteCustomerEmail.ts";
 import { localizeEnglishItemNames, localizeEnglishSampleItems } from "../_shared/quoteSampleItems.ts";
 import { translateQuoteEmail } from "../_shared/translateQuoteEmail.ts";
 import { pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
@@ -138,13 +138,16 @@ function buildMessage(
   footer: QuoteEmailFooterText | null,
   preview: { count: number; items: QuoteEmailPreviewItem[] } | null,
   customerName = "",
+  greeting?: string | null,
+  locale?: string | null,
 ): { subject: string; text: string; html: string } {
   return buildQuoteCustomerEmail({
     kind: row.kind,
     quoteId: row.quote_id,
     introText: row.intro_text,
     customerName: customerName || row.recipient_name,
-    locale: row.locale,
+    greeting,
+    locale: normalizeQuoteEmailLocale(locale || row.locale),
     footer,
     customSections: row.custom_sections,
     itemCount: preview?.count ?? row.item_count,
@@ -241,9 +244,19 @@ Deno.serve(async (req: Request) => {
       ]);
       if (quoteError) throw new Error(quoteError.message);
       const senderName = resolved.senderName || quote?.pm_name?.trim() || "";
-      const customerName = [quote?.contact_name, quote?.form_contact, quote?.company_name, row.recipient_name]
-        .map((value) => String(value ?? "").trim())
-        .find(Boolean) || "";
+      const customerName = quoteEmailAddressee(
+        quote?.contact_name || quote?.form_contact || row.recipient_name,
+        quote?.company_name,
+      );
+      const { data: template, error: greetingError } = await admin.from("bwf_quote_email_template")
+        .select("greeting_text, locale")
+        .eq("quote_uuid", row.quote_uuid)
+        .maybeSingle();
+      if (greetingError) console.warn("[send-quote-email] greeting", greetingError.message);
+      const savedGreeting = greetingError ? null : (template ? String(template.greeting_text ?? "") : null);
+      const emailLocale = greetingError
+        ? normalizeQuoteEmailLocale(row.locale)
+        : normalizeQuoteEmailLocale(String(template?.locale ?? row.locale ?? ""));
       const resendFrom = quoteEmailFromHeader(senderName);
       const footer = resolved.footer;
       const { data: pdf, error: pdfError } = await admin.storage.from("quote-email-pdfs")
@@ -267,11 +280,11 @@ Deno.serve(async (req: Request) => {
         continue;
       }
       const preview = await loadPreviewItems(admin, row.quote_uuid);
-      const sampleItems = normalizeQuoteEmailLocale(row.locale) === "en"
+      const sampleItems = emailLocale === "en"
         ? await englishSampleItems(row.sample_items)
         : row.sample_items;
       let previewItems = preview?.items ?? null;
-      if (previewItems && normalizeQuoteEmailLocale(row.locale) === "en") {
+      if (previewItems && emailLocale === "en") {
         const names = await localizeEnglishItemNames(
           previewItems.map((item) => item.name),
           (names) => translateQuoteEmail(names, "en", Deno.env.get("GOOGLE_TRANSLATION_API_KEY")?.trim() ?? ""),
@@ -283,6 +296,8 @@ Deno.serve(async (req: Request) => {
         footer,
         preview ? { count: preview.count, items: previewItems ?? [] } : null,
         customerName,
+        savedGreeting || null,
+        emailLocale,
       );
       const bcc = quoteEmailBccList(to, teamBcc);
       const sent = await sendEmail({ to: [to], bcc, ...message, resendFrom, attachment });
