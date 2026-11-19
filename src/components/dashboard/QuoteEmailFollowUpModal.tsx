@@ -378,7 +378,7 @@ export function QuoteEmailFollowUpModal({
     >
       <div className="h-[min(72vh,760px)]">
       {loading ? (
-        <p className="flex h-full items-center gap-2 text-sm text-muted-foreground">
+        <p className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> 正在讀取郵件狀態
         </p>
       ) : (
