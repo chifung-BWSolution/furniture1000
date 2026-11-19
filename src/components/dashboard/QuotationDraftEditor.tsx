@@ -264,6 +264,8 @@ import {
   fetchProductCategoryPairs,
   findProductCategoryPairById,
   resolveProductCategoryId,
+  uniqueLevel1InOrder,
+  uniqueLevel2InOrder,
   type ProductCategoryPair,
 } from "@/lib/productCategoryOptions";
 import {
@@ -1267,6 +1269,10 @@ function QuoteProductItemCard({
   duplicateItem,
   removeItem,
   onOpenProductLink,
+  onRegistryLevel1Change,
+  onRegistryLevel2Change,
+  categoryPairs,
+  categoryPairsLoading,
   factories,
   factoriesLoading,
   quoteImageScope,
@@ -1304,6 +1310,10 @@ function QuoteProductItemCard({
   duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
   onOpenProductLink: (item: QuotationItem) => void;
+  onRegistryLevel1Change: (id: string, level1: string) => void;
+  onRegistryLevel2Change: (id: string, level2: string) => void;
+  categoryPairs: ProductCategoryPair[];
+  categoryPairsLoading: boolean;
   factories: string[];
   factoriesLoading: boolean;
   /** Scope for Supabase Storage paths (quote id or draft key). */
@@ -1320,6 +1330,12 @@ function QuoteProductItemCard({
   zoneHighlight?: boolean;
 }) {
   const dimensionMode = item.dimensionMode ?? 'lwh';
+  const level1Value = item.registryLevel1?.trim() || '';
+  const level2Value = item.registryLevel2?.trim() || '';
+  const level1Options = uniqueLevel1InOrder(categoryPairs);
+  const level2Options = uniqueLevel2InOrder(categoryPairs, level1Value);
+  const registrySelectClass =
+    "h-[34px] w-full min-w-0 cursor-pointer rounded-md border border-border bg-background px-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60";
   const isDiameterHeight = dimensionMode === 'dh';
   const unitLocale = labels.unit === 'Unit' ? 'en' : 'zh';
   const uploadProductImage = useCallback(
@@ -1405,6 +1421,62 @@ function QuoteProductItemCard({
                 aria-label={labels.productNamePlaceholder}
               />
             </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.level1Category}>
+            <Select
+              value={level1Value || "__none__"}
+              disabled={categoryPairsLoading}
+              onValueChange={(value) =>
+                onRegistryLevel1Change(
+                  item.id,
+                  value === "__none__" ? "" : value,
+                )
+              }
+            >
+              <SelectTrigger
+                className={registrySelectClass}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="z-[300]">
+                <SelectItem value="__none__">—</SelectItem>
+                {level1Options.map((l1) => (
+                  <SelectItem key={l1} value={l1}>
+                    {l1}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label={labels.level2Category}>
+            <Select
+              value={level2Value || "__none__"}
+              disabled={
+                categoryPairsLoading ||
+                !level1Value ||
+                level2Options.length === 0
+              }
+              onValueChange={(value) =>
+                onRegistryLevel2Change(
+                  item.id,
+                  value === "__none__" ? "" : value,
+                )
+              }
+            >
+              <SelectTrigger
+                className={registrySelectClass}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="z-[300]">
+                <SelectItem value="__none__">—</SelectItem>
+                {level2Options.map((l2) => (
+                  <SelectItem key={l2} value={l2}>
+                    {l2}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </QuoteFieldBlock>
           </QuoteCardGroup>
           <QuoteCardGroup label={labels.dimensionsMm} icon={<Ruler />}>
             <div className="min-w-0">
@@ -3373,6 +3445,7 @@ export function QuotationDraftEditor({
   const [factories, setFactories] = useState<string[]>([]);
   const [factoriesLoading, setFactoriesLoading] = useState(false);
   const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
+  const [categoryPairsLoading, setCategoryPairsLoading] = useState(false);
   const [items, setItems] = useState<QuotationItem[]>(() => {
     if (copyPayload?.items?.length) {
       return copyPayload.items.map((item) => mapInputToQuotationItem(item));
@@ -3628,9 +3701,13 @@ export function QuotationDraftEditor({
 
   useEffect(() => {
     let cancelled = false;
+    setCategoryPairsLoading(true);
     fetchProductCategoryPairs()
       .then((pairs) => {
         if (!cancelled) setCategoryPairs(pairs);
+      })
+      .finally(() => {
+        if (!cancelled) setCategoryPairsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -3811,6 +3888,59 @@ export function QuotationDraftEditor({
       }),
     );
   };
+
+  const onRegistryLevel1Change = useCallback(
+    (id: string, level1: string) => {
+      itemsUserEditedRef.current = true;
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== id) return item;
+          const l2Options = uniqueLevel2InOrder(categoryPairs, level1);
+          const l2 =
+            item.registryLevel2 && l2Options.includes(item.registryLevel2)
+              ? item.registryLevel2
+              : "";
+          const productCategoryId = resolveProductCategoryId(
+            categoryPairs,
+            level1,
+            l2,
+          );
+          return {
+            ...item,
+            registryLevel1: level1,
+            registryLevel2: l2,
+            category: l2 || level1,
+            productCategoryId,
+          };
+        }),
+      );
+    },
+    [categoryPairs],
+  );
+
+  const onRegistryLevel2Change = useCallback(
+    (id: string, level2: string) => {
+      itemsUserEditedRef.current = true;
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== id) return item;
+          const l1 = item.registryLevel1?.trim() || "";
+          const productCategoryId = resolveProductCategoryId(
+            categoryPairs,
+            l1,
+            level2,
+          );
+          return {
+            ...item,
+            registryLevel2: level2,
+            category: level2 || l1,
+            productCategoryId,
+          };
+        }),
+      );
+    },
+    [categoryPairs],
+  );
 
   const updateExchangeRate = (id: string, raw: string) => {
     itemsUserEditedRef.current = true;
@@ -7182,6 +7312,10 @@ export function QuotationDraftEditor({
                           duplicateItem={duplicateItem}
                           removeItem={removeItem}
                           onOpenProductLink={openQuoteItemProductLink}
+                          onRegistryLevel1Change={onRegistryLevel1Change}
+                          onRegistryLevel2Change={onRegistryLevel2Change}
+                          categoryPairs={categoryPairs}
+                          categoryPairsLoading={categoryPairsLoading}
                           factories={factories}
                           factoriesLoading={factoriesLoading}
                           quoteImageScope={quoteImageScope}
