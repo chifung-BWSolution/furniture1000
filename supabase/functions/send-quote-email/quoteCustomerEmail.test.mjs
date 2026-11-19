@@ -50,6 +50,10 @@ test("greets the contact person and leaves the company name out of the opening",
     quoteEmailAddressee("Angela Fung 基督教勵行會 朗屏服務中心", "基督教勵行會 朗屏服務中心"),
     "Angela Fung",
   );
+  assert.equal(
+    quoteEmailAddressee("Angela Fung  基督教勵行會 朗屏服務中心", "N/A"),
+    "Angela Fung",
+  );
   const message = buildQuoteCustomerEmail({
     kind: "manual",
     quoteId: "Q-1",
@@ -58,7 +62,7 @@ test("greets the contact person and leaves the company name out of the opening",
     totalAmount: 188918,
     shareUrl: SHARE_URL,
   });
-  assert.match(message.text, /^Angela Fung 您好，/);
+  assert.match(message.text, /^Dear Angela Fung,/);
   assert.doesNotMatch(message.text, /朗屏服務中心/);
   assert.match(message.text, /這次方案共 11 項傢俬，參考總額 HK\$ 188,918\.00。/);
 });

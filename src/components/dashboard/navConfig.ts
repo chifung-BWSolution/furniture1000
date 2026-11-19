@@ -106,7 +106,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'fds2-quote-list', label: '報價一覽', icon: ClipboardList },
       { view: 'fds2-quote-quick', label: '快速報價', icon: Calculator },
-      { view: 'fds2-quote-reference', label: '參考過往報價', icon: Copy },
+      { view: 'fds2-quote-reference', label: '報價參考分析', icon: Copy },
       { view: 'fds2-quote-common', label: '常用傢俬', icon: Heart },
       { view: 'fds2-quote-large', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
       { view: 'fds2-quote-trash', label: '報價回收桶', icon: Trash2, pinned: true },

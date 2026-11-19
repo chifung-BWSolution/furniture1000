@@ -61,7 +61,7 @@ export function MultiSelect({ options, value, onValueChange, label, placeholder 
             </span>
           </div>
         </PopoverAnchor>
-        <PopoverContent align="start" className="flex max-h-[min(28rem,var(--radix-popover-content-available-height))] w-[var(--radix-popover-trigger-width)] min-w-0 flex-col overflow-hidden rounded-xl p-0">
+        <PopoverContent align="start" collisionPadding={8} className="flex max-h-[min(28rem,var(--radix-popover-content-available-height))] w-[max(16rem,var(--radix-popover-trigger-width))] max-w-[var(--radix-popover-content-available-width)] flex-col overflow-hidden rounded-xl p-0">
           <div className="relative shrink-0 border-b p-3">
             <Search className="pointer-events-none absolute left-6 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <Input aria-label={`搜尋${label}`} placeholder="搜尋名稱或行業…" value={query} onChange={(event) => setQuery(event.target.value)} className="pl-9" />

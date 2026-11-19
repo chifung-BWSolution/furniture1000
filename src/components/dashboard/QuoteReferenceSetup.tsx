@@ -600,7 +600,7 @@ export function QuoteReferenceSetup({
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden bg-muted/30 px-3 py-2 text-foreground sm:gap-3 sm:px-4">
       <header className="flex shrink-0 items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="sr-only">參考過往報價</h1>
+          <h1 className="sr-only">報價參考分析</h1>
           <p className="truncate text-sm font-medium" title={pitchingLabel ?? undefined}>
             {pitchingLabel ? `複製到 ${pitchingLabel}` : '複製到已綁定的 Pitching 或項目'}
           </p>

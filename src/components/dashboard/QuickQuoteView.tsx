@@ -114,7 +114,7 @@ const WORK_PERIODS = [
 interface QuickQuoteViewProps {
   /**
    * `blank`：快速報價，選定 Pitching 後直接開空白編輯器。
-   * `reference`：側欄「參考過往報價」，先列 Pitching，再進配對頁。
+   * `reference`：側欄「報價參考分析」，先列 Pitching，再進配對頁。
    */
   entry?: 'blank' | 'reference';
   editingQuoteId?: string | null;
@@ -892,7 +892,7 @@ export function QuickQuoteView({
   }, [editingQuoteId, editingQuoteUuid, editingQuoteVersion, quoteRequestKey, resolvedQuoteKey, userEmail, authLoading]);
 
   // 快速報價：選定 Pitching 後直接開空白編輯器。複製報價單會先載入原單。
-  // 參考過往報價停在配對頁，不在這裡開編輯器。
+  // 報價參考分析停在配對頁，不在這裡開編輯器。
   const preparingEditorRef = useRef(false);
   useEffect(() => {
     if (entry === 'reference') return;
@@ -1006,7 +1006,7 @@ export function QuickQuoteView({
     return (
       <PmsPitchingGate
         onSelect={handleSelectPitching}
-        title={entry === 'reference' ? '參考過往報價' : copyFromUuid ? '複製報價單' : undefined}
+        title={entry === 'reference' ? '報價參考分析' : copyFromUuid ? '複製報價單' : undefined}
         subtitle={
           entry === 'reference'
             ? '選擇現有 Pitching，再按類別、金額和尺寸配對過往報價'

@@ -29,19 +29,23 @@ export function normalizeQuoteEmailLocale(value: unknown): QuoteEmailLocale {
 
 /** Use the contact person. Drop a company name that was stored in the same field. */
 export function quoteEmailAddressee(contact?: string | null, company?: string | null): string {
-  const person = String(contact ?? "").replace(/\s+/g, " ").trim();
+  let person = String(contact ?? "").replace(/\s+/g, " ").trim();
   const organization = String(company ?? "").replace(/\s+/g, " ").trim();
-  if (person && organization && person.includes(organization)) {
-    const withoutOrganization = person.replace(organization, " ").replace(/\s+/g, " ").trim();
-    return withoutOrganization || person;
+  const namedOrganization = organization && !/^n\/a$/i.test(organization) ? organization : "";
+  if (person && namedOrganization && person.includes(namedOrganization)) {
+    person = person.replace(namedOrganization, " ").replace(/\s+/g, " ").trim() || person;
   }
-  return person || organization;
+  const latinName = person.match(/^([A-Za-z][A-Za-z .'-]*[A-Za-z])\s+\p{Script=Han}/u);
+  if (latinName) return latinName[1].replace(/\s+/g, " ").trim();
+  return person || namedOrganization;
 }
 
 export function defaultQuoteEmailGreeting(name: string, locale: QuoteEmailLocale = "zh-Hant"): string {
   const who = name.trim();
   if (!who) return "";
-  if (locale === "en") return `Dear ${who},`;
+  if (locale === "en" || /^[A-Za-z][A-Za-z .'-]*[A-Za-z]$/.test(who) || /^[A-Za-z]$/.test(who)) {
+    return `Dear ${who},`;
+  }
   return `${who} 您好，`;
 }
 
