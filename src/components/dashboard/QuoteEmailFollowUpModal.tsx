@@ -348,7 +348,8 @@ export function QuoteEmailFollowUpModal({
       icon={<Mail className="h-6 w-6" />}
       title="郵件模板與跟進"
       description={quote ? `${quote.quoteId}${quote.clientName ? ` · ${quote.clientName}` : ''}` : undefined}
-      size="full"
+      size="5xl"
+      className="max-w-6xl"
       bodyClassName="overflow-hidden"
       footer={
         <>
@@ -371,7 +372,7 @@ export function QuoteEmailFollowUpModal({
           <Loader2 className="h-4 w-4 animate-spin" /> 正在讀取郵件狀態
         </p>
       ) : (
-        <div className="grid h-[min(70vh,760px)] gap-4 lg:grid-cols-[minmax(280px,32rem)_minmax(0,1fr)]">
+        <div className="grid h-[min(70vh,720px)] gap-4 lg:grid-cols-[minmax(260px,20rem)_minmax(0,1fr)]">
         <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
           {error ? <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {!error && problem ? (
@@ -380,14 +381,16 @@ export function QuoteEmailFollowUpModal({
             </p>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-            <span className="rounded-md border bg-background px-2 py-0.5 font-medium">{statusLabel}</span>
-            {status?.auto_follow_up ? <span className="text-muted-foreground">每 3 天自動跟進</span> : null}
-            {status?.first_viewed_at ? <span className="text-muted-foreground">首次查看 {status.first_viewed_at.slice(0, 16).replace('T', ' ')}</span> : null}
-            {status?.next_follow_up_at && status.auto_follow_up ? (
-              <span className="text-muted-foreground">下次跟進 {status.next_follow_up_at.slice(0, 16).replace('T', ' ')}</span>
-            ) : null}
-            <span className="ml-auto flex gap-2">
+          <div className="space-y-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-sm">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="rounded-md border bg-background px-2 py-0.5 font-medium">{statusLabel}</span>
+              {status?.auto_follow_up ? <span className="text-muted-foreground">每 3 天自動跟進</span> : null}
+              {status?.first_viewed_at ? <span className="text-muted-foreground">首次查看 {status.first_viewed_at.slice(0, 16).replace('T', ' ')}</span> : null}
+              {status?.next_follow_up_at && status.auto_follow_up ? (
+                <span className="text-muted-foreground">下次跟進 {status.next_follow_up_at.slice(0, 16).replace('T', ' ')}</span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
               <Button
                 ref={viewHistoryButtonRef}
                 type="button"
@@ -404,7 +407,7 @@ export function QuoteEmailFollowUpModal({
                 <StopCircle className="mr-1 h-3.5 w-3.5" />
                 停止自動跟進
               </Button>
-            </span>
+            </div>
           </div>
 
           <label className="block text-sm">
