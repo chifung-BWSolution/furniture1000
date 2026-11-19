@@ -1,7 +1,10 @@
+import { translateQuoteEmail } from "../_shared/translateQuoteEmail.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 import { fetchPresentationLookup } from "../_shared/presentationLookup.ts";
+import { defaultQuoteEmailClosing, defaultQuoteEmailPhone } from "../_shared/quoteEmailFooter.ts";
+import { resolveQuoteEmailFooter } from "../_shared/resolveQuoteEmailFooter.ts";
 import { isMissingOtcStaffColumn, reportProjectManagerFilterKey } from "../_shared/reportProjectManager.ts";
 
 const corsHeaders = {
@@ -127,6 +130,51 @@ function remainingDaysFromEnquiry(
   return Math.ceil((deadline - Date.now()) / DAY_MS);
 }
 
+async function initializeQuoteEmailFooters(
+  pmsAdmin: ReturnType<typeof createClient>,
+  furnitureUrl: string,
+) {
+  const { data: teams, error: teamError } = await pmsAdmin.from("team_types")
+    .select("id")
+    .eq("is_bwf", true);
+  if (teamError) throw teamError;
+  const teamIds = (teams ?? []).map((team) => team.id);
+  if (!teamIds.length) return jsonResponse({ active_pm_ids: [] });
+
+  const { data: staff, error } = await pmsAdmin.from("staff")
+    .select("id,name,work_phone")
+    .eq("position", "PM")
+    .eq("status", "Active")
+    .in("n_team_type_id", teamIds);
+  if (error) throw error;
+
+  const rows = (staff ?? []).flatMap((pm) => {
+    const name = String(pm.name ?? "").trim();
+    if (!name || !pm.id) return [];
+    const closing = defaultQuoteEmailClosing();
+    return [{
+      pms_staff_id: pm.id,
+      pm_name: name,
+      sender_name: name,
+      phone: defaultQuoteEmailPhone(name, String(pm.work_phone ?? "")),
+      body_zh_hant: closing,
+      body_zh_hans: closing,
+      body_en: closing,
+    }];
+  });
+  if (rows.length) {
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!serviceKey) throw new Error("Furniture service role is not configured");
+    const admin = createClient(furnitureUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { error: insertError } = await admin.from("bwf_quote_email_footer")
+      .upsert(rows, { onConflict: "pms_staff_id", ignoreDuplicates: true });
+    if (insertError) throw insertError;
+  }
+  return jsonResponse({ active_pm_ids: rows.map((row) => row.pms_staff_id) });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders, status: 200 });
@@ -141,9 +189,6 @@ Deno.serve(async (req: Request) => {
   const furnitureUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const furnitureAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 
-  if (!pmsServiceKey) {
-    return jsonResponse({ error: pmsKeyMissingError() }, 500);
-  }
   if (!furnitureUrl || !furnitureAnonKey) {
     return jsonResponse({ error: "Furniture Supabase not configured" }, 500);
   }
@@ -167,6 +212,9 @@ Deno.serve(async (req: Request) => {
     action?: string;
     pitching_id?: string;
     quotation_id?: string;
+    quote_uuid?: string;
+    locale?: string;
+    texts?: unknown;
     customer_id?: string;
     search?: string;
     limit?: number;
@@ -208,9 +256,34 @@ Deno.serve(async (req: Request) => {
   );
 
   try {
+    const isEmailAction = body.action === "quote_email_footers" ||
+      body.action === "quote_email_footer" || body.action === "translate_quote_email";
+    if (isEmailAction) {
+      const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", {
+        p_roles: ["admin", "pm", "uploader"],
+      });
+      if (roleError || allowed !== true) return jsonResponse({ error: "沒有電郵設定權限" }, 403);
+    }
+    if (body.action === "translate_quote_email") {
+      const translations = await translateQuoteEmail(
+        body.texts, body.locale, Deno.env.get("GOOGLE_TRANSLATION_API_KEY")?.trim() ?? "",
+      );
+      return jsonResponse({ translations });
+    }
+
+    if (!pmsServiceKey) return jsonResponse({ error: pmsKeyMissingError() }, 500);
     const pmsAdmin = createClient(pmsProjectUrl(), pmsServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    if (isEmailAction) {
+      if (body.action === "quote_email_footers") return await initializeQuoteEmailFooters(pmsAdmin, furnitureUrl);
+      if (!body.quote_uuid || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(body.quote_uuid)) {
+        return jsonResponse({ error: "無效的報價識別碼" }, 400);
+      }
+      const resolved = await resolveQuoteEmailFooter(furnitureClient, body.quote_uuid, pmsAdmin);
+      return jsonResponse({ footer: resolved.footer });
+    }
 
     if (body.action?.startsWith("package_")) {
       const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", { p_roles: ["pm", "admin", "uploader"] });

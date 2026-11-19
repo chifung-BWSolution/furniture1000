@@ -27,7 +27,16 @@ export const COMPANY = {
   email: "sales@brandingworks-furniture.com",
 } as const;
 
+type BrandedEmailLocale = "zh-Hant" | "zh-Hans" | "en";
+
+const footerLabels = {
+  "zh-Hant": { phone: "電話：", whatsapp: "手機 WhatsApp: " },
+  "zh-Hans": { phone: "电话：", whatsapp: "手机 WhatsApp: " },
+  en: { phone: "Phone: ", whatsapp: "WhatsApp: " },
+};
+
 export interface BrandedEmailOptions {
+  locale?: BrandedEmailLocale;
   preheader: string;
   heading: string;
   subheading?: string;
@@ -81,18 +90,20 @@ export function renderCtaButton(label: string, href: string): string {
   </table>`;
 }
 
-export function companyFooterText(): string {
+export function companyFooterText(locale: BrandedEmailLocale = "zh-Hant"): string {
+  const labels = footerLabels[locale];
   return [
     COMPANY.name,
     COMPANY.tagline,
     COMPANY.addressLines.join("\n"),
-    `電話：${COMPANY.phone}`,
-    `手機 WhatsApp: ${COMPANY.whatsapp}`,
+    `${labels.phone}${COMPANY.phone}`,
+    `${labels.whatsapp}${COMPANY.whatsapp}`,
     COMPANY.email,
   ].join("\n");
 }
 
-function footerHtml(): string {
+function footerHtml(locale: BrandedEmailLocale): string {
+  const labels = footerLabels[locale];
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
     <tr>
       <td valign="top" style="padding:0 8px;font-family:${EMAIL_FONT_STACK};">
@@ -104,8 +115,8 @@ function footerHtml(): string {
         <div style="font-size:12.5px;line-height:1.85;color:#7B889D;padding-top:10px;">
           ${COMPANY.addressLines.map((line) => escapeHtml(line)).join("<br>")}<br>
           <span style="display:inline-block;padding-top:8px;">
-            電話：${escapeHtml(COMPANY.phone)}<br>
-            手機 WhatsApp: ${escapeHtml(COMPANY.whatsapp)}
+            ${labels.phone}${escapeHtml(COMPANY.phone)}<br>
+            ${labels.whatsapp}${escapeHtml(COMPANY.whatsapp)}
           </span><br>
           <div style="padding-top:8px;"><a href="mailto:${escapeHtml(COMPANY.email)}" style="color:#2F6BED;text-decoration:none;">${escapeHtml(COMPANY.email)}</a></div>
         </div>
@@ -135,11 +146,12 @@ function iconHtml(): string {
 }
 
 export function renderBrandedEmail(options: BrandedEmailOptions): string {
+  const locale = options.locale ?? "zh-Hant";
   const subheading = String(options.subheading ?? "").trim();
   const noteHtml = String(options.noteHtml ?? "").trim();
 
   return `<!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="${locale}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -210,7 +222,7 @@ export function renderBrandedEmail(options: BrandedEmailOptions): string {
           </td>
         </tr>
         <tr>
-          <td style="padding:28px 0 0;">${footerHtml()}</td>
+          <td style="padding:28px 0 0;">${footerHtml(locale)}</td>
         </tr>
       </table>
     </td>

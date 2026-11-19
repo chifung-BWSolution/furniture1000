@@ -54,6 +54,8 @@ export function navChildVisible(
   return !child.adminOnly || isAdmin;
 }
 
+export const QUOTE_EMAIL_SETTINGS_ROLES: readonly string[] = ['admin', 'pm', 'uploader'];
+
 export const NAV_CONFIG: PrimaryItem[] = [
   {
     id: 'home',
@@ -106,6 +108,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-quote-large', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
       { view: 'fds2-quote-trash', label: '報價回收桶', icon: Trash2, pinned: true },
       { view: 'fds2-quote-format', label: '報價單格式設定', icon: FileText },
+      { view: 'fds2-quote-email-settings', label: '電郵設定', icon: Mail, visibleTo: QUOTE_EMAIL_SETTINGS_ROLES },
       { view: 'fds2-quote-photos', label: '圖片庫', icon: Images },
     ],
   },
