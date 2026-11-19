@@ -257,25 +257,25 @@ function cellStyle(
 
 function itemImageSources(item: QuotePdfItem): PdfImageSource[] {
   const explicit = (item.images || []).filter((image) => Boolean(image?.url?.trim()));
-  if (explicit.length) {
-    return explicit.map((image) => {
-      const measured = peekImageSize(image.url);
-      return {
-        url: image.url,
-        kind: image.kind,
-        width: image.width ?? measured?.width,
-        height: image.height ?? measured?.height,
-      };
-    });
-  }
-  const sources: PdfImageSource[] = [];
+  const sources: PdfImageSource[] = explicit.map((image) => {
+    const url = image.url.trim();
+    const measured = peekImageSize(url);
+    return {
+      url,
+      kind: image.kind,
+      width: image.width ?? measured?.width,
+      height: image.height ?? measured?.height,
+    };
+  });
   const push = (url: string | undefined, kind: PdfImageSource['kind']) => {
     const trimmed = (url || '').trim();
     if (!trimmed || sources.some((source) => source.url === trimmed)) return;
     sources.push({ url: trimmed, kind, ...(peekImageSize(trimmed) || {}) });
   };
-  push(item.image, 'product');
-  push(item.referenceImage, 'reference');
+  if (!explicit.length) {
+    push(item.image, 'product');
+    push(item.referenceImage, 'reference');
+  }
   for (const block of parseRemarksContent(item.remarks, item.remarksImage)) {
     if (block.type === 'image') push(block.src, 'remarks');
   }
@@ -497,25 +497,14 @@ function buildTableHeader(ctx: Ctx, P: PdfRenderer): { heightPt: number; node: J
 
 // ─── Item 內容 ──────────────────────────────────────────────────────────────
 
-function buildDescStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
+function buildDescStrips(item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
   const strips: Strip[] = [];
 
-  const displayName = item.name?.trim() || item.category?.trim() || '';
+  const displayName = item.name?.trim() || '';
   const nameLines = plainLines(displayName, widthPt, PDF_TYPE.itemName.size, true);
   nameLines.forEach((line) =>
     strips.push(textStrip(line, { size: PDF_TYPE.itemName.size, linePt: PDF_TYPE.itemName.line, bold: true }, P)),
   );
-
-  const category = item.category?.trim() || '';
-  const categoryLines = plainLines(category === displayName ? '' : category, widthPt, PDF_TYPE.descValue.size);
-  if (categoryLines.length) {
-    if (nameLines.length) strips.push(spacer(2));
-    categoryLines.forEach((line) =>
-      strips.push(
-        textStrip(line, { size: PDF_TYPE.descValue.size, linePt: PDF_TYPE.descValue.line, color: PDF_COLORS.muted }, P),
-      ),
-    );
-  }
 
   return strips;
 }
@@ -540,18 +529,18 @@ function buildSpecStrips(item: QuotePdfItem, widthPt: number, P: PdfRenderer): S
 
 function buildColorStrips(ctx: Ctx, item: QuotePdfItem, widthPt: number, P: PdfRenderer): Strip[] {
   const colors = (item.color || '').split(',').map((value) => value.trim()).filter(Boolean);
+  if (!colors.length) return [];
   const labels = colors.map((value) => {
-    if (value.toUpperCase() === 'TBC') {
-      return ctx.locale === 'en' ? `${ctx.labels.descColor}: TBC` : `${ctx.labels.descColor}：TBC`;
-    }
+    if (value.toUpperCase() === 'TBC') return 'TBC';
     return pdfDisplayText(ctx.locale === 'en' ? value : getChineseColorLabel(value) || value);
   });
-  if (!labels.length) return [];
-  const text = labels.join(ctx.locale === 'en' ? ', ' : '、');
-  return wrapPdfSegments([{ text }], widthPt, PDF_TYPE.descValue.size)
-    .map((line) => textStrip(line, {
-      size: PDF_TYPE.descValue.size, linePt: PDF_TYPE.descValue.line, color: PDF_COLORS.muted,
-    }, P));
+  const prefix = ctx.locale === 'en' ? ': ' : '：';
+  const segments = [
+    { text: ctx.labels.descColor + prefix, color: PDF_COLORS.muted },
+    { text: labels.join(ctx.locale === 'en' ? ', ' : '、'), color: PDF_COLORS.text },
+  ];
+  return wrapPdfSegments(segments, widthPt, PDF_TYPE.descValue.size)
+    .map((line) => textStrip(line, { size: PDF_TYPE.descValue.size, linePt: PDF_TYPE.descValue.line }, P));
 }
 
 function materialSegments(raw: string): PdfHtmlBlock[] {
@@ -633,7 +622,7 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string, followsSe
   let desc = item.isCustomTerm
     ? plainLines(item.name || '', customWidth - 8, PDF_TYPE.material.size).map((line) =>
       textStrip(line, { size: PDF_TYPE.material.size, linePt: PDF_TYPE.material.line }, P))
-    : [...buildDescStrips(ctx, item, descWidth, P),
+    : [...buildDescStrips(item, descWidth, P),
       ...buildSpecStrips(item, descWidth, P),
       ...buildColorStrips(ctx, item, descWidth, P),
       ...remarks];
@@ -936,7 +925,7 @@ function buildTotalsBlock(ctx: Ctx): PdfBlock {
   const rows: Array<{ label: string; value: string; bold?: boolean }> = [];
 
   if (ctx.discountValue > 0) {
-    rows.push({ label: 'Discount', value: `HK$${ctx.discountValue.toLocaleString()}` });
+    rows.push({ label: 'Discount:', value: `HK$${ctx.discountValue.toLocaleString()}` });
   }
 
   const zonePlacement = ctx.data.format?.zoneSubtotalPlacement ?? 'section_and_summary';
