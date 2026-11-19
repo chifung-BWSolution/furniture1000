@@ -3307,7 +3307,13 @@ export function QuotationDraftEditor({
     return defaults;
   });
   const [termsEditMode, setTermsEditMode] = useState(false);
-  const [quoteLocale, setQuoteLocale] = useState<QuoteLocale>('zh');
+  const [quoteLocale, setQuoteLocale] = useState<QuoteLocale>(
+    (savedProjectData as { quoteLocale?: unknown }).quoteLocale === 'en' ? 'en' : 'zh',
+  );
+  useEffect(() => {
+    const saved = (existingQuote?.projectData as { quoteLocale?: unknown } | undefined)?.quoteLocale;
+    setQuoteLocale(saved === 'en' ? 'en' : 'zh');
+  }, [existingQuote?.quoteUuid]);
   const t = quoteUi(quoteLocale);
 
   const updateDeliveryAddress = (deliveryAddress: string, editedLocale?: QuoteLocale) => {
@@ -5958,6 +5964,7 @@ export function QuotationDraftEditor({
       installationFee,
       gpSummary,
       priceMultiplier: parseFloat(priceMultiplier) || 1,
+      quoteLocale,
       quotePhotoLayouts,
       quotePhotoAssets,
       floorPlan: projectFloorPlan,
@@ -7967,6 +7974,7 @@ export function QuotationDraftEditor({
           clientContactName: clientInfo.contactName || null,
           contactPhone: companyInfo.phone || null,
           pitchingId: formData.pmsPitchingId || existingQuote?.bwfPitchingId || null,
+          documentLocale: quoteLocale,
         } : null}
         onOpenChange={setEmailModalOpen}
       />

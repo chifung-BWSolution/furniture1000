@@ -46,6 +46,8 @@ export interface QuoteEmailFollowUpQuote {
   contactPhone?: string | null;
   /** PMS pitching id. Used to fill the PM work mobile when the quote has none. */
   pitchingId?: string | null;
+  /** 報價單本身的語言。英文報價打開郵件視窗時預設英文。 */
+  documentLocale?: 'zh' | 'en';
 }
 
 /**
@@ -116,10 +118,17 @@ export function QuoteEmailFollowUpModal({
           setPreviewItems(preview.items);
           setVisibleCount(preview.count);
         }
-        const nextGreeting = copy.greeting || defaultQuoteEmailGreeting(quoteEmailAddressee(quote?.clientContactName, quote?.clientName), copy.locale);
+        const person = quoteEmailAddressee(quote?.clientContactName, quote?.clientName);
+        const nextLocale: QuoteEmailLocale = quote?.documentLocale === 'en' ? 'en' : copy.locale;
+        const defaults = (Object.keys(QUOTE_EMAIL_LOCALES) as QuoteEmailLocale[])
+          .map((key) => defaultQuoteEmailGreeting(person, key));
+        const storedGreeting = copy.greeting?.trim() ?? '';
+        const nextGreeting = storedGreeting && !defaults.includes(storedGreeting)
+          ? storedGreeting
+          : defaultQuoteEmailGreeting(person, nextLocale);
         const nextIntro = data?.intro_text ?? '';
         const nextSections = normalizeCustomQuoteEmailSections(data?.custom_sections);
-        setLocale(copy.locale);
+        setLocale(nextLocale);
         setGreeting(nextGreeting);
         setPreviewGreeting(nextGreeting);
         setIntro(nextIntro);
