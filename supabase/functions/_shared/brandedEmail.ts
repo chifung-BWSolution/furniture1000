@@ -165,7 +165,6 @@ export function renderBrandedEmail(options: BrandedEmailOptions): string {
     .email-card-pad { padding:30px 22px 0 !important; }
     .email-hero-icon { display:none !important; }
     .email-title { font-size:22px !important; }
-    .email-header-right { display:none !important; }
     .email-detail-label { width:88px !important; }
     .email-footer-sep { display:none !important; }
     .email-footer-tagline { display:block !important; padding-top:4px !important; }
@@ -184,11 +183,6 @@ export function renderBrandedEmail(options: BrandedEmailOptions): string {
               <tr>
                 <td align="left" valign="middle">
                   <img src="${escapeHtml(BRAND_LOGO_URL)}" width="156" height="41" alt="BW Furniture" style="display:block;width:156px;height:auto;max-width:156px;border:0;outline:none;text-decoration:none;">
-                </td>
-                <td class="email-header-right" align="right" valign="middle" style="padding-left:20px;font-family:${EMAIL_FONT_STACK};font-size:12.5px;line-height:1.5;color:#5F6B80;white-space:nowrap;">
-                  Quotation Management System
-                  <span style="color:#C7D0DF;">&nbsp;|&nbsp;</span>
-                  Design · Quote · Deliver
                 </td>
               </tr>
             </table>
