@@ -477,7 +477,7 @@ export function QuoteReferenceSetup({
     [categoryFilters],
   );
 
-  const canMatch = selectedCategories.length > 0 && Boolean(amountBandId) && !loadingIndex && !loadError;
+  const canMatch = selectedCategories.length > 0 && !loadingIndex && !loadError;
 
   function updateCategoryFilter(id: string, patch: Partial<CategoryFilter>) {
     setCategoryFilters((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
@@ -599,7 +599,7 @@ export function QuoteReferenceSetup({
         ))}
       </nav>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(180px,0.5fr)_minmax(0,0.92fr)_minmax(0,1.48fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[clamp(19rem,24vw,23rem)_minmax(0,0.92fr)_minmax(0,1.48fr)]">
         <section className={cn('min-h-0 min-w-0 flex-col rounded-xl border bg-card xl:flex', panel === 'filters' ? 'flex' : 'hidden')} aria-labelledby="quote-ref-filters">
           <div className="flex shrink-0 items-center justify-between gap-1 px-3 pb-1 pt-2">
             <h2 id="quote-ref-filters" className="text-base font-semibold">篩選條件</h2>
@@ -665,7 +665,7 @@ export function QuoteReferenceSetup({
                   再加一組類別
                 </Button>
               </div>
-              <FilterSelect field="amount" label="金額區間" value={amountBandId} onChange={setAmountBandId} options={QUOTE_AMOUNT_BANDS} placeholder="請選擇" />
+              <FilterSelect field="amount" label="金額區間" value={amountBandId} onChange={setAmountBandId} options={QUOTE_AMOUNT_BANDS} />
               <FilterSelect field="grade" label="傢俬級別" value={grade} onChange={setGrade} options={selectOptions(QUOTE_REFERENCE_GRADES)} />
               <FilterSelect field="period" label="工期" value={workPeriod} onChange={setWorkPeriod} options={selectOptions(workPeriodOptions)} />
               <FilterSelect field="customer-type" label="客戶類型" value={customerType} onChange={setCustomerType} options={selectOptions(customerTypeOptions)} />
@@ -710,7 +710,7 @@ export function QuoteReferenceSetup({
           </div>
           <div ref={resultsRef} className="min-h-0 flex-1">
             {sortedResults.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">{results ? '沒有相符的報價，請調整篩選條件後再搜尋。' : '選擇傢俬類別及金額區間後搜尋。'}</p>
+              <p className="p-4 text-sm text-muted-foreground">{results ? '沒有相符的報價，請調整篩選條件後再搜尋。' : '選擇傢俬類別後搜尋。'}</p>
             ) : (
               <ul aria-label="相符報價列表">
                 {sortedResults.slice(page * pageSize, (page + 1) * pageSize).map(({ candidate, score }) => {

@@ -73,6 +73,16 @@ test('hard gates drop a different category, an amount outside the band, and the 
   assert.deepEqual(matches.map((row) => row.candidate.id), ['q1']);
 });
 
+test('an empty amount band keeps quotes of every total', () => {
+  const rows = [
+    candidate({ id: 'small', totalAmount: 8_000 }),
+    candidate({ id: 'mid', totalAmount: 30_000 }),
+  ];
+  const matches = matchQuoteReferences(rows, query({ amountBandId: '' }));
+  assert.deepEqual(matches.map((row) => row.candidate.id).sort(), ['mid', 'small']);
+  assert.equal(matches.every((row) => row.tags.some((item) => item.key === 'amount')), false);
+});
+
 test('a missing size is left out of the denominator instead of scored as a miss', () => {
   const recordedMiss = candidate({
     id: 'miss',

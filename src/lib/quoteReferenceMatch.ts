@@ -1,7 +1,8 @@
 /**
  * Score historical furniture quotes for 報價參考分析.
- * Category overlap and amount band are hard gates. Other factors only rank
- * the quotes that pass, and a missing value is left out of the denominator.
+ * Category overlap is a hard gate. An amount band is a hard gate only when one
+ * is selected. Other factors only rank the quotes that pass, and a missing
+ * value is left out of the denominator.
  */
 
 export const QUOTE_REFERENCE_WEIGHTS = {
@@ -229,10 +230,12 @@ function scoreCandidate(candidate: QuoteReferenceCandidate, query: QuoteReferenc
   }
 
   const amountBand = QUOTE_AMOUNT_BANDS.find((band) => band.id === query.amountBandId) ?? null;
-  if (!valueInBand(candidate.totalAmount, amountBand)) {
-    return { earned: 0, applicable: 0, tags, excluded: true };
+  if (amountBand) {
+    if (!valueInBand(candidate.totalAmount, amountBand)) {
+      return { earned: 0, applicable: 0, tags, excluded: true };
+    }
+    tags.push(tag('amount', '金額', 'match'));
   }
-  tags.push(tag('amount', '金額', 'match'));
 
   const sizeBandId = query.sizeBandId?.trim() || '';
   if (sizeBandId) {
