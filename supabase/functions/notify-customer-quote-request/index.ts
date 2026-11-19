@@ -229,9 +229,12 @@ Deno.serve(async (req: Request) => {
           viewResults.push({ id: view.id, status: "pm_email_missing" });
           continue;
         }
+        const appUrl = (Deno.env.get("FDS_APP_URL") ?? "").trim().replace(/\/+$/, "");
         const message = buildQuoteViewEmail({
           quoteId,
           viewedAtIso: view.viewed_at,
+          pmName,
+          quoteUrl: appUrl && quoteId ? `${appUrl}/quote/${encodeURIComponent(quoteId)}` : "",
         });
         const sent = await sendEmail({ to: [email], ...message });
         const { error: logError } = await admin.from("email_notification_logs").insert({

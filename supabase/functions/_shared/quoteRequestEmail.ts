@@ -4,13 +4,13 @@
 
 import { escapeHtml } from "./email.ts";
 import {
-  breakableQuoteId,
   companyFooterText,
   EMAIL_FONT_STACK,
   renderBrandedEmail,
   renderCtaButton,
   renderDetailBox,
 } from "./brandedEmail.ts";
+import { pmNoticeGreeting, pmNoticeTitle } from "./quotePmNotice.ts";
 
 export interface QuoteRequestLine {
   name?: string;
@@ -87,8 +87,9 @@ export function buildQuoteRequestEmail(input: QuoteRequestEmailInput): BuiltEmai
   const action = actionLabel(input.requestType);
   const isDecision = input.requestType === "confirm" || input.requestType === "reject";
   const version = String(input.quoteVersion ?? "").trim();
-  const versionLabel = version ? ` ${version}` : "";
-  const subject = `客戶${action}：${quoteId}${versionLabel}`;
+  const greeting = pmNoticeGreeting(pmName);
+  const title = pmNoticeTitle(pmName, quoteId, `客戶${action}`, version);
+  const lead = `客戶已在報價頁面${action}，請你確認後處理正式報價。這次提交不會改寫現有單價、明細或總額。`;
 
   const linesText = rows.length
     ? rows.map((line) => `- ${lineText(line)}`).join("\n")
@@ -97,20 +98,18 @@ export function buildQuoteRequestEmail(input: QuoteRequestEmailInput): BuiltEmai
       : "- 客戶沒有勾選項目，只留下需求說明。";
 
   const text = [
-    `客戶已在報價頁面${action}${version ? `（報價版本 ${version}）` : ""}，請跟進並處理正式報價。`,
+    greeting,
     "",
-    `報價單 ${quoteId}${versionLabel} 收到客戶提交。`,
+    lead,
     "",
     "客戶提交內容：",
     linesText,
     "",
-    rows.length > 0 ? `選品合計（只作參考，不是正式報價金額）：${total}` : "",
+    rows.length > 0 ? `選品合計（參考）：${total}` : "",
     note ? `客戶需求：${note}` : "",
-    pmName ? `負責同事：${pmName}` : "",
     quoteUrl ? `開啟報價：${quoteUrl}` : "",
     "",
-    "客戶提交不會改寫正式報價的單價、明細或總額；請確認後另行處理正式報價。",
-    "此為系統自動發送的通知郵件，請勿回覆。",
+    "這是系統通知，請勿回覆。",
     "",
     companyFooterText(),
   ].filter((line) => line !== "").join("\n");
@@ -133,11 +132,12 @@ export function buildQuoteRequestEmail(input: QuoteRequestEmailInput): BuiltEmai
         }).join("")}
       </table>`
     : isDecision
-      ? `<p style="margin:0;font-family:${EMAIL_FONT_STACK};font-size:15px;line-height:1.8;color:#5B6880;">客戶已就這個報價版本作出決定，沒有附加項目。</p>`
+      ? `<p style="margin:0;font-family:${EMAIL_FONT_STACK};font-size:15px;line-height:1.8;color:#5B6880;">客戶已就這個報價版本作出決定。</p>`
       : `<p style="margin:0;font-family:${EMAIL_FONT_STACK};font-size:15px;line-height:1.8;color:#5B6880;">客戶沒有勾選項目，只留下需求說明。</p>`;
 
   const contentHtml = `<div style="font-family:${EMAIL_FONT_STACK};font-size:16px;line-height:1.95;color:#1D2939;padding-top:26px;">
-    <p style="margin:0;">報價單 <span style="color:#0E1B3A;font-weight:600;word-break:normal;overflow-wrap:anywhere;">${breakableQuoteId(quoteId)}</span>${version ? `（版本 ${escapeHtml(version)}）` : ""} 收到客戶${escapeHtml(action)}。</p>
+    <p style="margin:0 0 16px;font-weight:600;color:#0E1B3A;">${escapeHtml(greeting)}</p>
+    <p style="margin:0;">${escapeHtml(lead)}</p>
   </div>
 
   ${renderDetailBox([
@@ -154,17 +154,14 @@ export function buildQuoteRequestEmail(input: QuoteRequestEmailInput): BuiltEmai
 
   ${note ? `<div style="margin-top:22px;padding:16px 18px;background-color:#F8FAFD;border:1px solid #E9EDF5;border-radius:10px;font-family:${EMAIL_FONT_STACK};font-size:15px;line-height:1.8;color:#1D2939;"><strong style="color:#0F1B3D;">客戶需求：</strong>${escapeHtml(note)}</div>` : ""}
 
-  ${pmName ? `<p style="margin:18px 0 0;font-family:${EMAIL_FONT_STACK};font-size:14px;line-height:1.7;color:#5B6880;">負責同事：${escapeHtml(pmName)}</p>` : ""}
-
   ${quoteUrl ? renderCtaButton("開啟報價", quoteUrl) : ""}`;
 
   const html = renderBrandedEmail({
-    preheader: `客戶已在報價頁面${action}，請確認後處理正式報價。`,
-    heading: `客戶已${action}`,
-    subheading: `客戶已在報價頁面${action}，請確認後處理正式報價。`,
+    preheader: lead,
+    heading: title,
     contentHtml,
-    noteHtml: "客戶提交不會改寫正式報價的單價、明細或總額；請確認後另行處理正式報價。<br>此為系統自動發送的通知郵件，請勿回覆。",
+    noteHtml: "這是系統通知，請勿回覆。",
   });
 
-  return { subject, text, html };
+  return { subject: title, text, html };
 }
