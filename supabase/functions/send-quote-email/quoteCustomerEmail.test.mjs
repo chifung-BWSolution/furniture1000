@@ -29,7 +29,9 @@ test("renders the branded customer quote email with CTA and company footer", () 
   assert.equal(message.subject, `${QUOTE_ID} 報價及加單連結`);
   assert.match(message.html, /您的傢俬方案報價/);
   assert.match(plainHtml, /共 1 項傢俬。/);
-  assert.match(plainHtml, /包括：員工椅。/);
+  assert.match(message.html, /<th[^>]*>傢俬<\/th>/);
+  assert.match(plainHtml, /員工椅/);
+  assert.doesNotMatch(plainHtml, /包括：/);
   assert.match(plainHtml, /參考總額 HK\$ 1,600\.00。/);
   assert.match(plainHtml, /Dear 陳小姐,/);
   assert.match(message.text, /^Dear 陳小姐,/);
@@ -76,6 +78,7 @@ test("localizes system copy in the selected language for manual and follow-up em
   assert.match(simplified.html, /lang="zh-Hans"/);
   assert.match(simplified.subject, /报价及加单链接/);
   assert.match(simplified.text, /共 1 项家具。/);
+  assert.match(simplified.html, /<th[^>]*>家具<\/th>/);
   assert.match(simplified.html, /网上查看报价及修改需求/);
 
   const english = manual({ locale: "en", kind: "follow_up", customerName: "" });

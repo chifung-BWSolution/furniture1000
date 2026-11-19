@@ -1,5 +1,8 @@
 import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import { supabase } from '@/lib/supabase';
+import type { QuoteEmailPreviewItem } from '../../supabase/functions/_shared/quoteCustomerEmail.ts';
+
+export type { QuoteEmailPreviewItem };
 
 /**
  * FDS-15 郵件模板與跟進（每張正式報價各自保存）。
@@ -270,6 +273,31 @@ export function quoteEmailErrorMessage(error: unknown): string {
     return '郵件功能尚未部署到這個環境，暫時不能使用。';
   }
   return raw || '沒有完成，請再試一次。';
+}
+
+export async function loadQuoteEmailPreview(quoteUuid: string): Promise<{ count: number; items: QuoteEmailPreviewItem[] }> {
+  const visible = supabase
+    .from('bwf_quote_item')
+    .select('name,image,quantity,unit,unit_price', { count: 'exact' })
+    .eq('quote_uuid', quoteUuid)
+    .or('is_section_title.is.null,is_section_title.eq.false')
+    .or('is_custom_term.is.null,is_custom_term.eq.false')
+    .or('hide_in_pdf.is.null,hide_in_pdf.eq.false')
+    .neq('name', '')
+    .order('sort_order', { ascending: true })
+    .limit(5);
+  const { data, count, error } = await visible;
+  if (error) throw new Error(quoteEmailErrorMessage(error));
+  return {
+    count: count ?? data?.length ?? 0,
+    items: (data ?? []).map((row) => ({
+      name: String(row.name ?? ''),
+      image: row.image,
+      quantity: row.quantity,
+      unit: row.unit,
+      unitPrice: row.unit_price,
+    })),
+  };
 }
 
 export async function loadQuoteEmailStatus(quoteUuid: string): Promise<QuoteEmailStatusData | null> {

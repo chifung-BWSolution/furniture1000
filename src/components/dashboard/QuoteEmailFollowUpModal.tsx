@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Mail, Plus, StopCircle, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { History, Loader2, Mail, Plus, StopCircle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import {
   QUOTE_EMAIL_STATUS_LABELS,
   dispatchQuoteEmailsNow,
   loadQuoteEmailContactSource,
+  loadQuoteEmailPreview,
   loadQuoteEmailStatus,
   resolveQuoteEmailPhone,
   resolveQuoteEmailRecipient,
@@ -24,6 +25,7 @@ import {
   scheduleQuoteEmail,
   stopQuoteEmail,
   type QuoteEmailCustomSection,
+  type QuoteEmailPreviewItem,
   type QuoteEmailStatusData,
 } from '@/lib/quoteEmailFollowUp';
 
@@ -62,23 +64,35 @@ export function QuoteEmailFollowUpModal({
   const [phone, setPhone] = useState('');
   const [recipient, setRecipient] = useState('');
   const [sections, setSections] = useState<QuoteEmailCustomSection[]>([]);
+  const [previewItems, setPreviewItems] = useState<QuoteEmailPreviewItem[]>([]);
+  const [visibleCount, setVisibleCount] = useState<number | null>(null);
+  const [viewHistoryOpen, setViewHistoryOpen] = useState(false);
+  const viewHistoryButtonRef = useRef<HTMLButtonElement>(null);
 
   const quoteId = quote?.id ?? '';
   const pitchingId = quote?.pitchingId?.trim() || '';
 
   useEffect(() => {
+    setViewHistoryOpen(false);
     if (!open || !quoteId) return;
     let cancelled = false;
     setLoading(true);
     setError('');
     setStatus(null);
+    setPreviewItems([]);
+    setVisibleCount(null);
     void Promise.all([
       loadQuoteEmailStatus(quoteId),
       loadQuoteEmailContactSource(quoteId).catch(() => ({ clientEmail: '', companyPhone: '' })),
+      loadQuoteEmailPreview(quoteId).catch(() => null),
     ])
-      .then(async ([data, source]) => {
+      .then(async ([data, source, preview]) => {
         if (cancelled) return;
         setStatus(data);
+        if (preview) {
+          setPreviewItems(preview.items);
+          setVisibleCount(preview.count);
+        }
         setIntro(data?.intro_text ?? '');
         const companyPhone = quote?.contactPhone?.trim() || source.companyPhone;
         const fromQuote = resolveQuoteEmailPhone({
@@ -128,11 +142,12 @@ export function QuoteEmailFollowUpModal({
     introText: intro,
     contactPhone: phone,
     customSections: sections,
-    itemCount: status?.item_count ?? 0,
+    itemCount: visibleCount ?? status?.item_count ?? 0,
     totalAmount: status?.total_amount ?? 0,
     sampleItems: status?.sample_items ?? null,
+    previewItems,
     shareUrl: quoteUrl,
-  }), [quote?.quoteId, intro, phone, sections, status?.item_count, status?.total_amount, status?.sample_items, quoteUrl]);
+  }), [quote?.quoteId, intro, phone, sections, visibleCount, status?.item_count, status?.total_amount, status?.sample_items, previewItems, quoteUrl]);
 
   const problem = quoteEmailReadiness({ recipient, contactPhone: phone, shareToken: status?.share_token ?? null });
   const statusLabel = QUOTE_EMAIL_STATUS_LABELS[status?.status ?? 'not_sent'];
@@ -276,6 +291,18 @@ export function QuoteEmailFollowUpModal({
               <span className="text-muted-foreground">下次跟進 {status.next_follow_up_at.slice(0, 16).replace('T', ' ')}</span>
             ) : null}
             <span className="ml-auto flex gap-2">
+              <Button
+                ref={viewHistoryButtonRef}
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-haspopup="dialog"
+                disabled={!status}
+                onClick={() => setViewHistoryOpen(true)}
+              >
+                <History className="mr-1 h-3.5 w-3.5" />
+                查看記錄
+              </Button>
               <Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void handleStop()}>
                 <StopCircle className="mr-1 h-3.5 w-3.5" />
                 停止自動跟進
@@ -383,22 +410,6 @@ export function QuoteEmailFollowUpModal({
               </ul>
             </div>
           ) : null}
-
-          {status?.views.length ? (
-            <div className="space-y-1">
-              <p className="text-sm font-medium">查看紀錄</p>
-              <ul className="space-y-1 text-xs">
-                {status.views.map((view, index) => (
-                  <li key={`${view.viewed_at}-${index}`} className="rounded border px-2 py-1">
-                    <span className="text-muted-foreground">{view.viewed_at.slice(0, 16).replace('T', ' ')}</span>
-                    <span className={view.is_valid ? 'ml-2 text-emerald-700' : 'ml-2 text-muted-foreground'}>
-                      {view.is_valid ? '有效查看（已停這張單的自動信）' : `未計為查看${view.reason ? `：${view.reason}` : ''}`}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </div>
         <aside className="flex min-h-[28rem] flex-col overflow-hidden rounded-xl border bg-white lg:min-h-0">
           <div className="border-b bg-slate-50 px-3 py-2.5">
@@ -415,6 +426,35 @@ export function QuoteEmailFollowUpModal({
         </aside>
         </div>
       )}
+      <Modal
+        open={open && viewHistoryOpen}
+        onOpenChange={setViewHistoryOpen}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          viewHistoryButtonRef.current?.focus();
+        }}
+        title="查看記錄"
+        description={quote?.quoteId}
+        icon={<History className="h-5 w-5" />}
+        size="lg"
+      >
+        {status?.views.length ? (
+          <ul className="space-y-2 text-sm">
+            {status.views.map((view, index) => (
+              <li key={`${view.viewed_at}-${index}`} className="flex flex-wrap gap-x-3 gap-y-1 rounded-md border px-3 py-2">
+                <time dateTime={view.viewed_at} className="tabular-nums text-muted-foreground">
+                  {view.viewed_at.slice(0, 16).replace('T', ' ')}
+                </time>
+                <span className={view.is_valid ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}>
+                  {view.is_valid ? '有效查看（已停止這張報價的自動跟進）' : `未計為查看${view.reason ? `：${view.reason}` : ''}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">暫無查看記錄。</p>
+        )}
+      </Modal>
     </Modal>
   );
 }

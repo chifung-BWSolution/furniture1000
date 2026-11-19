@@ -3,8 +3,8 @@ import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { isSafeEmail, sendEmail } from "../_shared/email.ts";
 import { DEFAULT_QUOTE_EMAIL_BCC, quoteEmailBccList, quoteEmailFromHeader, type QuoteEmailFooterText } from "../_shared/quoteEmailFooter.ts";
-import { buildQuoteCustomerEmail, normalizeQuoteEmailLocale } from "../_shared/quoteCustomerEmail.ts";
-import { localizeEnglishSampleItems } from "../_shared/quoteSampleItems.ts";
+import { buildQuoteCustomerEmail, normalizeQuoteEmailLocale, type QuoteEmailPreviewItem } from "../_shared/quoteCustomerEmail.ts";
+import { localizeEnglishItemNames, localizeEnglishSampleItems } from "../_shared/quoteSampleItems.ts";
 import { translateQuoteEmail } from "../_shared/translateQuoteEmail.ts";
 import { pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
 import { resolveQuoteEmailFooter } from "../_shared/resolveQuoteEmailFooter.ts";
@@ -102,7 +102,42 @@ async function englishSampleItems(sample: string | null): Promise<string | null>
   return localizeEnglishSampleItems(sample, (names) => translateQuoteEmail(names, "en", key));
 }
 
-function buildMessage(row: ClaimedEmail, footer: QuoteEmailFooterText | null): { subject: string; text: string; html: string } {
+function customerVisibleItem(row: {
+  name?: string | null;
+  is_section_title?: boolean | null;
+  is_custom_term?: boolean | null;
+  hide_in_pdf?: boolean | null;
+}): boolean {
+  return !row.is_section_title && !row.is_custom_term && !row.hide_in_pdf && String(row.name ?? "").trim() !== "";
+}
+
+async function loadPreviewItems(admin: SupabaseClient, quoteUuid: string): Promise<{ count: number; items: QuoteEmailPreviewItem[] } | null> {
+  const { data, error } = await admin.from("bwf_quote_item")
+    .select("name,image,quantity,unit,unit_price,is_section_title,is_custom_term,hide_in_pdf")
+    .eq("quote_uuid", quoteUuid)
+    .order("sort_order", { ascending: true });
+  if (error) {
+    console.warn("[send-quote-email] preview items", error.message);
+    return null;
+  }
+  const visible = (data ?? []).filter(customerVisibleItem);
+  return {
+    count: visible.length,
+    items: visible.slice(0, 5).map((row) => ({
+      name: String(row.name ?? ""),
+      image: row.image,
+      quantity: row.quantity,
+      unit: row.unit,
+      unitPrice: row.unit_price,
+    })),
+  };
+}
+
+function buildMessage(
+  row: ClaimedEmail,
+  footer: QuoteEmailFooterText | null,
+  preview: { count: number; items: QuoteEmailPreviewItem[] } | null,
+): { subject: string; text: string; html: string } {
   return buildQuoteCustomerEmail({
     kind: row.kind,
     quoteId: row.quote_id,
@@ -111,9 +146,10 @@ function buildMessage(row: ClaimedEmail, footer: QuoteEmailFooterText | null): {
     locale: row.locale,
     footer,
     customSections: row.custom_sections,
-    itemCount: row.item_count,
+    itemCount: preview?.count ?? row.item_count,
     totalAmount: row.total_amount,
     sampleItems: row.sample_items,
+    previewItems: preview?.items,
     shareUrl: shareUrl(row.share_token),
   });
 }
@@ -226,10 +262,23 @@ Deno.serve(async (req: Request) => {
         results.push({ id: row.id, status: "cancelled_before_send" });
         continue;
       }
+      const preview = await loadPreviewItems(admin, row.quote_uuid);
       const sampleItems = normalizeQuoteEmailLocale(row.locale) === "en"
         ? await englishSampleItems(row.sample_items)
         : row.sample_items;
-      const message = buildMessage({ ...row, sample_items: sampleItems }, footer);
+      let previewItems = preview?.items ?? null;
+      if (previewItems && normalizeQuoteEmailLocale(row.locale) === "en") {
+        const names = await localizeEnglishItemNames(
+          previewItems.map((item) => item.name),
+          (names) => translateQuoteEmail(names, "en", Deno.env.get("GOOGLE_TRANSLATION_API_KEY")?.trim() ?? ""),
+        );
+        previewItems = previewItems.map((item, index) => ({ ...item, name: names[index] || item.name }));
+      }
+      const message = buildMessage(
+        { ...row, sample_items: sampleItems },
+        footer,
+        preview ? { count: preview.count, items: previewItems ?? [] } : null,
+      );
       const bcc = quoteEmailBccList(to, teamBcc);
       const sent = await sendEmail({ to: [to], bcc, ...message, resendFrom, attachment });
       await recordLog(admin, row, "success", { provider: sent.provider, messageId: sent.id });
