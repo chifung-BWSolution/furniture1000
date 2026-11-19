@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Copy, Loader2, Plus, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Info, Loader2, Pencil, Plus, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -22,7 +22,6 @@ import {
   QUOTE_AMOUNT_BANDS,
   QUOTE_REFERENCE_GRADES,
   type QuoteReferenceCandidate,
-  type QuoteReferenceClassification,
   type QuoteReferenceMatch,
   type QuoteReferenceTagTone,
 } from '@/lib/quoteReferenceMatch';
@@ -56,6 +55,13 @@ function tagClass(tone: QuoteReferenceTagTone): string {
   return 'bg-muted text-muted-foreground';
 }
 
+function matchScoreClass(score: number): string {
+  if (score >= 80) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
+  if (score >= 60) return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
+  if (score >= 40) return 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-200';
+  return 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200';
+}
+
 const RESULT_ROW_HEIGHT = 56;
 const ITEM_ROW_HEIGHT = 72;
 const FACET_LIMIT = 40;
@@ -71,6 +77,10 @@ interface CategoryFilter {
 
 function blankCategoryFilter(id: string): CategoryFilter {
   return { id, level1: '', level2: '', colors: [], materials: [] };
+}
+
+function categoryFilterSummary(row: CategoryFilter): string {
+  return [row.level1, row.level2].filter(Boolean).join('／') || '未選類別';
 }
 
 function facetKey(value: string): string {
@@ -138,7 +148,7 @@ function FilterSelect({ field, label, value, onChange, options, placeholder = '�
   label: string;
   value: string;
   onChange: (value: string) => void;
-  options: { id: string; label: string }[];
+  options: { id: string; label: string; disabled?: boolean }[];
   placeholder?: string;
   disabled?: boolean;
 }) {
@@ -151,7 +161,7 @@ function FilterSelect({ field, label, value, onChange, options, placeholder = '�
         <SelectTrigger id={id} title={selection} className="h-9 px-2 text-xs [&>span]:truncate"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value={NONE}>{placeholder}</SelectItem>
-          {options.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}
+          {options.map((option) => <SelectItem key={option.id} value={option.id} disabled={option.disabled}>{option.label}</SelectItem>)}
         </SelectContent>
       </Select>
     </div>
@@ -210,9 +220,9 @@ function QuoteDetails({ match, copying, categoryById, onClose, onCopy }: {
               {formatListDate(candidate.createdAt)}{candidate.workPeriod && ` · ${candidate.workPeriod}`}
             </p>
           </div>
-          <div className="rounded-lg bg-primary/10 px-2 py-1 text-center text-primary">
+          <div className={cn('rounded-lg px-2 py-1 text-center', matchScoreClass(score))}>
             <div className="text-[11px] font-medium">匹配度</div>
-            <div className="text-lg font-bold leading-tight tabular-nums">{score}</div>
+            <div className="text-lg font-bold leading-tight tabular-nums">{score}%</div>
           </div>
           <Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="關閉報價詳情" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -336,6 +346,7 @@ export function QuoteReferenceSetup({
 }: QuoteReferenceSetupProps) {
   const categoryFilterSeq = useRef(1);
   const [categoryFilters, setCategoryFilters] = useState<CategoryFilter[]>(() => [blankCategoryFilter('1')]);
+  const [activeCategoryId, setActiveCategoryId] = useState('1');
   const [pairs, setPairs] = useState<ProductCategoryPair[]>([]);
   const [amountBandId, setAmountBandId] = useState('');
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>(industries);
@@ -472,20 +483,33 @@ export function QuoteReferenceSetup({
     return formatted === 'N/A' ? null : formatted;
   })();
 
-  const selectedCategories = useMemo(
-    () => [...new Set(categoryFilters.map((row) => row.level1.trim()).filter(Boolean))],
-    [categoryFilters],
-  );
-
-  const canMatch = selectedCategories.length > 0 && !loadingIndex && !loadError;
+  const canMatch = categoryFilters.some((row) => row.level1.trim()) && !loadingIndex && !loadError;
+  const activeCategoryIndex = Math.max(0, categoryFilters.findIndex(({ id }) => id === activeCategoryId));
+  const activeCategory = categoryFilters[activeCategoryIndex];
+  const adjacentCategoryIndex = activeCategoryIndex + 1 < categoryFilters.length ? activeCategoryIndex + 1 : activeCategoryIndex - 1;
+  const adjacentCategory = categoryFilters[adjacentCategoryIndex];
+  const level2Options = uniqueLevel2InOrder(pairs, activeCategory.level1).map((level2) => {
+    const disabled = isClassificationUsed(activeCategory.id, activeCategory.level1, level2);
+    return { id: level2, label: disabled ? `${level2}（其他組已選）` : level2, disabled };
+  });
+  const activeFacetKey = facetKey(activeCategory.level2);
+  const colorOptions = topFacetValues(facetCounts.colors.get(activeFacetKey));
+  const materialOptions = topFacetValues(facetCounts.materials.get(activeFacetKey));
 
   function updateCategoryFilter(id: string, patch: Partial<CategoryFilter>) {
     setCategoryFilters((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   }
 
+  function isClassificationUsed(groupId: string, level1: string, level2: string) {
+    return Boolean(level2) && categoryFilters.some((row) =>
+      row.id !== groupId && row.level1 === level1 && row.level2 === level2,
+    );
+  }
+
   function changeLevel1(row: CategoryFilter, level1: string) {
     const level2s = uniqueLevel2InOrder(pairs, level1);
-    const level2 = level2s.includes(row.level2) ? row.level2 : '';
+    const canKeepLevel2 = level2s.includes(row.level2) && !isClassificationUsed(row.id, level1, row.level2);
+    const level2 = canKeepLevel2 ? row.level2 : '';
     updateCategoryFilter(row.id, {
       level1,
       level2,
@@ -495,6 +519,7 @@ export function QuoteReferenceSetup({
   }
 
   function changeLevel2(row: CategoryFilter, level2: string) {
+    if (isClassificationUsed(row.id, row.level1, level2)) return;
     updateCategoryFilter(row.id, {
       level2,
       colors: level2 ? row.colors : [],
@@ -504,20 +529,26 @@ export function QuoteReferenceSetup({
 
   function addCategoryFilter() {
     categoryFilterSeq.current += 1;
-    setCategoryFilters((current) => [...current, blankCategoryFilter(String(categoryFilterSeq.current))]);
+    const id = String(categoryFilterSeq.current);
+    setCategoryFilters((current) => [...current, blankCategoryFilter(id)]);
+    setActiveCategoryId(id);
+  }
+
+  function removeActiveCategoryFilter() {
+    if (!adjacentCategory) return;
+    setCategoryFilters((current) => current.filter(({ id }) => id !== activeCategory.id));
+    setActiveCategoryId(adjacentCategory.id);
   }
 
   function runMatch() {
     if (!canMatch) return;
-    const classifications: QuoteReferenceClassification[] = categoryFilters
-      .filter((row) => row.level1.trim() && row.level2.trim())
-      .map((row) => ({
-        category: row.level2.trim(),
+    const matches = matchQuoteReferences(candidates, {
+      furnitureGroups: categoryFilters.map((row) => ({
+        scope: row.level1,
+        classification: row.level2,
         colors: row.colors,
         materials: row.materials,
-      }));
-    const matches = matchQuoteReferences(candidates, {
-      categories: selectedCategories,
+      })),
       amountBandId,
       sizeBandId: null,
       industries: selectedIndustries,
@@ -526,7 +557,6 @@ export function QuoteReferenceSetup({
       grade: grade || null,
       workPeriod: workPeriod || null,
       excludeQuoteId,
-      classifications,
     });
     setResults(matches);
     setOffset(0);
@@ -540,6 +570,7 @@ export function QuoteReferenceSetup({
     seededCustomerType.current = true;
     categoryFilterSeq.current = 1;
     setCategoryFilters([blankCategoryFilter('1')]);
+    setActiveCategoryId('1');
     setAmountBandId('');
     setSelectedIndustries([]);
     setIndustryHard(false);
@@ -599,71 +630,113 @@ export function QuoteReferenceSetup({
         ))}
       </nav>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[clamp(19rem,24vw,23rem)_minmax(0,0.92fr)_minmax(0,1.48fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[clamp(21rem,26vw,32rem)_minmax(0,0.95fr)_minmax(0,1.45fr)] 2xl:gap-4">
         <section className={cn('min-h-0 min-w-0 flex-col rounded-xl border bg-card xl:flex', panel === 'filters' ? 'flex' : 'hidden')} aria-labelledby="quote-ref-filters">
-          <div className="flex shrink-0 items-center justify-between gap-1 px-3 pb-1 pt-2">
+          <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 2xl:px-4">
             <h2 id="quote-ref-filters" className="text-base font-semibold">篩選條件</h2>
             <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-primary" onClick={clearFilters}>清除全部</Button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-            <div className="grid grid-cols-2 gap-x-3 gap-y-2 xl:grid-cols-1 xl:[@media(max-height:840px)]:grid-cols-2">
-              <div className="col-span-full space-y-2">
-                {categoryFilters.map((row, index) => {
-                  const level2s = uniqueLevel2InOrder(pairs, row.level1);
-                  const colorOptions = row.level2 ? topFacetValues(facetCounts.colors.get(facetKey(row.level2))) : [];
-                  const materialOptions = row.level2 ? topFacetValues(facetCounts.materials.get(facetKey(row.level2))) : [];
-                  return (
-                    <div key={row.id} className="space-y-2 rounded-md border p-2">
-                      <FilterSelect
-                        field={`category-${row.id}`}
-                        label={index === 0 ? '傢俬類別' : `傢俬類別 ${index + 1}`}
-                        value={row.level1}
-                        onChange={(level1) => changeLevel1(row, level1)}
-                        options={selectOptions(categoryOptions)}
-                        placeholder={categoriesLoading ? '載入類別…' : '請選擇'}
-                        disabled={categoriesLoading}
-                      />
-                      <FilterSelect
-                        field={`class-${row.id}`}
-                        label="分類"
-                        value={row.level2}
-                        onChange={(level2) => changeLevel2(row, level2)}
-                        options={selectOptions(level2s)}
-                        placeholder={!row.level1 ? '先選類別' : level2s.length === 0 ? '沒有細分類' : '不限'}
-                        disabled={!row.level1 || level2s.length === 0}
-                      />
-                      {row.level2 && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="min-w-0 space-y-1">
-                            <Label>顏色</Label>
-                            {colorOptions.length > 0 ? (
-                              <MultiSelect compact label={`${row.level2}顏色`} options={multiSelectOptions(colorOptions)} value={row.colors} onValueChange={(colors) => updateCategoryFilter(row.id, { colors })} placeholder="不限" />
-                            ) : (
-                              <p className="flex h-9 items-center text-xs text-muted-foreground">不限</p>
-                            )}
-                          </div>
-                          <div className="min-w-0 space-y-1">
-                            <Label>材質</Label>
-                            {materialOptions.length > 0 ? (
-                              <MultiSelect compact label={`${row.level2}材質`} options={multiSelectOptions(materialOptions)} value={row.materials} onValueChange={(materials) => updateCategoryFilter(row.id, { materials })} placeholder="不限" />
-                            ) : (
-                              <p className="flex h-9 items-center text-xs text-muted-foreground">不限</p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {categoryFilters.length > 1 && (
-                        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setCategoryFilters((current) => current.filter((item) => item.id !== row.id))}>
-                          移除這組
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 2xl:px-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,max(9rem,40%)),1fr))] gap-3">
+              <div className="col-span-full min-w-0 space-y-4 border-b pb-3">
+                <div className="space-y-2">
+                  <Label htmlFor="quote-ref-group">搜尋組別</Label>
+                  <div className="flex items-center gap-2">
+                    <Select value={activeCategory.id} onValueChange={setActiveCategoryId}>
+                      <SelectTrigger id="quote-ref-group" className="h-10 min-w-0 flex-1 gap-2 text-left [&>span]:truncate [&>svg]:shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categoryFilters.map((row, index) => (
+                          <SelectItem key={row.id} value={row.id}>第 {index + 1} 組 · {categoryFilterSummary(row)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" variant="ghost" className="h-10 shrink-0 gap-1.5 bg-primary/10 px-2.5 text-primary hover:bg-primary/15 hover:text-primary" onClick={addCategoryFilter}>
+                      <Plus aria-hidden="true" />
+                      新增組別
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex min-h-9 min-w-0 items-center justify-between gap-2 rounded-md bg-primary/10 px-2">
+                  <h3 id="quote-ref-active-group" className="shrink-0 whitespace-nowrap text-xs font-semibold text-primary sm:text-sm">
+                    目前編輯 · 第 {activeCategoryIndex + 1} 組
+                  </h3>
+                  <div className="flex min-w-0 items-center justify-end gap-1.5 text-xs text-muted-foreground">
+                    <span className="shrink-0">共 {categoryFilters.length} 組條件</span>
+                    {adjacentCategory && (
+                      <>
+                        <span className="min-w-0 truncate border-l pl-2" title={categoryFilterSummary(adjacentCategory)}>
+                          第 {adjacentCategoryIndex + 1} 組：{categoryFilterSummary(adjacentCategory)}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 shrink-0 gap-1 px-1 text-primary hover:text-primary [&_svg]:size-3.5"
+                          aria-label={`編輯第 ${adjacentCategoryIndex + 1} 組`}
+                          onClick={() => setActiveCategoryId(adjacentCategory.id)}
+                        >
+                          <Pencil aria-hidden="true" />
+                          編輯
                         </Button>
-                      )}
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div key={activeCategory.id} className="min-w-0 space-y-3" role="group" aria-labelledby="quote-ref-active-group">
+                  <div className="grid grid-cols-2 gap-3">
+                    <FilterSelect
+                      field={`category-${activeCategory.id}`}
+                      label="傢俬類別"
+                      value={activeCategory.level1}
+                      onChange={(level1) => changeLevel1(activeCategory, level1)}
+                      options={selectOptions(categoryOptions)}
+                      placeholder={categoriesLoading ? '載入類別…' : '請選擇'}
+                      disabled={categoriesLoading}
+                    />
+                    <FilterSelect
+                      field={`class-${activeCategory.id}`}
+                      label="分類"
+                      value={activeCategory.level2}
+                      onChange={(level2) => changeLevel2(activeCategory, level2)}
+                      options={level2Options}
+                      placeholder={!activeCategory.level1 ? '先選類別' : level2Options.length === 0 ? '沒有細分類' : '不限'}
+                      disabled={!activeCategory.level1 || level2Options.length === 0}
+                    />
+                  </div>
+                  {activeCategory.level2 && (
+                    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,7rem),1fr))] gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <Label>顏色</Label>
+                        {colorOptions.length > 0 ? (
+                          <MultiSelect compact label={`${activeCategory.level2}顏色`} options={multiSelectOptions(colorOptions)} value={activeCategory.colors} onValueChange={(colors) => updateCategoryFilter(activeCategory.id, { colors })} placeholder="不限" />
+                        ) : (
+                          <p className="flex h-9 items-center text-xs text-muted-foreground">不限</p>
+                        )}
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <Label>材質</Label>
+                        {materialOptions.length > 0 ? (
+                          <MultiSelect compact label={`${activeCategory.level2}材質`} options={multiSelectOptions(materialOptions)} value={activeCategory.materials} onValueChange={(materials) => updateCategoryFilter(activeCategory.id, { materials })} placeholder="不限" />
+                        ) : (
+                          <p className="flex h-9 items-center text-xs text-muted-foreground">不限</p>
+                        )}
+                      </div>
                     </div>
-                  );
-                })}
-                <Button type="button" variant="outline" size="sm" className="h-8 w-full gap-1" onClick={addCategoryFilter}>
-                  <Plus className="h-3.5 w-3.5" />
-                  再加一組類別
-                </Button>
+                  )}
+                  <div className="flex min-h-9 items-center justify-between gap-2 border-t pt-2">
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Info className="size-3.5 shrink-0" aria-hidden="true" />
+                      各組條件獨立設定
+                    </span>
+                    {adjacentCategory && (
+                      <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={removeActiveCategoryFilter}>
+                        移除此組
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
               <FilterSelect field="amount" label="金額區間" value={amountBandId} onChange={setAmountBandId} options={QUOTE_AMOUNT_BANDS} />
               <FilterSelect field="grade" label="傢俬級別" value={grade} onChange={setGrade} options={selectOptions(QUOTE_REFERENCE_GRADES)} />
@@ -679,7 +752,7 @@ export function QuoteReferenceSetup({
               </div>
             </div>
           </div>
-          <div className="shrink-0 space-y-1.5 border-t p-3">
+          <div className="shrink-0 space-y-1.5 border-t p-3 2xl:px-4">
             {loadError && <p role="alert" className="text-xs text-destructive">{loadError}</p>}
             <Button type="button" className="w-full gap-2" disabled={!canMatch || copyingId !== null} onClick={runMatch}>
               {loadingIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -702,7 +775,7 @@ export function QuoteReferenceSetup({
               </SelectContent>
             </Select>
           </div>
-          <div className="grid shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,1fr)_3rem] gap-2 border-y bg-muted px-3 py-2 text-xs font-medium text-muted-foreground sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1.4fr)_minmax(0,.9fr)_3rem]">
+          <div className="grid shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,1fr)_4rem] gap-2 border-y bg-muted px-3 py-2 text-xs font-medium text-muted-foreground sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1.4fr)_minmax(0,.9fr)_4rem]">
             <span>報價編號</span>
             <span className="hidden sm:block">項目資料</span>
             <span className="text-right">金額 (HKD)</span>
@@ -713,9 +786,10 @@ export function QuoteReferenceSetup({
               <p className="p-4 text-sm text-muted-foreground">{results ? '沒有相符的報價，請調整篩選條件後再搜尋。' : '選擇傢俬類別後搜尋。'}</p>
             ) : (
               <ul aria-label="相符報價列表">
-                {sortedResults.slice(page * pageSize, (page + 1) * pageSize).map(({ candidate, score }) => {
+                {sortedResults.slice(page * pageSize, (page + 1) * pageSize).map(({ candidate, score, completeGroups, totalGroups }) => {
                   const quoteCode = `${candidate.quoteId} ${candidate.version ?? ''}`.trim();
                   const project = candidate.projectName || candidate.scopes.join('、') || '未記錄項目資料';
+                  const furnitureSummary = `傢俬 ${completeGroups}/${totalGroups} 組完全相符`;
                   return (
                     <li key={candidate.id}>
                       <Button
@@ -723,10 +797,10 @@ export function QuoteReferenceSetup({
                         variant="ghost"
                         style={{ height: RESULT_ROW_HEIGHT }}
                         className={cn(
-                          'grid w-full grid-cols-[minmax(0,2fr)_minmax(0,1fr)_3rem] gap-2 rounded-none border-b px-3 text-left font-normal focus-visible:ring-inset sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1.4fr)_minmax(0,.9fr)_3rem]',
+                          'grid w-full grid-cols-[minmax(0,2fr)_minmax(0,1fr)_4rem] gap-2 rounded-none border-b px-3 text-left font-normal focus-visible:ring-inset sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1.4fr)_minmax(0,.9fr)_4rem]',
                           activeId === candidate.id && 'bg-primary/10 text-foreground hover:bg-primary/15',
                         )}
-                        aria-label={`查看 ${quoteCode} 報價詳情`}
+                        aria-label={`查看 ${quoteCode} 報價詳情，匹配度 ${score}%，${furnitureSummary}`}
                         aria-pressed={activeId === candidate.id}
                         onClick={() => { setActiveId(candidate.id); setPanel('details'); }}
                       >
@@ -741,7 +815,10 @@ export function QuoteReferenceSetup({
                           <span className="block truncate text-xs tabular-nums text-muted-foreground">{formatListDate(candidate.createdAt)} · {candidate.itemCount} 項</span>
                         </span>
                         <span className="truncate text-right text-xs font-medium tabular-nums" title={money(candidate.totalAmount)}>{money(candidate.totalAmount)}</span>
-                        <span className={cn('justify-self-center rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums', activeId === candidate.id && 'bg-primary text-primary-foreground')}>{score}</span>
+                        <span className="grid justify-items-center gap-0.5 tabular-nums" title={furnitureSummary}>
+                          <span className={cn('rounded-full px-1.5 py-0.5 text-xs font-semibold', matchScoreClass(score))}>{score}%</span>
+                          <span className="text-[11px] leading-tight text-muted-foreground">{completeGroups}/{totalGroups} 組相符</span>
+                        </span>
                       </Button>
                     </li>
                   );

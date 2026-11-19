@@ -34,7 +34,7 @@ function candidate(patch: Partial<QuoteReferenceCandidate> = {}): QuoteReference
 
 function query(patch: Partial<QuoteReferenceQuery> = {}): QuoteReferenceQuery {
   return {
-    categories: ['辦公枱'],
+    furnitureGroups: [furnitureGroup('辦公枱')],
     amountBandId: '20to50',
     sizeBandId: '1200',
     industries: ['金融服務業 - Financial Services'],
@@ -44,6 +44,10 @@ function query(patch: Partial<QuoteReferenceQuery> = {}): QuoteReferenceQuery {
     workPeriod: '7-14天內',
     ...patch,
   };
+}
+
+function furnitureGroup(scope: string, classification = '', colors: string[] = [], materials: string[] = []) {
+  return { scope, classification, colors, materials };
 }
 
 test('amount bands are min-inclusive and max-exclusive', () => {
@@ -83,7 +87,7 @@ test('an empty amount band keeps quotes of every total', () => {
   assert.equal(matches.every((row) => row.tags.some((item) => item.key === 'amount')), false);
 });
 
-test('a missing size is left out of the denominator instead of scored as a miss', () => {
+test('a selected size earns no points when missing or unmatched', () => {
   const recordedMiss = candidate({
     id: 'miss',
     size1200: 0,
@@ -116,12 +120,9 @@ test('a missing size is left out of the denominator instead of scored as a miss'
   const miss = matches.find((row) => row.candidate.id === 'miss');
   const unknown = matches.find((row) => row.candidate.id === 'unknown');
   assert.ok(miss && unknown);
-  assert.equal(miss.applicable, 50);
-  assert.equal(miss.score, 50);
-  assert.equal(unknown.applicable, 25);
-  assert.equal(unknown.score, 100);
+  assert.equal(miss.score, 80);
+  assert.equal(unknown.score, 80);
   assert.equal(unknown.tags.find((item) => item.key === 'size')?.label, '尺寸 未記錄');
-  assert.ok(unknown.score > miss.score);
 });
 
 test('same industry can be required, and a blank industry is not treated as a match', () => {
@@ -133,16 +134,22 @@ test('same industry can be required, and a blank industry is not treated as a ma
   const hard = matchQuoteReferences(rows, query({ industryHard: true }));
   assert.deepEqual(hard.map((row) => row.candidate.id), ['same']);
 
+  const [filtered] = matchQuoteReferences(rows, query({
+    industryHard: true,
+    industries: ['金融服務業', '教育'],
+  }));
+  assert.equal(filtered.score, 100);
+
   const soft = matchQuoteReferences(rows, query({ industryHard: false, customerType: null, grade: null, workPeriod: null, sizeBandId: null }));
   const other = soft.find((row) => row.candidate.id === 'other');
   const blank = soft.find((row) => row.candidate.id === 'blank');
   assert.ok(other && blank);
   assert.equal(other.tags.find((item) => item.key === 'industry')?.label, '產業 不符');
   assert.equal(blank.tags.find((item) => item.key === 'industry')?.label, '產業 未記錄');
-  assert.ok(blank.applicable < other.applicable);
+  assert.equal(blank.score, other.score);
 });
 
-test('grade and lead time only count when both sides recorded them', () => {
+test('selected grade and lead time earn no points when missing or unmatched', () => {
   const mismatch = candidate({ id: 'mismatch', grades: ['傢俬採購'], workPeriod: '1-3個月內' });
   const blank = candidate({ id: 'blank', grades: [], workPeriod: null, createdAt: '2025-01-01T00:00:00.000Z' });
   const matches = matchQuoteReferences(
@@ -155,14 +162,14 @@ test('grade and lead time only count when both sides recorded them', () => {
   assert.equal(missed.tags.find((item) => item.key === 'grade')?.label, '級別 不符');
   assert.equal(open.tags.find((item) => item.key === 'grade')?.label, '級別 未記錄');
   assert.equal(open.tags.find((item) => item.key === 'leadTime')?.label, '工期 未記錄');
-  assert.ok(open.score > missed.score);
+  assert.equal(open.score, missed.score);
 });
 
 test('category coverage is partial when only some selected categories appear', () => {
   const [row] = matchQuoteReferences(
     [candidate({ scopes: ['辦公枱'] })],
     query({
-      categories: ['辦公枱', '辦公椅'],
+      furnitureGroups: [furnitureGroup('辦公枱'), furnitureGroup('辦公椅')],
       industries: [],
       customerType: null,
       grade: null,
@@ -170,12 +177,13 @@ test('category coverage is partial when only some selected categories appear', (
       sizeBandId: null,
     }),
   );
-  assert.equal(row.tags.find((item) => item.key === 'category')?.label, '類別 部分相符');
-  assert.equal(row.earned, 12.5);
+  assert.deepEqual(row.tags.map(({ label }) => label), ['辦公枱 相符', '辦公椅 不符', '金額 相符']);
   assert.equal(row.score, 50);
+  assert.equal(row.completeGroups, 1);
+  assert.equal(row.totalGroups, 2);
 });
 
-test('a classification requires the same item to match category and color', () => {
+test('only color on the same item contributes to a classification match', () => {
   const rows = [
     candidate({
       id: 'white-desk',
@@ -191,7 +199,77 @@ test('a classification requires the same item to match category and color', () =
   ];
   const matches = matchQuoteReferences(rows, query({
     sizeBandId: null,
-    classifications: [{ category: '會議枱', colors: ['白'], materials: [] }],
+    furnitureGroups: [furnitureGroup('辦公枱', '會議枱', ['白'])],
   }));
-  assert.deepEqual(matches.map((row) => row.candidate.id), ['white-desk']);
+  assert.deepEqual(matches.map(({ candidate: row, score, completeGroups }) => [row.id, score, completeGroups]), [
+    ['white-desk', 100, 1],
+    ['mixed', 82, 0],
+  ]);
+});
+
+test('a quote missing the executive desk only earns credit for the workstation group', () => {
+  const workstation = { category: '工作枱', colors: ['灰'], materials: ['玻璃'] };
+  const desk = { category: '老闆枱', colors: ['灰'], materials: ['MFC'] };
+  const filters = query({
+    amountBandId: '',
+    sizeBandId: null,
+    industries: [],
+    customerType: null,
+    grade: null,
+    workPeriod: null,
+    furnitureGroups: [
+      furnitureGroup('辦公枱', '工作枱'),
+      furnitureGroup('辦公枱', '老闆枱', ['灰'], ['MFC']),
+    ],
+  });
+  const matches = matchQuoteReferences([
+    candidate({ id: 'workstation-only', itemTraits: [workstation, workstation] }),
+    candidate({ id: 'both', itemTraits: [workstation, desk] }),
+    candidate({
+      id: 'wrong-material',
+      itemTraits: [{ ...workstation, materials: ['MFC'] }, { ...desk, materials: ['玻璃'] }],
+    }),
+    candidate({
+      id: 'missing-color',
+      itemTraits: [workstation, { ...desk, colors: [] }],
+    }),
+    candidate({ id: 'neither', itemTraits: [] }),
+  ], filters);
+
+  assert.deepEqual(matches.map(({ candidate: row, score, completeGroups }) => [row.id, score, completeGroups]), [
+    ['both', 100, 2],
+    ['missing-color', 93, 1],
+    ['wrong-material', 93, 1],
+    ['workstation-only', 50, 1],
+  ]);
+  assert.ok(matches[1].tags.some(({ label }) => label === '老闆枱 相符 · 顏色 未記錄 · 材質 相符'));
+  assert.ok(matches[2].tags.some(({ label }) => label === '老闆枱 相符 · 顏色 相符 · 材質 不符'));
+  assert.ok(matches[3].tags.some(({ label }) => label === '老闆枱 不符'));
+
+  const withCustomerFilter = matchQuoteReferences([
+    candidate({ id: 'BWF-NGO26-098', customerType: null, itemTraits: [workstation, workstation] }),
+    candidate({ id: 'workstation-ngo', customerType: 'NGO', itemTraits: [workstation] }),
+    candidate({ id: 'both-customer-unknown', customerType: null, itemTraits: [workstation, desk] }),
+    candidate({ id: 'all-confirmed', customerType: 'NGO', itemTraits: [workstation, desk] }),
+  ], { ...filters, customerType: 'NGO' });
+  assert.deepEqual(withCustomerFilter.map(({ candidate: row, score }) => [row.id, score]), [
+    ['all-confirmed', 100],
+    ['both-customer-unknown', 80],
+    ['workstation-ngo', 50],
+    ['BWF-NGO26-098', 40],
+  ]);
+  assert.ok(withCustomerFilter[3].tags.some(({ label }) => label === '客戶類型 未記錄'));
+});
+
+test('color and material cannot combine across items of the same classification', () => {
+  const [row] = matchQuoteReferences([
+    candidate({
+      itemTraits: [
+        { category: '老闆枱', colors: ['灰'], materials: ['玻璃'] },
+        { category: '老闆枱', colors: ['黑'], materials: ['MFC'] },
+      ],
+    }),
+  ], query({ furnitureGroups: [furnitureGroup('辦公枱', '老闆枱', ['灰'], ['MFC'])] }));
+  assert.equal(row.score, 85);
+  assert.equal(row.completeGroups, 0);
 });
