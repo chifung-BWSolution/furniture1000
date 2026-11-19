@@ -21,6 +21,10 @@ import {
 } from '@/lib/quickQuoteSession';
 import { loadQuoteCopyPayload, type QuoteCopyPayload } from '@/lib/quoteCopy';
 import {
+  QuoteReferenceSetup,
+  type QuoteReferenceSetupMode,
+} from '@/components/dashboard/QuoteReferenceSetup';
+import {
   compareQuoteVersion,
   maxQuoteVersion,
 } from '@/lib/quoteVersions';
@@ -246,10 +250,14 @@ export function QuickQuoteView({
   const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
   const [copyPayload, setCopyPayload] = useState<QuoteCopyPayload | null>(null);
   const [isLoadingCopy, setIsLoadingCopy] = useState(false);
+  const [setupMode, setSetupMode] = useState<QuoteReferenceSetupMode>('choose');
+  const [referenceCopyActive, setReferenceCopyActive] = useState(false);
+  const [boundCustomerType, setBoundCustomerType] = useState('');
+  const [boundBudget, setBoundBudget] = useState<number | string | null>(null);
   const assignedDraftQuoteIdRef = useRef<string | null>(null);
 
   const enterEditorStep = useCallback(
-    (opts?: { quoteId?: string }) => {
+    (opts?: { quoteId?: string; assignEditingId?: boolean }) => {
       // Chain id = PMS pitching code (BWF-…). Never invent legacy QYYYY-MMDD-NNN.
       const candidates = [
         opts?.quoteId,
@@ -271,14 +279,20 @@ export function QuickQuoteView({
 
       setIsQuotationReady(true);
       setCurrentStep(3);
-      writeQuickQuoteStep(userEmail, 3);
+      if (opts?.assignEditingId !== false) {
+        writeQuickQuoteStep(userEmail, 3);
+      }
 
       if (!editingQuoteId && !loadedQuoteData) {
         assignedDraftQuoteIdRef.current = nextQuoteId;
-        writeQuickQuoteEditingId(userEmail, nextQuoteId);
-        // Prefer local draft after AI 產生報價 — Supabase row only exists after 版本審核.
-        markUseLocalQuoteDraft(userEmail, nextQuoteId);
-        onAssignEditingQuoteId?.(nextQuoteId);
+        // Reference copy stays on this page until the first save. Assigning the
+        // pitching code now would open that pitching's saved quote.
+        if (opts?.assignEditingId !== false) {
+          writeQuickQuoteEditingId(userEmail, nextQuoteId);
+          // Prefer local draft after AI 產生報價 — Supabase row only exists after 版本審核.
+          markUseLocalQuoteDraft(userEmail, nextQuoteId);
+          onAssignEditingQuoteId?.(nextQuoteId);
+        }
       }
 
       // Keep wizard formData.quoteId aligned with the URL / draft key.
@@ -422,6 +436,10 @@ export function QuickQuoteView({
     setLoadedQuoteData(null);
     setQuoteLoadError(null);
     setCopyPayload(null);
+    setSetupMode('choose');
+    setReferenceCopyActive(false);
+    setBoundCustomerType('');
+    setBoundBudget(null);
     setFormData(DEFAULT_FORM_DATA());
     setSelectedPitchingLabel(null);
     setErrors({});
@@ -434,6 +452,10 @@ export function QuickQuoteView({
   const handleSelectPitching = useCallback((item: PmsPitchingListItem) => {
     setQuoteLoadError(null);
     setSelectedPitchingLabel(formatPmsPitchingLabel(item));
+    setBoundCustomerType(item.customer_type?.trim() || '');
+    setBoundBudget(item.estimated_income ?? null);
+    setSetupMode('choose');
+    setReferenceCopyActive(false);
     pmsDefaultsLoadedForRef.current = null;
     setIsLoadingPmsDefaults(true);
     setCurrentStep(1);
@@ -454,6 +476,10 @@ export function QuickQuoteView({
   /** Return to the minimal pitching search gate (change / clear selection). */
   const handleChangePitching = useCallback(() => {
     setSelectedPitchingLabel(null);
+    setBoundCustomerType('');
+    setBoundBudget(null);
+    setSetupMode('choose');
+    setReferenceCopyActive(false);
     pmsDefaultsLoadedForRef.current = null;
     setCurrentStep(1);
     setIsQuotationReady(false);
@@ -556,6 +582,9 @@ export function QuickQuoteView({
                 : prev.clientIndustry,
           };
         });
+        if (defaults.estimated_income != null && defaults.estimated_income !== '') {
+          setBoundBudget(defaults.estimated_income);
+        }
 
         if (defaults.pitching_code || defaults.project_code || defaults.client_name) {
           setSelectedPitchingLabel(
@@ -850,22 +879,21 @@ export function QuickQuoteView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onAssignEditingQuoteId is only used for legacy draft migration
   }, [editingQuoteId, editingQuoteUuid, editingQuoteVersion, quoteRequestKey, resolvedQuoteKey, userEmail, authLoading]);
 
-  // Legacy wizard steps are retired. Resolve PMS defaults and any copy body
-  // before mounting the unified editor, whose header fields initialize once.
+  // List 「複製報價單」 still opens the editor as soon as a pitching is bound.
+  // A new quote stops here so the user can choose a blank draft or reference match.
   const preparingEditorRef = useRef(false);
   useEffect(() => {
     if (currentStep === 3 || pmsDefaultsPendingRef.current || isLoadingPmsDefaults || isLoadingCopy || quoteLoadError) return;
     if (editingQuoteId || loadedQuoteData) return;
     if (!formData.pmsPitchingId && !formData.pmsProjectId) return;
     if (!formData.quoteId.trim() || preparingEditorRef.current) return;
+    const sourceUuid = readQuickQuoteCopyFrom(userEmail);
+    if (!sourceUuid) return;
     preparingEditorRef.current = true;
     const prepare = async () => {
       try {
-        const sourceUuid = readQuickQuoteCopyFrom(userEmail);
-        if (sourceUuid) {
-          setIsLoadingCopy(true);
-          setCopyPayload(await loadQuoteCopyPayload(sourceUuid));
-        }
+        setIsLoadingCopy(true);
+        setCopyPayload(await loadQuoteCopyPayload(sourceUuid));
         enterEditorStep();
       } catch (error) {
         const message = error instanceof Error ? error.message : '請重新選擇 Pitching';
@@ -879,12 +907,25 @@ export function QuickQuoteView({
     void prepare();
   }, [currentStep, isLoadingPmsDefaults, isLoadingCopy, quoteLoadError, editingQuoteId, loadedQuoteData, formData.pmsPitchingId, formData.pmsProjectId, formData.quoteId, enterEditorStep, userEmail]);
 
+  const copyReferenceQuote = useCallback(async (quoteUuid: string) => {
+    const payload = await loadQuoteCopyPayload(quoteUuid);
+    setCopyPayload(payload);
+    setReferenceCopyActive(true);
+    enterEditorStep({ assignEditingId: false });
+  }, [enterEditorStep]);
+
   // A restored step can reach the editor before AppShell supplies its quote id.
   // Once an existing version is requested, wait for that version's snapshot
   // even if the session is already on step 3.
+  const waitingForListCopy =
+    Boolean(copyFromUuid) &&
+    !loadedQuoteData &&
+    !quoteLoadError &&
+    currentStep !== 3 &&
+    Boolean(formData.pmsPitchingId || formData.pmsProjectId);
   const blockUiForInitialLoad =
-    quoteRequestPending || quoteSessionResumePending ||
-    ((isLoadingCopy || isLoadingPmsDefaults || Boolean(formData.pmsPitchingId || formData.pmsProjectId)) && !loadedQuoteData && !quoteLoadError && currentStep !== 3);
+    quoteRequestPending || quoteSessionResumePending || waitingForListCopy ||
+    ((isLoadingCopy || isLoadingPmsDefaults) && !loadedQuoteData && !quoteLoadError && currentStep !== 3);
   if (blockUiForInitialLoad) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
@@ -952,12 +993,39 @@ export function QuickQuoteView({
     );
   }
 
+  const showReferenceSetup =
+    !editingQuoteId &&
+    !loadedQuoteData &&
+    !copyFromUuid &&
+    Boolean(formData.pmsPitchingId?.trim() || formData.pmsProjectId?.trim());
+
   return (
     <>
-    <div className={cn('h-full bg-background', currentStep === 3 ? 'flex flex-col overflow-hidden' : 'overflow-y-auto fds-page-padding')}>
-      <div className={cn('mx-auto', currentStep === 3 ? 'flex h-full min-h-0 w-full max-w-none flex-col' : 'w-full max-w-none')}>
-        {/* Step 3: Quotation Draft Editor (full width, outside the form card) */}
-        {currentStep === 3 && (
+    <div className={cn('h-full min-h-0 bg-background', currentStep === 3 && 'flex flex-col overflow-hidden')}>
+      {showReferenceSetup ? (
+        <div className={cn('h-full min-h-0', currentStep === 3 && 'hidden')}>
+          <QuoteReferenceSetup
+            mode={setupMode}
+            pitchingId={formData.pmsPitchingId?.trim() || null}
+            pitchingLabel={selectedPitchingLabel}
+            initialCustomerType={boundCustomerType}
+            estimatedIncome={boundBudget}
+            industries={formData.clientIndustry}
+            industryOptions={industryOptions}
+            categoryOptions={level1CategoryOptions}
+            categoriesLoading={level1CategoriesLoading}
+            workPeriodOptions={WORK_PERIODS}
+            excludeQuoteId={editingQuoteUuid}
+            onBlankQuote={() => enterEditorStep()}
+            onOpenReference={() => setSetupMode('reference')}
+            onBackToChoice={() => setSetupMode('choose')}
+            onChangePitching={handleChangePitching}
+            onCopyQuote={copyReferenceQuote}
+          />
+        </div>
+      ) : null}
+      {currentStep === 3 && (
+        <div className="flex h-full min-h-0 w-full flex-1 flex-col">
           <div className="tab-panel-in flex min-h-0 flex-1 flex-col">
             <QuotationDraftEditor
               formData={formData}
@@ -968,14 +1036,24 @@ export function QuickQuoteView({
               userEmail={userEmail}
               onOpenPdfPreview={setPdfPreviewData}
               initialCopyPayload={copyPayload}
-              forceNewQuote={Boolean(copyFromUuid && copyPayload)}
+              forceNewQuote={Boolean(copyPayload && (copyFromUuid || referenceCopyActive))}
               onBack={() => {
+                if (referenceCopyActive && !loadedQuoteData) {
+                  setCopyPayload(null);
+                  setReferenceCopyActive(false);
+                  setCurrentStep(1);
+                  setIsQuotationReady(false);
+                  setSetupMode('reference');
+                  writeQuickQuoteStep(userEmail, 1);
+                  return;
+                }
                 onClearEditingQuote?.();
                 resetToNewQuote();
               }}
               onQuotePersisted={(result) => {
                 writeQuickQuoteCopyFrom(userEmail, null);
                 setCopyPayload(null);
+                setReferenceCopyActive(false);
                 setLoadedQuoteData((prev) => {
                   const prevMax = prev?.maxVersionInChain || prev?.version || '';
                   const nextMax =
@@ -1012,8 +1090,8 @@ export function QuickQuoteView({
               draftQuoteId={loadedQuoteData ? null : editingQuoteId}
             />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
 
       {pdfPreviewData && (
