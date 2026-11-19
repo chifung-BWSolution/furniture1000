@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { History, Loader2, Mail, Plus, StopCircle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { Textarea } from '@/components/ui/textarea';
@@ -449,18 +450,26 @@ export function QuoteEmailFollowUpModal({
         size="lg"
       >
         {status?.views.length ? (
-          <ul className="space-y-2 text-sm">
-            {status.views.map((view, index) => (
-              <li key={`${view.viewed_at}-${index}`} className="flex flex-wrap gap-x-3 gap-y-1 rounded-md border px-3 py-2">
-                <time dateTime={view.viewed_at} className="tabular-nums text-muted-foreground">
-                  {view.viewed_at.slice(0, 16).replace('T', ' ')}
-                </time>
-                <span className={view.is_valid ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}>
-                  {view.is_valid ? '有效查看（已停止這張報價的自動跟進）' : `未計為查看${view.reason ? `：${view.reason}` : ''}`}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-44">時間</TableHead>
+                <TableHead>結果</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {status.views.map((view, index) => (
+                <TableRow key={`${view.viewed_at}-${index}`}>
+                  <TableCell className="tabular-nums text-muted-foreground">
+                    <time dateTime={view.viewed_at}>{view.viewed_at.slice(0, 16).replace('T', ' ')}</time>
+                  </TableCell>
+                  <TableCell className={view.is_valid ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}>
+                    {view.is_valid ? '有效查看（已停止這張報價的自動跟進）' : `未計為查看${view.reason ? `：${view.reason}` : ''}`}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         ) : (
           <p className="text-sm text-muted-foreground">暫無查看記錄。</p>
         )}
