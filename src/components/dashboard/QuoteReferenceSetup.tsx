@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Copy, Loader2, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Loader2, Plus, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -61,13 +61,16 @@ const ITEM_ROW_HEIGHT = 72;
 const FACET_LIMIT = 40;
 const JUNK_FACETS = new Set(['可選', '待定', '待確認', '待定色', 'tbc', '如圖', '按圖', '見圖', '圖片', '圖片色', 'as shown', 'n/a', '-', '/', '色卡', '另議']);
 
-interface ClassPick {
+interface CategoryFilter {
+  id: string;
+  level1: string;
+  level2: string;
   colors: string[];
   materials: string[];
 }
 
-function classKey(level1: string, level2: string): string {
-  return `${level1}\u001f${level2}`;
+function blankCategoryFilter(id: string): CategoryFilter {
+  return { id, level1: '', level2: '', colors: [], materials: [] };
 }
 
 function facetKey(value: string): string {
@@ -130,20 +133,21 @@ function PageControls({ page, pageCount, label, onChange }: {
   );
 }
 
-function FilterSelect({ field, label, value, onChange, options, placeholder = '不限' }: {
+function FilterSelect({ field, label, value, onChange, options, placeholder = '不限', disabled = false }: {
   field: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: { id: string; label: string }[];
   placeholder?: string;
+  disabled?: boolean;
 }) {
   const id = `quote-ref-${field}`;
   const selection = options.find((option) => option.id === value)?.label ?? placeholder;
   return (
     <div className="min-w-0 space-y-1">
       <Label htmlFor={id}>{label}</Label>
-      <Select value={value || NONE} onValueChange={(next) => onChange(next === NONE ? '' : next)}>
+      <Select value={value || NONE} onValueChange={(next) => onChange(next === NONE ? '' : next)} disabled={disabled}>
         <SelectTrigger id={id} title={selection} className="h-9 px-2 text-xs [&>span]:truncate"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value={NONE}>{placeholder}</SelectItem>
@@ -330,8 +334,8 @@ export function QuoteReferenceSetup({
   onChangePitching,
   onCopyQuote,
 }: QuoteReferenceSetupProps) {
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [picks, setPicks] = useState<Record<string, ClassPick>>({});
+  const categoryFilterSeq = useRef(1);
+  const [categoryFilters, setCategoryFilters] = useState<CategoryFilter[]>(() => [blankCategoryFilter('1')]);
   const [pairs, setPairs] = useState<ProductCategoryPair[]>([]);
   const [amountBandId, setAmountBandId] = useState('');
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>(industries);
@@ -468,23 +472,50 @@ export function QuoteReferenceSetup({
     return formatted === 'N/A' ? null : formatted;
   })();
 
+  const selectedCategories = useMemo(
+    () => [...new Set(categoryFilters.map((row) => row.level1.trim()).filter(Boolean))],
+    [categoryFilters],
+  );
+
   const canMatch = selectedCategories.length > 0 && Boolean(amountBandId) && !loadingIndex && !loadError;
 
-  function setCategories(next: string[]) {
-    const allowed = new Set(next);
-    setSelectedCategories(next);
-    setPicks((current) => Object.fromEntries(
-      Object.entries(current).filter(([key]) => allowed.has(key.split('\u001f')[0] ?? '')),
-    ));
+  function updateCategoryFilter(id: string, patch: Partial<CategoryFilter>) {
+    setCategoryFilters((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  }
+
+  function changeLevel1(row: CategoryFilter, level1: string) {
+    const level2s = uniqueLevel2InOrder(pairs, level1);
+    const level2 = level2s.includes(row.level2) ? row.level2 : '';
+    updateCategoryFilter(row.id, {
+      level1,
+      level2,
+      colors: level2 ? row.colors : [],
+      materials: level2 ? row.materials : [],
+    });
+  }
+
+  function changeLevel2(row: CategoryFilter, level2: string) {
+    updateCategoryFilter(row.id, {
+      level2,
+      colors: level2 ? row.colors : [],
+      materials: level2 ? row.materials : [],
+    });
+  }
+
+  function addCategoryFilter() {
+    categoryFilterSeq.current += 1;
+    setCategoryFilters((current) => [...current, blankCategoryFilter(String(categoryFilterSeq.current))]);
   }
 
   function runMatch() {
     if (!canMatch) return;
-    const classifications: QuoteReferenceClassification[] = Object.entries(picks).map(([key, pick]) => ({
-      category: key.split('\u001f')[1] ?? '',
-      colors: pick.colors,
-      materials: pick.materials,
-    })).filter((pick) => pick.category);
+    const classifications: QuoteReferenceClassification[] = categoryFilters
+      .filter((row) => row.level1.trim() && row.level2.trim())
+      .map((row) => ({
+        category: row.level2.trim(),
+        colors: row.colors,
+        materials: row.materials,
+      }));
     const matches = matchQuoteReferences(candidates, {
       categories: selectedCategories,
       amountBandId,
@@ -507,8 +538,8 @@ export function QuoteReferenceSetup({
   function clearFilters() {
     seededIndustries.current = true;
     seededCustomerType.current = true;
-    setSelectedCategories([]);
-    setPicks({});
+    categoryFilterSeq.current = 1;
+    setCategoryFilters([blankCategoryFilter('1')]);
     setAmountBandId('');
     setSelectedIndustries([]);
     setIndustryHard(false);
@@ -577,72 +608,62 @@ export function QuoteReferenceSetup({
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
             <div className="grid grid-cols-2 gap-x-3 gap-y-2 xl:grid-cols-1 xl:[@media(max-height:840px)]:grid-cols-2">
               <div className="col-span-full space-y-2">
-                <div className="space-y-1">
-                  <Label>傢俬類別</Label>
-                  <MultiSelect compact label="傢俬類別" options={multiSelectOptions(categoryOptions)} value={selectedCategories} onValueChange={setCategories} disabled={categoriesLoading} placeholder={categoriesLoading ? '載入類別…' : '請選擇類別'} />
-                </div>
-                {selectedCategories.map((level1) => {
-                  const level2s = uniqueLevel2InOrder(pairs, level1);
+                {categoryFilters.map((row, index) => {
+                  const level2s = uniqueLevel2InOrder(pairs, row.level1);
+                  const colorOptions = row.level2 ? topFacetValues(facetCounts.colors.get(facetKey(row.level2))) : [];
+                  const materialOptions = row.level2 ? topFacetValues(facetCounts.materials.get(facetKey(row.level2))) : [];
                   return (
-                    <div key={level1} className="space-y-2 rounded-md border px-2 py-2">
-                      <p className="text-xs font-medium">{level1} 的分類</p>
-                      {level2s.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">這個類別沒有細分類</p>
-                      ) : level2s.map((level2) => {
-                        const key = classKey(level1, level2);
-                        const pick = picks[key];
-                        const colorOptions = topFacetValues(facetCounts.colors.get(facetKey(level2)));
-                        const materialOptions = topFacetValues(facetCounts.materials.get(facetKey(level2)));
-                        return (
-                          <div key={key} className="space-y-1">
-                            <label className="flex min-h-7 items-center gap-2 text-sm">
-                              <Checkbox
-                                checked={Boolean(pick)}
-                                onCheckedChange={(checked) => {
-                                  setPicks((current) => {
-                                    const next = { ...current };
-                                    if (checked === true) next[key] = current[key] ?? { colors: [], materials: [] };
-                                    else delete next[key];
-                                    return next;
-                                  });
-                                }}
-                              />
-                              {level2}
-                            </label>
-                            {pick && (
-                              <div className="space-y-2 pl-6">
-                                {colorOptions.length > 0 ? (
-                                  <MultiSelect
-                                    compact
-                                    label={`${level2}顏色`}
-                                    options={multiSelectOptions(colorOptions)}
-                                    value={pick.colors}
-                                    onValueChange={(colors) => setPicks((current) => current[key] ? { ...current, [key]: { ...current[key], colors } } : current)}
-                                    placeholder="不限顏色"
-                                  />
-                                ) : (
-                                  <p className="text-xs text-muted-foreground">暫無顏色紀錄</p>
-                                )}
-                                {materialOptions.length > 0 ? (
-                                  <MultiSelect
-                                    compact
-                                    label={`${level2}材質`}
-                                    options={multiSelectOptions(materialOptions)}
-                                    value={pick.materials}
-                                    onValueChange={(materials) => setPicks((current) => current[key] ? { ...current, [key]: { ...current[key], materials } } : current)}
-                                    placeholder="不限材質"
-                                  />
-                                ) : (
-                                  <p className="text-xs text-muted-foreground">暫無材質紀錄</p>
-                                )}
-                              </div>
+                    <div key={row.id} className="space-y-2 rounded-md border p-2">
+                      <FilterSelect
+                        field={`category-${row.id}`}
+                        label={index === 0 ? '傢俬類別' : `傢俬類別 ${index + 1}`}
+                        value={row.level1}
+                        onChange={(level1) => changeLevel1(row, level1)}
+                        options={selectOptions(categoryOptions)}
+                        placeholder={categoriesLoading ? '載入類別…' : '請選擇'}
+                        disabled={categoriesLoading}
+                      />
+                      <FilterSelect
+                        field={`class-${row.id}`}
+                        label="分類"
+                        value={row.level2}
+                        onChange={(level2) => changeLevel2(row, level2)}
+                        options={selectOptions(level2s)}
+                        placeholder={!row.level1 ? '先選類別' : level2s.length === 0 ? '沒有細分類' : '不限'}
+                        disabled={!row.level1 || level2s.length === 0}
+                      />
+                      {row.level2 && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="min-w-0 space-y-1">
+                            <Label>顏色</Label>
+                            {colorOptions.length > 0 ? (
+                              <MultiSelect compact label={`${row.level2}顏色`} options={multiSelectOptions(colorOptions)} value={row.colors} onValueChange={(colors) => updateCategoryFilter(row.id, { colors })} placeholder="不限" />
+                            ) : (
+                              <p className="flex h-9 items-center text-xs text-muted-foreground">不限</p>
                             )}
                           </div>
-                        );
-                      })}
+                          <div className="min-w-0 space-y-1">
+                            <Label>材質</Label>
+                            {materialOptions.length > 0 ? (
+                              <MultiSelect compact label={`${row.level2}材質`} options={multiSelectOptions(materialOptions)} value={row.materials} onValueChange={(materials) => updateCategoryFilter(row.id, { materials })} placeholder="不限" />
+                            ) : (
+                              <p className="flex h-9 items-center text-xs text-muted-foreground">不限</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {categoryFilters.length > 1 && (
+                        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setCategoryFilters((current) => current.filter((item) => item.id !== row.id))}>
+                          移除這組
+                        </Button>
+                      )}
                     </div>
                   );
                 })}
+                <Button type="button" variant="outline" size="sm" className="h-8 w-full gap-1" onClick={addCategoryFilter}>
+                  <Plus className="h-3.5 w-3.5" />
+                  再加一組類別
+                </Button>
               </div>
               <FilterSelect field="amount" label="金額區間" value={amountBandId} onChange={setAmountBandId} options={QUOTE_AMOUNT_BANDS} placeholder="請選擇" />
               <FilterSelect field="grade" label="傢俬級別" value={grade} onChange={setGrade} options={selectOptions(QUOTE_REFERENCE_GRADES)} />
