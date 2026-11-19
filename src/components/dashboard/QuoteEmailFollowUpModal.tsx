@@ -371,7 +371,7 @@ export function QuoteEmailFollowUpModal({
           <Loader2 className="h-4 w-4 animate-spin" /> 正在讀取郵件狀態
         </p>
       ) : (
-        <div className="grid h-[min(70vh,760px)] gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,1fr)]">
+        <div className="grid h-[min(70vh,760px)] gap-4 lg:grid-cols-[minmax(280px,32rem)_minmax(0,1fr)]">
         <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
           {error ? <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {!error && problem ? (
