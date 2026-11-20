@@ -113,8 +113,9 @@ function flattenSegments(segments: PdfInlineSegment[]): StyledChar[] {
   return chars;
 }
 
-function charsToLines(chars: StyledChar[], sizePt: number, maxWidthPt: number): PdfTextLine[] {
-  const limit = Math.max(8, maxWidthPt);
+function charsToLines(chars: StyledChar[], sizePt: number, maxWidthPt: number | ((lineIndex: number) => number)): PdfTextLine[] {
+  const lineLimit = (lineIndex: number) => Math.max(8, typeof maxWidthPt === 'number' ? maxWidthPt : maxWidthPt(lineIndex));
+  let limit = lineLimit(0);
   const lines: PdfTextLine[] = [];
   let current: StyledChar[] = [];
   let width = 0;
@@ -124,6 +125,7 @@ function charsToLines(chars: StyledChar[], sizePt: number, maxWidthPt: number): 
     const trimmed = [...current];
     while (trimmed.length && trimmed[trimmed.length - 1].ch === ' ') trimmed.pop();
     lines.push(styledCharsToLine(trimmed));
+    limit = lineLimit(lines.length);
     current = [];
     width = 0;
   };
@@ -234,7 +236,7 @@ export function wrapPdfText(
 /** 富文字換行，回傳「行」，每行保留原本的粗體／顏色／底線。 */
 export function wrapPdfSegments(
   segments: PdfInlineSegment[],
-  maxWidthPt: number,
+  maxWidthPt: number | ((lineIndex: number) => number),
   sizePt: number,
 ): PdfTextLine[] {
   const chars = flattenSegments(segments);

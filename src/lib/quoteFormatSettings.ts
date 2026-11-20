@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { quotePdf } from '@/lib/quotationLocale';
 import { quoteItemLineSubtotal, type QuoteLineItem } from '@/lib/quoteItemTotals';
 
 export type ZoneSubtotalPlacement = 'section_and_summary' | 'summary_only' | 'hidden';
@@ -10,7 +11,7 @@ export type QuoteFormatSettings = {
 };
 
 export const DEFAULT_QUOTE_FORMAT: QuoteFormatSettings = {
-  qrCaption: '線上選擇／修改產品',
+  qrCaption: quotePdf('zh').qrCaption,
   zoneSubtotalPlacement: 'section_and_summary',
 };
 

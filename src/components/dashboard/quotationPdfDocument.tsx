@@ -26,7 +26,7 @@ import { UNZONED_QUOTE_IMAGE_KEY } from '@/lib/quoteFloorPlan';
 import { parseRemarksContent } from '@/lib/remarksContent';
 import { getChineseColorLabel } from '@/constants/color-map';
 import { looksLikeMaterialHtml } from '@/lib/quotationMaterialHtml';
-import { quoteZoneTotals } from '@/lib/quoteFormatSettings';
+import { DEFAULT_QUOTE_FORMAT, quoteZoneTotals } from '@/lib/quoteFormatSettings';
 import { parseHtmlForPdf, type PdfHtmlBlock } from '@/lib/quotationPdfHtml';
 import {
   imageRatio,
@@ -1281,12 +1281,28 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
   const qrUrl = data.format?.qrDataUrl;
   const qrSize = 80;
   const qrColumnWidth = 96;
+  const qrTop = 4;
+  const qrBottomGap = 6;
+  const captionGap = 4;
+  const captionLinePt = 9.5;
   const columnGap = 14;
-  const termsWidth = qrUrl ? PDF_CONTENT_WIDTH_PT - qrColumnWidth - columnGap : PDF_CONTENT_WIDTH_PT;
+  const narrowWidth = PDF_CONTENT_WIDTH_PT - qrColumnWidth - columnGap;
+  const configuredCaption = data.format?.qrCaption?.trim();
+  const captionText = !configuredCaption ||
+    configuredCaption.normalize('NFKC').replace(/\s*\/\s*/g, '/') === DEFAULT_QUOTE_FORMAT.qrCaption.normalize('NFKC')
+    ? labels.qrCaption
+    : configuredCaption;
+  const caption = qrUrl ? plainLines(captionText, qrColumnWidth, PDF_TYPE.descValue.size) : [];
+  const qrHeight = qrUrl
+    ? qrTop + qrSize + captionGap + caption.length * captionLinePt + qrBottomGap
+    : 0;
+  let termsHeight = 0;
+  const pushBlock = (block: PdfBlock) => {
+    blocks.push(block);
+    termsHeight += block.heightPt;
+  };
   const finish = (): PdfBlock[] => {
     if (!qrUrl) return blocks;
-    const caption = plainLines(data.format?.qrCaption || '', qrColumnWidth, PDF_TYPE.descValue.size);
-    const qrHeight = 4 + qrSize + (caption.length ? 4 + caption.length * 9.5 : 0);
     let leftHeight = 0;
     let count = 0;
     // Keep the QR and the opening terms together as one measured page block.
@@ -1301,14 +1317,24 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
       heightPt,
       keepWithNext: opening[opening.length - 1]?.keepWithNext,
       node: (
-        <P.View style={{ height: heightPt, flexDirection: 'row' }}>
-          <P.View style={{ width: termsWidth, marginRight: columnGap }}>
-            {opening.map((block) => <P.View key={block.key}>{block.node}</P.View>)}
-          </P.View>
-          <P.View style={{ width: qrColumnWidth, alignItems: 'center', paddingTop: 4 }}>
+        <P.View style={{ height: heightPt }}>
+          {opening.map((block) => <P.View key={block.key}>{block.node}</P.View>)}
+          <P.View style={{
+            position: 'absolute',
+            top: qrTop,
+            right: 0,
+            width: qrColumnWidth,
+            alignItems: 'center',
+          }}>
             <P.Image src={qrUrl} style={{ width: qrSize, height: qrSize }} />
             {caption.map((line, index) => (
-              <P.Text key={index} style={{ width: qrColumnWidth, fontSize: PDF_TYPE.descValue.size, lineHeight: lineHeightRatio(PDF_TYPE.descValue.size, 9.5), textAlign: 'center', marginTop: index === 0 ? 4 : 0 }}>{line.text}</P.Text>
+              <P.Text key={index} style={{
+                width: qrColumnWidth,
+                fontSize: PDF_TYPE.descValue.size,
+                lineHeight: lineHeightRatio(PDF_TYPE.descValue.size, captionLinePt),
+                textAlign: 'center',
+                marginTop: index === 0 ? captionGap : 0,
+              }}>{line.text}</P.Text>
             ))}
           </P.View>
         </P.View>
@@ -1316,7 +1342,7 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
     }, ...blocks.slice(count)];
   };
 
-  blocks.push({
+  pushBlock({
     key: 'terms-title',
     heightPt: PDF_TYPE.sectionTitle.line + 8,
     keepWithNext: true,
@@ -1332,45 +1358,52 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
   const html = data.termsContent?.fullHtml || '';
   const hasHtml = /<p|<div|<br|<strong|<u/i.test(html) && html.replace(/<[^>]*>/g, '').replace(/\s/g, '').length > 0;
 
-  const pushLines = (key: string, lines: PdfTextLine[], size: number, linePt: number, extra: { marginTopPt?: number; keepWithNext?: boolean; bold?: boolean } = {}) => {
+  const pushLines = (key: string, segments: PdfInlineSegment[], size: number, linePt: number, extra: { marginTopPt?: number; keepWithNext?: boolean; bold?: boolean } = {}) => {
     const marginTop = extra.marginTopPt ?? 0;
-    const heightPt = lines.length * linePt + marginTop + 1.5;
-    blocks.push({
-      key,
-      heightPt,
-      keepWithNext: extra.keepWithNext,
-      node: (
-        <P.View style={{ width: termsWidth, height: heightPt, paddingTop: marginTop }}>
-          {lines.map((line, index) => (
-            <P.View key={index} style={{ height: linePt, justifyContent: 'center' }}>
-              <P.Text
-                style={{
-                  fontSize: size,
-                  lineHeight: lineHeightRatio(size, linePt),
-                  fontWeight: extra.bold ? 700 : 400,
-                }}
-              >
-                {renderInline(line.segments, extra.bold, P)}
-              </P.Text>
-            </P.View>
-          ))}
-        </P.View>
-      ),
+    const narrowLineCount = Math.max(0, Math.ceil((qrHeight - termsHeight - marginTop) / linePt));
+    const lines = wrapPdfSegments(segments, (index) => index < narrowLineCount ? narrowWidth : PDF_CONTENT_WIDTH_PT, size);
+    if (!lines.length) return;
+
+    // Split a paragraph at the bottom of the QR so its continuation can paginate normally.
+    const narrowLines = lines.slice(0, narrowLineCount);
+    const fullLines = lines.slice(narrowLineCount);
+    const parts = [
+      { lines: narrowLines, width: narrowWidth },
+      { lines: fullLines, width: PDF_CONTENT_WIDTH_PT },
+    ].filter((part) => part.lines.length > 0);
+    parts.forEach((part, partIndex) => {
+      const lastPart = partIndex === parts.length - 1;
+      const paddingTop = partIndex === 0 ? marginTop : 0;
+      const heightPt = part.lines.length * linePt + paddingTop + 1.5;
+      pushBlock({
+        key: `${key}-${partIndex}`,
+        heightPt,
+        keepWithNext: !lastPart ? extra.bold : extra.keepWithNext,
+        node: (
+          <P.View style={{ width: part.width, height: heightPt, paddingTop }}>
+            {part.lines.map((line, index) => (
+              <P.View key={index} style={{ height: linePt, justifyContent: 'center' }}>
+                <P.Text style={{ fontSize: size, lineHeight: lineHeightRatio(size, linePt), fontWeight: extra.bold ? 700 : 400 }}>
+                  {renderInline(line.segments, extra.bold, P)}
+                </P.Text>
+              </P.View>
+            ))}
+          </P.View>
+        ),
+      });
     });
   };
 
   if (hasHtml) {
     parseHtmlForPdf(html).forEach((block, index) => {
       if (block.type === 'spacer') {
-        blocks.push({ key: `term-sp-${index}`, heightPt: 6, node: <P.View style={{ height: 6 }} /> });
+        pushBlock({ key: `term-sp-${index}`, heightPt: 6, node: <P.View style={{ height: 6 }} /> });
         return;
       }
       const isHeading = block.type === 'heading';
       const size = isHeading ? PDF_TYPE.termsHeading.size : PDF_TYPE.terms.size;
       const linePt = isHeading ? PDF_TYPE.termsHeading.line : PDF_TYPE.terms.line;
-      const lines = wrapPdfSegments(block.segments, termsWidth, size);
-      if (!lines.length) return;
-      pushLines(`term-${index}`, lines, size, linePt, {
+      pushLines(`term-${index}`, block.segments, size, linePt, {
         marginTopPt: isHeading ? 6 : 0,
         keepWithNext: isHeading,
         bold: isHeading,
@@ -1403,7 +1436,7 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
   const addressLine = `${heading.deliveryAddress}${data.quoteMeta?.deliveryAddress || heading.deliveryAddressFallback}`;
   pushLines(
     'term-address',
-    plainLines(addressLine, termsWidth, PDF_TYPE.terms.size),
+    [{ text: pdfDisplayText(addressLine) }],
     PDF_TYPE.terms.size,
     PDF_TYPE.terms.line,
   );
@@ -1419,17 +1452,14 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
   sections.forEach(([title, body], index) => {
     pushLines(
       `term-h-${index}`,
-      plainLines(title, termsWidth, PDF_TYPE.termsHeading.size, true),
+      [{ text: pdfDisplayText(title), bold: true }],
       PDF_TYPE.termsHeading.size,
       PDF_TYPE.termsHeading.line,
       { marginTopPt: 7, keepWithNext: true, bold: true },
     );
     const text = (body || '').trim();
     if (!text) return;
-    const lines = text
-      .split('\n')
-      .flatMap((line) => plainLines(line, termsWidth, PDF_TYPE.terms.size));
-    pushLines(`term-b-${index}`, lines, PDF_TYPE.terms.size, PDF_TYPE.terms.line);
+    pushLines(`term-b-${index}`, [{ text: pdfDisplayText(text) }], PDF_TYPE.terms.size, PDF_TYPE.terms.line);
   });
 
   return finish();
