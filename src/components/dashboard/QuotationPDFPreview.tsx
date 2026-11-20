@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ModalContent, ModalRoot } from '@/components/ui/modal';
-import { Switch } from '@/components/ui/switch';
 import { fetchPmsBwdCompanyChop } from '@/lib/pmsPitchingQuoteDefaults';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import { quotePdf } from '@/lib/quotationLocale';
@@ -403,6 +402,65 @@ function useReactPdf(reloadToken = 0) {
 
 // ─── Exported Modal Component ────────────────────────────────────────────────
 
+/** Drop transparent and near-white margins so the seal sits under its caption. */
+function cropCompanyChopToInk(image: ImageBitmap): HTMLCanvasElement {
+  const source = document.createElement('canvas');
+  source.width = image.width;
+  source.height = image.height;
+  const sourceContext = source.getContext('2d', { willReadFrequently: true });
+  if (!sourceContext) throw new Error('Canvas unavailable');
+  sourceContext.drawImage(image, 0, 0);
+  const { data, width, height } = sourceContext.getImageData(0, 0, source.width, source.height);
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      const alpha = data[index + 3];
+      const red = data[index];
+      const green = data[index + 1];
+      const blue = data[index + 2];
+      const ink = alpha > 16 && (red < 245 || green < 245 || blue < 245);
+      if (!ink) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < minX || maxY < minY) throw new Error('Company chop image is blank');
+
+  const pad = 2;
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(width - 1, maxX + pad);
+  maxY = Math.min(height - 1, maxY + pad);
+  const cropWidth = maxX - minX + 1;
+  const cropHeight = maxY - minY + 1;
+  const side = Math.max(cropWidth, cropHeight);
+  const scale = Math.min(1, 360 / side);
+  const outputSide = Math.max(1, Math.round(side * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = outputSide;
+  canvas.height = outputSide;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas unavailable');
+  context.drawImage(
+    source,
+    minX,
+    minY,
+    cropWidth,
+    cropHeight,
+    Math.round((outputSide - cropWidth * scale) / 2),
+    Math.round((outputSide - cropHeight * scale) / 2),
+    Math.round(cropWidth * scale),
+    Math.round(cropHeight * scale),
+  );
+  return canvas;
+}
+
 async function prepareCompanyChop(labels: ReturnType<typeof quotePdf>): Promise<string> {
   let url: string | null;
   try {
@@ -417,15 +475,7 @@ async function prepareCompanyChop(labels: ReturnType<typeof quotePdf>): Promise<
     if (!response.ok) throw new Error('Company chop asset request failed');
     const image = await createImageBitmap(await response.blob());
     try {
-      // React PDF embeds PNG/JPEG. Preserve transparency and constrain the image to print size.
-      const scale = Math.min(1, 440 / Math.max(image.width, image.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(image.width * scale));
-      canvas.height = Math.max(1, Math.round(image.height * scale));
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('Canvas unavailable');
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL('image/png');
+      return cropCompanyChopToInk(image).toDataURL('image/png');
     } finally {
       image.close();
     }
@@ -680,17 +730,22 @@ export function QuotationPDFPreviewModal({
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {allowCompanyChop && (
-              <label className="inline-flex items-center gap-2 text-sm font-medium">
-                <Switch
-                  checked={showCompanyChop}
-                  onCheckedChange={(checked) => {
-                    setPreviewBlob(null);
-                    setPreviewPages([]);
-                    setShowCompanyChop(checked);
-                  }}
-                />
+              <button
+                type="button"
+                onClick={() => {
+                  setPreviewBlob(null);
+                  setPreviewPages([]);
+                  setShowCompanyChop((prev) => !prev);
+                }}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-semibold transition-all active:scale-[0.98]",
+                  showCompanyChop
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-border bg-background text-foreground hover:bg-accent",
+                )}
+              >
                 {labels.showCompanyChop}
-              </label>
+              </button>
             )}
             {showCnyToggle ? (
               <button

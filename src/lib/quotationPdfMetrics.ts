@@ -147,6 +147,9 @@ export const PDF_TABLE = {
   minRowHeightPt: 26,
 } as const;
 
+/** 簽署欄公司公章邊長（約 32mm，正方形，對齊「客戶確認」標題）。 */
+export const PDF_COMPANY_CHOP_PT = 32 * PT_PER_MM;
+
 export const PDF_COLORS = {
   text: '#1a1a1a',
   muted: '#5b6670',

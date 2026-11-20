@@ -34,6 +34,7 @@ import {
 } from '@/lib/quotationPdfImages';
 import {
   PDF_COLORS,
+  PDF_COMPANY_CHOP_PT,
   PDF_CONTENT_HEIGHT_PT,
   PDF_CONTENT_WIDTH_PT,
   PDF_FOOTER_BOTTOM_PT,
@@ -1468,12 +1469,14 @@ function buildTermsBlocks(ctx: Ctx): PdfBlock[] {
 function buildSignatureBlock(ctx: Ctx): PdfBlock {
   const { labels } = ctx;
   const P = ctx.P;
-  const heightPt = 92;
+  const chop = PDF_COMPANY_CHOP_PT;
+  // 標題 + 正方形公章。沒有公章時維持原來的客戶簽署高度。
+  const heightPt = ctx.companyChop ? 14 + 16 + chop + 6 : 92;
   return {
     key: 'signature',
     heightPt,
     node: (
-      <P.View style={{ height: heightPt, paddingTop: 14, flexDirection: 'row' }}>
+      <P.View style={{ height: heightPt, paddingTop: 14, flexDirection: 'row', justifyContent: 'space-between' }}>
         <P.View style={{ width: '52%' }}>
           <P.Text style={{ fontSize: 9, fontWeight: 700, marginBottom: 8 }}>
             {pdfDisplayText(labels.customerAcceptance)}
@@ -1486,11 +1489,14 @@ function buildSignatureBlock(ctx: Ctx): PdfBlock {
           </P.Text>
         </P.View>
         {ctx.companyChop && (
-          <P.View style={{ marginLeft: 32, alignItems: 'center' }}>
-            <P.Text style={{ fontSize: 9, fontWeight: 700, marginBottom: 5 }}>
+          <P.View style={{ width: chop, alignItems: 'center' }}>
+            <P.Text style={{ fontSize: 9, fontWeight: 700, marginBottom: 4, textAlign: 'center' }}>
               {pdfDisplayText(labels.companyChop)}
             </P.Text>
-            <P.Image src={ctx.companyChop} style={{ width: 132, height: 62, objectFit: 'contain' }} />
+            <P.Image
+              src={ctx.companyChop}
+              style={{ width: chop, height: chop, objectFit: 'contain' }}
+            />
           </P.View>
         )}
       </P.View>
