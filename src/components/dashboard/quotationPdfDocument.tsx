@@ -1470,8 +1470,13 @@ function buildSignatureBlock(ctx: Ctx): PdfBlock {
   const { labels } = ctx;
   const P = ctx.P;
   const chop = PDF_COMPANY_CHOP_PT;
-  // 標題 + 正方形公章。沒有公章時維持原來的客戶簽署高度。
-  const heightPt = ctx.companyChop ? 14 + 16 + chop + 6 : 92;
+  const companyName = pdfDisplayText((ctx.data.companyInfo?.name || '').trim());
+  const nameSize = 8;
+  const nameLine = 11;
+  const nameWidth = 168;
+  const nameLines = companyName ? wrapPdfText(companyName, nameWidth, nameSize, true) : [];
+  // 標題 + 正方形公章 + 公章下的公司名。沒有公章時維持原來的客戶簽署高度。
+  const heightPt = ctx.companyChop ? 14 + 16 + chop + 6 + nameLines.length * nameLine + 4 : 92;
   return {
     key: 'signature',
     heightPt,
@@ -1489,7 +1494,7 @@ function buildSignatureBlock(ctx: Ctx): PdfBlock {
           </P.Text>
         </P.View>
         {ctx.companyChop && (
-          <P.View style={{ width: chop, alignItems: 'center' }}>
+          <P.View style={{ width: nameWidth, alignItems: 'center' }}>
             <P.Text style={{ fontSize: 9, fontWeight: 700, marginBottom: 4, textAlign: 'center' }}>
               {pdfDisplayText(labels.companyChop)}
             </P.Text>
@@ -1497,6 +1502,25 @@ function buildSignatureBlock(ctx: Ctx): PdfBlock {
               src={ctx.companyChop}
               style={{ width: chop, height: chop, objectFit: 'contain' }}
             />
+            {nameLines.length > 0 && (
+              <P.View style={{ width: nameWidth, marginTop: 4 }}>
+                {nameLines.map((line, index) => (
+                  <P.View key={index} style={{ height: nameLine, justifyContent: 'center' }}>
+                    <P.Text
+                      wrap={false}
+                      style={{
+                        fontSize: nameSize,
+                        fontWeight: 700,
+                        textAlign: 'center',
+                        lineHeight: lineHeightRatio(nameSize, nameLine),
+                      }}
+                    >
+                      {line}
+                    </P.Text>
+                  </P.View>
+                ))}
+              </P.View>
+            )}
           </P.View>
         )}
       </P.View>
