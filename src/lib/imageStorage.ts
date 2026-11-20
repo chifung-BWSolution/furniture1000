@@ -162,7 +162,11 @@ async function prepareImageBlobForUpload(
 }
 
 /** Store a deterministic variant once; failure preserves the original upload. */
-async function uploadPermanentThumbnail(path: string, source: Blob): Promise<void> {
+export async function uploadPermanentThumbnail(
+  path: string,
+  source: Blob,
+  bucket: string = BUCKET,
+): Promise<void> {
   try {
     const bitmap = await createImageBitmap(source);
     try {
@@ -176,12 +180,21 @@ async function uploadPermanentThumbnail(path: string, source: Blob): Promise<voi
       const thumb = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
         b => b ? resolve(b) : reject(new Error('thumbnail encode failed')), 'image/webp', 0.65,
       ));
-      const { error } = await supabase.storage.from(BUCKET).upload(`__thumbs/v1/${path}.webp`, thumb, {
+      const { error } = await supabase.storage.from(bucket).upload(`__thumbs/v1/${path}.webp`, thumb, {
         contentType: thumb.type, cacheControl: '31536000', upsert: false,
       });
-      if (error) console.warn('Thumbnail upload failed; original remains available', error.message);
+      if (error && !/already exists|duplicate/i.test(error.message)) {
+        console.warn('Thumbnail upload failed; original remains available', error.message);
+      }
     } finally { bitmap.close(); }
   } catch (error) { console.warn('Thumbnail generation failed; original remains available', error); }
+}
+
+/** Fetch a public original and store its thumbnail. A miss leaves the original in place. */
+export async function storePublicThumbnail(bucket: string, objectPath: string, sourceUrl: string): Promise<void> {
+  const response = await fetch(sourceUrl);
+  if (!response.ok) return;
+  await uploadPermanentThumbnail(objectPath, await response.blob(), bucket);
 }
 
 /** Upload a File/Blob directly to Storage; returns public HTTP URL. */

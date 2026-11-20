@@ -216,28 +216,56 @@ function parsePmsTaskGid(value: unknown): string | null {
 }
 
 /**
+ * One Asana task belongs to one FDS link. PMS sometimes points several factories
+ * at the same task URL; writing the second factory violates asana_task_gid and
+ * the cron then logs a duplicate-key error every run. Keep the factory that
+ * already owns the task and skip the others.
+ */
+function pmsLinkConflicts(taskOwnerId: string | undefined, factoryId: string): boolean {
+  return Boolean(taskOwnerId && taskOwnerId !== factoryId);
+}
+
+/**
  * PMS factories.asana_link 優先：把有效的 task URL 寫成 link（source='pms'）。
  * 只接受 /task/<gid>；'asanalink' 或搜尋 URL 之類一律忽略，保留手動綁定作 fallback。
  */
-async function reconcilePmsFactoryLinks(admin: SupabaseClient): Promise<number> {
+async function reconcilePmsFactoryLinks(admin: SupabaseClient): Promise<{ written: number; skipped: number }> {
   const base = pmsProjectUrl();
   const key = pmsServiceRoleKey();
-  if (!base || !key) return 0;
+  if (!base || !key) return { written: 0, skipped: 0 };
   const res = await fetch(
     `${base}/rest/v1/factories?select=id,display_name,factory_code,asana_link&asana_link=not.is.null&limit=500`,
     { headers: { apikey: key, Authorization: `Bearer ${key}` } },
   );
-  if (!res.ok) return 0;
+  if (!res.ok) return { written: 0, skipped: 0 };
   const rows = (await res.json().catch(() => [])) as Array<{
     id?: string;
     display_name?: string;
     factory_code?: string;
     asana_link?: string;
   }>;
-  let count = 0;
+  const { data: current, error: loadError } = await admin
+    .from("fds_asana_factory_link")
+    .select("factory_id, asana_task_gid");
+  if (loadError) return { written: 0, skipped: 0 };
+
+  const byFactory = new Map<string, string>();
+  const byTask = new Map<string, string>();
+  for (const link of (current ?? []) as Array<{ factory_id?: string; asana_task_gid?: string }>) {
+    if (!link.factory_id || !link.asana_task_gid) continue;
+    byFactory.set(link.factory_id, link.asana_task_gid);
+    byTask.set(link.asana_task_gid, link.factory_id);
+  }
+
+  let written = 0;
+  let skipped = 0;
   for (const row of rows) {
     const gid = parsePmsTaskGid(row.asana_link);
     if (!row.id || !gid) continue;
+    if (pmsLinkConflicts(byTask.get(gid), row.id)) {
+      skipped += 1;
+      continue;
+    }
     const { error } = await admin.from("fds_asana_factory_link").upsert(
       {
         factory_id: row.id,
@@ -249,9 +277,20 @@ async function reconcilePmsFactoryLinks(admin: SupabaseClient): Promise<number> 
       },
       { onConflict: "factory_id" },
     );
-    if (!error) count += 1;
+    if (error) {
+      skipped += 1;
+      continue;
+    }
+    const previous = byFactory.get(row.id);
+    if (previous && previous !== gid) byTask.delete(previous);
+    byFactory.set(row.id, gid);
+    byTask.set(gid, row.id);
+    written += 1;
   }
-  return count;
+  if (skipped > 0) {
+    console.log(`[sync-asana-factories] skipped ${skipped} PMS factory links whose Asana task is already owned`);
+  }
+  return { written, skipped };
 }
 
 async function handle(req: Request): Promise<Response> {
@@ -418,7 +457,15 @@ async function handle(req: Request): Promise<Response> {
     }
   }
 
-  return json({ ok: true, mode: "read_only", token_source: resolved.source, pms_links: pmsLinks, processed: results.length, results });
+  return json({
+    ok: true,
+    mode: "read_only",
+    token_source: resolved.source,
+    pms_links: pmsLinks.written,
+    pms_links_skipped: pmsLinks.skipped,
+    processed: results.length,
+    results,
+  });
 }
 
 Deno.serve(async (req: Request) => {

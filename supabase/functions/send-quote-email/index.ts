@@ -177,6 +177,20 @@ async function recordLog(
   if (error) console.error("[send-quote-email] log insert", error.message);
 }
 
+/** Quotes queued before PDF attachments have no object. Listing first avoids Storage's HTTP 400 for a missing key. */
+async function loadOptionalQuotePdf(admin: SupabaseClient, quoteUuid: string): Promise<Blob | null> {
+  const name = `${quoteUuid}.pdf`;
+  const { data: listed, error: listError } = await admin.storage.from("quote-email-pdfs").list("", {
+    limit: 10,
+    search: name,
+  });
+  if (listError) throw new Error(listError.message);
+  if (!listed?.some((item) => item.name === name)) return null;
+  const { data, error } = await admin.storage.from("quote-email-pdfs").download(name);
+  if (error || !data) throw new Error(error?.message ?? "pdf_download_failed");
+  return data;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -259,13 +273,7 @@ Deno.serve(async (req: Request) => {
         : normalizeQuoteEmailLocale(String(template?.locale ?? row.locale ?? ""));
       const resendFrom = quoteEmailFromHeader(senderName);
       const footer = resolved.footer;
-      const { data: pdf, error: pdfError } = await admin.storage.from("quote-email-pdfs")
-        .download(`${row.quote_uuid}.pdf`);
-      // Quotes queued before attachments were introduced have no stored PDF.
-      if (pdfError && !/^object not found$/i.test(pdfError.message)
-        && !("status" in pdfError && pdfError.status === 404)) {
-        throw new Error(pdfError.message);
-      }
+      const pdf = await loadOptionalQuotePdf(admin, row.quote_uuid);
       const attachment = pdf ? {
         filename: `${(row.quote_id || "Quotation").replace(/[^a-zA-Z0-9_.-]/g, "-")}.pdf`,
         content: encodeBase64(await pdf.arrayBuffer()),

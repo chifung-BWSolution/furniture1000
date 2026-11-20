@@ -8,7 +8,7 @@
  *   所以之後把圖從圖片庫移除，已發出的報價版本仍然印得出來。
  * - 上載、排序、刪除都直接寫 Storage + 表，權限交給 RLS（admin / uploader / pm）。
  */
-import { resizeImageToBlob } from '@/lib/imageStorage';
+import { resizeImageToBlob, storePublicThumbnail, uploadPermanentThumbnail } from '@/lib/imageStorage';
 import { supabase } from '@/lib/supabase';
 
 export const QUOTE_PHOTO_BUCKET = 'quote-photos';
@@ -253,6 +253,7 @@ export async function uploadQuotePhotoAsset(file: File): Promise<QuotePhotoAsset
     if (/mime|content type/i.test(text)) throw new Error('quote_photo_type_invalid');
     throw new Error('quote_photo_upload_failed');
   }
+  await uploadPermanentThumbnail(objectPath, blob, QUOTE_PHOTO_BUCKET);
 
   const { data: session } = await supabase.auth.getSession();
   const { data: inserted, error: insertError } = await supabase
@@ -270,7 +271,7 @@ export async function uploadQuotePhotoAsset(file: File): Promise<QuotePhotoAsset
     .single();
 
   if (insertError || !inserted) {
-    await supabase.storage.from(QUOTE_PHOTO_BUCKET).remove([objectPath]);
+    await supabase.storage.from(QUOTE_PHOTO_BUCKET).remove([objectPath, `__thumbs/v1/${objectPath}.webp`]);
     if (isMissingTable(insertError)) throw new Error('quote_photo_library_unavailable');
     throw new Error(permissionDenied(insertError) ? 'quote_photo_permission_denied' : 'quote_photo_record_failed');
   }
@@ -363,11 +364,13 @@ export async function generateQuoteReferenceImage(input: {
     const objectPath = (asset?.objectPath || '').trim();
     if (!asset?.id || !objectPath) throw new Error('quote_photo_generate_failed');
     const placement = QUOTE_PHOTO_PLACEMENTS.find((value) => value === asset.placement) ?? 'content';
+    const url = (asset.url || '').trim() || quotePhotoObjectUrl(objectPath);
+    await storePublicThumbnail(QUOTE_PHOTO_BUCKET, objectPath, url).catch(() => undefined);
     return {
       id: asset.id,
       title: (asset.title || '').trim() || 'AI 參考圖',
       objectPath,
-      url: (asset.url || '').trim() || quotePhotoObjectUrl(objectPath),
+      url,
       sortOrder: typeof asset.sortOrder === 'number' ? asset.sortOrder : 0,
       sizeBytes: typeof asset.sizeBytes === 'number' ? asset.sizeBytes : 0,
       placement,
