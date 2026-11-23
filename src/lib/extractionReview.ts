@@ -144,6 +144,7 @@ export const FLAG_LABELS: Record<string, string> = {
   missing_model: '缺型號',
   missing_price: '缺價格',
   catalog_no_price: '目錄無價格',
+  missing_image: '缺產品圖',
   price_not_in_source: '價格不在原文',
   currency_missing: '缺幣種',
   currency_from_document: '幣種沿用文件',
@@ -231,7 +232,7 @@ export async function listReviewDocuments(): Promise<ReviewDocument[]> {
   const counts = await countExtractionItems(rows.map((row) => row.id));
   return rows
     .map((row) => ({ ...row, counts: counts[row.id] ?? emptyReviewCounts() }))
-    .filter((row) => row.counts.total > 0);
+    .filter((row) => row.counts.total > 0 || row.status === 'parsing');
 }
 
 export async function listExtractionItems(

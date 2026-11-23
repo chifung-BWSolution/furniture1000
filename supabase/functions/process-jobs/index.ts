@@ -766,6 +766,7 @@ function assessItem(
   docCurrency: string | null,
   isCatalog: boolean,
   vision = false,
+  hasImage = true,
 ) {
   const flags: string[] = [];
   if (vision) flags.push("vision_extracted");
@@ -776,10 +777,15 @@ function assessItem(
     flags.push("missing_model");
     confidence = Math.min(confidence, 0.6);
   }
-  if (item.price === null) {
-    // Catalogues often carry no prices; that is expected, not an extraction error.
+  if (!hasImage) {
+    flags.push("missing_image");
+    confidence = Math.min(confidence, 0.6);
+  }
+  if (item.price === null || item.price <= 0) {
+    // Missing cost price always caps confidence and requires human review (never auto-import).
     if (isCatalog) {
       flags.push("catalog_no_price");
+      confidence = Math.min(confidence, 0.6);
     } else {
       flags.push("missing_price");
       confidence = Math.min(confidence, 0.5);
@@ -808,8 +814,9 @@ function assessItem(
 
   const attention = confidence < ATTENTION_CONFIDENCE ||
     flags.some((f) => [
-      "missing_price", "price_not_in_source", "missing_model", "currency_missing",
-      "dimension_suspicious", "color_unmapped",
+      "missing_price", "catalog_no_price", "missing_image", "price_not_in_source",
+      "price_from_image", "missing_model", "currency_missing",
+      "dimension_suspicious", "color_unmapped", "ai_uncertain",
     ].includes(f));
   return {
     flags,
@@ -1047,15 +1054,17 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
     .filter((item) => !item.model || !reviewedModels.has(modelKey(item.model)))
     .map((item, i) => {
       const page = item.page >= unit.start && item.page <= unit.end ? item.page : unit.start;
+      const imageIds = item.images.map((ref) => images[ref.index]?.id).filter((id): id is string => !!id);
+      const mainRef = item.images.find((ref) => ref.type === "main" && images[ref.index]);
+      const mainImageId = mainRef ? images[mainRef.index].id : imageIds[0] ?? null;
       const { flags, confidence, attention, colors } = assessItem(
         item,
         textByPage.get(page) ?? allText,
         docCurrency,
         doc?.doc_type === "catalog",
         unit.vision === true,
+        mainImageId !== null,
       );
-      const imageIds = item.images.map((ref) => images[ref.index]?.id).filter((id): id is string => !!id);
-      const mainRef = item.images.find((ref) => ref.type === "main" && images[ref.index]);
       const cur = item.currency ?? currency;
       if (cur) state.currencies = { ...state.currencies, [cur]: (state.currencies?.[cur] ?? 0) + 1 };
       const stored = {

@@ -444,18 +444,30 @@ export async function handleParseExcel(
           state!.currencies = { ...state!.currencies, [cur]: (state!.currencies?.[cur] ?? 0) + 1 };
         }
         const mappedColors = mapOfficialColors(item.colors);
-        const flags: string[] = [];
-        if (item.price === null && doc.doc_type !== "catalog") flags.push("missing_price");
-        if (!item.model) flags.push("missing_model");
-        if (item.uncertain_fields.length > 0) flags.push("uncertain_fields");
-        const needsAttention = item.confidence < 0.7 || flags.length > 0;
-
         // Match embedded image anchored on this row (or ±1 row tolerance for merged cells).
         const imgIds =
           rowImageMap.get(`${sheet.sheetIndex}:${item.row_no}`) ??
           rowImageMap.get(`${sheet.sheetIndex}:${item.row_no - 1}`) ??
           rowImageMap.get(`${sheet.sheetIndex}:${item.row_no + 1}`) ??
           [];
+
+        const flags: string[] = [];
+        let confidence = item.confidence;
+        if (item.price === null || item.price <= 0) {
+          flags.push(doc.doc_type === "catalog" ? "catalog_no_price" : "missing_price");
+          confidence = Math.min(confidence, doc.doc_type === "catalog" ? 0.6 : 0.5);
+        }
+        if (!item.model) {
+          flags.push("missing_model");
+          confidence = Math.min(confidence, 0.6);
+        }
+        if (imgIds.length === 0) {
+          flags.push("missing_image");
+          confidence = Math.min(confidence, 0.6);
+        }
+        if (item.uncertain_fields.length > 0) flags.push("ai_uncertain");
+        if (confidence < 0.7) flags.push("low_confidence");
+        const needsAttention = confidence < 0.7 || flags.length > 0;
 
         return {
           job_id: job.id,
@@ -494,7 +506,7 @@ export async function handleParseExcel(
             confidence: item.confidence,
             uncertain_fields: item.uncertain_fields,
           },
-          confidence: item.confidence,
+          confidence: Math.round(confidence * 1000) / 1000,
           flags,
           needs_attention: needsAttention,
           image_ids: imgIds,
