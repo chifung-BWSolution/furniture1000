@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Link2, RefreshCw, Settings2 } from 'lucide-react';
+import { FileSpreadsheet, FileText, Loader2, Link2, RefreshCw, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,49 @@ type CommentRow = {
   fetched_at: string;
 };
 
+type SyncedAttachmentRow = {
+  id: string;
+  asana_attachment_gid: string;
+  file_name: string;
+  file_ext: 'pdf' | 'xlsx' | 'xls';
+  file_size: number | null;
+  doc_type: string;
+  status: 'pending' | 'synced' | 'skipped' | 'failed';
+  skip_reason: string | null;
+  error_message: string | null;
+  document_id: string | null;
+  synced_at: string | null;
+  document_status: string | null;
+  latest_job_type: string | null;
+  latest_job_status: string | null;
+  latest_job_progress: number | null;
+};
+
+const DOC_STATUS_LABELS: Record<string, string> = {
+  uploaded: '已歸檔',
+  parsing: 'AI 解析中',
+  review: '待審核',
+  ready: '已入庫',
+  failed: '解析失敗',
+};
+
+function formatAttachmentStatus(row: SyncedAttachmentRow): string {
+  if (row.status === 'skipped') {
+    if (row.skip_reason === 'superseded_by_newer_version') return '已有同年份新版（略過）';
+    if (row.skip_reason === 'oversized') return '超過 200MB（略過）';
+    return '已略過';
+  }
+  if (row.status === 'failed') return `同步失敗：${row.error_message ?? ''}`;
+  if (row.document_status && DOC_STATUS_LABELS[row.document_status]) {
+    const pct =
+      row.document_status === 'parsing' && typeof row.latest_job_progress === 'number'
+        ? ` ${Math.round(row.latest_job_progress * 100)}%`
+        : '';
+    return `${DOC_STATUS_LABELS[row.document_status]}${pct}`;
+  }
+  return '已同步';
+}
+
 const TASK_GID = /^\d{6,25}$/;
 
 /**
@@ -71,6 +114,8 @@ function asanaTaskUrl(gid: string) {
 export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: string; factoryName: string }) {
   const [link, setLink] = useState<LinkRow | null>(null);
   const [comments, setComments] = useState<CommentRow[]>([]);
+  const [attachments, setAttachments] = useState<SyncedAttachmentRow[]>([]);
+  const [syncingDocs, setSyncingDocs] = useState(false);
   const [commentBody, setCommentBody] = useState('');
   const [commentBusy, setCommentBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -103,6 +148,36 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     setComments(Array.isArray(commentRows) ? (commentRows as CommentRow[]) : []);
   };
 
+  const loadAttachments = async (linkId: string) => {
+    const { data: attRows } = await supabase.rpc('fds_asana_attachment_sync_list', {
+      p_link_id: linkId,
+      p_limit: 20,
+    });
+    setAttachments(Array.isArray(attRows) ? (attRows as SyncedAttachmentRow[]) : []);
+  };
+
+  const syncDocuments = async () => {
+    if (!link) return;
+    setSyncingDocs(true);
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke('sync-asana-documents', {
+        body: { link_id: link.id, files_per_factory: 5 },
+      });
+      if (invokeError) throw invokeError;
+      const totals = (data as { totals?: { synced?: number; duplicates?: number; skipped?: number; failed?: number } } | null)?.totals;
+      toast.success(
+        `檔案同步完成：新增 ${totals?.synced ?? 0}、重複 ${totals?.duplicates ?? 0}、略過 ${totals?.skipped ?? 0}${
+          totals?.failed ? `、失敗 ${totals.failed}` : ''
+        }`,
+      );
+      await loadAttachments(link.id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '同步 Asana 報價單／圖冊失敗');
+    } finally {
+      setSyncingDocs(false);
+    }
+  };
+
   const load = async () => {
     const { data, error: loadError } = await supabase.rpc('fds_asana_factory_link_list');
     if (loadError) {
@@ -115,9 +190,10 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
     setTaskGid(found?.asana_task_gid ?? '');
     setError('');
     if (found) {
-      await loadComments(found.id);
+      await Promise.all([loadComments(found.id), loadAttachments(found.id)]);
     } else {
       setComments([]);
+      setAttachments([]);
     }
     try {
       const status = await supabase.functions.invoke('fds-asana-oauth', { body: { action: 'status' } });
@@ -453,6 +529,55 @@ export function AsanaFactoryLinkPanel({ factoryId, factoryName }: { factoryId: s
                     {commentBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                     送出並同步
                   </Button>
+                </div>
+
+                <div className="mt-4 space-y-2 border-t pt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-foreground">
+                      Asana 報價單／圖冊同步（PDF / Excel，每小時自動同步，同年份只保留最新版）
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={syncingDocs}
+                      onClick={() => void syncDocuments()}
+                    >
+                      {syncingDocs ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      立即同步檔案
+                    </Button>
+                  </div>
+                  {attachments.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">尚未同步任何 PDF／Excel 報價單或圖冊。</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {attachments.map((att) => (
+                        <li
+                          key={att.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-2.5 py-1.5 text-xs"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            {att.file_ext === 'pdf' ? (
+                              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            )}
+                            <span className="truncate font-medium text-foreground" title={att.file_name}>
+                              {att.file_name}
+                            </span>
+                            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                              {att.doc_type === 'catalog' ? '圖冊' : '報價單'}
+                            </span>
+                          </div>
+                          <span className="shrink-0 text-muted-foreground">{formatAttachmentStatus(att)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             ) : null}

@@ -76,7 +76,7 @@ export interface SupplierDocument {
   file_size: number | null;
   page_count: number | null;
   currency: string | null;
-  source: 'upload' | 'ai_processor';
+  source: 'upload' | 'ai_processor' | 'asana';
   status: SupplierDocumentStatus;
   error_message: string | null;
   parent_document_id: string | null;
@@ -140,6 +140,11 @@ export function documentWorkInProgress(doc: SupplierDocument): boolean {
 
 export function isPdfFile(file: File): boolean {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+}
+
+export function isExcelStoragePath(storagePath: string | null | undefined): boolean {
+  const lower = String(storagePath ?? '').trim().toLowerCase();
+  return lower.endsWith('.xlsx') || lower.endsWith('.xls');
 }
 
 function storageKeySegment(value: string | null | undefined): string {

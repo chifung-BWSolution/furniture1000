@@ -1,5 +1,6 @@
 import { documentParseWindowOpen, requireDocumentParseWindow, ParseWindowClosed } from "./parseWindow.mjs";
 import { runTripoJob, TripoStop } from "./tripo.ts";
+import { handleParseExcel } from "./parseExcel.ts";
 import { wakePdfSplitter } from "./pdfSplitWake.mjs";
 import { extractPagesPdf, planStructureUnits, unitImagePages } from "./structureUnits.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -48,7 +49,7 @@ const corsHeaders = {
 };
 
 const WORKER_NAME = "edge:process-jobs";
-const JOB_TYPES = ["parse_pdf", "generate_tripo"];
+const JOB_TYPES = ["parse_pdf", "parse_excel", "generate_tripo"];
 const EDGE_MAX_PDF_BYTES = 60 * 1024 * 1024;
 const EXTRACT_BATCH = 8;
 const CLASSIFY_BATCH = 20;
@@ -1114,7 +1115,7 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
 }
 
 /** Returns true when the job is finished, false when another batch is queued. */
-async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean> {
+async function handleParsePdf(admin: SupabaseClient, job: Job, bypassWindow = false): Promise<boolean> {
   const documentId = job.document_id ?? String(job.payload.document_id ?? "");
   if (!documentId) throw new NonRetryableError("parse_pdf job has no document_id");
 
@@ -1160,7 +1161,7 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
   }
 
   job.payload.state = state;
-  requireDocumentParseWindow();
+  if (!bypassWindow) requireDocumentParseWindow();
   await heartbeat(admin, job.id, progressOf(state));
 
   if (state.phase === "extract") {
@@ -1259,7 +1260,7 @@ function progressOf(state: ParseState): number {
   return state.phase === "extract" ? 0.05 + 0.55 * ratio : 0.6 + 0.15 * ratio;
 }
 
-async function runJob(admin: SupabaseClient, job: Job) {
+async function runJob(admin: SupabaseClient, job: Job, bypassWindow = false) {
   try {
     if (job.job_type === "generate_tripo") {
       try {
@@ -1270,11 +1271,16 @@ async function runJob(admin: SupabaseClient, job: Job) {
         throw error;
       }
     }
+    if (job.job_type === "parse_excel") {
+      if (!bypassWindow) requireDocumentParseWindow();
+      const finished = await handleParseExcel(admin, job, WORKER_NAME);
+      return { id: job.id, status: finished ? "succeeded" : "continued" };
+    }
     if (job.job_type !== "parse_pdf") {
       throw new NonRetryableError(`unsupported job_type: ${job.job_type}`);
     }
-    requireDocumentParseWindow();
-    const finished = await handleParsePdf(admin, job);
+    if (!bypassWindow) requireDocumentParseWindow();
+    const finished = await handleParsePdf(admin, job, bypassWindow);
     return { id: job.id, status: finished ? "succeeded" : "continued" };
   } catch (err) {
     if (err instanceof ParseWindowClosed) {
@@ -1322,9 +1328,19 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
+  let reqBody: { bypass_window?: boolean } = {};
+  try {
+    reqBody = await req.json();
+  } catch {
+    reqBody = {};
+  }
+  const bypassWindow = reqBody.bypass_window === true;
+
   // One batch per request keeps each invocation inside the Edge CPU budget.
   const { data: claimed, error } = await admin.rpc("fds_processing_jobs_claim", {
-    p_job_types: documentParseWindowOpen() ? JOB_TYPES : JOB_TYPES.filter(type => type !== "parse_pdf"),
+    p_job_types: bypassWindow || documentParseWindowOpen()
+      ? JOB_TYPES
+      : JOB_TYPES.filter(type => type !== "parse_pdf" && type !== "parse_excel"),
     p_limit: 1,
     p_worker: WORKER_NAME,
   });
@@ -1338,7 +1354,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ processed: 0, results: [] });
   }
 
-  const result = await runJob(admin, job);
+  const result = await runJob(admin, job, bypassWindow);
 
   if (result.status === "continued") {
     // Chain the next batch now; pg_cron picks it up within a minute if this call is lost.
@@ -1346,7 +1362,7 @@ Deno.serve(async (req: Request) => {
       fetch(`${url}/functions/v1/supabase-functions-process-jobs`, {
         method: "POST",
         headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "chain" }),
+        body: JSON.stringify({ source: "chain", ...(bypassWindow ? { bypass_window: true } : {}) }),
       }).then((r) => r.body?.cancel()).catch((err) => console.warn("[process-jobs] chain failed", err)),
     );
   }
