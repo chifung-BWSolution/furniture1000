@@ -455,21 +455,33 @@ export async function handleParseExcel(
         let confidence = item.confidence;
         if (item.price === null || item.price <= 0) {
           flags.push(doc.doc_type === "catalog" ? "catalog_no_price" : "missing_price");
-          confidence = Math.min(confidence, doc.doc_type === "catalog" ? 0.6 : 0.5);
+          confidence -= doc.doc_type === "catalog" ? 0.25 : 0.30;
         }
         if (!item.model) {
           flags.push("missing_model");
-          confidence = Math.min(confidence, 0.6);
+          confidence -= 0.25;
         }
         if (imgIds.length === 0) {
           flags.push("missing_image");
-          confidence = Math.min(confidence, 0.6);
+          confidence -= 0.25;
         }
-        if (item.width_mm === null || item.depth_mm === null || item.height_mm === null) {
+        const missingDims =
+          (item.width_mm === null ? 1 : 0) +
+          (item.depth_mm === null ? 1 : 0) +
+          (item.height_mm === null ? 1 : 0);
+        if (missingDims > 0) {
           flags.push("missing_dimension");
-          confidence = Math.min(confidence, 0.6);
+          confidence -= missingDims === 1 ? 0.10 : missingDims === 2 ? 0.15 : 0.20;
         }
-        if (item.uncertain_fields.length > 0) flags.push("ai_uncertain");
+        if (item.uncertain_fields.length > 0) {
+          flags.push("ai_uncertain");
+          confidence -= 0.05;
+        }
+        if (mappedColors.unmapped.length > 0) {
+          flags.push("color_unmapped");
+          confidence -= 0.05;
+        }
+        confidence = Math.max(0.10, Math.min(1, confidence));
         if (confidence < 0.7) flags.push("low_confidence");
         const needsAttention = confidence < 0.7 || flags.length > 0;
 

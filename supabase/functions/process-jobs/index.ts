@@ -775,46 +775,54 @@ function assessItem(
 
   if (!item.model) {
     flags.push("missing_model");
-    confidence = Math.min(confidence, 0.6);
+    confidence -= 0.25;
   }
   if (!hasImage) {
     flags.push("missing_image");
-    confidence = Math.min(confidence, 0.6);
+    confidence -= 0.25;
   }
   if (item.price === null || item.price <= 0) {
-    // Missing cost price always caps confidence and requires human review (never auto-import).
+    // Missing cost price deducts by weight and requires human review (never auto-import).
     if (isCatalog) {
       flags.push("catalog_no_price");
-      confidence = Math.min(confidence, 0.6);
+      confidence -= 0.25;
     } else {
       flags.push("missing_price");
-      confidence = Math.min(confidence, 0.5);
+      confidence -= 0.30;
     }
   } else {
     // Vision items have no source text to check the price against; the flag below asks for review.
     if (vision) {
       flags.push("price_from_image");
-      confidence = Math.min(confidence, 0.6);
+      confidence -= 0.10;
     } else if (!priceAppearsInText(item.price, normalized)) {
       flags.push("price_not_in_source");
-      confidence = Math.min(confidence, 0.4);
+      confidence -= 0.35;
     }
     if (!item.currency) flags.push(docCurrency ? "currency_from_document" : "currency_missing");
   }
   const dims = [item.width_mm, item.depth_mm, item.height_mm].filter((d): d is number => d !== null);
-  if (dims.length < 3) {
+  const missingDims = 3 - dims.length;
+  if (missingDims > 0) {
     flags.push("missing_dimension");
-    confidence = Math.min(confidence, 0.6);
+    confidence -= missingDims === 1 ? 0.10 : missingDims === 2 ? 0.15 : 0.20;
   }
   if (dims.some((d) => d < 50 || d > 6000)) {
     flags.push("dimension_suspicious");
-    confidence *= 0.8;
+    confidence -= 0.10;
   }
-  if (item.uncertain_fields.length > 0) flags.push("ai_uncertain");
-  if (confidence < ATTENTION_CONFIDENCE) flags.push("low_confidence");
+  if (item.uncertain_fields.length > 0) {
+    flags.push("ai_uncertain");
+    confidence -= 0.05;
+  }
   const mapped = mapOfficialColors(item.colors);
-  if (mapped.unmapped.length > 0) flags.push("color_unmapped");
+  if (mapped.unmapped.length > 0) {
+    flags.push("color_unmapped");
+    confidence -= 0.05;
+  }
   if (mapped.custom_order) flags.push("custom_color");
+  confidence = Math.max(0.10, Math.min(1, confidence));
+  if (confidence < ATTENTION_CONFIDENCE) flags.push("low_confidence");
 
   const attention = confidence < ATTENTION_CONFIDENCE ||
     flags.some((f) => [
