@@ -145,6 +145,7 @@ export const FLAG_LABELS: Record<string, string> = {
   missing_price: '缺價格',
   catalog_no_price: '目錄無價格',
   missing_image: '缺產品圖',
+  missing_dimension: '尺寸缺失',
   price_not_in_source: '價格不在原文',
   currency_missing: '缺幣種',
   currency_from_document: '幣種沿用文件',

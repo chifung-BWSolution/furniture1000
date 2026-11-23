@@ -465,6 +465,10 @@ export async function handleParseExcel(
           flags.push("missing_image");
           confidence = Math.min(confidence, 0.6);
         }
+        if (item.width_mm === null || item.depth_mm === null || item.height_mm === null) {
+          flags.push("missing_dimension");
+          confidence = Math.min(confidence, 0.6);
+        }
         if (item.uncertain_fields.length > 0) flags.push("ai_uncertain");
         if (confidence < 0.7) flags.push("low_confidence");
         const needsAttention = confidence < 0.7 || flags.length > 0;

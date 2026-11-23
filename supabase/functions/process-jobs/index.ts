@@ -802,6 +802,10 @@ function assessItem(
     if (!item.currency) flags.push(docCurrency ? "currency_from_document" : "currency_missing");
   }
   const dims = [item.width_mm, item.depth_mm, item.height_mm].filter((d): d is number => d !== null);
+  if (dims.length < 3) {
+    flags.push("missing_dimension");
+    confidence = Math.min(confidence, 0.6);
+  }
   if (dims.some((d) => d < 50 || d > 6000)) {
     flags.push("dimension_suspicious");
     confidence *= 0.8;
@@ -814,8 +818,8 @@ function assessItem(
 
   const attention = confidence < ATTENTION_CONFIDENCE ||
     flags.some((f) => [
-      "missing_price", "catalog_no_price", "missing_image", "price_not_in_source",
-      "price_from_image", "missing_model", "currency_missing",
+      "missing_price", "catalog_no_price", "missing_image", "missing_dimension",
+      "price_not_in_source", "price_from_image", "missing_model", "currency_missing",
       "dimension_suspicious", "color_unmapped", "ai_uncertain",
     ].includes(f));
   return {
