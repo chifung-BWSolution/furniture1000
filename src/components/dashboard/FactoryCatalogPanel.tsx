@@ -48,6 +48,7 @@ const ALL_DOC_TYPES: SupplierDocType[] = ['catalog', 'price_list', 'certificate'
 
 export function FactoryCatalogPanel({
   factoryId,
+  factoryCode,
   factoryName,
   initialDocType = 'catalog',
   allowedDocTypes = ALL_DOC_TYPES,
@@ -55,6 +56,7 @@ export function FactoryCatalogPanel({
   onUploaded,
 }: {
   factoryId: string;
+  factoryCode?: string | null;
   factoryName: string;
   initialDocType?: SupplierDocType;
   allowedDocTypes?: SupplierDocType[];
@@ -89,7 +91,7 @@ export function FactoryCatalogPanel({
     if (!silent) setLoading(true);
     try {
       const [rows, pairs] = await Promise.all([
-        listFactoryCatalogs(factoryId),
+        listFactoryCatalogs(factoryId, factoryCode),
         fetchProductCategoryPairs(),
       ]);
       setCatalogs(rows);
@@ -100,7 +102,7 @@ export function FactoryCatalogPanel({
     } finally {
       setLoading(false);
     }
-  }, [factoryId]);
+  }, [factoryId, factoryCode]);
 
   useEffect(() => {
     if (canView) void load();

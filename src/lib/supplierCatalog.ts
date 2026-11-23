@@ -85,11 +85,22 @@ export async function sha256Hex(file: Blob): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export async function listFactoryCatalogs(factoryId: string): Promise<SupplierCatalogRow[]> {
+export async function listFactoryCatalogs(
+  factoryId: string,
+  factoryCode?: string | null,
+): Promise<SupplierCatalogRow[]> {
+  const keys = Array.from(
+    new Set(
+      [factoryId, factoryCode, factoryCode?.toUpperCase()]
+        .map((v) => String(v ?? '').trim())
+        .filter(Boolean),
+    ),
+  );
+  if (keys.length === 0) return [];
   const { data, error } = await supabase
     .from('supplier_documents')
     .select(CATALOG_COLUMNS)
-    .eq('factory_id', factoryId)
+    .in('factory_id', keys)
     .in('doc_type', ['catalog', 'price_list', 'quote', 'certificate'])
     .is('parent_document_id', null)
     .order('document_year', { ascending: false, nullsFirst: false })

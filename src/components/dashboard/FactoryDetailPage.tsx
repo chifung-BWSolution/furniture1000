@@ -359,7 +359,12 @@ export function FactoryDetailView({
               />
             )}
             {activeTab === 'catalogs' && (
-              <FactoryCatalogPanel key={factory.id} factoryId={factory.id} factoryName={factory.display_name} />
+              <FactoryCatalogPanel
+                key={factory.id}
+                factoryId={factory.id}
+                factoryCode={factory.factory_code}
+                factoryName={factory.display_name}
+              />
             )}
           </motion.div>
         </AnimatePresence>
