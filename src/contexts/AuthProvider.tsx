@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionLoginRegistered = true;
       const loginMethod = consumeSsoLoginPending() ? 'sso' : 'password';
       void registerActiveSession(accessToken, { recordLogin: true, loginMethod }).then((result) => {
-        if (!mounted || result.ok || !result.reason) return;
+        if (!mounted || result.ok || !('reason' in result) || !result.reason) return;
         storeForcedLogoutReason(result.reason);
         void supabase.auth.signOut({ scope: 'local' });
         setSession(null);
@@ -109,8 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const checkSession = async () => {
       if (cancelled || inFlight) return;
       const result = await verifyActiveSession(accessToken);
-      if (cancelled || inFlight || result.valid) return;
-      await forceSignOut(result.reason);
+      if (cancelled || inFlight) return;
+      if (result.valid === false) await forceSignOut(result.reason);
     };
 
     void checkSession();
