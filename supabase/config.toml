@@ -108,3 +108,25 @@ entrypoint = "./functions/skp-worker-agent/index.ts"
 # Canva 簡報：無前綴 slug 也一併維持（舊部署仍在用）。
 [functions.generate-canva-presentation]
 verify_jwt = false
+
+# 登入身份用 Auth session。舊前端沒有 protocol=auth-session 時，函式只回 valid，不踢人。
+[functions.fds-session-guard]
+verify_jwt = false
+
+[functions.supabase-functions-fds-session-guard]
+verify_jwt = false
+entrypoint = "./functions/fds-session-guard/index.ts"
+
+[functions.pms-sso]
+verify_jwt = false
+
+[functions.supabase-functions-pms-sso]
+verify_jwt = false
+entrypoint = "./functions/pms-sso/index.ts"
+
+[functions.fetch-platform-admin]
+verify_jwt = false
+
+[functions.supabase-functions-fetch-platform-admin]
+verify_jwt = false
+entrypoint = "./functions/fetch-platform-admin/index.ts"

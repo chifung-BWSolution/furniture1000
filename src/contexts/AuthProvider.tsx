@@ -9,7 +9,14 @@ import {
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { consumeSsoLoginPending, writeLoginLog } from '@/lib/loginLog';
+import { consumeSsoLoginPending } from '@/lib/loginLog';
+import {
+  clearActiveSession,
+  registerActiveSession,
+  storeForcedLogoutReason,
+  verifyActiveSession,
+  type ForcedLogoutReason,
+} from '@/lib/fdsSession';
 import { clearPmsStaffCache, fetchPmsStaffInfo } from '@/lib/pmsStaff';
 import { clearPortalToken, clearQuoteShareToken } from '@/lib/customerPortalRoutes';
 
@@ -28,15 +35,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    // INITIAL_SESSION + SIGNED_IN can both fire on page load; log at most once per full load.
-    let sessionLoginLogged = false;
+    let sessionLoginRegistered = false;
 
-    const logSessionLoginOnce = () => {
-      if (sessionLoginLogged) return;
-      sessionLoginLogged = true;
-      if (!consumeSsoLoginPending()) {
-        void writeLoginLog('login', 'password');
-      }
+    const registerSessionLoginOnce = (accessToken: string) => {
+      if (sessionLoginRegistered) return;
+      sessionLoginRegistered = true;
+      const loginMethod = consumeSsoLoginPending() ? 'sso' : 'password';
+      void registerActiveSession(accessToken, { recordLogin: true, loginMethod }).then((result) => {
+        if (!mounted || result.ok || !result.reason) return;
+        storeForcedLogoutReason(result.reason);
+        void supabase.auth.signOut({ scope: 'local' });
+        setSession(null);
+      });
     };
 
     supabase.auth.getSession().then(({ data: { session: current } }) => {
@@ -57,11 +67,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // INITIAL_SESSION and SIGNED_IN both fire on a normal page load.
-      // Leave any in-flight lookup alone — fetchPmsStaffInfo dedupes by user,
-      // and writeLoginLog joins that same request for the display name.
+      // Leave any in-flight lookup alone — fetchPmsStaffInfo dedupes by user.
       if (nextSession?.user?.id && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
         void fetchPmsStaffInfo(nextSession.user.id);
-        logSessionLoginOnce();
+        if (nextSession.access_token) registerSessionLoginOnce(nextSession.access_token);
         return;
       }
 
@@ -77,14 +86,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const accessToken = session?.access_token;
+    const userId = session?.user.id;
+    if (!accessToken || !userId) return;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const forceSignOut = async (reason: ForcedLogoutReason) => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      storeForcedLogoutReason(reason);
+      setSession(null);
+      try {
+        await supabase.auth.signOut({ scope: 'local' });
+      } catch {
+        /* local state is already cleared */
+      }
+    };
+
+    const checkSession = async () => {
+      if (cancelled || inFlight) return;
+      const result = await verifyActiveSession(accessToken);
+      if (cancelled || inFlight || result.valid) return;
+      await forceSignOut(result.reason);
+    };
+
+    void checkSession();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void checkSession();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    const intervalId = window.setInterval(() => {
+      void checkSession();
+    }, 5 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(intervalId);
+    };
+  }, [session?.access_token, session?.user.id]);
+
   const signOut = useCallback(async () => {
-    await writeLoginLog('logout');
+    await clearActiveSession(session?.access_token);
     clearPortalToken();
     clearQuoteShareToken();
     await supabase.auth.signOut();
     clearPmsStaffCache();
     setSession(null);
-  }, []);
+  }, [session?.access_token]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

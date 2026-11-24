@@ -74,6 +74,16 @@ Deploy-Function `
   -Name 'pms-sso'
 
 Deploy-Function `
+  -Slug 'fds-session-guard' `
+  -FilePath (Join-Path $root 'supabase\functions\fds-session-guard\index.ts') `
+  -Name 'fds-session-guard'
+
+Deploy-Function `
+  -Slug 'supabase-functions-fds-session-guard' `
+  -FilePath (Join-Path $root 'supabase\functions\fds-session-guard\index.ts') `
+  -Name 'fds-session-guard'
+
+Deploy-Function `
   -Slug 'supabase-functions-fetch-pms-staff-name' `
   -FilePath (Join-Path $root 'supabase\functions\fetch-pms-staff-name\index.ts') `
   -Name 'fetch-pms-staff-name'

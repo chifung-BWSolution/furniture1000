@@ -350,7 +350,7 @@ async function fetchLoginLogs(
 
   const { data: loginRows } = await furnitureAdmin
     .from("login_log")
-    .select("id, user_id, user_email, user_name, event, login_method, logged_at")
+    .select("id, user_id, user_email, user_name, event, login_method, logged_at, ip_address")
     .order("logged_at", { ascending: false })
     .limit(150);
 
@@ -359,15 +359,31 @@ async function fetchLoginLogs(
     const userId = String(row.user_id ?? "");
     const userKey = userId || email || String(row.user_name ?? "");
     const loggedAt = String(row.logged_at);
-    if (userKey && !shouldIncludeLogin(userKey, loggedAt)) continue;
-    if (userId) loginLogDedupeKeys.add(loginDedupeKey(userId, loggedAt));
     const method = String(row.login_method ?? "password");
+    const event = String(row.event ?? "login");
+    const ip = String(row.ip_address ?? "").trim();
+    const bucket = Math.floor(loginAtMs(loggedAt) / 120_000);
+    const variantBucket = userKey ? `${userKey}|${ip}|${event}|${bucket}` : "";
+    if (variantBucket && displayedLoginKeys.has(variantBucket)) continue;
+    if (userKey) {
+      displayedLoginKeys.add(variantBucket);
+      displayedLoginKeys.add(`${userKey}|${bucket}`);
+    }
+    if (userId) loginLogDedupeKeys.add(loginDedupeKey(userId, loggedAt));
+    const forcedDetail = event === "forced_logout_session_expired"
+      ? "超過 14 日"
+      : event === "forced_logout_session_replaced"
+        ? "在其他位置登入"
+        : event === "forced_logout_ip_mismatch"
+          ? "舊規則的 IP 紀錄"
+          : undefined;
     logs.push({
       id: `ll-${row.id}`,
       user: formatUser(String(row.user_name ?? ""), email),
       email: email ?? undefined,
-      type: row.event === "logout" ? "logout" : "login",
-      ip: "—",
+      type: event === "login" ? "login" : "logout",
+      detail: forcedDetail,
+      ip: ip || "—",
       location: method === "sso" ? "SSO" : "密碼登入",
       at: loggedAt,
       suspicious: false,

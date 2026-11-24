@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { FdsLogo } from '@/components/brand/FdsLogo';
 import { supabase } from '@/lib/supabase';
+import { consumeForcedLogoutReason } from '@/lib/fdsSession';
 import { getQuickLoginCredentials, isDevelopQuickLoginBuild } from '@/lib/quick-login';
 
 const PMS_SSO_START_URL = import.meta.env.VITE_PMS_SSO_START_URL?.trim() || '';
@@ -21,6 +22,18 @@ export function LoginView() {
   const useQuickLogin = isDevelopQuickLoginBuild();
   const quickLogin = getQuickLoginCredentials();
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const reason = consumeForcedLogoutReason();
+    if (reason === 'session_replaced') {
+      setNotice('這個帳號已在其他位置登入，請重新登入。');
+    } else if (reason === 'session_expired') {
+      setNotice('登入已超過 14 日，請重新登入。');
+    } else if (reason === 'signed_out') {
+      setNotice('請重新登入。');
+    }
+  }, []);
 
   useEffect(() => {
     if (useQuickLogin || !PMS_SSO_START_URL) return;
@@ -89,6 +102,12 @@ export function LoginView() {
               : '請使用 PMS 帳號登入以存取傢俬設計管理平台'}
           </p>
         </div>
+
+        {notice && (
+          <p className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-foreground">
+            {notice}
+          </p>
+        )}
 
         <div className="space-y-3">
           {useQuickLogin ? (

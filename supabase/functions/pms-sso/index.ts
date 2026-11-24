@@ -10,6 +10,36 @@ const corsHeaders = {
 
 const CODE_TTL_SECONDS = 300; // 5 minutes
 
+function extractClientIp(req: Request): string | null {
+  const cfIp = req.headers.get("cf-connecting-ip")?.trim();
+  if (cfIp) return cfIp.slice(0, 128);
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const first = forwarded.split(",")[0]?.trim();
+    if (first) return first.slice(0, 128);
+  }
+  const realIp = req.headers.get("x-real-ip")?.trim();
+  return realIp ? realIp.slice(0, 128) : null;
+}
+
+function authSessionIdFromAccessToken(token: string): string | null {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const payload = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
+    const sessionId = payload?.session_id;
+    if (
+      typeof sessionId === "string" &&
+      /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(sessionId)
+    ) {
+      return sessionId;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -119,6 +149,7 @@ async function handleMint(
 async function handleExchange(
   admin: ReturnType<typeof createClient>,
   body: { code?: string },
+  req: Request,
 ) {
   const code = body.code?.trim();
   if (!code) {
@@ -173,20 +204,24 @@ async function handleExchange(
     console.error("[pms-sso] mark used failed:", markError.message);
   }
 
-  const usedAt = new Date().toISOString();
-  const { error: loginLogError } = await admin.from("login_log").insert({
-    user_id: row.user_id,
-    user_email: row.email,
-    user_name: null,
-    event: "login",
-    login_method: "sso",
-    logged_at: usedAt,
-  });
-  if (loginLogError) {
-    console.warn("[pms-sso] login_log insert failed:", loginLogError.message);
-  }
-
   const session = sessionData.session;
+  const authSessionId = authSessionIdFromAccessToken(session.access_token);
+  if (authSessionId) {
+    const { error: sessionError } = await admin.rpc("fds_check_login_session", {
+      p_user_id: row.user_id,
+      p_auth_session_id: authSessionId,
+      p_action: "register_session",
+      p_ip: extractClientIp(req),
+      p_user_agent: req.headers.get("user-agent")?.slice(0, 512) ?? null,
+      p_email: row.email,
+      p_user_name: null,
+      p_login_method: "sso",
+      p_record_login: true,
+    });
+    if (sessionError) {
+      console.warn("[pms-sso] session register failed:", sessionError.message);
+    }
+  }
   const user = sessionData.user;
 
   return jsonResponse({
@@ -250,7 +285,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (action === "exchange") {
-    return handleExchange(admin, body);
+    return handleExchange(admin, body, req);
   }
 
   return jsonResponse(
