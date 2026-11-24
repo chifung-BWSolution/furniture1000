@@ -58,7 +58,7 @@ export function mimeTypeForExt(ext: SupportedAsanaDocExt): string {
 }
 
 const QUOTE_PATTERN = /報價|报价|quote|quotation|price|價目|价目|價格表|价格表|清單|清单|cost/i;
-const CATALOG_PATTERN = /圖冊|图册|畫冊|画册|目錄|目录|catalog|catalogue|手冊|手册|產品資料|产品资料|产品介绍|介紹|介绍|花色|色板|樣本|样本|系列/i;
+const CATALOG_PATTERN = /圖冊|图册|畫冊|画册|目錄|目录|catalog|catalogue|手冊|手册|產品資料|产品资料|产品介绍|介紹|介绍|花色|色板|樣本|样本|系列|綜合冊|综合册|色卡|折頁|折页|宣傳冊|宣传册|彩頁|彩页|型錄|型录|選型|选型|series|brochure|lookbook|portfolio|collection/i;
 
 export function classifyAsanaDocType(
   fileName: string | null | undefined,
@@ -105,10 +105,39 @@ export function hasExplicitQuoteKeyword(fileName: string | null | undefined): bo
 }
 
 /**
- * For a single factory task's syncable attachments, group by (docType, documentYear)
+ * Normalize an attachment filename to its series/document stem so distinct
+ * catalogs or floor/series quotes in the same year do NOT supersede each other,
+ * while duplicate copies `(1)` / `(2)` or revision suffixes (`-v2`, `-R2`, dates)
+ * still group together and keep only the latest version.
+ */
+export function normalizeAttachmentSeriesKey(fileName: string | null | undefined): string {
+  const withoutExt = String(fileName ?? "")
+    .trim()
+    .replace(/\.(pdf|xlsx|xls)$/i, "");
+  if (!withoutExt) return "unnamed";
+
+  let stem = withoutExt
+    // Copy/revision tags in parentheses anywhere: (1), （2）, (v2), (高清), (电子版)
+    .replace(/[（(]\s*(?:\d+|v\d+(?:\.\d+)*|r\d+|copy|final|latest|最新|高清|電子版|电子版|副本)\s*[)）]/gi, " ")
+    // Dotted or dashed dates like 2026-3-26, 2026/03/26, 22.3.11
+    .replace(/(?<!\d)(?:20\d{2}|\d{2})[-./]\d{1,2}(?:[-./]\d{1,2})?(?!\d)/g, " ")
+    // Compact 6-8 digit dates like 20260730, 231006, 202505
+    .replace(/(?<!\d)(?:20\d{2}(?:0[1-9]|1[0-2])(?:[0-3]\d)?|\d{2}(?:0[1-9]|1[0-2])[0-3]\d)(?!\d)/g, " ")
+    // Version / revision suffixes at token boundaries
+    .replace(/(?:^|[\s\-_])(?:v\d+(?:\.\d+)*|r\d+)(?=$|[\s\-_])/gi, " ")
+    // Trailing edition words
+    .replace(/(?:[\s\-_]*(?:final|latest|copy|最新|高清|電子版|电子版|副本))+$/gi, "");
+
+  stem = stem.replace(/[\s\-_.,，。、·()（）[\]【】]+/g, "").toLowerCase();
+  if (stem) return stem;
+  return withoutExt.replace(/\s+/g, "").toLowerCase() || "unnamed";
+}
+
+/**
+ * For a single factory task's syncable attachments, group by (docType, documentYear, seriesKey)
  * and keep only the latest version per group.
  * Within `quote` groups, explicitly quote-named files (containing 報價/报价/quote/price)
- * take priority over unnamed fallback files so a brochure PDF never supersedes a real quote.
+ * take priority over unnamed fallback files in the same series group.
  */
 export function selectLatestVersionPerYear<
   T extends { gid: string; name?: string | null; created_at?: string | null },
@@ -120,7 +149,8 @@ export function selectLatestVersionPerYear<
 } {
   const groups = new Map<string, Array<{ att: T; docType: "quote" | "catalog"; year: number }>>();
   for (const item of candidates) {
-    const key = `${item.docType}:${item.year}`;
+    const seriesKey = normalizeAttachmentSeriesKey(item.att.name);
+    const key = `${item.docType}:${item.year}:${seriesKey}`;
     const list = groups.get(key) ?? [];
     list.push(item);
     groups.set(key, list);

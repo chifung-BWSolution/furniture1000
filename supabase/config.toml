@@ -137,3 +137,13 @@ verify_jwt = false
 [functions.supabase-functions-send-login-weekly-digest]
 verify_jwt = false
 entrypoint = "./functions/send-login-weekly-digest/index.ts"
+
+[functions.sync-asana-documents]
+verify_jwt = false
+
+[functions.send-document-parse-digest]
+verify_jwt = false
+
+[functions.supabase-functions-send-document-parse-digest]
+verify_jwt = false
+entrypoint = "./functions/send-document-parse-digest/index.ts"

@@ -1,4 +1,5 @@
 export const PDF_EDGE_MAX_BYTES: number;
+export const PDF_SPLIT_TRIGGER_BYTES: number;
 export const PDF_SPLIT_TARGET_BYTES: number;
 export const PDF_SPLIT_MAX_PAGES: number;
 

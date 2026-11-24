@@ -2005,6 +2005,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   // Restored from IndexedDB asynchronously (see recovery effect below)
   const [selectedManufacturer, setSelectedManufacturer] = useState<string>('');
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>('');
+  const [selectedFactoryCodeState, setSelectedFactoryCodeState] = useState<string>('');
   const [supplierDocsRefreshKey, setSupplierDocsRefreshKey] = useState(0);
   const [uploadMethod, setUploadMethod] = useState<'background' | 'instant'>('background');
   const [documentType, setDocumentType] = useState<'quote' | 'catalog'>('catalog');
@@ -2084,9 +2085,10 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       if (pendingFactory) {
         sessionStorage.removeItem('fds-upload-factory');
         try {
-          const picked = JSON.parse(pendingFactory) as { id?: string; name?: string };
+          const picked = JSON.parse(pendingFactory) as { id?: string; code?: string | null; name?: string };
           if (picked.name) setSelectedManufacturer(picked.name);
           if (picked.id) setSelectedFactoryId(picked.id);
+          if (picked.code) setSelectedFactoryCodeState(picked.code);
           // Manufacturer directory entry: default to catalog PDF, not quote.
           setDocumentType('catalog');
           return;
@@ -4663,6 +4665,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                             setSelectedManufacturer(manufacturer);
                             const matched = factoryItemsList.find(f => f.display_name === manufacturer);
                             setSelectedFactoryId(matched?.factory_id || '');
+                            setSelectedFactoryCodeState(matched?.factory_id || '');
                             setManufacturerOpen(false);
                             setManufacturerSearch('');
                           }}
@@ -4710,7 +4713,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                   </span>
                 )}
                 <button
-                  onClick={() => { setSelectedManufacturer(''); setSelectedFactoryId(''); }}
+                  onClick={() => { setSelectedManufacturer(''); setSelectedFactoryId(''); setSelectedFactoryCodeState(''); }}
                   className="ml-auto rounded-full p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
                   <X className="h-3 w-3" />
@@ -5364,6 +5367,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         {isManufacturerSelected && (
           <SupplierDocumentsPanel
             factoryId={selectedFactoryId || null}
+            factoryCode={
+              selectedFactoryCodeState ||
+              factoryItemsList.find((f) => f.display_name === selectedManufacturer)?.factory_id ||
+              null
+            }
             factoryName={selectedManufacturer}
             refreshKey={supplierDocsRefreshKey}
             listOnly

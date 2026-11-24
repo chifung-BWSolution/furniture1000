@@ -247,19 +247,19 @@ async function extractXlsxImagesForBatch(
       if (upErr) continue;
 
       const { data: pub } = admin.storage.from(PRODUCT_IMAGES_BUCKET).getPublicUrl(storagePath);
-      const { data: recId, error: recErr } = await admin.rpc("fds_supplier_document_image_record", {
+      const { data: recorded, error: recErr } = await admin.rpc("fds_supplier_document_image_record", {
         p_document_id: documentId,
+        p_content_hash: hash,
+        p_pages: [sheetNo],
         p_page_no: sheetNo,
         p_storage_path: storagePath,
         p_public_url: pub.publicUrl,
         p_width: null,
         p_height: null,
         p_byte_size: imgBytes.byteLength,
-        p_content_hash: hash,
-        p_image_type: "main",
       });
-      if (recErr || !recId) continue;
-      imageId = String(recId);
+      if (recErr || !recorded?.id) continue;
+      imageId = String(recorded.id);
       uploadedCache.set(hash, imageId);
       uploadedCount += 1;
     }

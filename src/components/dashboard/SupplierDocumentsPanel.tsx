@@ -120,6 +120,7 @@ function formatTime(iso: string): string {
 
 interface SupplierDocumentsPanelProps {
   factoryId?: string | null;
+  factoryCode?: string | null;
   factoryName?: string | null;
   /** Bump to reload after documents are archived elsewhere (e.g. AI 處理上傳). */
   refreshKey?: number;
@@ -128,7 +129,7 @@ interface SupplierDocumentsPanelProps {
   listOnly?: boolean;
 }
 
-export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0, className, listOnly = false }: SupplierDocumentsPanelProps) {
+export function SupplierDocumentsPanel({ factoryId, factoryCode, factoryName, refreshKey = 0, className, listOnly = false }: SupplierDocumentsPanelProps) {
   const [canManage, setCanManage] = useState<boolean | null>(null);
   const [docs, setDocs] = useState<SupplierDocument[]>([]);
   const [loading, setLoading] = useState(false);
@@ -168,13 +169,13 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
   const reload = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      setDocs(await listSupplierDocuments({ factoryId: factoryId || null, factoryName }));
+      setDocs(await listSupplierDocuments({ factoryId: factoryId || null, factoryCode: factoryCode || null, factoryName }));
     } catch (err) {
       if (!silent) toast.error('讀取供應商文件失敗', { description: err instanceof Error ? err.message : String(err) });
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [factoryId, factoryName]);
+  }, [factoryId, factoryCode, factoryName]);
 
   useEffect(() => {
     if (canManage) void reload();

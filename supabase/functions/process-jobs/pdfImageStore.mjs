@@ -35,7 +35,18 @@ export async function preparePdfUnitImages({ admin, documentId, document, pages,
     let size = row?.byte_size;
     if (row?.storage_path !== storagePath) {
       if (decoded) return null;
-      const bytes = await normalizeImage(document, entry.image);
+      let bytes;
+      try {
+        bytes = await normalizeImage(document, entry.image);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/Unsupported PDF image dimensions|PDF decoder|PDF image decoding timed out/i.test(msg)) {
+          console.warn('[pdfImageStore] skipping undecodable image', hash, msg);
+          rejectedHashes.push(hash);
+          return null;
+        }
+        throw err;
+      }
       if (validateImage && !(await validateImage(bytes, entry.page))) {
         rejectedHashes.push(hash);
         return null;

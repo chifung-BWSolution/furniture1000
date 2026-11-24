@@ -46,7 +46,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
-import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
+import { canManageSupplierDocuments, enqueueSupplierDocumentParse } from '@/lib/supplierDocuments';
 import { importExtractedProducts } from '@/lib/productSearch';
 import { mapOfficialColors } from '@/lib/officialColor';
 import { COLOR_MAP } from '@/constants/color-map';
@@ -71,7 +71,7 @@ import {
 } from '@/lib/extractionReview';
 
 type Filter = 'all' | 'pending' | 'attention' | 'approved' | 'imported' | 'rejected';
-type Phase = 'all' | 'parsing' | 'review' | 'done';
+type Phase = 'all' | 'parsing' | 'review' | 'failed' | 'done';
 
 /** What the reviewer sees on a row; import state overrides the review status. */
 type RowState = 'pending' | 'attention' | 'ready' | 'imported' | 'rejected';
@@ -96,6 +96,7 @@ const ROW_STATE: Record<RowState, { label: string; className: string }> = {
 const PHASE_LABEL: Record<Exclude<Phase, 'all'>, string> = {
   parsing: '解析中',
   review: '待審核',
+  failed: '解析失敗',
   done: '已審完',
 };
 
@@ -185,6 +186,7 @@ function rowState(item: ExtractionItem): RowState {
 }
 
 function docPhase(doc: ReviewDocument): Exclude<Phase, 'all'> {
+  if (doc.status === 'failed') return 'failed';
   if (doc.status === 'parsing') return 'parsing';
   if (doc.counts.pending + doc.counts.attention === 0) return 'done';
   return 'review';
@@ -669,6 +671,19 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
     setSourcePage(page);
   };
 
+  const handleRetryParse = async (targetDoc: ReviewDocument) => {
+    setBusy(true);
+    try {
+      await enqueueSupplierDocumentParse(targetDoc.id);
+      toast.success('已重新排隊解析，將於夜間視窗執行');
+      await reloadDocs();
+    } catch (err) {
+      toast.error('重新排隊失敗', { description: errorText(err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /**
    * The first paint has no document list yet. Keep the two-column shell and its
    * skeletons on screen for that window instead of flipping to the "nothing to
@@ -746,6 +761,7 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                   <SelectItem value="all">全部狀態</SelectItem>
                   <SelectItem value="parsing">{PHASE_LABEL.parsing}</SelectItem>
                   <SelectItem value="review">{PHASE_LABEL.review}</SelectItem>
+                  <SelectItem value="failed">{PHASE_LABEL.failed}</SelectItem>
                   <SelectItem value="done">{PHASE_LABEL.done}</SelectItem>
                 </SelectContent>
               </Select>
@@ -882,12 +898,35 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                     <span>檔案大小：{formatFileSize(doc.file_size)}</span>
                     <span>{doc.page_count ?? '?'} 頁</span>
                     <span>幣種：{doc.currency ?? '未設定'}</span>
-                    <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px]">
+                    <span
+                      className={cn(
+                        'rounded-full border px-2 py-0.5 text-[11px]',
+                        doc.status === 'failed'
+                          ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                          : 'border-border bg-card',
+                      )}
+                    >
                       {doc.doc_type === 'catalog' ? '圖冊' : '報價單'} · {PHASE_LABEL[docPhase(doc)]}
                     </span>
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {doc.status === 'failed' && (
+                    <Button
+                      variant="outline"
+                      className="h-9"
+                      disabled={busy}
+                      onClick={() => void handleRetryParse(doc)}
+                      title="重新排入夜間解析佇列"
+                    >
+                      {busy ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-1.5 h-4 w-4" />
+                      )}
+                      重新解析
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     className="h-9"
@@ -916,6 +955,17 @@ export function ExtractionReviewView({ onOpenUpload }: ExtractionReviewViewProps
                   </Button>
                 </div>
               </div>
+
+              {doc.status === 'failed' && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-2.5 text-xs text-destructive">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span className="break-words">
+                      夜間解析失敗：{doc.error_message || '未知錯誤'}（原檔仍在「原文 PDF」與報價圖冊附件可用，也可按右方「重新解析」再跑一次）
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                 <StatTile
@@ -1490,6 +1540,7 @@ function DocTile({
               <span aria-hidden>·</span>
               <span>{doc.doc_type === 'catalog' ? '目錄' : '報價單'}</span>
               {docPhase(doc) === 'parsing' && <span className="text-sky-600">· 解析中</span>}
+              {docPhase(doc) === 'failed' && <span className="text-destructive">· 解析失敗</span>}
             </div>
           </div>
         </div>

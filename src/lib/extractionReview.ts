@@ -91,6 +91,7 @@ export interface ReviewDocument {
   doc_type: 'quote' | 'catalog';
   currency: string | null;
   status: SupplierDocumentStatus;
+  error_message: string | null;
   storage_path: string;
   page_count: number | null;
   file_size: number | null;
@@ -222,9 +223,9 @@ export async function countExtractionItems(
 export async function listReviewDocuments(): Promise<ReviewDocument[]> {
   const { data, error } = await supabase
     .from('supplier_documents')
-    .select('id, factory_name, title, doc_type, currency, status, storage_path, page_count, file_size, created_at')
+    .select('id, factory_name, title, doc_type, currency, status, error_message, storage_path, page_count, file_size, created_at')
     .is('parent_document_id', null)
-    .in('status', ['review', 'ready', 'parsing'])
+    .in('status', ['review', 'ready', 'parsing', 'failed'])
     .order('created_at', { ascending: false })
     .limit(100);
   if (error) throw new Error(error.message);
@@ -233,7 +234,7 @@ export async function listReviewDocuments(): Promise<ReviewDocument[]> {
   const counts = await countExtractionItems(rows.map((row) => row.id));
   return rows
     .map((row) => ({ ...row, counts: counts[row.id] ?? emptyReviewCounts() }))
-    .filter((row) => row.counts.total > 0 || row.status === 'parsing');
+    .filter((row) => row.counts.total > 0 || row.status === 'parsing' || row.status === 'failed');
 }
 
 export async function listExtractionItems(

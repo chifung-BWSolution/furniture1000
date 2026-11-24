@@ -1350,6 +1350,7 @@ function AppShellContent() {
                 }
                 sessionStorage.setItem('fds-upload-factory', JSON.stringify({
                   id: factory.id,
+                  code: factory.factory_code ?? null,
                   name: factory.display_name,
                 }));
                 store.setCurrentView('ai-processor');

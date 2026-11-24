@@ -2,6 +2,8 @@ import { PDFDocument } from 'pdf-lib';
 
 /** Edge refuses anything larger than this. Parts must land strictly under it. */
 export const PDF_EDGE_MAX_BYTES = 60 * 1024 * 1024;
+/** Main PDFs above this size are split into <=10MB / <=15-page parts before Edge parse_pdf to avoid worker_timeout. */
+export const PDF_SPLIT_TRIGGER_BYTES = 20 * 1024 * 1024;
 /**
  * Per-part size target. Edge parse_pdf holds the part several times over (download buffer,
  * pdf.js copy, pdf-lib object graph, base64 of embedded images) inside a ~256MB isolate,

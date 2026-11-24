@@ -27,7 +27,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import { readEnv, secretsMatch } from './pdfSplitSecret.mjs';
-import { partStoragePath, PDF_EDGE_MAX_BYTES, splitPdfUnderTarget } from '../src/lib/pdfSplitCore.mjs';
+import { partStoragePath, PDF_SPLIT_TRIGGER_BYTES, splitPdfUnderTarget } from '../src/lib/pdfSplitCore.mjs';
 
 export const maxDuration = 800;
 
@@ -128,7 +128,7 @@ async function processJob(db: SupabaseClient, job: SplitJob, url: string, key: s
     .select('id', { count: 'exact', head: true })
     .eq('parent_document_id', doc.id);
   if (countError) throw countError;
-  if ((count ?? 0) > 0 || (doc.file_size != null && doc.file_size <= PDF_EDGE_MAX_BYTES)) {
+  if ((count ?? 0) > 0 || (doc.file_size != null && doc.file_size <= PDF_SPLIT_TRIGGER_BYTES)) {
     const skipped = (count ?? 0) > 0 ? 'already_split' : 'under_limit';
     await finish(db, job.id, { skipped, parts: count ?? 0, worker: WORKER }, null);
     if ((count ?? 0) > 0) await kickEdge(url, key);

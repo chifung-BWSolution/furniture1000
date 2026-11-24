@@ -265,6 +265,24 @@ export function ManufacturerDirectoryView({
       const canManage = await canManageSupplierDocuments().catch(() => false);
       try {
         const catalogs = await listCatalogRows();
+        const byId = new Set(rows.map((r) => r.id));
+        const idByCode = new Map<string, string>();
+        const idByName = new Map<string, string>();
+        for (const factory of rows) {
+          const code = (factory.factory_code ?? '').trim().toUpperCase();
+          if (code && code !== '-' && !idByCode.has(code)) idByCode.set(code, factory.id);
+          const name = (factory.display_name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+          if (name && !idByName.has(name)) idByName.set(name, factory.id);
+        }
+        const resolveFactoryId = (rawId: string | null | undefined, rawName: string | null | undefined): string | null => {
+          const id = String(rawId ?? '').trim();
+          if (id && byId.has(id)) return id;
+          const code = id.toUpperCase();
+          if (code && idByCode.has(code)) return idByCode.get(code) ?? null;
+          const name = String(rawName ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+          if (name && idByName.has(name)) return idByName.get(name) ?? null;
+          return id || null;
+        };
         const statusRank: Record<string, number> = {
           processing: 5,
           pending: 4,
@@ -274,7 +292,7 @@ export function ManufacturerDirectoryView({
         };
         const summary: Record<string, CatalogSummary> = {};
         for (const row of catalogs) {
-          const factoryId = row.factory_id;
+          const factoryId = resolveFactoryId(row.factory_id, row.factory_name);
           if (!factoryId) continue;
           const current = summary[factoryId] ?? {
             hasCatalog: false,

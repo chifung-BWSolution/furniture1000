@@ -51,6 +51,7 @@ const corsHeaders = {
 const WORKER_NAME = "edge:process-jobs";
 const JOB_TYPES = ["parse_pdf", "parse_excel", "generate_tripo"];
 const EDGE_MAX_PDF_BYTES = 60 * 1024 * 1024;
+const SPLIT_TRIGGER_PDF_BYTES = 20 * 1024 * 1024;
 const EXTRACT_BATCH = 8;
 const CLASSIFY_BATCH = 20;
 const OCR_CONCURRENCY = 4;
@@ -1147,7 +1148,11 @@ async function handleParsePdf(admin: SupabaseClient, job: Job, bypassWindow = fa
     .maybeSingle();
   if (headErr) throw new Error(`document lookup failed: ${headErr.message}`);
   if (!head) throw new NonRetryableError("document_not_found");
-  if (head.file_size && Number(head.file_size) > EDGE_MAX_PDF_BYTES) {
+  if (
+    head.file_size &&
+    ((head.parent_document_id && Number(head.file_size) > EDGE_MAX_PDF_BYTES) ||
+      (!head.parent_document_id && Number(head.file_size) > SPLIT_TRIGGER_PDF_BYTES))
+  ) {
     if (head.parent_document_id) {
       throw new NonRetryableError(
         `分段 ${(Number(head.file_size) / 1024 / 1024).toFixed(1)}MB 仍超過 Edge 上限（${EDGE_MAX_PDF_BYTES / 1024 / 1024}MB），無法再拆`,

@@ -5,10 +5,10 @@
 // ============================================================================
 import { uploadDocumentChunks, type DocumentUploadProgress } from '@/lib/resumableDocumentUpload';
 export type { DocumentUploadProgress } from '@/lib/resumableDocumentUpload';
-import { PDF_EDGE_MAX_BYTES } from '@/lib/pdfSplitLimits';
+import { PDF_EDGE_MAX_BYTES, PDF_SPLIT_TRIGGER_BYTES } from '@/lib/pdfSplitLimits';
 import { supabase } from '@/lib/supabase';
 
-export { PDF_EDGE_MAX_BYTES };
+export { PDF_EDGE_MAX_BYTES, PDF_SPLIT_TRIGGER_BYTES };
 
 export const SUPPLIER_DOCUMENTS_BUCKET = 'supplier-documents';
 export const SUPPLIER_DOCUMENT_MAX_BYTES = 200 * 1024 * 1024;
@@ -228,7 +228,7 @@ export async function uploadSupplierDocument(
     throw new Error(`檔案超過 ${SUPPLIER_DOCUMENT_MAX_BYTES / 1024 / 1024}MB 上限`);
   }
 
-  const oversized = file.size > PDF_EDGE_MAX_BYTES;
+  const oversized = file.size > PDF_SPLIT_TRIGGER_BYTES;
   input.onProgress?.({ phase: 'preparing', uploadedBytes: 0, totalBytes: file.size });
   // Yield so the preparation state paints before hashing a large document.
   await new Promise(resolve => setTimeout(resolve, 0));
@@ -263,6 +263,7 @@ export async function uploadSupplierDocument(
 
 export async function listSupplierDocuments(opts: {
   factoryId?: string | null;
+  factoryCode?: string | null;
   factoryName?: string | null;
   limit?: number;
 } = {}): Promise<SupplierDocument[]> {
@@ -273,7 +274,14 @@ export async function listSupplierDocuments(opts: {
     .order('created_at', { ascending: false })
     .order('created_at', { referencedTable: 'processing_jobs', ascending: false })
     .limit(opts.limit ?? 50);
-  if (opts.factoryId) query = query.eq('factory_id', opts.factoryId);
+  const factoryKeys = Array.from(
+    new Set(
+      [opts.factoryId, opts.factoryCode, opts.factoryCode?.toUpperCase()]
+        .map((v) => String(v ?? '').trim())
+        .filter(Boolean),
+    ),
+  );
+  if (factoryKeys.length > 0) query = query.in('factory_id', factoryKeys);
   else if (opts.factoryName?.trim()) query = query.eq('factory_name', opts.factoryName.trim());
 
   const { data, error } = await query;
