@@ -18,8 +18,6 @@ const TYPE_FILTERS: { key: LogType | 'all'; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'login', label: '登入' },
   { key: 'failed', label: '登入失敗' },
-  { key: 'forced_logout_ip_mismatch', label: 'IP 變更強制登出' },
-  { key: 'forced_logout_session_expired', label: '14 日到期登出' },
   { key: 'edit', label: '編輯' },
   { key: 'publish', label: '發佈' },
   { key: 'logout', label: '登出' },
@@ -58,19 +56,12 @@ function LogDetailCell({ log }: { log: LoginLog }) {
   return <span className="text-[12px] text-muted-foreground/30">—</span>;
 }
 
-function getLogTypeMeta(type: LogType) {
-  return LOG_TYPE_META[type] ?? {
-    label: String(type),
-    className: 'bg-slate-500/15 text-slate-600 border-slate-500/30',
-  };
-}
-
 function exportLogsCsv(logs: LoginLog[]) {
-  const header = ['用戶', '頁面 / 內容', '操作', 'IP 位址', '來源 / 方式', '時間'];
+  const header = ['用戶', '頁面 / 內容', '操作', 'IP', '位置', '時間'];
   const rows = logs.map((l) => [
     l.user,
     (l.skus?.length ? l.skus.map((s) => `"${s}"`).join(', ') : (l.detail ?? '')),
-    getLogTypeMeta(l.type).label,
+    LOG_TYPE_META[l.type].label,
     l.ip,
     l.location,
     fmt(l.at),
@@ -199,47 +190,40 @@ export function LoginHistoryView() {
                 <tr>
                   <th className="px-4 py-2.5 text-left font-medium w-[140px]">用戶</th>
                   <th className={cn('px-3 py-2.5 text-left font-medium', DETAIL_COL_CLASS)}>頁面 / 內容</th>
-                  <th className="px-3 py-2.5 text-left font-medium w-[118px]">操作</th>
-                  <th className="px-3 py-2.5 text-left font-medium w-[136px]">IP 位址</th>
-                  <th className="px-3 py-2.5 text-left font-medium w-[110px]">來源 / 方式</th>
+                  <th className="px-3 py-2.5 text-left font-medium w-[88px]">操作</th>
+                  <th className="px-3 py-2.5 text-left font-medium">IP / 位置</th>
                   <th className="px-3 py-2.5 text-left font-medium w-[130px]">時間</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
-                {filtered.map((l) => {
-                  const meta = getLogTypeMeta(l.type);
-                  return (
-                    <tr key={l.id} className={cn('hover:bg-muted/30 align-top', l.suspicious && 'bg-rose-500/[0.04]')}>
-                      <td className="px-4 py-2.5">
-                        <span className="flex items-start gap-1.5 font-body text-[13px] text-foreground whitespace-normal break-words">
-                          {l.suspicious && <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-500" />}
-                          {l.user}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <LogDetailCell log={l} />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap', meta.className)}>
-                          {meta.label}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className="flex items-start gap-1 font-mono-data text-[11.5px] text-foreground/85 whitespace-nowrap">
-                          <Globe className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
-                          {l.ip || '—'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-[12px] text-muted-foreground whitespace-nowrap">
-                        {l.location || '—'}
-                      </td>
-                      <td className="px-3 py-2.5 font-mono-data text-[11.5px] text-muted-foreground whitespace-nowrap">{fmt(l.at)}</td>
-                    </tr>
-                  );
-                })}
+                {filtered.map((l) => (
+                  <tr key={l.id} className={cn('hover:bg-muted/30 align-top', l.suspicious && 'bg-rose-500/[0.04]')}>
+                    <td className="px-4 py-2.5">
+                      <span className="flex items-start gap-1.5 font-body text-[13px] text-foreground whitespace-normal break-words">
+                        {l.suspicious && <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-500" />}
+                        {l.user}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <LogDetailCell log={l} />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap', LOG_TYPE_META[l.type].className)}>
+                        {LOG_TYPE_META[l.type].label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="flex items-start gap-1 font-mono-data text-[11.5px] text-muted-foreground whitespace-normal break-words">
+                        <Globe className="mt-0.5 h-3 w-3 shrink-0" />
+                        {l.ip} · {l.location}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 font-mono-data text-[11.5px] text-muted-foreground whitespace-nowrap">{fmt(l.at)}</td>
+                  </tr>
+                ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">
+                    <td colSpan={5} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">
                       {logs.length === 0 ? '尚無系統日誌紀錄' : '無符合條件的日誌'}
                     </td>
                   </tr>
@@ -268,7 +252,7 @@ export function LoginHistoryView() {
                       {l.user}
                     </p>
                     <p className="mt-0.5 font-body text-[11px] text-muted-foreground">
-                      {l.detail || '異地／異常登入'} · IP：{l.ip || '—'}
+                      異地登入：{l.location}（{l.ip}）
                     </p>
                     <p className="font-mono-data text-[10px] text-muted-foreground/60">{fmt(l.at)}</p>
                   </div>
