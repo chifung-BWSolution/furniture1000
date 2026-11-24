@@ -150,6 +150,8 @@ async function handleExchange(
   admin: ReturnType<typeof createClient>,
   body: { code?: string },
   req: Request,
+  supabaseUrl: string,
+  serviceRoleKey: string,
 ) {
   const code = body.code?.trim();
   if (!code) {
@@ -184,7 +186,11 @@ async function handleExchange(
     return jsonResponse({ error: "Failed to create session" }, 500);
   }
 
-  const { data: sessionData, error: verifyError } = await admin.auth.verifyOtp({
+  const otpClient = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data: sessionData, error: verifyError } = await otpClient.auth.verifyOtp({
     type: "email",
     token_hash: linkData.properties.hashed_token,
   });
@@ -194,14 +200,18 @@ async function handleExchange(
     return jsonResponse({ error: "Failed to verify session" }, 500);
   }
 
-  const { error: markError } = await admin
+  const { data: markedRow, error: markError } = await admin
     .from("pms_sso_codes")
     .update({ used_at: new Date().toISOString() })
     .eq("id", row.id)
-    .is("used_at", null);
+    .is("used_at", null)
+    .select("id")
+    .maybeSingle();
 
   if (markError) {
     console.error("[pms-sso] mark used failed:", markError.message);
+  } else if (!markedRow) {
+    return jsonResponse({ error: "SSO code already used" }, 401);
   }
 
   const session = sessionData.session;
@@ -285,7 +295,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (action === "exchange") {
-    return handleExchange(admin, body, req);
+    return handleExchange(admin, body, req, supabaseUrl, serviceRoleKey);
   }
 
   return jsonResponse(
