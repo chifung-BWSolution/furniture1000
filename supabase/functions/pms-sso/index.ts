@@ -1,6 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { extractClientIp } from "../_shared/sessionGuard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -120,7 +119,6 @@ async function handleMint(
 async function handleExchange(
   admin: ReturnType<typeof createClient>,
   body: { code?: string },
-  req: Request,
 ) {
   const code = body.code?.trim();
   if (!code) {
@@ -176,57 +174,20 @@ async function handleExchange(
   }
 
   const usedAt = new Date().toISOString();
-  const clientIp = extractClientIp(req.headers);
-  const userAgent = req.headers.get("user-agent")?.slice(0, 512) ?? null;
-  const fdsSessionId = crypto.randomUUID();
-  const session = sessionData.session;
-  const user = sessionData.user;
-  const authLastSignInAt = user?.last_sign_in_at ?? usedAt;
-
-  let displayName: string | null = null;
-  try {
-    const { data: profileById } = await admin
-      .from("platform_user_profiles")
-      .select("display_name")
-      .eq("auth_user_id", row.user_id)
-      .maybeSingle();
-    displayName =
-      (profileById as { display_name?: string | null } | null)?.display_name?.trim() || null;
-  } catch {
-    /* non-fatal */
-  }
-
   const { error: loginLogError } = await admin.from("login_log").insert({
     user_id: row.user_id,
     user_email: row.email,
-    user_name: displayName,
+    user_name: null,
     event: "login",
     login_method: "sso",
-    ip_address: clientIp,
-    user_agent: userAgent,
-    session_id: fdsSessionId,
-    auth_last_sign_in_at: authLastSignInAt,
     logged_at: usedAt,
   });
   if (loginLogError) {
     console.warn("[pms-sso] login_log insert failed:", loginLogError.message);
   }
 
-  const { error: activeSessionError } = await admin.from("fds_active_sessions").upsert(
-    {
-      user_id: row.user_id,
-      session_id: fdsSessionId,
-      bound_ip: clientIp,
-      user_agent: userAgent,
-      session_started_at: usedAt,
-      last_verified_at: usedAt,
-      updated_at: usedAt,
-    },
-    { onConflict: "user_id" },
-  );
-  if (activeSessionError) {
-    console.warn("[pms-sso] fds_active_sessions upsert failed:", activeSessionError.message);
-  }
+  const session = sessionData.session;
+  const user = sessionData.user;
 
   return jsonResponse({
     access_token: session.access_token,
@@ -234,9 +195,6 @@ async function handleExchange(
     expires_in: session.expires_in,
     expires_at: session.expires_at,
     token_type: session.token_type,
-    fds_session_id: fdsSessionId,
-    fds_bound_ip: clientIp,
-    fds_session_started_at: usedAt,
     user: {
       id: user?.id,
       email: user?.email,
@@ -292,7 +250,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (action === "exchange") {
-    return handleExchange(admin, body, req);
+    return handleExchange(admin, body);
   }
 
   return jsonResponse(

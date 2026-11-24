@@ -216,14 +216,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, boolean[]> = {
 // ----------------------------------------------------------------------------
 // 設定 — 登入紀錄 (login history)
 // ----------------------------------------------------------------------------
-export type LogType =
-  | 'login'
-  | 'logout'
-  | 'failed'
-  | 'edit'
-  | 'publish'
-  | 'forced_logout_ip_mismatch'
-  | 'forced_logout_session_expired';
+export type LogType = 'login' | 'logout' | 'failed' | 'edit' | 'publish';
 export interface LoginLog {
   id: string;
   user: string;
@@ -243,12 +236,4 @@ export const LOG_TYPE_META: Record<LogType, { label: string; className: string }
   failed: { label: '登入失敗', className: 'bg-rose-500/15 text-rose-600 border-rose-500/30' },
   edit: { label: '編輯', className: 'bg-sky-500/15 text-sky-600 border-sky-500/30' },
   publish: { label: '發佈', className: 'bg-primary/15 text-primary border-primary/30' },
-  forced_logout_ip_mismatch: {
-    label: 'IP 變更強制登出',
-    className: 'bg-rose-500/15 text-rose-600 border-rose-500/30',
-  },
-  forced_logout_session_expired: {
-    label: '14 日到期登出',
-    className: 'bg-amber-500/15 text-amber-600 border-amber-500/30',
-  },
 };

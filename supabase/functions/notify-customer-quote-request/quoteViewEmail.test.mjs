@@ -21,7 +21,7 @@ test("renders the branded quote-view email with logo and company footer", () => 
     quoteUrl: `https://www.bwteam-furniture.com/quote/${QUOTE_ID}`,
   });
   const plainHtml = message.html.replace(/<wbr>/g, "");
-  const title = `【FDS｜陳大文】${QUOTE_ID} 客戶已查看報價`;
+  const title = `【陳大文】${QUOTE_ID} 客戶已查看報價`;
 
   assert.equal(message.subject, title);
   assert.match(message.html, new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -49,6 +49,6 @@ test("escapes quote ids before injecting them into HTML", () => {
   assert.doesNotMatch(message.html, /<script>/);
   assert.match(message.html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
   assert.match(message.text, /報價編號：<script>alert\("x"\)<\/script>/);
-  assert.match(message.subject, /【FDS｜同事】/);
+  assert.match(message.subject, /【同事】/);
   assert.match(message.html, /Dear 同事，/);
 });

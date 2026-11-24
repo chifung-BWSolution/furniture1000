@@ -1,6 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { formatInternalEmailSubject } from "../_shared/internalEmailSubject.ts";
 import { fetchUploadLogReportServer } from "./uploadLogReportServer.ts";
 import { formatTodayUploadLogReportAsHtml, formatUploadLogReportAsHtml } from "./uploadLogReportHtml.ts";
 import { formatTodayUploadLogReportAsText, formatUploadLogReportAsText } from "./uploadLogReportText.ts";
@@ -384,11 +383,9 @@ Deno.serve(async (req: Request) => {
 
     const [y, m, d] = report.todayHk.split("-");
     const dateLabel = `${y}/${m}/${d}`;
+    const subjectPrefix = body.test ? "[測試] " : "";
     const forwardNotice = forwardTo ? buildForwardNotice(forwardTo) : null;
-    const subject = formatInternalEmailSubject(
-      `Shopify 上載產品紀錄 ${dateLabel}（香港時間）${forwardNotice?.subjectSuffix ?? ""}`,
-      { isTest: body.test === true },
-    );
+    const subject = `${subjectPrefix}Shopify 上載產品紀錄 ${dateLabel}（香港時間）${forwardNotice?.subjectSuffix ?? ""}`;
 
     if (forwardNotice) {
       text = `${forwardNotice.text}${text}`;

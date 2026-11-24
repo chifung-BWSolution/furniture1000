@@ -21,14 +21,7 @@ const EXCLUDED_PLATFORM_EMAILS = new Set([
 ]);
 
 type UserRole = "admin" | "uploader" | "pm" | "designer" | "client";
-type LogType =
-  | "login"
-  | "logout"
-  | "failed"
-  | "edit"
-  | "publish"
-  | "forced_logout_ip_mismatch"
-  | "forced_logout_session_expired";
+type LogType = "login" | "logout" | "failed" | "edit" | "publish";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -357,7 +350,7 @@ async function fetchLoginLogs(
 
   const { data: loginRows } = await furnitureAdmin
     .from("login_log")
-    .select("id, user_id, user_email, user_name, event, login_method, ip_address, logged_at")
+    .select("id, user_id, user_email, user_name, event, login_method, logged_at")
     .order("logged_at", { ascending: false })
     .limit(150);
 
@@ -366,43 +359,18 @@ async function fetchLoginLogs(
     const userId = String(row.user_id ?? "");
     const userKey = userId || email || String(row.user_name ?? "");
     const loggedAt = String(row.logged_at);
-    const event = String(row.event ?? "login");
-    if (event === "login") {
-      if (userKey && !shouldIncludeLogin(userKey, loggedAt)) continue;
-      if (userId) loginLogDedupeKeys.add(loginDedupeKey(userId, loggedAt));
-    }
+    if (userKey && !shouldIncludeLogin(userKey, loggedAt)) continue;
+    if (userId) loginLogDedupeKeys.add(loginDedupeKey(userId, loggedAt));
     const method = String(row.login_method ?? "password");
-    const ipAddress = String((row as { ip_address?: string | null }).ip_address ?? "").trim() || "—";
-
-    let mappedType: LogType = "login";
-    let location = method === "sso" ? "SSO" : "密碼登入";
-    let detail: string | undefined;
-    let suspicious = false;
-
-    if (event === "logout") {
-      mappedType = "logout";
-      location = method === "sso" ? "SSO" : "手動登出";
-    } else if (event === "forced_logout_ip_mismatch") {
-      mappedType = "forced_logout_ip_mismatch";
-      location = "安全強制登出";
-      detail = "偵測到 IP 變更或於其他位置登入，已強制登出";
-      suspicious = true;
-    } else if (event === "forced_logout_session_expired") {
-      mappedType = "forced_logout_session_expired";
-      location = "14 日到期登出";
-      detail = "登入已滿 14 日，系統自動登出並要求重新登入";
-    }
-
     logs.push({
       id: `ll-${row.id}`,
       user: formatUser(String(row.user_name ?? ""), email),
       email: email ?? undefined,
-      type: mappedType,
-      ...(detail ? { detail } : {}),
-      ip: ipAddress,
-      location,
+      type: row.event === "logout" ? "logout" : "login",
+      ip: "—",
+      location: method === "sso" ? "SSO" : "密碼登入",
       at: loggedAt,
-      suspicious,
+      suspicious: false,
     });
   }
 

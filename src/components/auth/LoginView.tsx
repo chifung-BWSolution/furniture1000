@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { LogIn, LoaderCircle, ShieldAlert, Zap } from 'lucide-react';
+import { LogIn, LoaderCircle, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { FdsLogo } from '@/components/brand/FdsLogo';
-import { useAuth } from '@/contexts/AuthProvider';
-import { FORCED_LOGOUT_MESSAGES } from '@/lib/fdsSessionPolicy';
 import { supabase } from '@/lib/supabase';
 import { getQuickLoginCredentials, isDevelopQuickLoginBuild } from '@/lib/quick-login';
 
@@ -20,7 +18,6 @@ function getPmsOrigin(): string | null {
 }
 
 export function LoginView() {
-  const { forcedLogoutReason, clearForcedLogoutReason } = useAuth();
   const useQuickLogin = isDevelopQuickLoginBuild();
   const quickLogin = getQuickLoginCredentials();
   const [busy, setBusy] = useState(false);
@@ -45,7 +42,6 @@ export function LoginView() {
   }, [useQuickLogin]);
 
   const handleSignIn = () => {
-    clearForcedLogoutReason();
     if (!PMS_SSO_START_URL) {
       console.error('[LoginView] VITE_PMS_SSO_START_URL is not configured');
       return;
@@ -65,7 +61,6 @@ export function LoginView() {
 
   const handleQuickLogin = async () => {
     if (!quickLogin || busy) return;
-    clearForcedLogoutReason();
     setBusy(true);
     const { error } = await supabase.auth.signInWithPassword({
       email: quickLogin.email,
@@ -94,20 +89,6 @@ export function LoginView() {
               : '請使用 PMS 帳號登入以存取傢俬設計管理平台'}
           </p>
         </div>
-
-        {forcedLogoutReason && (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-left">
-            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-            <div className="space-y-1">
-              <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
-                {FORCED_LOGOUT_MESSAGES[forcedLogoutReason].title}
-              </p>
-              <p className="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/80">
-                {FORCED_LOGOUT_MESSAGES[forcedLogoutReason].description}
-              </p>
-            </div>
-          </div>
-        )}
 
         <div className="space-y-3">
           {useQuickLogin ? (
