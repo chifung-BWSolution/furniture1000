@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { markSsoLoginPending } from '@/lib/loginLog';
+import {
+  clearForcedLogoutReason,
+  markSsoLoginPending,
+  storeFdsSessionId,
+  storeFdsSessionStartedAt,
+} from '@/lib/loginLog';
 import { resolveSsoPostLoginPath } from '@/lib/ssoRedirect';
 
 type CallbackState = 'processing' | 'success' | 'error';
@@ -46,6 +51,13 @@ export function PmsSsoCallback() {
         }
 
         markSsoLoginPending();
+        clearForcedLogoutReason();
+        if (typeof data.fds_session_id === 'string') {
+          storeFdsSessionId(data.fds_session_id);
+        }
+        if (typeof data.fds_session_started_at === 'string') {
+          storeFdsSessionStartedAt(data.fds_session_started_at);
+        }
         const { error: sessionError } = await supabase.auth.setSession({
           access_token: data.access_token,
           refresh_token: data.refresh_token,

@@ -108,3 +108,24 @@ entrypoint = "./functions/skp-worker-agent/index.ts"
 # Canva 簡報：無前綴 slug 也一併維持（舊部署仍在用）。
 [functions.generate-canva-presentation]
 verify_jwt = false
+
+# 登入安全檢查：記錄真實 IP、綁定活躍 Session 與 14 日絕對有效期檢查。
+[functions.fds-session-guard]
+verify_jwt = false
+
+# 每週登入安全報告（pg_cron 每週一 10:00 HKT 與 admin 手動觸發）。
+[functions.send-login-weekly-digest]
+verify_jwt = false
+
+# PMS SSO 登入交換（前端與 PMS 呼叫帶前綴的 slug）。
+[functions.supabase-functions-pms-sso]
+verify_jwt = false
+entrypoint = "./functions/pms-sso/index.ts"
+
+# 平台管理（用戶管理／登入紀錄）。
+[functions.fetch-platform-admin]
+verify_jwt = false
+
+[functions.supabase-functions-fetch-platform-admin]
+verify_jwt = false
+entrypoint = "./functions/fetch-platform-admin/index.ts"
