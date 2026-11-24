@@ -35,11 +35,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    let sessionLoginRegistered = false;
+    let lastRegisteredAccessToken: string | null = null;
 
     const registerSessionLoginOnce = (accessToken: string) => {
-      if (sessionLoginRegistered) return;
-      sessionLoginRegistered = true;
+      if (lastRegisteredAccessToken === accessToken) return;
+      lastRegisteredAccessToken = accessToken;
       const loginMethod = consumeSsoLoginPending() ? 'sso' : 'password';
       void registerActiveSession(accessToken, { recordLogin: true, loginMethod }).then((result) => {
         if (!mounted || result.ok || !('reason' in result) || !result.reason) return;
@@ -61,7 +61,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(nextSession);
       setLoading(false);
 
-      if (event === 'SIGNED_OUT') {
+      if (event === 'SIGNED_OUT' || !nextSession) {
+        lastRegisteredAccessToken = null;
         clearPmsStaffCache();
         return;
       }

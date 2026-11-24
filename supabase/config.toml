@@ -130,3 +130,10 @@ verify_jwt = false
 [functions.supabase-functions-fetch-platform-admin]
 verify_jwt = false
 entrypoint = "./functions/fetch-platform-admin/index.ts"
+
+[functions.send-login-weekly-digest]
+verify_jwt = false
+
+[functions.supabase-functions-send-login-weekly-digest]
+verify_jwt = false
+entrypoint = "./functions/send-login-weekly-digest/index.ts"

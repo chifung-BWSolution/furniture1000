@@ -3,6 +3,26 @@
 -- 較新的 Auth session 仍會換掉舊的。超過 14 日（自 auth.sessions.created_at）要重新登入。
 -- IP 變更不是第二個名額，也不會登出。
 
+CREATE TABLE IF NOT EXISTS public.fds_active_sessions (
+  user_id uuid PRIMARY KEY,
+  session_id text NOT NULL,
+  bound_ip text,
+  user_agent text,
+  session_started_at timestamptz NOT NULL DEFAULT now(),
+  last_verified_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.fds_active_sessions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.fds_active_sessions FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.fds_active_sessions TO service_role;
+
+ALTER TABLE public.login_log
+  ADD COLUMN IF NOT EXISTS ip_address text,
+  ADD COLUMN IF NOT EXISTS user_agent text,
+  ADD COLUMN IF NOT EXISTS session_id text,
+  ADD COLUMN IF NOT EXISTS auth_last_sign_in_at timestamptz;
+
 ALTER TABLE public.fds_active_sessions
   ADD COLUMN IF NOT EXISTS auth_session_id uuid,
   ADD COLUMN IF NOT EXISTS invalidated_reason text,
