@@ -114,6 +114,7 @@ type Ctx = {
   companyChop?: string;
   quoteNumber: string;
   today: string;
+  originalAmount: number;
   totalAmount: number;
   discountValue: number;
   isFreeInstallation: boolean;
@@ -926,6 +927,7 @@ function buildTotalsBlock(ctx: Ctx): PdfBlock {
   const rows: Array<{ label: string; value: string; bold?: boolean }> = [];
 
   if (ctx.discountValue > 0) {
+    rows.push({ label: `${labels.originalPrice}:`, value: `HK$${ctx.originalAmount.toLocaleString()}` });
     rows.push({ label: 'Discount:', value: `HK$${ctx.discountValue.toLocaleString()}` });
   }
 
@@ -1607,7 +1609,8 @@ export function QuotationDocument({
   })();
   const isFreeInstallation = (data.subtotal || 0) >= QUOTE_FREE_INSTALLATION_MIN_HKD;
   const installationAmount = isFreeInstallation ? 0 : data.installationFee?.amount ?? 0;
-  const totalAmount = Math.max(0, (data.subtotal || 0) - discountValue + installationAmount);
+  const originalAmount = (data.subtotal || 0) + installationAmount;
+  const totalAmount = Math.max(0, originalAmount - discountValue);
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
   const ctx: Ctx = {
@@ -1620,6 +1623,7 @@ export function QuotationDocument({
     companyChop,
     quoteNumber,
     today,
+    originalAmount,
     totalAmount,
     discountValue,
     isFreeInstallation,
