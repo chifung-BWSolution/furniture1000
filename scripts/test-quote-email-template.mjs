@@ -37,10 +37,12 @@ assert.equal(M.normalizeCustomQuoteEmailSections([{ title: 'a'.repeat(200), body
 assert.equal(M.normalizeCustomQuoteEmailSections([{ title: 'a', body: 'b'.repeat(2000) }])[0].body.length, 800);
 
 // --- 發送前檢查 -----------------------------------------------------------
-assert.equal(M.quoteEmailReadiness({ recipient: '', shareToken: 't' }), 'recipient_missing');
-assert.equal(M.quoteEmailReadiness({ recipient: 'nope', shareToken: 't' }), 'recipient_invalid');
-assert.equal(M.quoteEmailReadiness({ recipient: 'a@b.com', shareToken: null }), 'share_link_missing');
-assert.equal(M.quoteEmailReadiness({ recipient: 'a@b.com', shareToken: 't' }), null);
+const ready = { recipient: 'a@b.com', contactPhone: '5163 7535', shareToken: 't' };
+assert.equal(M.quoteEmailReadiness({ ...ready, recipient: '' }), 'recipient_missing');
+assert.equal(M.quoteEmailReadiness({ ...ready, recipient: 'nope' }), 'recipient_invalid');
+assert.equal(M.quoteEmailReadiness({ ...ready, contactPhone: ' ' }), 'contact_phone_missing');
+assert.equal(M.quoteEmailReadiness({ ...ready, shareToken: null }), 'share_link_missing');
+assert.equal(M.quoteEmailReadiness(ready), null);
 assert.equal(M.isQuoteEmailAddress(' a@b.co '), true);
 assert.equal(M.isQuoteEmailAddress('a@b'), false);
 assert.equal(M.isQuoteEmailAddress('a b@c.com'), false);

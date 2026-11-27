@@ -74,6 +74,15 @@ export function buildCustomerPortalQuoteShareUrl(
   return `${base}${CUSTOMER_PORTAL_BASE}?quote_share=${encodeURIComponent(token)}`;
 }
 
+/** Short own-domain share URL (`/q/<code>`) used in customer-facing emails. */
+export function buildCustomerPortalShortQuoteShareUrl(
+  origin: string,
+  shortCode: string,
+): string {
+  const base = origin.replace(/\/+$/, '');
+  return `${base}/q/${encodeURIComponent(shortCode.trim())}`;
+}
+
 export const CUSTOMER_QUOTE_SHARE_TOKEN_KEY = 'fds-client-quote-share-token';
 export const CUSTOMER_QUOTE_SHARE_TARGET_KEY = 'fds-client-quote-share-target';
 

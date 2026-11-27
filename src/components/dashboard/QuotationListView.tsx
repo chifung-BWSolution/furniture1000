@@ -1149,6 +1149,7 @@ export function QuotationListView({
         quote={emailTarget ? {
           id: emailTarget.id,
           quoteId: quoteCode(emailTarget),
+          version: emailTarget.version || null,
           clientEmail: emailTarget.project_data?.clientInfo?.email ?? null,
           clientName: emailTarget.project_data?.clientInfo?.name
             ?? emailTarget.project_data?.formData?.clientName

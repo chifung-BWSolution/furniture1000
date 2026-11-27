@@ -61,6 +61,7 @@ export interface QuoteEmailStatusData {
   stopped_at: string | null;
   stop_reason: string | null;
   share_token: string | null;
+  share_short_code: string | null;
   item_count: number;
   total_amount: number;
   sample_items: string | null;
@@ -147,20 +148,47 @@ export interface QuoteEmailContactSource {
   clientEmail: string;
   /** 報價「公司資訊」裡已保存的負責同事電話。 */
   companyPhone: string;
+  version: string;
+  clientName: string;
+  clientContactName: string;
+  clientIndustry: string[];
+  pmName: string;
+  validityDays: string;
+  deliveryDetails: string;
+  deliveryDetailsEn: string;
+  paymentTerms: string;
+  warrantyTerms: string;
+  paymentTermsEn: string;
+  warrantyTermsEn: string;
 }
 
 /**
- * 列表列沒有整份 project_data。收件電郵與負責同事電話要從這張報價已保存的欄位讀，
- * 不能只靠父層暫存（列表投影沒有這兩欄）。
+ * 列表列沒有整份 project_data。收件電郵、負責同事電話與報價條款摘要要從這張報價已保存的欄位讀，
+ * 不能只靠父層暫存（列表投影沒有這些欄位）。
  */
 export async function loadQuoteEmailContactSource(quoteUuid: string): Promise<QuoteEmailContactSource> {
   const { data, error } = await supabase
     .from('bwf_quote')
     .select(
       [
+        'version',
         'client_info_email:project_data->clientInfo->>email',
         'form_email:project_data->formData->>clientEmail',
         'company_phone:project_data->companyInfo->>phone',
+        'client_name:project_data->clientInfo->>name',
+        'form_client_name:project_data->formData->>clientName',
+        'client_contact:project_data->clientInfo->>contactName',
+        'form_client_contact:project_data->formData->>clientContactName',
+        'client_industry:project_data->formData->clientIndustry',
+        'pm_name:project_data->formData->>projectManager',
+        'meta_validity:project_data->quoteMeta->>validity',
+        'form_validity:project_data->formData->>validityDays',
+        'delivery_details:project_data->>deliveryDetails',
+        'delivery_details_en:project_data->>deliveryDetailsEn',
+        'terms_payment:project_data->termsContent->>payment',
+        'terms_warranty:project_data->termsContent->>warranty',
+        'terms_payment_en:project_data->termsContentEn->>payment',
+        'terms_warranty_en:project_data->termsContentEn->>warranty',
       ].join(','),
     )
     .eq('id', quoteUuid)
@@ -169,7 +197,25 @@ export async function loadQuoteEmailContactSource(quoteUuid: string): Promise<Qu
   const row = (data ?? {}) as Record<string, unknown>;
   const clientEmail = String(row.client_info_email || row.form_email || '').trim();
   const companyPhone = String(row.company_phone || '').trim().slice(0, 40);
-  return { clientEmail, companyPhone };
+  const clientIndustry = Array.isArray(row.client_industry)
+    ? row.client_industry.map((v) => String(v ?? '').trim()).filter(Boolean)
+    : [];
+  return {
+    clientEmail,
+    companyPhone,
+    version: String(row.version ?? '').trim(),
+    clientName: String(row.client_name || row.form_client_name || '').trim(),
+    clientContactName: String(row.client_contact || row.form_client_contact || '').trim(),
+    clientIndustry,
+    pmName: String(row.pm_name || '').trim(),
+    validityDays: String(row.meta_validity || row.form_validity || '30').trim(),
+    deliveryDetails: String(row.delivery_details || '').trim(),
+    deliveryDetailsEn: String(row.delivery_details_en || '').trim(),
+    paymentTerms: String(row.terms_payment || '').trim(),
+    warrantyTerms: String(row.terms_warranty || '').trim(),
+    paymentTermsEn: String(row.terms_payment_en || '').trim(),
+    warrantyTermsEn: String(row.terms_warranty_en || '').trim(),
+  };
 }
 
 /** 已寄過的地址優先；否則用畫面正在編的電郵，再否則用報價上已保存的客戶電郵。 */
@@ -290,14 +336,14 @@ export function quoteEmailErrorMessage(error: unknown, locale: 'zh' | 'en' = 'zh
 export async function loadQuoteEmailPreview(quoteUuid: string): Promise<{ count: number; items: QuoteEmailPreviewItem[] }> {
   const visible = supabase
     .from('bwf_quote_item')
-    .select('name,image,quantity,unit,unit_price', { count: 'exact' })
+    .select('name,image,quantity,unit,unit_price,material,color,remarks,dimension_l_mm,dimension_w_mm,dimension_h_mm,dimension_mode,category', { count: 'exact' })
     .eq('quote_uuid', quoteUuid)
     .or('is_section_title.is.null,is_section_title.eq.false')
     .or('is_custom_term.is.null,is_custom_term.eq.false')
     .or('hide_in_pdf.is.null,hide_in_pdf.eq.false')
     .neq('name', '')
     .order('sort_order', { ascending: true })
-    .limit(5);
+    .limit(20);
   const { data, count, error } = await visible;
   if (error) throw error;
   return {
@@ -308,6 +354,14 @@ export async function loadQuoteEmailPreview(quoteUuid: string): Promise<{ count:
       quantity: row.quantity,
       unit: row.unit,
       unitPrice: row.unit_price,
+      material: row.material,
+      color: row.color,
+      remarks: row.remarks,
+      dimensionLMm: row.dimension_l_mm,
+      dimensionWMm: row.dimension_w_mm,
+      dimensionHMm: row.dimension_h_mm,
+      dimensionMode: row.dimension_mode,
+      category: row.category,
     })),
   };
 }
@@ -331,6 +385,7 @@ export async function loadQuoteEmailStatus(quoteUuid: string): Promise<QuoteEmai
     stopped_at: row.stopped_at ? String(row.stopped_at) : null,
     stop_reason: row.stop_reason ? String(row.stop_reason) : null,
     share_token: row.share_token ? String(row.share_token) : null,
+    share_short_code: row.share_short_code ? String(row.share_short_code) : null,
     item_count: Math.max(0, Number(row.item_count) || 0),
     total_amount: Number(row.total_amount) || 0,
     sample_items: row.sample_items ? String(row.sample_items) : null,
@@ -343,18 +398,35 @@ export interface QuoteEmailCopy {
   /** 已保存的稱呼。沒有保存時為 null，預覽改用自動稱呼。 */
   greeting: string | null;
   locale: 'zh-Hant' | 'zh-Hans' | 'en';
+  subject: string;
+  productTitle: string;
+  productHighlights: string;
 }
 
-/** 稱呼與寄出語言。欄位尚未建立或讀取失敗時用自動稱呼、繁體。 */
+/** 稱呼、主旨、產品重點與寄出語言。欄位尚未建立或讀取失敗時回退預設值。 */
 export async function loadQuoteEmailCopy(quoteUuid: string): Promise<QuoteEmailCopy> {
   const { data, error } = await supabase.from('bwf_quote_email_template')
-    .select('greeting_text, locale')
+    .select('greeting_text, locale, subject_text, product_title, product_highlights')
     .eq('quote_uuid', quoteUuid)
     .maybeSingle();
-  const locale = data?.locale === 'zh-Hans' || data?.locale === 'en' ? data.locale : 'zh-Hant';
-  if (error || !data) return { greeting: null, locale: 'zh-Hant' };
+  if (error || !data) {
+    return {
+      greeting: null,
+      locale: 'zh-Hant',
+      subject: '',
+      productTitle: '',
+      productHighlights: '',
+    };
+  }
+  const locale = data.locale === 'zh-Hans' || data.locale === 'en' ? data.locale : 'zh-Hant';
   const greeting = String(data.greeting_text ?? '').trim();
-  return { greeting: greeting || null, locale };
+  return {
+    greeting: greeting || null,
+    locale,
+    subject: String(data.subject_text ?? '').trim(),
+    productTitle: String(data.product_title ?? '').trim(),
+    productHighlights: String(data.product_highlights ?? '').trim(),
+  };
 }
 
 export async function saveQuoteEmailTemplate(input: {
@@ -364,6 +436,9 @@ export async function saveQuoteEmailTemplate(input: {
   greeting: string;
   locale?: 'zh-Hant' | 'zh-Hans' | 'en';
   customSections: QuoteEmailCustomSection[];
+  subject?: string;
+  productTitle?: string;
+  productHighlights?: string;
 }): Promise<void> {
   const { error } = await supabase.rpc('fds_quote_email_template_save', {
     p_quote_uuid: input.quoteUuid,
@@ -372,8 +447,35 @@ export async function saveQuoteEmailTemplate(input: {
     p_custom_sections: normalizeCustomQuoteEmailSections(input.customSections),
     p_greeting: input.greeting.trim().slice(0, 200),
     p_locale: input.locale === 'zh-Hans' || input.locale === 'en' ? input.locale : 'zh-Hant',
+    p_subject: input.subject == null ? null : input.subject.trim().slice(0, 300),
+    p_product_title: input.productTitle == null ? null : input.productTitle.trim().slice(0, 120),
+    p_product_highlights: input.productHighlights == null ? null : input.productHighlights.trim().slice(0, 4000),
   });
   if (error) throw error;
+}
+
+export async function draftQuoteEmail(input: {
+  quoteUuid: string;
+  locale: 'zh-Hant' | 'zh-Hans' | 'en';
+}): Promise<{ productTitle: string; productHighlights: string; source: 'ai' | 'fallback' }> {
+  const { data, error } = await supabase.functions.invoke('supabase-functions-fetch-pms-pitchings', {
+    body: {
+      action: 'draft_quote_email',
+      quote_uuid: input.quoteUuid,
+      locale: input.locale,
+    },
+  });
+  if (error) throw new Error(await parseInvokeError(error, data));
+  const productTitle = String(data?.productTitle ?? '').trim();
+  const productHighlights = String(data?.productHighlights ?? '').trim();
+  if (!productTitle || !productHighlights) {
+    throw new Error('未能生成報價郵件草稿');
+  }
+  return {
+    productTitle,
+    productHighlights,
+    source: data?.source === 'ai' ? 'ai' : 'fallback',
+  };
 }
 
 export async function scheduleQuoteEmail(input: {

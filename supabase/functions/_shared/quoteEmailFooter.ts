@@ -8,10 +8,26 @@ export interface QuoteEmailFooterText {
 }
 
 const signatureLinks = [
+  ["YouTube 頻道", "https://www.youtube.com/@bwoffice-furniture", "https://www.youtube.com/@bwoffice-furniture"],
+  ["Our Latest Furniture Category PDF", "https://bwoffice.asia/pages/catalog", "https://bwoffice.asia/pages/catalog"],
+  ["Brand Furniture:", "www.bwoffice.asia", "https://www.bwoffice.asia"],
+] as const;
+
+const legacySignatureLinks = [
   ["Our Latest Furniture Category PDF", "https://bwoffice.asia/pages/catalog", "https://bwoffice.asia/pages/catalog"],
   ["Online Store:", "www.bwfurnitures.com", "https://www.bwfurnitures.com"],
   ["Brand Furniture:", "www.bwoffice.asia", "https://www.bwoffice.asia"],
 ] as const;
+
+const linkableFooterLines = [
+  ...signatureLinks,
+  ...legacySignatureLinks,
+] as const;
+
+const PREVIOUS_DEFAULT_CLOSING = [
+  "BW Office Furniture (since 2009)",
+  ...legacySignatureLinks.map(([label, text]) => `${label}\n${text}`),
+].join("\n\n");
 
 function legacyPmQuoteEmailFooter(name: string, workPhone: string): QuoteEmailFooterText {
   const phone = workPhone.trim();
@@ -32,7 +48,7 @@ export function defaultQuoteEmailClosing(): string {
   return [
     "BW Office Furniture (since 2009)",
     ...signatureLinks.map(([label, text]) => `${label}\n${text}`),
-  ].join("\n\n");
+  ].join("\n");
 }
 
 /** Phone stored for a PM: the mapped direct/mobile pair, otherwise the PMS work phone. */
@@ -52,7 +68,7 @@ export function defaultPmQuoteEmailFooter(name: string, workPhone: string): Quot
   const signature = [
     contact,
     ...signatureLinks.map(([label, text]) => `${label}\n${text}`),
-  ].join("\n\n");
+  ].join("\n");
   return { "zh-Hant": signature, "zh-Hans": signature, en: signature };
 }
 
@@ -208,12 +224,25 @@ export function quoteEmailBccList(recipient: string, teamBcc: string): string[] 
 
 export function refreshDefaultQuoteEmailFooter(footer: QuoteEmailFooterText): QuoteEmailFooterText {
   const updated = { ...footer };
+  const normalizeClosing = (value: string) => value.replace(/\r\n/g, "\n").trim();
+  const previousClosingNormalized = normalizeClosing(PREVIOUS_DEFAULT_CLOSING);
   for (const locale of ["zh-Hant", "zh-Hans", "en"] as const) {
     const text = footer[locale];
+    const normalized = normalizeClosing(text);
+    if (normalized === previousClosingNormalized) {
+      updated[locale] = defaultQuoteEmailClosing();
+      continue;
+    }
     const [name, , phone = ""] = text.split("\n");
     const workPhone = phone.replace(/^(?:電話：|电话：|Tel: )/, "");
     if (name && text === legacyPmQuoteEmailFooter(name, workPhone)[locale]) {
       updated[locale] = defaultPmQuoteEmailFooter(name, workPhone)[locale];
+      continue;
+    }
+    if (name && normalized.endsWith(previousClosingNormalized)) {
+      const prefix = normalized.slice(0, normalized.length - previousClosingNormalized.length).trim();
+      const closing = defaultQuoteEmailClosing();
+      updated[locale] = prefix ? `${prefix}\n${closing}` : closing;
     }
   }
   return updated;
@@ -221,7 +250,10 @@ export function refreshDefaultQuoteEmailFooter(footer: QuoteEmailFooterText): Qu
 
 export function renderQuoteEmailFooterHtml(footer: string): string {
   return footer.split(/\r?\n/).map((line) => {
-    const link = signatureLinks.find(([, text]) => text === line);
-    return link ? `<a href="${link[2]}">${escapeHtml(line)}</a>` : escapeHtml(line);
+    const trimmed = line.trim();
+    const link = linkableFooterLines.find(([, text]) => text === trimmed);
+    return link
+      ? `<a href="${link[2]}" style="color:#2F6BED;text-decoration:none;">${escapeHtml(line)}</a>`
+      : escapeHtml(line);
   }).join("<br>");
 }

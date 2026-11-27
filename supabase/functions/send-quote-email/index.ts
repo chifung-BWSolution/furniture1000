@@ -44,6 +44,7 @@ type ClaimedEmail = {
   custom_sections: Array<{ title?: string; body?: string }>;
   settings_status: string;
   share_token: string | null;
+  share_short_code?: string | null;
   item_count: number;
   total_amount: number;
   sample_items: string | null;
@@ -87,13 +88,21 @@ async function authorize(req: Request, admin: SupabaseClient): Promise<Response 
   return null;
 }
 
+const PUBLIC_PORTAL_URL = "https://www.bwteam-furniture.com";
+
 function appUrl(): string {
-  return (Deno.env.get("FDS_APP_URL") ?? "").trim().replace(/\/+$/, "");
+  const configured = (Deno.env.get("FDS_APP_URL") ?? "").trim().replace(/\/+$/, "");
+  if (!configured || /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(configured)) {
+    return PUBLIC_PORTAL_URL;
+  }
+  return configured;
 }
 
-function shareUrl(token: string | null): string {
+function shareUrl(token: string | null, shortCode?: string | null): string {
   const base = appUrl();
   if (!base || !token) return "";
+  const code = String(shortCode ?? "").trim();
+  if (code) return `${base}/q/${encodeURIComponent(code)}`;
   return `${base}/customer?quote_share=${encodeURIComponent(token)}`;
 }
 
@@ -113,7 +122,7 @@ function customerVisibleItem(row: {
 
 async function loadPreviewItems(admin: SupabaseClient, quoteUuid: string): Promise<{ count: number; items: QuoteEmailPreviewItem[] } | null> {
   const { data, error } = await admin.from("bwf_quote_item")
-    .select("name,image,quantity,unit,unit_price,is_section_title,is_custom_term,hide_in_pdf")
+    .select("name,image,quantity,unit,unit_price,material,color,remarks,dimension_l_mm,dimension_w_mm,dimension_h_mm,dimension_mode,category,is_section_title,is_custom_term,hide_in_pdf")
     .eq("quote_uuid", quoteUuid)
     .order("sort_order", { ascending: true });
   if (error) {
@@ -123,12 +132,20 @@ async function loadPreviewItems(admin: SupabaseClient, quoteUuid: string): Promi
   const visible = (data ?? []).filter(customerVisibleItem);
   return {
     count: visible.length,
-    items: visible.slice(0, 5).map((row) => ({
+    items: visible.slice(0, 20).map((row) => ({
       name: String(row.name ?? ""),
       image: row.image,
       quantity: row.quantity,
       unit: row.unit,
       unitPrice: row.unit_price,
+      material: row.material,
+      color: row.color,
+      remarks: row.remarks,
+      dimensionLMm: row.dimension_l_mm,
+      dimensionWMm: row.dimension_w_mm,
+      dimensionHMm: row.dimension_h_mm,
+      dimensionMode: row.dimension_mode,
+      category: row.category,
     })),
   };
 }
@@ -140,10 +157,30 @@ function buildMessage(
   customerName = "",
   greeting?: string | null,
   locale?: string | null,
+  extra?: {
+    version?: string | null;
+    clientName?: string | null;
+    clientIndustry?: string[] | null;
+    subjectOverride?: string | null;
+    productTitle?: string | null;
+    productHighlights?: string | null;
+    deliveryDetails?: string | null;
+    paymentTerms?: string | null;
+    warrantyTerms?: string | null;
+    validityDays?: string | null;
+    pmName?: string | null;
+    contactPhone?: string | null;
+  },
 ): { subject: string; text: string; html: string } {
   return buildQuoteCustomerEmail({
     kind: row.kind,
     quoteId: row.quote_id,
+    version: extra?.version,
+    clientName: extra?.clientName,
+    clientIndustry: extra?.clientIndustry,
+    subjectOverride: extra?.subjectOverride,
+    productTitle: extra?.productTitle,
+    productHighlights: extra?.productHighlights,
     introText: row.intro_text,
     customerName: customerName || row.recipient_name,
     greeting,
@@ -154,7 +191,13 @@ function buildMessage(
     totalAmount: row.total_amount,
     sampleItems: row.sample_items,
     previewItems: preview?.items,
-    shareUrl: shareUrl(row.share_token),
+    shareUrl: shareUrl(row.share_token, row.share_short_code),
+    deliveryDetails: extra?.deliveryDetails,
+    paymentTerms: extra?.paymentTerms,
+    warrantyTerms: extra?.warrantyTerms,
+    validityDays: extra?.validityDays,
+    pmName: extra?.pmName,
+    contactPhone: extra?.contactPhone,
   });
 }
 
@@ -251,19 +294,37 @@ Deno.serve(async (req: Request) => {
     try {
       const [{ data: quote, error: quoteError }, resolved] = await Promise.all([
         admin.from("bwf_quote")
-          .select("pm_name:project_data->formData->>projectManager, contact_name:project_data->clientInfo->>contactName, form_contact:project_data->formData->>clientContactName, company_name:project_data->clientInfo->>name")
+          .select([
+            "version",
+            "pm_name:project_data->formData->>projectManager",
+            "contact_name:project_data->clientInfo->>contactName",
+            "form_contact:project_data->formData->>clientContactName",
+            "company_name:project_data->clientInfo->>name",
+            "form_company_name:project_data->formData->>clientName",
+            "client_industry:project_data->formData->clientIndustry",
+            "validity:project_data->quoteMeta->>validity",
+            "form_validity:project_data->formData->>validityDays",
+            "delivery_details:project_data->>deliveryDetails",
+            "delivery_details_en:project_data->>deliveryDetailsEn",
+            "terms_payment:project_data->termsContent->>payment",
+            "terms_warranty:project_data->termsContent->>warranty",
+            "terms_payment_en:project_data->termsContentEn->>payment",
+            "terms_warranty_en:project_data->termsContentEn->>warranty",
+          ].join(","))
           .eq("id", row.quote_uuid)
           .maybeSingle(),
         resolveQuoteEmailFooter(admin, row.quote_uuid, pms),
       ]);
       if (quoteError) throw new Error(quoteError.message);
-      const senderName = resolved.senderName || quote?.pm_name?.trim() || "";
+      const quoteRow = (quote ?? {}) as Record<string, unknown>;
+      const senderName = resolved.senderName || String(quoteRow.pm_name ?? "").trim() || "";
+      const clientName = String(quoteRow.company_name ?? quoteRow.form_company_name ?? "").trim();
       const customerName = quoteEmailAddressee(
-        quote?.contact_name || quote?.form_contact || row.recipient_name,
-        quote?.company_name,
+        String(quoteRow.contact_name ?? quoteRow.form_contact ?? row.recipient_name ?? ""),
+        clientName,
       );
       const { data: template, error: greetingError } = await admin.from("bwf_quote_email_template")
-        .select("greeting_text, locale")
+        .select("greeting_text, locale, contact_phone, subject_text, product_title, product_highlights")
         .eq("quote_uuid", row.quote_uuid)
         .maybeSingle();
       if (greetingError) console.warn("[send-quote-email] greeting", greetingError.message);
@@ -271,6 +332,10 @@ Deno.serve(async (req: Request) => {
       const emailLocale = greetingError
         ? normalizeQuoteEmailLocale(row.locale)
         : normalizeQuoteEmailLocale(String(template?.locale ?? row.locale ?? ""));
+      const savedSubject = greetingError ? "" : String(template?.subject_text ?? "").trim();
+      const savedProductTitle = greetingError ? "" : String(template?.product_title ?? "").trim();
+      const savedProductHighlights = greetingError ? "" : String(template?.product_highlights ?? "").trim();
+      const contactPhone = (greetingError ? "" : String(template?.contact_phone ?? "").trim()) || "";
       const resendFrom = quoteEmailFromHeader(senderName);
       const footer = resolved.footer;
       const pdf = await loadOptionalQuotePdf(admin, row.quote_uuid);
@@ -288,11 +353,12 @@ Deno.serve(async (req: Request) => {
         continue;
       }
       const preview = await loadPreviewItems(admin, row.quote_uuid);
-      const sampleItems = emailLocale === "en"
+      const needsItemTranslation = emailLocale === "en" && !savedProductHighlights;
+      const sampleItems = needsItemTranslation
         ? await englishSampleItems(row.sample_items)
         : row.sample_items;
       let previewItems = preview?.items ?? null;
-      if (previewItems && emailLocale === "en") {
+      if (previewItems && needsItemTranslation) {
         const names = await localizeEnglishItemNames(
           previewItems.map((item) => item.name),
           (names) => translateQuoteEmail(names, "en", Deno.env.get("GOOGLE_TRANSLATION_API_KEY")?.trim() ?? ""),
@@ -306,6 +372,29 @@ Deno.serve(async (req: Request) => {
         customerName,
         savedGreeting || null,
         emailLocale,
+        {
+          version: quoteRow.version ? String(quoteRow.version) : null,
+          clientName,
+          clientIndustry: Array.isArray(quoteRow.client_industry) ? quoteRow.client_industry.map(String) : null,
+          subjectOverride: savedSubject || null,
+          productTitle: savedProductTitle || null,
+          productHighlights: savedProductHighlights || null,
+          deliveryDetails: String(
+            (emailLocale === "en" ? quoteRow.delivery_details_en : quoteRow.delivery_details) ??
+              quoteRow.delivery_details ?? "",
+          ),
+          paymentTerms: String(
+            (emailLocale === "en" ? quoteRow.terms_payment_en : quoteRow.terms_payment) ??
+              quoteRow.terms_payment ?? "",
+          ),
+          warrantyTerms: String(
+            (emailLocale === "en" ? quoteRow.terms_warranty_en : quoteRow.terms_warranty) ??
+              quoteRow.terms_warranty ?? "",
+          ),
+          validityDays: String(quoteRow.validity ?? quoteRow.form_validity ?? "30"),
+          pmName: senderName,
+          contactPhone,
+        },
       );
       const bcc = quoteEmailBccList(to, teamBcc);
       const sent = await sendEmail({ to: [to], bcc, ...message, resendFrom, attachment });

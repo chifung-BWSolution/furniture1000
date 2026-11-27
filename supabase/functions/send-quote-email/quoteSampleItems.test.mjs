@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildQuoteCustomerEmail } from "../_shared/quoteCustomerEmail.ts";
+import { buildDefaultProductHighlights, buildQuoteCustomerEmail } from "../_shared/quoteCustomerEmail.ts";
 import {
   englishNameInSample,
   localizeEnglishSampleItems,
@@ -28,44 +28,34 @@ test("does not treat a single trailing English word as the product name", () => 
   assert.equal(englishNameInSample("Office chair"), "Office chair");
 });
 
-test("english email summary prints the localized furniture names", () => {
+test("english email highlights list the localized furniture names", () => {
   const message = buildQuoteCustomerEmail({
     kind: "manual",
     quoteId: "Q-1",
     locale: "en",
-    itemCount: 11,
+    itemCount: 3,
     totalAmount: 188918,
     sampleItems: "Office desk, Office chair, Kosen Walnut Patterned Desk",
     shareUrl: "https://www.bwteam-furniture.com/customer?quote_share=test",
   });
-  assert.match(message.text, /11 furniture items\./);
-  assert.match(message.text, /Office desk/);
-  assert.match(message.text, /8 more items\. See the quotation online/);
+  assert.match(message.text, /1\. Office desk/);
+  assert.match(message.text, /2\. Office chair/);
+  assert.match(message.text, /3\. Kosen Walnut Patterned Desk/);
   assert.doesNotMatch(message.text, /辦公/);
-  assert.doesNotMatch(message.html, /Includes:/);
 });
 
-test("shows five furniture rows with pictures and keeps the rest as a count", () => {
-  const items = Array.from({ length: 7 }, (_, index) => ({
+test("builds deterministic product highlights for up to 15 furniture items and notes remainder", () => {
+  const items = Array.from({ length: 17 }, (_, index) => ({
     name: `椅子 ${index + 1}`,
-    image: index === 0 ? "https://cdn.example.com/chair.jpg" : "data:image/png;base64,abc",
     quantity: index + 1,
     unit: "張",
-    unitPrice: 100,
+    dimensionLMm: "500",
+    dimensionWMm: "520",
+    dimensionHMm: "800",
+    material: "<p>1. 網布靠背</p>",
   }));
-  const message = buildQuoteCustomerEmail({
-    kind: "manual",
-    quoteId: "Q-1",
-    itemCount: 7,
-    totalAmount: 2800,
-    previewItems: items,
-    shareUrl: "https://www.bwteam-furniture.com/customer?quote_share=test",
-  });
-  assert.match(message.html, />椅子 5<\/td>/);
-  assert.doesNotMatch(message.html, /椅子 6/);
-  assert.match(message.html, /src="https:\/\/cdn\.example\.com\/chair\.jpg"/);
-  assert.doesNotMatch(message.html, /data:image/);
-  assert.match(message.html, /另外還有 2 項/);
-  assert.match(message.text, /椅子 1 · 1 張 · HK\$ 100\.00/);
-  assert.doesNotMatch(message.text, /椅子 6/);
+  const highlights = buildDefaultProductHighlights(items, null, "zh-Hant");
+  assert.match(highlights, /15\. 椅子 15（15 張）：尺寸 W500 x D520 x H800 mm。網布靠背。/);
+  assert.doesNotMatch(highlights, /16\. 椅子 16/);
+  assert.match(highlights, /另附其餘 2 項產品/);
 });

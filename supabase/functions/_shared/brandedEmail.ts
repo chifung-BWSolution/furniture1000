@@ -40,6 +40,7 @@ export interface BrandedEmailOptions {
   preheader: string;
   heading: string;
   subheading?: string;
+  showHeader?: boolean;
   contentHtml: string;
   noteHtml?: string;
 }
@@ -149,6 +150,23 @@ export function renderBrandedEmail(options: BrandedEmailOptions): string {
   const locale = options.locale ?? "zh-Hant";
   const subheading = String(options.subheading ?? "").trim();
   const noteHtml = String(options.noteHtml ?? "").trim();
+  const showHeader = options.showHeader !== false;
+
+  const headerSectionHtml = showHeader
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+                    <tr>
+                      <td class="email-hero-icon" width="72" valign="middle" style="width:72px;padding:0 24px 0 0;">${iconHtml()}</td>
+                      <td valign="middle">
+                        <div class="email-title" style="font-family:${EMAIL_FONT_STACK};font-size:28px;line-height:1.35;font-weight:700;color:#0E1B3A;letter-spacing:-0.02em;">${escapeHtml(options.heading)}</div>
+                        ${subheading ? `<div style="font-family:${EMAIL_FONT_STACK};font-size:16px;line-height:1.7;color:#5B6880;padding-top:10px;">${escapeHtml(subheading)}</div>` : ""}
+                      </td>
+                    </tr>
+                  </table>
+
+                  <div style="height:1px;background-color:#E9EDF5;font-size:0;line-height:0;margin-top:32px;">&nbsp;</div>
+
+                  `
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="${locale}">
@@ -193,19 +211,7 @@ export function renderBrandedEmail(options: BrandedEmailOptions): string {
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;table-layout:fixed;background-color:#FFFFFF;border:1px solid #E5EAF3;border-radius:18px;border-collapse:separate;box-shadow:0 18px 48px rgba(20,40,80,0.08);">
               <tr>
                 <td class="email-card-pad" style="padding:44px 48px 0;">
-                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
-                    <tr>
-                      <td class="email-hero-icon" width="72" valign="middle" style="width:72px;padding:0 24px 0 0;">${iconHtml()}</td>
-                      <td valign="middle">
-                        <div class="email-title" style="font-family:${EMAIL_FONT_STACK};font-size:28px;line-height:1.35;font-weight:700;color:#0E1B3A;letter-spacing:-0.02em;">${escapeHtml(options.heading)}</div>
-                        ${subheading ? `<div style="font-family:${EMAIL_FONT_STACK};font-size:16px;line-height:1.7;color:#5B6880;padding-top:10px;">${escapeHtml(subheading)}</div>` : ""}
-                      </td>
-                    </tr>
-                  </table>
-
-                  <div style="height:1px;background-color:#E9EDF5;font-size:0;line-height:0;margin-top:32px;">&nbsp;</div>
-
-                  ${options.contentHtml}
+                  ${headerSectionHtml}${options.contentHtml}
 
                   ${noteHtml ? `<div style="height:1px;background-color:#E9EDF5;font-size:0;line-height:0;margin-top:28px;">&nbsp;</div>
                   <div style="font-family:${EMAIL_FONT_STACK};font-size:13px;line-height:1.95;color:#7C8AA3;padding-top:20px;">${noteHtml}</div>` : ""}

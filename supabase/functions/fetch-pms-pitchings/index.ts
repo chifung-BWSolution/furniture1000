@@ -1,4 +1,5 @@
 import { translateQuoteEmail } from "../_shared/translateQuoteEmail.ts";
+import { draftQuoteEmailWithAi } from "../_shared/draftQuoteEmail.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { pmsKeyMissingError, pmsProjectUrl, pmsServiceRoleKey } from "../_shared/pmsProject.ts";
@@ -257,7 +258,8 @@ Deno.serve(async (req: Request) => {
 
   try {
     const isEmailAction = body.action === "quote_email_footers" ||
-      body.action === "quote_email_footer" || body.action === "translate_quote_email";
+      body.action === "quote_email_footer" || body.action === "translate_quote_email" ||
+      body.action === "draft_quote_email";
     if (isEmailAction) {
       const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", {
         p_roles: ["admin", "pm", "uploader"],
@@ -269,6 +271,47 @@ Deno.serve(async (req: Request) => {
         body.texts, body.locale, Deno.env.get("GOOGLE_TRANSLATION_API_KEY")?.trim() ?? "",
       );
       return jsonResponse({ translations });
+    }
+    if (body.action === "draft_quote_email") {
+      if (!body.quote_uuid || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(body.quote_uuid)) {
+        return jsonResponse({ error: "無效的報價識別碼" }, 400);
+      }
+      const [{ data: quote, error: quoteError }, { data: itemRows, error: itemError }] = await Promise.all([
+        furnitureClient
+          .from("bwf_quote")
+          .select("client_name:project_data->clientInfo->>name, form_client_name:project_data->formData->>clientName, client_industry:project_data->formData->clientIndustry")
+          .eq("id", body.quote_uuid)
+          .maybeSingle(),
+        furnitureClient
+          .from("bwf_quote_item")
+          .select("name,quantity,unit,material,color,remarks,dimension_l_mm,dimension_w_mm,dimension_h_mm,dimension_mode,category,is_section_title,is_custom_term,hide_in_pdf")
+          .eq("quote_uuid", body.quote_uuid)
+          .order("sort_order", { ascending: true }),
+      ]);
+      if (quoteError) throw quoteError;
+      if (itemError) throw itemError;
+      const visibleItems = (itemRows ?? [])
+        .filter((row) => !row.is_section_title && !row.is_custom_term && !row.hide_in_pdf && String(row.name ?? "").trim() !== "")
+        .map((row) => ({
+          name: String(row.name ?? "").trim(),
+          quantity: row.quantity,
+          unit: row.unit,
+          material: row.material,
+          color: row.color,
+          remarks: row.remarks,
+          dimensionLMm: row.dimension_l_mm,
+          dimensionWMm: row.dimension_w_mm,
+          dimensionHMm: row.dimension_h_mm,
+          dimensionMode: row.dimension_mode,
+          category: row.category,
+        }));
+      const drafted = await draftQuoteEmailWithAi({
+        items: visibleItems,
+        clientName: String(quote?.client_name ?? quote?.form_client_name ?? "").trim() || null,
+        clientIndustry: Array.isArray(quote?.client_industry) ? quote.client_industry.map(String) : null,
+        locale: body.locale,
+      });
+      return jsonResponse(drafted);
     }
 
     if (!pmsServiceKey) return jsonResponse({ error: pmsKeyMissingError() }, 500);
@@ -282,7 +325,7 @@ Deno.serve(async (req: Request) => {
         return jsonResponse({ error: "無效的報價識別碼" }, 400);
       }
       const resolved = await resolveQuoteEmailFooter(furnitureClient, body.quote_uuid, pmsAdmin);
-      return jsonResponse({ footer: resolved.footer });
+      return jsonResponse({ footer: resolved.footer, senderName: resolved.senderName });
     }
 
     if (body.action?.startsWith("package_")) {

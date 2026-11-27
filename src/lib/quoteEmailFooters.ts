@@ -62,13 +62,24 @@ export async function getQuoteEmailFooterEditorId(): Promise<string | null> {
   return data;
 }
 
-export async function getQuoteEmailFooter(quoteUuid: string): Promise<QuoteEmailFooterText | null> {
+export async function getQuoteEmailFooterDetail(quoteUuid: string): Promise<{
+  footer: QuoteEmailFooterText | null;
+  senderName: string;
+}> {
   const { data, error } = await supabase.functions.invoke('supabase-functions-fetch-pms-pitchings', {
     body: { action: 'quote_email_footer', quote_uuid: quoteUuid },
   });
   if (error) throw new Error(await parseInvokeError(error, data));
   if (!data || !Object.prototype.hasOwnProperty.call(data, 'footer')) throw new Error('電郵頁尾功能尚未部署到這個環境');
-  return data.footer;
+  return {
+    footer: data.footer ?? null,
+    senderName: String(data.senderName ?? '').trim(),
+  };
+}
+
+export async function getQuoteEmailFooter(quoteUuid: string): Promise<QuoteEmailFooterText | null> {
+  const detail = await getQuoteEmailFooterDetail(quoteUuid);
+  return detail.footer;
 }
 
 export async function loadQuoteEmailBcc(): Promise<string> {

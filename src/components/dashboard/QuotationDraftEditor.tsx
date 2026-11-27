@@ -8104,6 +8104,7 @@ export function QuotationDraftEditor({
         quote={canShareQuote ? {
           id: shareQuoteUuid,
           quoteId: shareQuoteId || quoteId,
+          version: existingQuote?.version || null,
           clientEmail: clientInfo.email || null,
           clientName: clientInfo.name || null,
           clientContactName: clientInfo.contactName || null,
