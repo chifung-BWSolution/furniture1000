@@ -194,10 +194,7 @@ function plainLines(text: string, widthPt: number, size: number, bold = false): 
     .split('\n')
     .flatMap((raw) => {
       if (!raw.trim()) return [{ segments: [{ text: '' }], text: '' }];
-      return wrapPdfSegments([{ text: raw }], widthPt, size).map((line) => ({
-        ...line,
-        segments: line.segments.map((segment) => ({ ...segment, bold: bold || segment.bold })),
-      }));
+      return wrapPdfSegments([{ text: raw, bold }], widthPt, size);
     });
 }
 
@@ -242,7 +239,7 @@ function moneyLine(text: string, widthPt: number, maxSize = 7.5, bold = false) {
 function cellStyle(
   widthPt: number,
   options: { center?: boolean; borderRight?: boolean; paddingV?: number } = {},
-): Record<string, any> {
+) {
   const { center = false, borderRight = true, paddingV = ROW_PAD } = options;
   return {
     width: widthPt,
@@ -618,17 +615,23 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string, followsSe
   const { labels, P } = ctx;
   const columns = pdfColumnWidths(ctx.locale);
   const customWidth = columns.desc + columns.material + columns.image;
-  const descWidth = columns.desc - 4;
+  const descCell = {
+    ...cellStyle(item.isCustomTerm ? customWidth : columns.desc),
+    paddingHorizontal: item.isCustomTerm ? 4 : 2,
+  };
+  const descWidth = descCell.width - descCell.paddingHorizontal * 2 - descCell.borderRightWidth;
   const remarks = item.isCustomTerm ? [] : buildRemarksStrips(ctx, item, descWidth, P);
   const remarkStrips = new Set(remarks);
   let desc = item.isCustomTerm
-    ? plainLines(item.name || '', customWidth - 8, PDF_TYPE.material.size).map((line) =>
+    ? plainLines(item.name || '', descWidth, PDF_TYPE.material.size).map((line) =>
       textStrip(line, { size: PDF_TYPE.material.size, linePt: PDF_TYPE.material.line }, P))
     : [...buildDescStrips(item, descWidth, P),
       ...buildSpecStrips(item, descWidth, P),
       ...buildColorStrips(ctx, item, descWidth, P),
       ...remarks];
-  let material = item.isCustomTerm ? [] : buildMaterialStrips(item, columns.material - 6, P);
+  const materialCell = { ...cellStyle(columns.material), paddingHorizontal: 3 };
+  const materialWidth = materialCell.width - materialCell.paddingHorizontal * 2 - materialCell.borderRightWidth;
+  let material = item.isCustomTerm ? [] : buildMaterialStrips(item, materialWidth, P);
 
   let images = item.isCustomTerm ? [] : buildItemImageStrips(item, itemImageColumnWidthPt(ctx.locale), P);
 
@@ -677,7 +680,7 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string, followsSe
         <P.View style={cellStyle(columns.no, { center: true })}>
           <P.Text style={{ fontSize: PDF_TYPE.cell.size }}>{serial}</P.Text>
         </P.View>
-        <P.View style={{ ...cellStyle(item.isCustomTerm ? customWidth : columns.desc), paddingHorizontal: item.isCustomTerm ? 4 : 2 }}>
+        <P.View style={descCell}>
           {continued ? <P.View style={{ height: continuationHeight }}>
             <P.Text style={{ fontSize: PDF_TYPE.descLabel.size, color: PDF_COLORS.muted }}>{labels.itemContinued}</P.Text>
           </P.View> : null}
@@ -695,7 +698,7 @@ function buildItemBlocks(ctx: Ctx, item: QuotePdfItem, serial: string, followsSe
           )}
         </P.View>
         {!item.isCustomTerm ? <>
-          <P.View style={{ ...cellStyle(columns.material), paddingHorizontal: 3 }}>{stackNode(m.taken, P)}</P.View>
+          <P.View style={materialCell}>{stackNode(m.taken, P)}</P.View>
           <P.View style={cellStyle(columns.image)}>
             {stackNode(photos.taken, P)}
           </P.View>
