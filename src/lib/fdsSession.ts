@@ -36,8 +36,7 @@ type GuardPayload = {
 async function invokeGuard(
   accessToken: string,
   body: Record<string, unknown>,
-): Promise<{ payload: GuardPayload | null; status: number | null }> {
-  let lastStatus: number | null = null;
+): Promise<GuardPayload | null> {
   for (const slug of SLUGS) {
     try {
       const { data, error } = await supabase.functions.invoke(slug, {
@@ -45,22 +44,16 @@ async function invokeGuard(
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const status = (error as { context?: { status?: number } } | null)?.context?.status ?? null;
-      if (status === 404) continue;
-      if (status === 401) {
-        const { data: userData } = await supabase.auth.getUser();
-        if (userData.user) return { payload: null, status: null };
-        return { payload: { valid: false, reason: 'signed_out' }, status: 401 };
-      }
-      if (error && data == null) {
-        lastStatus = status;
-        continue;
-      }
-      return { payload: (data ?? null) as GuardPayload | null, status };
+      // The guard can reject a stale access token or return 401 when its Auth
+      // lookup fails. Supabase Auth owns token refresh and auth sign-out events.
+      if (status === 401) return null;
+      if (error) continue;
+      return (data ?? null) as GuardPayload | null;
     } catch {
       continue;
     }
   }
-  return { payload: null, status: lastStatus };
+  return null;
 }
 
 function isForcedReason(reason: unknown): reason is ForcedLogoutReason {
@@ -79,14 +72,13 @@ export async function registerActiveSession(
     /* name is optional */
   }
 
-  const { payload, status } = await invokeGuard(accessToken, {
+  const payload = await invokeGuard(accessToken, {
     action: 'register_session',
     record_login: options.recordLogin,
     login_method: options.loginMethod,
     user_name: userName,
   });
 
-  if (status === 401) return { ok: false, reason: 'signed_out' };
   if (!payload) return { ok: false, network: true };
   if (payload.valid === false && isForcedReason(payload.reason)) {
     return { ok: false, reason: payload.reason };
@@ -98,8 +90,7 @@ export async function registerActiveSession(
 export async function verifyActiveSession(
   accessToken: string,
 ): Promise<{ valid: true } | { valid: false; reason: ForcedLogoutReason }> {
-  const { payload, status } = await invokeGuard(accessToken, { action: 'verify_session' });
-  if (status === 401) return { valid: false, reason: 'signed_out' };
+  const payload = await invokeGuard(accessToken, { action: 'verify_session' });
   if (payload?.valid === false && isForcedReason(payload.reason)) {
     return { valid: false, reason: payload.reason };
   }
